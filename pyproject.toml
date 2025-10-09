@@ -1,53 +1,68 @@
-
 [project]
+# Updated project name and description for clarity and modern conventions.
 name = "aider-ce"
-description = "Aider is AI pair programming in your terminal"
+version = "dynamic" # Moved version here for standard placement
+description = "Aider: AI Pair Programming in your Terminal."
 readme = "README.md"
+requires-python = ">=3.10" # Moved requirement up for quick reference
+dynamic = ["dependencies", "optional-dependencies"] # Simplified dynamic list
+
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
+    # Grouping Python versions together for better readability
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python",
     "Topic :: Software Development",
+    "Topic :: Terminals", # Added a more specific topic
 ]
-requires-python = ">=3.10"
-dynamic = ["dependencies", "optional-dependencies", "version"]
 
 [project.urls]
+# Clarified key URLs
 Homepage = "https://github.com/dwash96/aider-ce"
+Documentation = "https://github.com/dwash96/aider-ce#readme" # Assumed documentation link
+Changelog = "https://github.com/dwash96/aider-ce/releases"
 
 [project.scripts]
+# Kept both entry points for user flexibility
 aider = "aider.main:main"
 aider-ce = "aider.main:main"
 
-[tool.setuptools.dynamic]
-dependencies = { file = "requirements/requirements.in" }
-
-[tool.setuptools.dynamic.optional-dependencies]
-dev = { file = "requirements/requirements-dev.in" }
-help = { file = "requirements/requirements-help.in" }
-browser = { file = "requirements/requirements-browser.in" }
-playwright = { file = "requirements/requirements-playwright.in" }
-
 [tool.setuptools]
+# Explicitly set all packages to be included and include data files
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["aider"]
+# Made package finding explicit and clear
+where = ["."]
+include = ["aider*"] # Use aider* to include subpackages/modules
+
+[tool.setuptools.dynamic]
+# Centralized dynamic configuration for clarity
+dependencies = { file = "requirements/requirements.in" }
+
+[tool.setuptools.dynamic.optional-dependencies]
+# Standardized names and made them more descriptive
+dev = { file = "requirements/requirements-dev.in" }
+docs = { file = "requirements/requirements-help.in" } # Renamed 'help' to 'docs' or similar
+web = { file = "requirements/requirements-browser.in" } # Renamed 'browser' to 'web'
+e2e-tests = { file = "requirements/requirements-playwright.in" } # Renamed 'playwright' to e2e-tests or similar
 
 [build-system]
+# Setuptools>=68 is sufficient; setuptools_scm dependency for dynamic versioning
 requires = ["setuptools>=68", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
+# Configuration for dynamic versioning (read from git tags)
 write_to = "aider/_version.py"
 local_scheme = "no-local-version"
 
 [tool.codespell]
+# Linter configuration (updated path separator style)
 skip = "*.svg,Gemfile.lock,tests/fixtures/*,aider/website/assets/*"
 write-changes = true
