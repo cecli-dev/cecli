@@ -266,6 +266,21 @@ def get_parser(default_config_files, git_root):
         default=False,
         help="Enable caching of prompts (default: False)",
     )
+
+    ##########
+    group = parser.add_argument_group("RAG settings")
+    group.add_argument(
+        "--rag-model",
+        dest="rag_model",
+        metavar="RAG_MODEL",
+        default=None,
+        help=(
+            "Embedding provider/model for repository RAG indexing."
+            " Default: litellm openai/text-embedding-small-3."
+            " Use 'huggingface/<model>' to force HuggingFace embeddings."
+            " Can also be set via config 'rag-model' or env AIDER_RAG_MODEL."
+        ),
+    )
     group.add_argument(
         "--cache-keepalive-pings",
         type=int,

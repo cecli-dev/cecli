@@ -254,6 +254,18 @@ class Coder:
 
         lines.append(output)
 
+        # RAG indexing model (if configured)
+        try:
+            from aider.rag import DEFAULT_RAG_MODEL
+        except Exception:
+            DEFAULT_RAG_MODEL = None  # pragma: no cover
+
+        rag_model = getattr(getattr(self, "commands", None), "args", None)
+        rag_model = getattr(rag_model, "rag_model", None)
+        if rag_model or DEFAULT_RAG_MODEL:
+            show_model = rag_model or DEFAULT_RAG_MODEL
+            lines.append(f"Indexing Model: {show_model}")
+
         if self.edit_format == "architect":
             output = (
                 f"Editor model: {main_model.editor_model.name} with"
@@ -745,6 +757,53 @@ class Coder:
 
         return prompt
 
+    def _get_rag_context(self, question: str, top_k: int = 5) -> str | None:
+        """Return repo RAG context string if the index exists, else None.
+
+        Uses aider.rag_litellm.AiderRAG and the current working directory.
+        Silently returns None if RAG is unavailable or index missing.
+        """
+        try:
+            from aider.rag_litellm import AiderRAG
+        except Exception:
+            return None
+
+        # Persist dir defaults inside AiderRAG; we just reference current repo path
+        root = Path.cwd()
+        rag = AiderRAG(project_path=root)
+        if not rag.has_index():
+            return None
+        try:
+            return rag.query(question, n_results=top_k)
+        except Exception:
+            return None
+
+    def get_rag_messages(self):
+        """Build messages with RAG context and a visible loading indicator."""
+        try:
+            q = self.get_cur_message_text().strip()
+        except Exception:
+            q = ""
+
+        if not q:
+            return []
+
+        # Show transient status while retrieving RAG
+        spinner = WaitingSpinner("Loading RAG...")
+        spinner.start()
+        try:
+            ctx = self._get_rag_context(q, top_k=5)
+        finally:
+            spinner.stop()
+
+        if not ctx:
+            return []
+
+        return [
+            dict(role="user", content=ctx),
+            dict(role="assistant", content="Ok."),
+        ]
+
     def get_read_only_files_content(self):
         prompt = ""
         # Handle regular read-only files
@@ -914,6 +973,23 @@ class Coder:
                 ),
             ]
         return repo_messages
+
+    def _get_rag_token_stats(self):
+        """Read rough token stats persisted by RAG indexing, if present."""
+        try:
+            from aider.rag_litellm import AiderRAG
+
+            root = Path.cwd()
+            rag = AiderRAG(project_path=root)
+            stats_path = rag.db_path / "stats.json"
+            if stats_path.exists():
+                import json
+
+                data = json.loads(stats_path.read_text())
+                return data
+        except Exception:
+            return None
+        return None
 
     def get_readonly_files_messages(self):
         readonly_messages = []
@@ -1496,6 +1572,10 @@ class Coder:
         chunks.done = self.done_messages
 
         chunks.repo = self.get_repo_messages()
+        # Inject RAG context if available
+        rag_msgs = self.get_rag_messages()
+        if rag_msgs:
+            chunks.rag = rag_msgs
         chunks.readonly_files = self.get_readonly_files_messages()
         chunks.chat_files = self.get_chat_files_messages()
 

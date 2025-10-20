@@ -1,0 +1,15 @@
+llama-index-core
+pathspec>=0.12.1
+numpy>=1.26.4
+
+# litellm as the embedding backend (cloud-only embeddings)
+litellm>=1.75.0
+
+# Vector DB
+chromadb>=0.5.4
+
+# Tokenizer for chunking
+tiktoken>=0.7.0
+
+# Packaging helpers for resource discovery on some platforms
+importlib_resources

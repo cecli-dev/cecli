@@ -33,6 +33,7 @@ dev = { file = "requirements/requirements-dev.in" }
 help = { file = "requirements/requirements-help.in" }
 browser = { file = "requirements/requirements-browser.in" }
 playwright = { file = "requirements/requirements-playwright.in" }
+rag = { file = "requirements/requirements-rag.in" }
 
 [tool.setuptools]
 include-package-data = true

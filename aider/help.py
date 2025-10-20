@@ -14,6 +14,9 @@ from aider.help_pats import exclude_website_pats
 
 warnings.simplefilter("ignore", category=FutureWarning)
 
+# Note: For repository-wide RAG indexing of your own code, see aider.rag.RepoRAG.
+# It follows similar llama_index patterns as used here for the help docs.
+
 
 def install_help_extra(io):
     pip_install_cmd = [
@@ -133,6 +136,7 @@ def get_index():
 class Help:
     def __init__(self):
         from llama_index.core import Settings
+        # Keep default help docs on HF for backward compatibility
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
