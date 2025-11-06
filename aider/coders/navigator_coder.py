@@ -57,18 +57,18 @@ from aider.tools.delete_line import _execute_delete_line
 from aider.tools.delete_lines import _execute_delete_lines
 from aider.tools.extract_lines import _execute_extract_lines
 from aider.tools.git import (
+    _execute_git_branch,
     _execute_git_diff,
     _execute_git_log,
+    _execute_git_remote,
     _execute_git_show,
     _execute_git_status,
-    _execute_git_branch,
-    _execute_git_remote,
+    git_branch_schema,
     git_diff_schema,
     git_log_schema,
+    git_remote_schema,
     git_show_schema,
     git_status_schema,
-    git_branch_schema,
-    git_remote_schema,
 )
 from aider.tools.grep import _execute_grep
 from aider.tools.indent_lines import _execute_indent_lines

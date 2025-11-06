@@ -201,7 +201,7 @@ def _execute_git_remote(coder):
         remotes = coder.repo.repo.remotes
         if not remotes:
             return "No remotes configured."
-        
+
         result = []
         for remote in remotes:
             result.append(f"{remote.name}\t{remote.url}")
