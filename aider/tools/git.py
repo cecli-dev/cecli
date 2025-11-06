@@ -146,58 +146,31 @@ git_branch_schema = {
     "type": "function",
     "function": {
         "name": "git_branch",
-        "description": "List, create, or delete branches.",
+        "description": "List branches in the repository.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "create", "delete"],
-                    "description": "The branch operation to perform.",
-                },
-                "name": {
-                    "type": "string",
-                    "description": "Branch name for create/delete operations.",
-                },
-            },
-            "required": ["action"],
+            "properties": {},
+            "required": [],
         },
     },
 }
 
 
-def _execute_git_branch(coder, action, name=None):
+def _execute_git_branch(coder):
     """
-    List, create, or delete branches.
+    List branches in the repository.
     """
     if not coder.repo:
         return "Not in a git repository."
 
     try:
-        if action == "list":
-            # Get all branches and current branch
-            branches = []
-            current_branch = coder.repo.repo.active_branch.name
-            for branch in coder.repo.repo.heads:
-                prefix = "* " if branch.name == current_branch else "  "
-                branches.append(f"{prefix}{branch.name}")
-            return "\n".join(branches)
-        
-        elif action == "create":
-            if not name:
-                return "Branch name required for create operation."
-            coder.repo.repo.create_head(name)
-            return f"Created branch: {name}"
-        
-        elif action == "delete":
-            if not name:
-                return "Branch name required for delete operation."
-            coder.repo.repo.delete_head(name)
-            return f"Deleted branch: {name}"
-        
-        else:
-            return f"Unknown branch action: {action}"
-            
+        # Get all branches and current branch
+        branches = []
+        current_branch = coder.repo.repo.active_branch.name
+        for branch in coder.repo.repo.heads:
+            prefix = "* " if branch.name == current_branch else "  "
+            branches.append(f"{prefix}{branch.name}")
+        return "\n".join(branches)
     except ANY_GIT_ERROR as e:
         coder.io.tool_error(f"Error running git branch: {e}")
         return f"Error running git branch: {e}"
@@ -207,63 +180,32 @@ git_remote_schema = {
     "type": "function",
     "function": {
         "name": "git_remote",
-        "description": "Manage set of tracked repositories.",
+        "description": "List remote repositories.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["list", "add", "remove"],
-                    "description": "The remote operation to perform.",
-                },
-                "name": {
-                    "type": "string",
-                    "description": "Remote name for add/remove operations.",
-                },
-                "url": {
-                    "type": "string",
-                    "description": "Remote URL for add operation.",
-                },
-            },
-            "required": ["action"],
+            "properties": {},
+            "required": [],
         },
     },
 }
 
 
-def _execute_git_remote(coder, action, name=None, url=None):
+def _execute_git_remote(coder):
     """
-    Manage set of tracked repositories.
+    List remote repositories.
     """
     if not coder.repo:
         return "Not in a git repository."
 
     try:
-        if action == "list":
-            remotes = coder.repo.repo.remotes
-            if not remotes:
-                return "No remotes configured."
-            
-            result = []
-            for remote in remotes:
-                result.append(f"{remote.name}\t{remote.url}")
-            return "\n".join(result)
+        remotes = coder.repo.repo.remotes
+        if not remotes:
+            return "No remotes configured."
         
-        elif action == "add":
-            if not name or not url:
-                return "Remote name and URL required for add operation."
-            coder.repo.repo.create_remote(name, url)
-            return f"Added remote: {name} -> {url}"
-        
-        elif action == "remove":
-            if not name:
-                return "Remote name required for remove operation."
-            coder.repo.repo.delete_remote(name)
-            return f"Removed remote: {name}"
-        
-        else:
-            return f"Unknown remote action: {action}"
-            
+        result = []
+        for remote in remotes:
+            result.append(f"{remote.name}\t{remote.url}")
+        return "\n".join(result)
     except ANY_GIT_ERROR as e:
         coder.io.tool_error(f"Error running git remote: {e}")
         return f"Error running git remote: {e}"
