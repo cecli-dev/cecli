@@ -61,10 +61,14 @@ from aider.tools.git import (
     _execute_git_log,
     _execute_git_show,
     _execute_git_status,
+    _execute_git_branch,
+    _execute_git_remote,
     git_diff_schema,
     git_log_schema,
     git_show_schema,
     git_status_schema,
+    git_branch_schema,
+    git_remote_schema,
 )
 from aider.tools.grep import _execute_grep
 from aider.tools.indent_lines import _execute_indent_lines
@@ -217,6 +221,8 @@ class NavigatorCoder(Coder):
             git_log_schema,
             git_show_schema,
             git_status_schema,
+            git_branch_schema,
+            git_remote_schema,
         ]
 
     async def initialize_mcp_tools(self):
@@ -297,6 +303,8 @@ class NavigatorCoder(Coder):
                     "git_log": _execute_git_log,
                     "git_show": _execute_git_show,
                     "git_status": _execute_git_status,
+                    "git_branch": _execute_git_branch,
+                    "git_remote": _execute_git_remote,
                 }
 
                 func = tool_functions.get(norm_tool_name)
