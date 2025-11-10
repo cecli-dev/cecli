@@ -32,12 +32,12 @@ class TestCommands(TestCase):
         os.chdir(self.original_cwd)
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-    def test_cmd_add(self):
+    async def test_cmd_add(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Call the cmd_add method with 'foo.txt' and 'bar.txt' as a single string
@@ -47,10 +47,10 @@ class TestCommands(TestCase):
         self.assertTrue(os.path.exists("foo.txt"))
         self.assertTrue(os.path.exists("bar.txt"))
 
-    def test_cmd_copy(self):
+    async def test_cmd_copy(self):
         # Initialize InputOutput and Coder instances
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Add some assistant messages to the chat history
@@ -77,19 +77,25 @@ class TestCommands(TestCase):
             )
             mock_tool_output.assert_any_call(expected_preview)
 
-    def test_cmd_copy_with_cur_messages(self):
+    async def test_cmd_copy_with_cur_messages(self):
         # Initialize InputOutput and Coder instances
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Add messages to done_messages and cur_messages
         coder.done_messages = [
-            {"role": "assistant", "content": "First assistant message in done_messages"},
+            {
+                "role": "assistant",
+                "content": "First assistant message in done_messages",
+            },
             {"role": "user", "content": "User message in done_messages"},
         ]
         coder.cur_messages = [
-            {"role": "assistant", "content": "Latest assistant message in cur_messages"},
+            {
+                "role": "assistant",
+                "content": "Latest assistant message in cur_messages",
+            },
         ]
 
         # Mock pyperclip.copy and io.tool_output
@@ -110,7 +116,7 @@ class TestCommands(TestCase):
             )
             mock_tool_output.assert_any_call(expected_preview)
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Add only user messages
@@ -124,9 +130,9 @@ class TestCommands(TestCase):
             # Assert tool_error was called indicating no assistant messages
             mock_tool_error.assert_called_once_with("No assistant messages found to copy.")
 
-    def test_cmd_copy_pyperclip_exception(self):
+    async def test_cmd_copy_pyperclip_exception(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         coder.done_messages = [
@@ -136,7 +142,8 @@ class TestCommands(TestCase):
         # Mock pyperclip.copy to raise an exception
         with (
             mock.patch(
-                "pyperclip.copy", side_effect=pyperclip.PyperclipException("Clipboard error")
+                "pyperclip.copy",
+                side_effect=pyperclip.PyperclipException("Clipboard error"),
             ),
             mock.patch.object(io, "tool_error") as mock_tool_error,
         ):
@@ -145,23 +152,23 @@ class TestCommands(TestCase):
             # Assert that tool_error was called with the clipboard error message
             mock_tool_error.assert_called_once_with("Failed to copy to clipboard: Clipboard error")
 
-    def test_cmd_add_bad_glob(self):
+    async def test_cmd_add_bad_glob(self):
         # https://github.com/Aider-AI/aider/issues/293
 
         io = InputOutput(pretty=False, fancy_input=False, yes=False)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         commands.cmd_add("**.txt")
 
-    def test_cmd_add_with_glob_patterns(self):
+    async def test_cmd_add_with_glob_patterns(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Create some test files
@@ -182,12 +189,12 @@ class TestCommands(TestCase):
         # Check if the text file has not been added to the chat session
         self.assertNotIn(str(Path("test.txt").resolve()), coder.abs_fnames)
 
-    def test_cmd_add_no_match(self):
+    async def test_cmd_add_no_match(self):
         # yes=False means we will *not* create the file when it is not found
         io = InputOutput(pretty=False, fancy_input=False, yes=False)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Call the cmd_add method with a non-existent file pattern
@@ -196,12 +203,12 @@ class TestCommands(TestCase):
         # Check if no files have been added to the chat session
         self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_add_no_match_but_make_it(self):
+    async def test_cmd_add_no_match_but_make_it(self):
         # yes=True means we *will* create the file when it is not found
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         fname = Path("[abc].nonexistent")
@@ -213,12 +220,12 @@ class TestCommands(TestCase):
         self.assertEqual(len(coder.abs_fnames), 1)
         self.assertTrue(fname.exists())
 
-    def test_cmd_add_drop_directory(self):
+    async def test_cmd_add_drop_directory(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=False)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Create a directory and add files to it using pathlib
@@ -264,12 +271,12 @@ class TestCommands(TestCase):
         # it should be there, but was not in v0.10.0
         self.assertNotIn(abs_fname, coder.abs_fnames)
 
-    def test_cmd_drop_with_glob_patterns(self):
+    async def test_cmd_drop_with_glob_patterns(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Create test files in root and subdirectory
@@ -293,12 +300,12 @@ class TestCommands(TestCase):
         self.assertNotIn(str(Path("test2.py").resolve()), coder.abs_fnames)
         self.assertEqual(len(coder.abs_fnames), initial_count - 1)
 
-    def test_cmd_drop_without_glob(self):
+    async def test_cmd_drop_without_glob(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Create test files
@@ -325,12 +332,12 @@ class TestCommands(TestCase):
         self.assertNotIn(str(Path("file3.py").resolve()), coder.abs_fnames)
         self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_add_bad_encoding(self):
+    async def test_cmd_add_bad_encoding(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Create a new file foo.bad which will fail to decode as utf-8
@@ -341,7 +348,7 @@ class TestCommands(TestCase):
 
         self.assertEqual(coder.abs_fnames, set())
 
-    def test_cmd_git(self):
+    async def test_cmd_git(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
 
@@ -350,7 +357,7 @@ class TestCommands(TestCase):
             with open(f"{tempdir}/test.txt", "w") as f:
                 f.write("test")
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Run the cmd_git method with the arguments "commit -a -m msg"
@@ -362,11 +369,11 @@ class TestCommands(TestCase):
             files_in_repo = repo.git.ls_files()
             self.assertIn("test.txt", files_in_repo)
 
-    def test_cmd_tokens(self):
+    async def test_cmd_tokens(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         commands.cmd_add("foo.txt bar.txt")
@@ -386,13 +393,17 @@ class TestCommands(TestCase):
         self.assertIn("foo.txt", console_output)
         self.assertIn("bar.txt", console_output)
 
-    def test_cmd_add_from_subdir(self):
+    async def test_cmd_add_from_subdir(self):
         repo = git.Repo.init()
         repo.config_writer().set_value("user", "name", "Test User").release()
         repo.config_writer().set_value("user", "email", "testuser@example.com").release()
 
         # Create three empty files and add them to the git repository
-        filenames = ["one.py", Path("subdir") / "two.py", Path("anotherdir") / "three.py"]
+        filenames = [
+            "one.py",
+            Path("subdir") / "two.py",
+            Path("anotherdir") / "three.py",
+        ]
         for filename in filenames:
             file_path = Path(filename)
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -407,7 +418,7 @@ class TestCommands(TestCase):
         os.chdir("subdir")
 
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # this should get added
@@ -420,12 +431,12 @@ class TestCommands(TestCase):
         self.assertNotIn(filenames[1], coder.abs_fnames)
         self.assertIn(filenames[2], coder.abs_fnames)
 
-    def test_cmd_add_from_subdir_again(self):
+    async def test_cmd_add_from_subdir_again(self):
         with GitTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             Path("side_dir").mkdir()
@@ -439,7 +450,7 @@ class TestCommands(TestCase):
             # https://github.com/Aider-AI/aider/issues/201
             commands.cmd_add("temp.txt")
 
-    def test_cmd_commit(self):
+    async def test_cmd_commit(self):
         with GitTemporaryDirectory():
             fname = "test.txt"
             with open(fname, "w") as f:
@@ -449,7 +460,7 @@ class TestCommands(TestCase):
             repo.git.commit("-m", "initial")
 
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             self.assertFalse(repo.is_dirty())
@@ -461,7 +472,7 @@ class TestCommands(TestCase):
             commands.cmd_commit(commit_message)
             self.assertFalse(repo.is_dirty())
 
-    def test_cmd_add_from_outside_root(self):
+    async def test_cmd_add_from_outside_root(self):
         with ChdirTemporaryDirectory() as tmp_dname:
             root = Path("root")
             root.mkdir()
@@ -470,7 +481,7 @@ class TestCommands(TestCase):
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             outside_file = Path(tmp_dname) / "outside.txt"
@@ -482,7 +493,7 @@ class TestCommands(TestCase):
 
             self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_add_from_outside_git(self):
+    async def test_cmd_add_from_outside_git(self):
         with ChdirTemporaryDirectory() as tmp_dname:
             root = Path("root")
             root.mkdir()
@@ -493,7 +504,7 @@ class TestCommands(TestCase):
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             outside_file = Path(tmp_dname) / "outside.txt"
@@ -506,12 +517,12 @@ class TestCommands(TestCase):
 
             self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_add_filename_with_special_chars(self):
+    async def test_cmd_add_filename_with_special_chars(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             fname = Path("with[brackets].txt")
@@ -521,7 +532,7 @@ class TestCommands(TestCase):
 
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
-    def test_cmd_tokens_output(self):
+    async def test_cmd_tokens_output(self):
         with GitTemporaryDirectory() as repo_dir:
             # Create a small repository with a few files
             (Path(repo_dir) / "file1.txt").write_text("Content of file 1")
@@ -536,7 +547,7 @@ class TestCommands(TestCase):
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(Model("claude-3-5-sonnet-20240620"), None, io)
+            coder = await Coder.create(Model("claude-3-5-sonnet-20240620"), None, io)
             print(coder.get_announcements())
             commands = Commands(io, coder)
 
@@ -546,7 +557,7 @@ class TestCommands(TestCase):
             original_tool_output = io.tool_output
             output_lines = []
 
-            def capture_output(*args, **kwargs):
+            async def capture_output(*args, **kwargs):
                 output_lines.extend(args)
                 original_tool_output(*args, **kwargs)
 
@@ -571,12 +582,12 @@ class TestCommands(TestCase):
             self.assertTrue(any("tokens total" in line for line in output_lines))
             self.assertTrue(any("tokens remaining" in line for line in output_lines))
 
-    def test_cmd_add_dirname_with_special_chars(self):
+    async def test_cmd_add_dirname_with_special_chars(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             dname = Path("with[brackets]")
@@ -589,12 +600,12 @@ class TestCommands(TestCase):
             dump(coder.abs_fnames)
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
-    def test_cmd_add_dirname_with_special_chars_git(self):
+    async def test_cmd_add_dirname_with_special_chars_git(self):
         with GitTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             dname = Path("with[brackets]")
@@ -611,12 +622,12 @@ class TestCommands(TestCase):
             dump(coder.abs_fnames)
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
-    def test_cmd_add_abs_filename(self):
+    async def test_cmd_add_abs_filename(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             fname = Path("file.txt")
@@ -626,12 +637,12 @@ class TestCommands(TestCase):
 
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
-    def test_cmd_add_quoted_filename(self):
+    async def test_cmd_add_quoted_filename(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             fname = Path("file with spaces.txt")
@@ -641,7 +652,7 @@ class TestCommands(TestCase):
 
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
-    def test_cmd_add_existing_with_dirty_repo(self):
+    async def test_cmd_add_existing_with_dirty_repo(self):
         with GitTemporaryDirectory():
             repo = git.Repo()
 
@@ -659,7 +670,7 @@ class TestCommands(TestCase):
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # There's no reason this /add should trigger a commit
@@ -677,10 +688,10 @@ class TestCommands(TestCase):
             del commands
             del repo
 
-    def test_cmd_save_and_load(self):
+    async def test_cmd_save_and_load(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create some test files
@@ -751,7 +762,7 @@ class TestCommands(TestCase):
             # Clean up
             Path(session_file).unlink()
 
-    def test_cmd_save_and_load_with_external_file(self):
+    async def test_cmd_save_and_load_with_external_file(self):
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as external_file:
             external_file.write("External file content")
             external_file_path = external_file.name
@@ -759,7 +770,7 @@ class TestCommands(TestCase):
         try:
             with GitTemporaryDirectory() as repo_dir:
                 io = InputOutput(pretty=False, fancy_input=False, yes=True)
-                coder = Coder.create(self.GPT35, None, io)
+                coder = await Coder.create(self.GPT35, None, io)
                 commands = Commands(io, coder)
 
                 # Create some test files in the repo
@@ -821,7 +832,7 @@ class TestCommands(TestCase):
         finally:
             os.unlink(external_file_path)
 
-    def test_cmd_save_and_load_with_multiple_external_files(self):
+    async def test_cmd_save_and_load_with_multiple_external_files(self):
         with (
             tempfile.NamedTemporaryFile(mode="w", delete=False) as external_file1,
             tempfile.NamedTemporaryFile(mode="w", delete=False) as external_file2,
@@ -834,7 +845,7 @@ class TestCommands(TestCase):
         try:
             with GitTemporaryDirectory() as repo_dir:
                 io = InputOutput(pretty=False, fancy_input=False, yes=True)
-                coder = Coder.create(self.GPT35, None, io)
+                coder = await Coder.create(self.GPT35, None, io)
                 commands = Commands(io, coder)
 
                 # Create some test files in the repo
@@ -909,10 +920,10 @@ class TestCommands(TestCase):
             os.unlink(external_file1_path)
             os.unlink(external_file2_path)
 
-    def test_cmd_read_only_with_image_file(self):
+    async def test_cmd_read_only_with_image_file(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a test image file
@@ -925,7 +936,7 @@ class TestCommands(TestCase):
 
             # Test with vision model
             vision_model = Model("gpt-4-vision-preview")
-            vision_coder = Coder.create(vision_model, None, io)
+            vision_coder = await Coder.create(vision_model, None, io)
             vision_commands = Commands(io, vision_coder)
 
             vision_commands.cmd_read_only(str(test_file))
@@ -954,10 +965,10 @@ class TestCommands(TestCase):
                                     break
             self.assertTrue(found_image, "Image file not found in messages to LLM")
 
-    def test_cmd_read_only_with_glob_pattern(self):
+    async def test_cmd_read_only_with_glob_pattern(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create multiple test files
@@ -989,15 +1000,19 @@ class TestCommands(TestCase):
                 )
             )
 
-    def test_cmd_read_only_with_recursive_glob(self):
+    async def test_cmd_read_only_with_recursive_glob(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a directory structure with files
             (Path(repo_dir) / "subdir").mkdir()
-            test_files = ["test_file1.txt", "subdir/test_file2.txt", "subdir/other_file.txt"]
+            test_files = [
+                "test_file1.txt",
+                "subdir/test_file2.txt",
+                "subdir/other_file.txt",
+            ]
             for file_name in test_files:
                 file_path = Path(repo_dir) / file_name
                 file_path.write_text(f"Content of {file_name}")
@@ -1016,10 +1031,10 @@ class TestCommands(TestCase):
                     )
                 )
 
-    def test_cmd_read_only_with_nonexistent_glob(self):
+    async def test_cmd_read_only_with_nonexistent_glob(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Test the /read-only command with a non-existent glob pattern
@@ -1034,12 +1049,12 @@ class TestCommands(TestCase):
             # Ensure no files were added to abs_read_only_fnames
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_add_unicode_error(self):
+    async def test_cmd_add_unicode_error(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         fname = "file.txt"
@@ -1051,13 +1066,13 @@ class TestCommands(TestCase):
         commands.cmd_add("file.txt")
         self.assertEqual(coder.abs_fnames, set())
 
-    def test_cmd_add_read_only_file(self):
+    async def test_cmd_add_read_only_file(self):
         with GitTemporaryDirectory():
             # Initialize the Commands and InputOutput objects
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a test file
@@ -1107,12 +1122,12 @@ class TestCommands(TestCase):
                 )
             )
 
-    def test_cmd_test_unbound_local_error(self):
+    async def test_cmd_test_unbound_local_error(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Mock the io.prompt_ask method to simulate user input
@@ -1124,12 +1139,12 @@ class TestCommands(TestCase):
             # Check that the output was added to cur_messages
             self.assertTrue(any("exit 1" in msg["content"] for msg in coder.cur_messages))
 
-    def test_cmd_test_returns_output_on_failure(self):
+    async def test_cmd_test_returns_output_on_failure(self):
         with ChdirTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Define a command that prints to stderr and exits with non-zero status
@@ -1147,14 +1162,14 @@ class TestCommands(TestCase):
                 any(expected_output_fragment in msg["content"] for msg in coder.cur_messages)
             )
 
-    def test_cmd_add_drop_untracked_files(self):
+    async def test_cmd_add_drop_untracked_files(self):
         with GitTemporaryDirectory():
             repo = git.Repo()
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             fname = Path("test.txt")
@@ -1173,11 +1188,11 @@ class TestCommands(TestCase):
 
             self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_undo_with_dirty_files_not_in_last_commit(self):
+    async def test_cmd_undo_with_dirty_files_not_in_last_commit(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = git.Repo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             other_path = Path(repo_dir) / "other_file.txt"
@@ -1221,11 +1236,11 @@ class TestCommands(TestCase):
             del commands
             del repo
 
-    def test_cmd_undo_with_newly_committed_file(self):
+    async def test_cmd_undo_with_newly_committed_file(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = git.Repo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Put in a random first commit
@@ -1257,11 +1272,11 @@ class TestCommands(TestCase):
             del commands
             del repo
 
-    def test_cmd_undo_on_first_commit(self):
+    async def test_cmd_undo_on_first_commit(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = git.Repo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create and commit a new file
@@ -1286,7 +1301,7 @@ class TestCommands(TestCase):
             del commands
             del repo
 
-    def test_cmd_add_gitignored_file(self):
+    async def test_cmd_add_gitignored_file(self):
         with GitTemporaryDirectory():
             # Create a .gitignore file
             gitignore = Path(".gitignore")
@@ -1297,7 +1312,7 @@ class TestCommands(TestCase):
             ignored_file.write_text("This should be ignored")
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Try to add the ignored file
@@ -1306,9 +1321,9 @@ class TestCommands(TestCase):
             # Verify the file was not added
             self.assertEqual(len(coder.abs_fnames), 0)
 
-    def test_cmd_think_tokens(self):
+    async def test_cmd_think_tokens(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Test with various formats
@@ -1324,7 +1339,8 @@ class TestCommands(TestCase):
 
                 # Check that the model's thinking tokens were updated
                 self.assertEqual(
-                    coder.main_model.extra_params["thinking"]["budget_tokens"], expected_tokens
+                    coder.main_model.extra_params["thinking"]["budget_tokens"],
+                    expected_tokens,
                 )
 
                 # Check that the tool output shows the correct value with format
@@ -1338,7 +1354,7 @@ class TestCommands(TestCase):
             commands.cmd_think_tokens("")
             mock_tool_output.assert_any_call(mock.ANY)  # Just verify it calls tool_output
 
-    def test_cmd_add_aiderignored_file(self):
+    async def test_cmd_add_aiderignored_file(self):
         with GitTemporaryDirectory():
             repo = git.Repo()
 
@@ -1363,7 +1379,7 @@ class TestCommands(TestCase):
                 aider_ignore_file=str(aignore),
             )
 
-            coder = Coder.create(
+            coder = await Coder.create(
                 self.GPT35,
                 None,
                 io,
@@ -1378,10 +1394,10 @@ class TestCommands(TestCase):
             self.assertNotIn(fname2, str(coder.abs_fnames))
             self.assertNotIn(fname3, str(coder.abs_fnames))
 
-    def test_cmd_read_only(self):
+    async def test_cmd_read_only(self):
         with GitTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a test file
@@ -1410,10 +1426,10 @@ class TestCommands(TestCase):
                 )
             )
 
-    def test_cmd_read_only_from_working_dir(self):
+    async def test_cmd_read_only_from_working_dir(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a subdirectory and a test file within it
@@ -1447,7 +1463,7 @@ class TestCommands(TestCase):
                 )
             )
 
-    def test_cmd_read_only_with_external_file(self):
+    async def test_cmd_read_only_with_external_file(self):
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as external_file:
             external_file.write("External file content")
             external_file_path = external_file.name
@@ -1458,7 +1474,7 @@ class TestCommands(TestCase):
                 repo_file = Path(repo_dir) / "repo_file.txt"
                 repo_file.write_text("Repo file content")
                 io = InputOutput(pretty=False, fancy_input=False, yes=False)
-                coder = Coder.create(self.GPT35, None, io)
+                coder = await Coder.create(self.GPT35, None, io)
                 commands = Commands(io, coder)
 
                 # Test the /read command with an external file
@@ -1486,7 +1502,7 @@ class TestCommands(TestCase):
         finally:
             os.unlink(external_file_path)
 
-    def test_cmd_drop_read_only_with_relative_path(self):
+    async def test_cmd_drop_read_only_with_relative_path(self):
         with ChdirTemporaryDirectory() as repo_dir:
             test_file = Path("test_file.txt")
             test_file.write_text("Test content")
@@ -1497,7 +1513,7 @@ class TestCommands(TestCase):
             os.chdir(subdir)
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Add the file as read-only using absolute path
@@ -1523,10 +1539,10 @@ class TestCommands(TestCase):
             commands.cmd_drop("test_file.txt")
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_read_only_bulk_conversion(self):
+    async def test_cmd_read_only_bulk_conversion(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create and add some test files
@@ -1556,10 +1572,10 @@ class TestCommands(TestCase):
                     )
                 )
 
-    def test_cmd_read_only_with_multiple_files(self):
+    async def test_cmd_read_only_with_multiple_files(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create multiple test files
@@ -1587,10 +1603,10 @@ class TestCommands(TestCase):
             # Check if all files were removed from abs_read_only_fnames
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_read_only_with_tilde_path(self):
+    async def test_cmd_read_only_with_tilde_path(self):
         with GitTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a test file in the user's home directory
@@ -1622,10 +1638,10 @@ class TestCommands(TestCase):
                 test_file.unlink()
 
     # pytest tests/basic/test_commands.py  -k test_cmd_read_only_with_square_brackets
-    def test_cmd_read_only_with_square_brackets(self):
+    async def test_cmd_read_only_with_square_brackets(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create test layout
@@ -1648,11 +1664,70 @@ class TestCommands(TestCase):
             # Check if all files were removed from abs_read_only_fnames
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_diff(self):
+    async def test_cmd_read_only_with_fuzzy_finder(self):
+        with GitTemporaryDirectory() as repo_dir:
+            repo = git.Repo(repo_dir)
+            io = InputOutput(pretty=False, fancy_input=False, yes=False)
+            coder = await Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Create some test files
+            test_files = ["test1.txt", "test2.txt", "test3.txt"]
+            for fname in test_files:
+                Path(fname).write_text(f"Content of {fname}")
+                repo.git.add(fname)
+            repo.git.commit("-m", "initial commit")
+
+            # Mock run_fzf to return a selection
+            with mock.patch("aider.commands.run_fzf") as mock_run_fzf:
+                mock_run_fzf.return_value = ["test1.txt", "test3.txt"]
+
+                # Run the /read-only command without arguments
+                commands.cmd_read_only("")
+
+                # Verify that the selected files were added as read-only
+                self.assertEqual(len(coder.abs_read_only_fnames), 2)
+                self.assertTrue(
+                    any(
+                        os.path.samefile(str(Path("test1.txt").resolve()), fname)
+                        for fname in coder.abs_read_only_fnames
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        os.path.samefile(str(Path("test3.txt").resolve()), fname)
+                        for fname in coder.abs_read_only_fnames
+                    )
+                )
+
+    async def test_cmd_read_only_with_fuzzy_finder_no_selection(self):
+        with GitTemporaryDirectory():
+            io = InputOutput(pretty=False, fancy_input=False, yes=False)
+            coder = await Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Create and add some test files
+            test_files = ["test1.txt", "test2.txt", "test3.txt"]
+            for fname in test_files:
+                Path(fname).write_text(f"Content of {fname}")
+                commands.cmd_add(fname)
+
+            # Mock run_fzf to return an empty selection
+            with mock.patch("aider.commands.run_fzf") as mock_run_fzf:
+                mock_run_fzf.return_value = []
+
+                # Run the /read-only command without arguments
+                commands.cmd_read_only("")
+
+                # Verify that all editable files were converted to read-only
+                self.assertEqual(len(coder.abs_fnames), 0)
+                self.assertEqual(len(coder.abs_read_only_fnames), 3)
+
+    async def test_cmd_diff(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = git.Repo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create and commit a file
@@ -1714,9 +1789,9 @@ class TestCommands(TestCase):
                 self.assertIn("-Further modified content", diff_output)
                 self.assertIn("+Final modified content", diff_output)
 
-    def test_cmd_model(self):
+    async def test_cmd_model(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Test switching the main model
@@ -1730,15 +1805,16 @@ class TestCommands(TestCase):
             self.GPT35.editor_model.name,
         )
         self.assertEqual(
-            context.exception.kwargs.get("main_model").weak_model.name, self.GPT35.weak_model.name
+            context.exception.kwargs.get("main_model").weak_model.name,
+            self.GPT35.weak_model.name,
         )
         # Check that the edit format is updated to the new model's default
         self.assertEqual(context.exception.kwargs.get("edit_format"), "diff")
 
-    def test_cmd_model_preserves_explicit_edit_format(self):
+    async def test_cmd_model_preserves_explicit_edit_format(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         # Use gpt-3.5-turbo (default 'diff')
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         # Explicitly set edit format to something else
         coder.edit_format = "udiff"
         commands = Commands(io, coder)
@@ -1754,9 +1830,9 @@ class TestCommands(TestCase):
         # Check that the edit format is preserved
         self.assertEqual(context.exception.kwargs.get("edit_format"), "udiff")
 
-    def test_cmd_editor_model(self):
+    async def test_cmd_editor_model(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Test switching the editor model
@@ -1767,12 +1843,13 @@ class TestCommands(TestCase):
         self.assertEqual(context.exception.kwargs.get("main_model").name, self.GPT35.name)
         self.assertEqual(context.exception.kwargs.get("main_model").editor_model.name, "gpt-4")
         self.assertEqual(
-            context.exception.kwargs.get("main_model").weak_model.name, self.GPT35.weak_model.name
+            context.exception.kwargs.get("main_model").weak_model.name,
+            self.GPT35.weak_model.name,
         )
 
-    def test_cmd_weak_model(self):
+    async def test_cmd_weak_model(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Test switching the weak model
@@ -1787,10 +1864,10 @@ class TestCommands(TestCase):
         )
         self.assertEqual(context.exception.kwargs.get("main_model").weak_model.name, "gpt-4")
 
-    def test_cmd_model_updates_default_edit_format(self):
+    async def test_cmd_model_updates_default_edit_format(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         # Use gpt-3.5-turbo (default 'diff')
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         # Ensure current edit format is the default
         self.assertEqual(coder.edit_format, self.GPT35.edit_format)
         commands = Commands(io, coder)
@@ -1806,9 +1883,9 @@ class TestCommands(TestCase):
         # Check that the edit format is updated to the new model's default
         self.assertEqual(context.exception.kwargs.get("edit_format"), "diff")
 
-    def test_cmd_ask(self):
+    async def test_cmd_ask(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         question = "What is the meaning of life?"
@@ -1823,11 +1900,11 @@ class TestCommands(TestCase):
             mock_run.assert_called_once()
             mock_run.assert_called_once_with(question)
 
-    def test_cmd_lint_with_dirty_file(self):
+    async def test_cmd_lint_with_dirty_file(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = git.Repo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create and commit a file
@@ -1861,10 +1938,10 @@ class TestCommands(TestCase):
             del commands
             del repo
 
-    def test_cmd_reset(self):
+    async def test_cmd_reset(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Add some files to the chat
@@ -1896,10 +1973,10 @@ class TestCommands(TestCase):
             del coder
             del commands
 
-    def test_reset_with_original_read_only_files(self):
+    async def test_reset_with_original_read_only_files(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
 
             # Create test files
             orig_read_only = Path(repo_dir) / "orig_read_only.txt"
@@ -1943,10 +2020,10 @@ class TestCommands(TestCase):
             self.assertEqual(len(coder.cur_messages), 0)
             self.assertEqual(len(coder.done_messages), 0)
 
-    def test_reset_with_no_original_read_only_files(self):
+    async def test_reset_with_no_original_read_only_files(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
 
             # Create test files
             added_file = Path(repo_dir) / "added_file.txt"
@@ -1981,9 +2058,9 @@ class TestCommands(TestCase):
             self.assertEqual(len(coder.cur_messages), 0)
             self.assertEqual(len(coder.done_messages), 0)
 
-    def test_cmd_reasoning_effort(self):
+    async def test_cmd_reasoning_effort(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        coder = Coder.create(self.GPT35, None, io)
+        coder = await Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
         # Test with numeric values
@@ -2007,10 +2084,10 @@ class TestCommands(TestCase):
             commands.cmd_reasoning_effort("")
             mock_tool_output.assert_any_call("Current reasoning effort: high")
 
-    def test_drop_with_original_read_only_files(self):
+    async def test_drop_with_original_read_only_files(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
 
             # Create test files
             orig_read_only = Path(repo_dir) / "orig_read_only.txt"
@@ -2047,10 +2124,10 @@ class TestCommands(TestCase):
             self.assertIn(str(orig_read_only), coder.abs_read_only_fnames)
             self.assertNotIn(str(added_read_only), coder.abs_read_only_fnames)
 
-    def test_drop_specific_original_read_only_file(self):
+    async def test_drop_specific_original_read_only_file(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
 
             # Create test file
             orig_read_only = Path(repo_dir) / "orig_read_only.txt"
@@ -2071,10 +2148,10 @@ class TestCommands(TestCase):
             # Verify that the original read-only file is dropped when specified explicitly
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_drop_with_no_original_read_only_files(self):
+    async def test_drop_with_no_original_read_only_files(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
 
             # Create test files
             added_file = Path(repo_dir) / "added_file.txt"
@@ -2103,10 +2180,10 @@ class TestCommands(TestCase):
             self.assertEqual(len(coder.abs_fnames), 0)
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_load_with_switch_coder(self):
+    async def test_cmd_load_with_switch_coder(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            coder = Coder.create(self.GPT35, None, io)
+            coder = await Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a temporary file with commands
@@ -2114,7 +2191,7 @@ class TestCommands(TestCase):
             commands_file.write_text("/ask Tell me about the code\n/model gpt-4\n")
 
             # Mock run to raise SwitchCoder for /ask and /model
-            def mock_run(cmd):
+            async def mock_run(cmd):
                 if cmd.startswith(("/ask", "/model")):
                     raise SwitchCoder()
                 return None
@@ -2133,7 +2210,7 @@ class TestCommands(TestCase):
                         "Command '/model gpt-4' is only supported in interactive mode, skipping."
                     )
 
-    def test_reset_after_coder_clone_preserves_original_read_only_files(self):
+    async def test_reset_after_coder_clone_preserves_original_read_only_files(self):
         with GitTemporaryDirectory() as _:
             repo_dir = str(".")
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
@@ -2150,12 +2227,14 @@ class TestCommands(TestCase):
             original_read_only_fnames_set = {str(orig_ro_path)}
 
             # Create the initial Coder
-            orig_coder = Coder.create(main_model=self.GPT35, io=io, fnames=[], repo=None)
+            orig_coder = await Coder.create(main_model=self.GPT35, io=io, fnames=[], repo=None)
             orig_coder.root = repo_dir  # Set root for path operations
 
             # Replace its commands object with one that has the original_read_only_fnames
             orig_coder.commands = Commands(
-                io, orig_coder, original_read_only_fnames=list(original_read_only_fnames_set)
+                io,
+                orig_coder,
+                original_read_only_fnames=list(original_read_only_fnames_set),
             )
             orig_coder.commands.coder = orig_coder
 
@@ -2165,7 +2244,7 @@ class TestCommands(TestCase):
             orig_coder.abs_read_only_fnames.add(str(other_ro_path))
 
             # Simulate SwitchCoder by creating a new coder from the original one
-            new_coder = Coder.create(from_coder=orig_coder)
+            new_coder = await Coder.create(from_coder=orig_coder)
             new_commands = new_coder.commands
 
             # Perform /reset
@@ -2182,7 +2261,7 @@ class TestCommands(TestCase):
             self.assertEqual(len(new_coder.done_messages), 0)
             self.assertEqual(len(new_coder.cur_messages), 0)
 
-    def test_drop_bare_after_coder_clone_preserves_original_read_only_files(self):
+    async def test_drop_bare_after_coder_clone_preserves_original_read_only_files(self):
         with GitTemporaryDirectory() as _:
             repo_dir = str(".")
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
@@ -2198,10 +2277,12 @@ class TestCommands(TestCase):
 
             original_read_only_fnames_set = {str(orig_ro_path)}
 
-            orig_coder = Coder.create(main_model=self.GPT35, io=io, fnames=[], repo=None)
+            orig_coder = await Coder.create(main_model=self.GPT35, io=io, fnames=[], repo=None)
             orig_coder.root = repo_dir
             orig_coder.commands = Commands(
-                io, orig_coder, original_read_only_fnames=list(original_read_only_fnames_set)
+                io,
+                orig_coder,
+                original_read_only_fnames=list(original_read_only_fnames_set),
             )
             orig_coder.commands.coder = orig_coder
 
@@ -2211,7 +2292,7 @@ class TestCommands(TestCase):
             orig_coder.done_messages = [{"role": "user", "content": "d1"}]
             orig_coder.cur_messages = [{"role": "user", "content": "c1"}]
 
-            new_coder = Coder.create(from_coder=orig_coder)
+            new_coder = await Coder.create(from_coder=orig_coder)
             new_commands = new_coder.commands
             new_commands.cmd_drop("")
 

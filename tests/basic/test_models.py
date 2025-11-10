@@ -50,7 +50,7 @@ class TestModels(unittest.TestCase):
         self.assertEqual(model.info["max_input_tokens"], 8 * 1024)
 
     @patch("os.environ")
-    def test_sanity_check_model_all_set(self, mock_environ):
+    async def test_sanity_check_model_all_set(self, mock_environ):
         mock_environ.get.return_value = "dummy_value"
         mock_io = MagicMock()
         model = MagicMock()
@@ -59,7 +59,7 @@ class TestModels(unittest.TestCase):
         model.keys_in_environment = True
         model.info = {"some": "info"}
 
-        sanity_check_model(mock_io, model)
+        await sanity_check_model(mock_io, model)
 
         mock_io.tool_output.assert_called()
         calls = mock_io.tool_output.call_args_list
@@ -67,7 +67,7 @@ class TestModels(unittest.TestCase):
         self.assertIn("- API_KEY2: Set", str(calls))
 
     @patch("os.environ")
-    def test_sanity_check_model_not_set(self, mock_environ):
+    async def test_sanity_check_model_not_set(self, mock_environ):
         mock_environ.get.return_value = ""
         mock_io = MagicMock()
         model = MagicMock()
@@ -76,19 +76,19 @@ class TestModels(unittest.TestCase):
         model.keys_in_environment = True
         model.info = {"some": "info"}
 
-        sanity_check_model(mock_io, model)
+        await sanity_check_model(mock_io, model)
 
         mock_io.tool_output.assert_called()
         calls = mock_io.tool_output.call_args_list
         self.assertIn("- API_KEY1: Not set", str(calls))
         self.assertIn("- API_KEY2: Not set", str(calls))
 
-    def test_sanity_check_models_bogus_editor(self):
+    async def test_sanity_check_models_bogus_editor(self):
         mock_io = MagicMock()
         main_model = Model("gpt-4")
         main_model.editor_model = Model("bogus-model")
 
-        result = sanity_check_models(mock_io, main_model)
+        result = await sanity_check_models(mock_io, main_model)
 
         self.assertTrue(
             result
@@ -106,7 +106,7 @@ class TestModels(unittest.TestCase):
         )  # Check that one of the warnings mentions the bogus model
 
     @patch("aider.models.check_for_dependencies")
-    def test_sanity_check_model_calls_check_dependencies(self, mock_check_deps):
+    async def test_sanity_check_model_calls_check_dependencies(self, mock_check_deps):
         """Test that sanity_check_model calls check_for_dependencies"""
         mock_io = MagicMock()
         model = MagicMock()
@@ -115,7 +115,7 @@ class TestModels(unittest.TestCase):
         model.keys_in_environment = True
         model.info = {"some": "info"}
 
-        sanity_check_model(mock_io, model)
+        await sanity_check_model(mock_io, model)
 
         # Verify check_for_dependencies was called with the model name
         mock_check_deps.assert_called_once_with(mock_io, "test-model")
@@ -206,7 +206,7 @@ class TestModels(unittest.TestCase):
         self.assertEqual(model.extra_params["thinking"]["budget_tokens"], 0.5 * 1024 * 1024)
 
     @patch("aider.models.check_pip_install_extra")
-    def test_check_for_dependencies_bedrock(self, mock_check_pip):
+    async def test_check_for_dependencies_bedrock(self, mock_check_pip):
         """Test that check_for_dependencies calls check_pip_install_extra for Bedrock models"""
         from aider.io import InputOutput
 
@@ -215,7 +215,7 @@ class TestModels(unittest.TestCase):
         # Test with a Bedrock model
         from aider.models import check_for_dependencies
 
-        check_for_dependencies(io, "bedrock/anthropic.claude-3-sonnet-20240229-v1:0")
+        await check_for_dependencies(io, "bedrock/anthropic.claude-3-sonnet-20240229-v1:0")
 
         # Verify check_pip_install_extra was called with correct arguments
         mock_check_pip.assert_called_once_with(
@@ -223,7 +223,7 @@ class TestModels(unittest.TestCase):
         )
 
     @patch("aider.models.check_pip_install_extra")
-    def test_check_for_dependencies_vertex_ai(self, mock_check_pip):
+    async def test_check_for_dependencies_vertex_ai(self, mock_check_pip):
         """Test that check_for_dependencies calls check_pip_install_extra for Vertex AI models"""
         from aider.io import InputOutput
 
@@ -232,7 +232,7 @@ class TestModels(unittest.TestCase):
         # Test with a Vertex AI model
         from aider.models import check_for_dependencies
 
-        check_for_dependencies(io, "vertex_ai/gemini-1.5-pro")
+        await check_for_dependencies(io, "vertex_ai/gemini-1.5-pro")
 
         # Verify check_pip_install_extra was called with correct arguments
         mock_check_pip.assert_called_once_with(
@@ -243,7 +243,7 @@ class TestModels(unittest.TestCase):
         )
 
     @patch("aider.models.check_pip_install_extra")
-    def test_check_for_dependencies_other_model(self, mock_check_pip):
+    async def test_check_for_dependencies_other_model(self, mock_check_pip):
         """Test that check_for_dependencies doesn't call check_pip_install_extra for other models"""
         from aider.io import InputOutput
 
@@ -252,7 +252,7 @@ class TestModels(unittest.TestCase):
         # Test with a non-Bedrock, non-Vertex AI model
         from aider.models import check_for_dependencies
 
-        check_for_dependencies(io, "gpt-4")
+        await check_for_dependencies(io, "gpt-4")
 
         # Verify check_pip_install_extra was not called
         mock_check_pip.assert_not_called()
@@ -425,15 +425,16 @@ class TestModels(unittest.TestCase):
             except OSError:
                 pass
 
-    @patch("aider.models.litellm.completion")
+    @patch("aider.models.litellm.acompletion")
     @patch.object(Model, "token_count")
-    def test_ollama_num_ctx_set_when_missing(self, mock_token_count, mock_completion):
+    async def test_ollama_num_ctx_set_when_missing(self, mock_token_count, mock_completion):
         mock_token_count.return_value = 1000
 
         model = Model("ollama/llama3")
+        model.extra_params = {}
         messages = [{"role": "user", "content": "Hello"}]
 
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
 
         # Verify num_ctx was calculated and added to call
         expected_ctx = int(1000 * 1.25) + 8192  # 9442
@@ -446,13 +447,49 @@ class TestModels(unittest.TestCase):
             timeout=600,
         )
 
-    @patch("aider.models.litellm.completion")
-    def test_ollama_uses_existing_num_ctx(self, mock_completion):
+    @patch("aider.models.litellm.acompletion")
+    async def test_modern_tool_call_propagation(self, mock_completion):
+        # Test modern tool calling (used for MCP Server Tool Calls)
+        model = Model("gpt-4")
+        messages = [{"role": "user", "content": "Hello"}]
+
+        await model.send_completion(
+            messages, functions=None, stream=False, tools=[dict(type="function", function="test")]
+        )
+
+        mock_completion.assert_called_with(
+            model=model.name,
+            messages=messages,
+            stream=False,
+            tools=[dict(type="function", function="test")],
+            temperature=0,
+            timeout=600,
+        )
+
+    @patch("aider.models.litellm.acompletion")
+    async def test_legacy_tool_call_propagation(self, mock_completion):
+        # Test modern tool calling (used for legacy server tool calling)
+        model = Model("gpt-4")
+        messages = [{"role": "user", "content": "Hello"}]
+
+        await model.send_completion(messages, functions=["test"], stream=False)
+
+        mock_completion.assert_called_with(
+            model=model.name,
+            messages=messages,
+            stream=False,
+            tools=[dict(type="function", function="test")],
+            temperature=0,
+            timeout=600,
+        )
+
+    @patch("aider.models.litellm.acompletion")
+    async def test_ollama_uses_existing_num_ctx(self, mock_completion):
         model = Model("ollama/llama3")
         model.extra_params = {"num_ctx": 4096}
 
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
 
         # Should use provided num_ctx from extra_params
         mock_completion.assert_called_once_with(
@@ -464,12 +501,13 @@ class TestModels(unittest.TestCase):
             timeout=600,
         )
 
-    @patch("aider.models.litellm.completion")
-    def test_non_ollama_no_num_ctx(self, mock_completion):
+    @patch("aider.models.litellm.acompletion")
+    async def test_non_ollama_no_num_ctx(self, mock_completion):
         model = Model("gpt-4")
+        model.extra_params = {}
         messages = [{"role": "user", "content": "Hello"}]
 
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
 
         # Regular models shouldn't get num_ctx
         mock_completion.assert_called_once_with(
@@ -496,12 +534,13 @@ class TestModels(unittest.TestCase):
         model.use_temperature = 0.7
         self.assertEqual(model.use_temperature, 0.7)
 
-    @patch("aider.models.litellm.completion")
-    def test_request_timeout_default(self, mock_completion):
+    @patch("aider.models.litellm.acompletion")
+    async def test_request_timeout_default(self, mock_completion):
         # Test default timeout is used when not specified in extra_params
         model = Model("gpt-4")
+        model.extra_params = {}
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
         mock_completion.assert_called_with(
             model=model.name,
             messages=messages,
@@ -510,13 +549,13 @@ class TestModels(unittest.TestCase):
             timeout=600,  # Default timeout
         )
 
-    @patch("aider.models.litellm.completion")
-    def test_request_timeout_from_extra_params(self, mock_completion):
+    @patch("aider.models.litellm.acompletion")
+    async def test_request_timeout_from_extra_params(self, mock_completion):
         # Test timeout from extra_params overrides default
         model = Model("gpt-4")
         model.extra_params = {"timeout": 300}  # 5 minutes
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
         mock_completion.assert_called_with(
             model=model.name,
             messages=messages,
@@ -525,12 +564,13 @@ class TestModels(unittest.TestCase):
             timeout=300,  # From extra_params
         )
 
-    @patch("aider.models.litellm.completion")
-    def test_use_temperature_in_send_completion(self, mock_completion):
+    @patch("aider.models.litellm.acompletion")
+    async def test_use_temperature_in_send_completion(self, mock_completion):
         # Test use_temperature=True sends temperature=0
         model = Model("gpt-4")
+        model.extra_params = {}
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
         mock_completion.assert_called_with(
             model=model.name,
             messages=messages,
@@ -542,14 +582,15 @@ class TestModels(unittest.TestCase):
         # Test use_temperature=False doesn't send temperature
         model = Model("github/o1-mini")
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
         self.assertNotIn("temperature", mock_completion.call_args.kwargs)
 
         # Test use_temperature as float sends that value
         model = Model("gpt-4")
+        model.extra_params = {}
         model.use_temperature = 0.7
         messages = [{"role": "user", "content": "Hello"}]
-        model.send_completion(messages, functions=None, stream=False)
+        await model.send_completion(messages, functions=None, stream=False)
         mock_completion.assert_called_with(
             model=model.name,
             messages=messages,

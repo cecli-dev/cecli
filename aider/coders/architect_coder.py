@@ -10,13 +10,13 @@ class ArchitectCoder(AskCoder):
 
     auto_accept_architect = False
 
-    def reply_completed(self):
+    async def reply_completed(self):
         content = self.partial_response_content
 
         if not content or not content.strip():
             return
 
-        if not self.auto_accept_architect and not self.io.confirm_ask("Edit the files?"):
+        if not self.auto_accept_architect and not await self.io.confirm_ask("Edit the files?"):
             return
 
         kwargs = dict()
@@ -36,14 +36,14 @@ class ArchitectCoder(AskCoder):
         new_kwargs = dict(io=self.io, from_coder=self)
         new_kwargs.update(kwargs)
 
-        editor_coder = Coder.create(**new_kwargs)
+        editor_coder = await Coder.create(**new_kwargs)
         editor_coder.cur_messages = []
         editor_coder.done_messages = []
 
         if self.verbose:
             editor_coder.show_announcements()
 
-        editor_coder.run(with_message=content, preproc=False)
+        await editor_coder.run(with_message=content, preproc=False)
 
         self.move_back_cur_messages("I made those changes to the files.")
         self.total_cost = editor_coder.total_cost

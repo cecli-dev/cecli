@@ -21,7 +21,7 @@ import pathspec
 from aider import prompts, utils
 
 from .dump import dump  # noqa: F401
-from .waiting import WaitingSpinner
+from .waiting import Spinner
 
 ANY_GIT_ERROR += [
     OSError,
@@ -128,7 +128,7 @@ class GitRepo:
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
 
-    def commit(self, fnames=None, context=None, message=None, aider_edits=False, coder=None):
+    async def commit(self, fnames=None, context=None, message=None, aider_edits=False, coder=None):
         """
         Commit the specified files or all dirty files if none are specified.
 
@@ -213,10 +213,10 @@ class GitRepo:
                 user_language = coder.commit_language
                 if not user_language:
                     user_language = coder.get_user_language()
-            commit_message = self.get_commit_message(diffs, context, user_language)
+            commit_message = await self.get_commit_message(diffs, context, user_language)
 
         # Retrieve attribute settings, prioritizing coder.args if available
-        if coder and hasattr(coder, "args"):
+        if coder and hasattr(coder, "args") and coder.args:
             attribute_author = coder.args.attribute_author
             attribute_committer = coder.args.attribute_committer
             attribute_commit_message_author = coder.args.attribute_commit_message_author
@@ -310,7 +310,7 @@ class GitRepo:
                 # Perform the commit
                 self.repo.git.commit(cmd)
                 commit_hash = self.get_head_commit_sha(short=True)
-                self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
+                self.io.tool_success(f"Commit {commit_hash} {commit_message}")
                 return commit_hash, commit_message
 
         except ANY_GIT_ERROR as err:
@@ -323,7 +323,7 @@ class GitRepo:
         except (ValueError, OSError):
             return self.repo.git_dir
 
-    def get_commit_message(self, diffs, context, user_language=None):
+    async def get_commit_message(self, diffs, context, user_language=None):
         diffs = "# Diffs:\n" + diffs
 
         content = ""
@@ -340,8 +340,8 @@ class GitRepo:
 
         commit_message = None
         for model in self.models:
-            spinner_text = f"Generating commit message with {model.name}"
-            with WaitingSpinner(spinner_text):
+            spinner_text = f"Generating commit message with {model.name}\n"
+            with Spinner(spinner_text):
                 if model.system_prompt_prefix:
                     current_system_content = model.system_prompt_prefix + "\n" + system_content
                 else:
@@ -358,7 +358,7 @@ class GitRepo:
                 if max_tokens and num_tokens > max_tokens:
                     continue
 
-                commit_message = model.simple_send_with_retries(messages)
+                commit_message = await model.simple_send_with_retries(messages)
                 if commit_message:
                     break  # Found a model that could generate the message
 

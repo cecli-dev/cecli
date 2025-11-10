@@ -1,3 +1,4 @@
+import asyncio
 import difflib
 import hashlib
 import importlib.resources
@@ -8,7 +9,6 @@ import platform
 import sys
 import time
 from dataclasses import dataclass, fields
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -548,12 +548,18 @@ class Model(ModelSettings):
             self.extra_params = dict(top_p=0.95)
             return  # <--
 
-        if "qwen3" in model and "235b" in model:
+        if "qwen3" in model:
             self.edit_format = "diff"
             self.use_repo_map = True
-            self.system_prompt_prefix = "/no_think"
-            self.use_temperature = 0.7
-            self.extra_params = {"top_p": 0.8, "top_k": 20, "min_p": 0.0}
+            if "235b" in model:
+                self.system_prompt_prefix = "/no_think"
+                self.use_temperature = 0.7
+                self.extra_params = {"top_p": 0.8, "top_k": 20, "min_p": 0.0}
+            else:
+                self.examples_as_sys_msg = True
+                self.use_temperature = 0.6
+                self.reasoning_tag = "think"
+                self.extra_params = {"top_p": 0.95, "top_k": 20, "min_p": 0.0}
             return  # <--
 
         # use the defaults
@@ -612,17 +618,19 @@ class Model(ModelSettings):
         return litellm.encode(model=self.name, text=text)
 
     def token_count(self, messages):
-        if type(messages) is list:
+        if isinstance(messages, dict):
+            messages = [messages]
+
+        if isinstance(messages, list):
             try:
                 return litellm.token_counter(model=self.name, messages=messages)
-            except Exception as err:
-                print(f"Unable to count tokens: {err}")
-                return 0
+            except Exception:
+                pass  # fall back to raw tokenizer
 
         if not self.tokenizer:
-            return
+            return 0
 
-        if type(messages) is str:
+        if isinstance(messages, str):
             msgs = messages
         else:
             msgs = json.dumps(messages)
@@ -630,7 +638,7 @@ class Model(ModelSettings):
         try:
             return len(self.tokenizer(msgs))
         except Exception as err:
-            print(f"Unable to count tokens: {err}")
+            print(f"Unable to count tokens with tokenizer: {err}")
             return 0
 
     def token_count_for_image(self, fname):
@@ -886,77 +894,35 @@ class Model(ModelSettings):
                 return self.extra_params["extra_body"]["reasoning_effort"]
         return None
 
-    def is_deepseek_r1(self):
+    def is_deepseek(self):
         name = self.name.lower()
         if "deepseek" not in name:
             return
-        return "r1" in name or "reasoner" in name
+        return True
 
     def is_ollama(self):
         return self.name.startswith("ollama/") or self.name.startswith("ollama_chat/")
 
-    def github_copilot_token_to_open_ai_key(self, extra_headers):
-        # check to see if there's an openai api key
-        # If so, check to see if it's expire
-        openai_api_key = "OPENAI_API_KEY"
-
-        if openai_api_key not in os.environ or (
-            int(dict(x.split("=") for x in os.environ[openai_api_key].split(";"))["exp"])
-            < int(datetime.now().timestamp())
-        ):
-            import requests
-
-            class GitHubCopilotTokenError(Exception):
-                """Custom exception for GitHub Copilot token-related errors."""
-
-                pass
-
-            # Validate GitHub Copilot token exists
-            if "GITHUB_COPILOT_TOKEN" not in os.environ:
-                raise KeyError("GITHUB_COPILOT_TOKEN environment variable not found")
-
-            github_token = os.environ["GITHUB_COPILOT_TOKEN"]
-            if not github_token.strip():
-                raise KeyError("GITHUB_COPILOT_TOKEN environment variable is empty")
-
-            headers = {
-                "Authorization": f"Bearer {os.environ['GITHUB_COPILOT_TOKEN']}",
-                "Editor-Version": extra_headers["Editor-Version"],
-                "Copilot-Integration-Id": extra_headers["Copilot-Integration-Id"],
-                "Content-Type": "application/json",
-            }
-
-            url = "https://api.github.com/copilot_internal/v2/token"
-            res = requests.get(url, headers=headers)
-            if res.status_code != 200:
-                safe_headers = {k: v for k, v in headers.items() if k != "Authorization"}
-                token_preview = github_token[:5] + "..." if len(github_token) >= 5 else github_token
-                safe_headers["Authorization"] = f"Bearer {token_preview}"
-                raise GitHubCopilotTokenError(
-                    f"GitHub Copilot API request failed (Status: {res.status_code})\n"
-                    f"URL: {url}\n"
-                    f"Headers: {json.dumps(safe_headers, indent=2)}\n"
-                    f"JSON: {res.text}"
-                )
-
-            response_data = res.json()
-            token = response_data.get("token")
-            if not token:
-                raise GitHubCopilotTokenError("Response missing 'token' field")
-
-            os.environ[openai_api_key] = token
-
-    def send_completion(self, messages, functions, stream, temperature=None):
+    async def send_completion(
+        self, messages, functions, stream, temperature=None, tools=None, max_tokens=None
+    ):
         if os.environ.get("AIDER_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
 
-        if self.is_deepseek_r1():
-            messages = ensure_alternating_roles(messages)
+        messages = ensure_alternating_roles(messages)
 
-        kwargs = dict(
-            model=self.name,
-            stream=stream,
-        )
+        if self.verbose:
+            for message in messages:
+                msg_role = message.get("role")
+                msg_content = message.get("content") if message.get("content") else ""
+                msg_trunc = ""
+
+                if message.get("content"):
+                    msg_trunc = message.get("content")[:30]
+
+                print(f"{msg_role} ({len(msg_content)}): {msg_trunc}")
+
+        kwargs = dict(model=self.name, stream=stream)
 
         if self.use_temperature is not False:
             if temperature is None:
@@ -967,17 +933,40 @@ class Model(ModelSettings):
 
             kwargs["temperature"] = temperature
 
-        if functions is not None:
+        # `tools` is for modern tool usage. `functions` is for legacy/forced calls.
+        # This handles `base_coder` sending both with same content for `agent_coder`.
+        effective_tools = tools
+
+        if effective_tools is None and functions:
+            # Convert legacy `functions` to `tools` format if `tools` isn't provided.
+            effective_tools = [dict(type="function", function=f) for f in functions]
+
+        if effective_tools:
+            kwargs["tools"] = effective_tools
+
+        # Forcing a function call is for legacy style `functions` with a single function.
+        # This is used by ArchitectCoder and not intended for AgentCoder's tools.
+        if functions and len(functions) == 1:
             function = functions[0]
-            kwargs["tools"] = [dict(type="function", function=function)]
-            kwargs["tool_choice"] = {"type": "function", "function": {"name": function["name"]}}
+
+            if "name" in function:
+                tool_name = function.get("name")
+                if tool_name:
+                    kwargs["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
+
         if self.extra_params:
             kwargs.update(self.extra_params)
+
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+
+        if "max_tokens" in kwargs and kwargs["max_tokens"]:
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         if self.is_ollama() and "num_ctx" not in kwargs:
             num_ctx = int(self.token_count(messages) * 1.25) + 8192
             kwargs["num_ctx"] = num_ctx
-        key = json.dumps(kwargs, sort_keys=True).encode()
 
+        key = json.dumps(kwargs, sort_keys=True).encode()
         # dump(kwargs)
 
         hash_object = hashlib.sha1(key)
@@ -988,19 +977,26 @@ class Model(ModelSettings):
         kwargs["messages"] = messages
 
         # Are we using github copilot?
-        if "GITHUB_COPILOT_TOKEN" in os.environ:
+        if "GITHUB_COPILOT_TOKEN" in os.environ or self.name.startswith("github_copilot/"):
             if "extra_headers" not in kwargs:
                 kwargs["extra_headers"] = {
                     "Editor-Version": f"aider/{__version__}",
                     "Copilot-Integration-Id": "vscode-chat",
                 }
 
-            self.github_copilot_token_to_open_ai_key(kwargs["extra_headers"])
+        try:
+            res = await litellm.acompletion(**kwargs)
+        except Exception as err:
+            print(f"LiteLLM API Error: {str(err)}")
+            res = self.model_error_response()
 
-        res = litellm.completion(**kwargs)
+            if self.verbose:
+                print(f"LiteLLM API Error: {str(err)}")
+                raise
+
         return hash_object, res
 
-    def simple_send_with_retries(self, messages):
+    async def simple_send_with_retries(self, messages, max_tokens=None):
         from aider.exceptions import LiteLLMExceptions
 
         litellm_ex = LiteLLMExceptions()
@@ -1013,13 +1009,12 @@ class Model(ModelSettings):
 
         while True:
             try:
-                kwargs = {
-                    "messages": messages,
-                    "functions": None,
-                    "stream": False,
-                }
-
-                _hash, response = self.send_completion(**kwargs)
+                _hash, response = await self.send_completion(
+                    messages=messages,
+                    functions=None,
+                    stream=False,
+                    max_tokens=max_tokens,
+                )
                 if not response or not hasattr(response, "choices") or not response.choices:
                     return None
                 res = response.choices[0].message.content
@@ -1044,6 +1039,22 @@ class Model(ModelSettings):
                 continue
             except AttributeError:
                 return None
+
+    async def model_error_response(self):
+        for i in range(1):
+            await asyncio.sleep(0.1)
+            yield litellm.ModelResponse(
+                choices=[
+                    litellm.Choices(
+                        finish_reason="stop",
+                        index=0,
+                        message=litellm.Message(
+                            content="Model API Response Error. Please retry the previous request"
+                        ),  # Provide an empty message object
+                    )
+                ],
+                model=self.name,
+            )
 
 
 def register_models(model_settings_fnames):
@@ -1107,12 +1118,12 @@ def validate_variables(vars):
     return dict(keys_in_environment=True, missing_keys=missing)
 
 
-def sanity_check_models(io, main_model):
-    problem_main = sanity_check_model(io, main_model)
+async def sanity_check_models(io, main_model):
+    problem_main = await sanity_check_model(io, main_model)
 
     problem_weak = None
     if main_model.weak_model and main_model.weak_model is not main_model:
-        problem_weak = sanity_check_model(io, main_model.weak_model)
+        problem_weak = await sanity_check_model(io, main_model.weak_model)
 
     problem_editor = None
     if (
@@ -1120,12 +1131,12 @@ def sanity_check_models(io, main_model):
         and main_model.editor_model is not main_model
         and main_model.editor_model is not main_model.weak_model
     ):
-        problem_editor = sanity_check_model(io, main_model.editor_model)
+        problem_editor = await sanity_check_model(io, main_model.editor_model)
 
     return problem_main or problem_weak or problem_editor
 
 
-def sanity_check_model(io, model):
+async def sanity_check_model(io, model):
     show = False
 
     if model.missing_keys:
@@ -1147,7 +1158,7 @@ def sanity_check_model(io, model):
         io.tool_warning(f"Warning for {model}: Unknown which environment variables are required.")
 
     # Check for model-specific dependencies
-    check_for_dependencies(io, model.name)
+    await check_for_dependencies(io, model.name)
 
     if not model.info:
         show = True
@@ -1164,7 +1175,7 @@ def sanity_check_model(io, model):
     return show
 
 
-def check_for_dependencies(io, model_name):
+async def check_for_dependencies(io, model_name):
     """
     Check for model-specific dependencies and install them if needed.
 
@@ -1174,13 +1185,13 @@ def check_for_dependencies(io, model_name):
     """
     # Check if this is a Bedrock model and ensure boto3 is installed
     if model_name.startswith("bedrock/"):
-        check_pip_install_extra(
+        await check_pip_install_extra(
             io, "boto3", "AWS Bedrock models require the boto3 package.", ["boto3"]
         )
 
     # Check if this is a Vertex AI model and ensure google-cloud-aiplatform is installed
     elif model_name.startswith("vertex_ai/"):
-        check_pip_install_extra(
+        await check_pip_install_extra(
             io,
             "google.cloud.aiplatform",
             "Google Vertex AI models require the google-cloud-aiplatform package.",

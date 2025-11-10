@@ -1,3 +1,4 @@
+from .agent_coder import AgentCoder
 from .architect_coder import ArchitectCoder
 from .ask_coder import AskCoder
 from .ask_further_coder import AskFurtherCoder
@@ -33,4 +34,5 @@ __all__ = [
     EditorWholeFileCoder,
     EditorDiffFencedCoder,
     ContextCoder,
+    AgentCoder,
 ]
