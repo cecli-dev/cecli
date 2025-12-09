@@ -46,7 +46,31 @@ git clone https://github.com/Aider-AI/aider.git
 cd aider
 ```
 
-### Create a Virtual Environment
+### Using uv (Recommended)
+
+The easiest way to get started is using [uv](https://docs.astral.sh/uv/). `uv` handles Python versions, virtual environments, and dependencies automatically.
+
+To start a development shell with all dependencies installed:
+
+```
+uv run --extra dev bash
+# or
+uv run --extra dev zsh
+```
+
+To run tests:
+
+```
+uv run --extra dev pytest
+```
+
+To run the CLI to test your changes:
+
+```
+uv run cecli
+```
+
+### Manual Setup: Create a Virtual Environment
 
 It is recommended to create a virtual environment outside of the repository to keep your development environment isolated.
 
