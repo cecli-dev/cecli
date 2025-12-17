@@ -25,10 +25,9 @@ LLMs are a part of our lives from here on out so join us in learning about and c
 * [Aider Original Documentation (still mostly applies)](https://aider.chat/)
 
 You can see a selection of the enhancements and updates by comparing the help output:
+
 ```bash
-aider --help > aider.help.txt
-cecli --help > cecli.help.txt
-diff aider.help.txt cecli.help.txt -uw --color
+diff -u -q --color <(aider --help) <(cecli --help)
 ```
 
 ## Installation Instructions
