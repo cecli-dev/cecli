@@ -53,6 +53,7 @@ from aider.models import ModelSettings
 from aider.onboarding import offer_openrouter_oauth, select_default_model
 from aider.repo import ANY_GIT_ERROR, GitRepo
 from aider.report import report_uncaught_exceptions, set_args_error_data
+from aider.sandbox import enable_sandbox, SANDBOX_AVAILABLE
 from aider.versioncheck import check_version, install_from_main_branch, install_upgrade
 from aider.watch import FileWatcher
 
@@ -886,6 +887,28 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         if right_repo_root:
             return await main_async(argv, input, output, right_repo_root, return_coder=return_coder)
 
+    # =========================================================================
+    # SANDBOX INITIALIZATION - Protect against dangerous subprocess commands
+    # =========================================================================
+    if getattr(args, 'sandbox', True) and not getattr(args, 'no_sandbox', False):
+        # Determine the project directory for sandboxing
+        sandbox_project_dir = git_root or git_dname or str(Path.cwd())
+        
+        sandbox_enabled = enable_sandbox(
+            project_dir=sandbox_project_dir,
+            io=io,
+            network=not getattr(args, 'sandbox_no_network', False),
+            allow_gpg=getattr(args, 'sandbox_allow_gpg', False),
+            allow_ssh=getattr(args, 'sandbox_allow_ssh', False),
+            extra_rw=getattr(args, 'sandbox_rw', []),
+            verbose=getattr(args, 'sandbox_verbose', False),
+        )
+        
+        if not sandbox_enabled and SANDBOX_AVAILABLE:
+            io.tool_warning("Subprocess sandboxing failed to initialize")
+    elif getattr(args, 'sandbox_verbose', False):
+        io.tool_output("Sandbox disabled by --no-sandbox flag")
+    # =========================================================================
     if args.just_check_update:
         update_available = await check_version(io, just_check=True, verbose=args.verbose)
 
