@@ -64,12 +64,6 @@ docker build -t cecli -f docker/Dockerfile .
 
 ## Coding Standards
 
-It really helps the merge process if your PR:
-
-1. complies with project coding standards
-2. includes test coverage
-3. updates the relevant user-facing documentation, including the output of `/help` and `--help` as well as notes in config files and the web-site.
-
 ### Python Compatibility
 
 Aider supports Python versions 3.9, 3.10, 3.11, and 3.12. When contributing code, ensure compatibility with these supported Python versions.
