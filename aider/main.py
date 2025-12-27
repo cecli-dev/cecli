@@ -48,7 +48,7 @@ from aider.helpers.file_searcher import generate_search_path_list
 from aider.history import ChatSummary
 from aider.io import InputOutput
 from aider.llm import litellm  # noqa: F401; properly init litellm on launch
-from aider.mcp import load_mcp_servers
+from aider.mcp_support import load_mcp_servers
 from aider.models import ModelSettings
 from aider.onboarding import offer_openrouter_oauth, select_default_model
 from aider.repo import ANY_GIT_ERROR, GitRepo

@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import List
 
 import httpx
-from litellm import experimental_mcp_client
 from litellm.types.utils import ModelResponse
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -42,7 +41,7 @@ from aider.history import ChatSummary
 from aider.io import ConfirmGroup, InputOutput
 from aider.linter import Linter
 from aider.llm import litellm
-from aider.mcp.server import LocalServer
+from aider.mcp_support.server import LocalServer
 from aider.models import RETRY_TIMEOUT
 from aider.reasoning_tags import (
     REASONING_TAG,
@@ -56,6 +55,25 @@ from aider.run_cmd import run_cmd
 from aider.sessions import SessionManager
 from aider.tools.utils.output import print_tool_response
 from aider.utils import format_tokens, is_image_file
+
+
+class _ExperimentalMCPClientProxy:
+    """Lazy proxy to defer importing litellm.experimental_mcp_client."""
+
+    _client = None
+
+    def _get_client(self):
+        if self._client is None:
+            from litellm import experimental_mcp_client as client
+
+            self._client = client
+        return self._client
+
+    def __getattr__(self, name):
+        return getattr(self._get_client(), name)
+
+
+experimental_mcp_client = _ExperimentalMCPClientProxy()
 
 from ..dump import dump  # noqa: F401
 from .chat_chunks import ChatChunks

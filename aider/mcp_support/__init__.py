@@ -1,7 +1,17 @@
 import json
 from pathlib import Path
 
-from aider.mcp.server import HttpStreamingServer, McpServer, SseServer
+
+def _create_server_from_config(server_config, transport):
+    from .server import HttpStreamingServer, McpServer, SseServer
+
+    if transport == "stdio":
+        return McpServer(server_config)
+    if transport == "http":
+        return HttpStreamingServer(server_config)
+    if transport == "sse":
+        return SseServer(server_config)
+    return None
 
 
 def _parse_mcp_servers_from_json_string(json_string, io, verbose=False, mcp_transport="stdio"):
@@ -21,12 +31,9 @@ def _parse_mcp_servers_from_json_string(json_string, io, verbose=False, mcp_tran
                 # Create a server config with name included
                 server_config["name"] = name
                 transport = server_config.get("transport", mcp_transport)
-                if transport == "stdio":
-                    servers.append(McpServer(server_config))
-                elif transport == "http":
-                    servers.append(HttpStreamingServer(server_config))
-                elif transport == "sse":
-                    servers.append(SseServer(server_config))
+                server = _create_server_from_config(server_config, transport)
+                if server:
+                    servers.append(server)
 
             if verbose:
                 io.tool_output(f"Loaded {len(servers)} MCP servers from JSON string")
@@ -120,10 +127,9 @@ def _parse_mcp_servers_from_file(file_path, io, verbose=False, mcp_transport="st
                 # Create a server config with name included
                 server_config["name"] = name
                 transport = server_config.get("transport", mcp_transport)
-                if transport == "stdio":
-                    servers.append(McpServer(server_config))
-                elif transport == "http":
-                    servers.append(HttpStreamingServer(server_config))
+                server = _create_server_from_config(server_config, transport)
+                if server:
+                    servers.append(server)
 
             if verbose:
                 io.tool_output(f"Loaded {len(servers)} MCP servers from {file_path}")
@@ -169,6 +175,7 @@ def load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose=False, mcp_trans
         # and maybe it is actually prompt_toolkit's fault
         # but this hack works swimmingly because ???
         # so sure! why not
-        servers = [McpServer(json.loads('{"aider_default": {}}'))]
+        default_server = _create_server_from_config(json.loads('{"aider_default": {}}'), "stdio")
+        servers = [default_server] if default_server else []
 
     return servers

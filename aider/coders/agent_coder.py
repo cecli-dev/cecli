@@ -14,9 +14,27 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from litellm import experimental_mcp_client
 
 from aider import urls, utils
+
+
+class _ExperimentalMCPClientProxy:
+    """Lazy proxy to defer importing litellm.experimental_mcp_client."""
+
+    _client = None
+
+    def _get_client(self):
+        if self._client is None:
+            from litellm import experimental_mcp_client as client
+
+            self._client = client
+        return self._client
+
+    def __getattr__(self, name):
+        return getattr(self._get_client(), name)
+
+
+experimental_mcp_client = _ExperimentalMCPClientProxy()
 
 # Import the change tracker
 from aider.change_tracker import ChangeTracker
@@ -30,7 +48,7 @@ from aider.helpers.similarity import (
 
 # Import skills helper for skills
 from aider.helpers.skills import SkillsManager
-from aider.mcp.server import LocalServer
+from aider.mcp_support.server import LocalServer
 from aider.repo import ANY_GIT_ERROR
 
 # Import tool modules for registry
