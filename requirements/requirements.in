@@ -31,6 +31,7 @@ google-generativeai>=0.8.5
 mcp>=1.12.3
 textual>=6.0.0
 truststore
+bubbleproc==1.0.4
 
 # Replaced networkx with rustworkx for better performance in repomap
 rustworkx>=0.15.0

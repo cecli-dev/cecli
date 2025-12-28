@@ -988,7 +988,47 @@ def get_parser(default_config_files, git_root):
             f" {', '.join(supported_shells_list)}. Example: aider --shell-completions bash"
         ),
     )
-
+    # In the argument parser setup
+    group = parser.add_argument_group("Sandbox")
+    group.add_argument(
+        "--sandbox",
+        action="store_true",
+        default=True,
+        help="Enable subprocess sandboxing (default: True)",
+    )
+    group.add_argument(
+        "--no-sandbox",
+        action="store_false",
+        dest="sandbox",
+        help="Disable subprocess sandboxing",
+    )
+    group.add_argument(
+        "--sandbox-verbose",
+        action="store_true",
+        help="Show sandbox configuration on startup",
+    )
+    group.add_argument(
+        "--sandbox-allow-gpg",
+        action="store_true",
+        help="Allow access to GPG keys for signed commits",
+    )
+    group.add_argument(
+        "--sandbox-allow-ssh",
+        action="store_true",
+        help="Allow access to SSH keys for git operations",
+    )
+    group.add_argument(
+        "--sandbox-no-network",
+        action="store_true",
+        help="Disable network access in sandbox (breaks API calls!)",
+    )
+    group.add_argument(
+        "--sandbox-rw",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Additional read-write paths for sandbox (can be repeated)",
+    )
     ##########
     group = parser.add_argument_group("Deprecated model settings")
     # Add deprecated model shortcut arguments
