@@ -56,6 +56,9 @@ from aider.sessions import SessionManager
 from aider.tools.utils.output import print_tool_response
 from aider.utils import format_tokens, is_image_file
 
+from ..dump import dump  # noqa: F401
+from .chat_chunks import ChatChunks
+
 
 class _ExperimentalMCPClientProxy:
     """Lazy proxy to defer importing litellm.experimental_mcp_client."""
@@ -74,9 +77,6 @@ class _ExperimentalMCPClientProxy:
 
 
 experimental_mcp_client = _ExperimentalMCPClientProxy()
-
-from ..dump import dump  # noqa: F401
-from .chat_chunks import ChatChunks
 
 
 class UnknownEditFormat(ValueError):

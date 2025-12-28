@@ -14,32 +14,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-
 from aider import urls, utils
-
-
-class _ExperimentalMCPClientProxy:
-    """Lazy proxy to defer importing litellm.experimental_mcp_client."""
-
-    _client = None
-
-    def _get_client(self):
-        if self._client is None:
-            from litellm import experimental_mcp_client as client
-
-            self._client = client
-        return self._client
-
-    def __getattr__(self, name):
-        return getattr(self._get_client(), name)
-
-
-experimental_mcp_client = _ExperimentalMCPClientProxy()
-
-# Import the change tracker
 from aider.change_tracker import ChangeTracker
-
-# Import similarity functions for tool usage analysis
 from aider.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -93,6 +69,25 @@ from aider.tools import (
 from .agent_prompts import AgentPrompts
 from .base_coder import ChatChunks, Coder
 from .editblock_coder import do_replace, find_original_update_blocks, find_similar_lines
+
+
+class _ExperimentalMCPClientProxy:
+    """Lazy proxy to defer importing litellm.experimental_mcp_client."""
+
+    _client = None
+
+    def _get_client(self):
+        if self._client is None:
+            from litellm import experimental_mcp_client as client
+
+            self._client = client
+        return self._client
+
+    def __getattr__(self, name):
+        return getattr(self._get_client(), name)
+
+
+experimental_mcp_client = _ExperimentalMCPClientProxy()
 
 
 class AgentCoder(Coder):
