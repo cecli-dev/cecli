@@ -3327,7 +3327,7 @@ class Coder:
         self.consolidate_chunks()
 
         if not self._received_any_partial_response(received_content):
-self.io.tool_warning(self._get_empty_response_message())
+            self.io.tool_warning(self._get_empty_response_message())
 
     def consolidate_chunks(self):
         response = (
