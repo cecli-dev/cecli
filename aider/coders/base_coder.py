@@ -2991,6 +2991,7 @@ class Coder:
         self.partial_response_chunks = []
         self.partial_response_tool_calls = []
         self.partial_response_function_call = dict()
+        self._reset_partial_response_flags()
 
         completion = None
         self.token_profiler.start()
@@ -3036,6 +3037,75 @@ class Coder:
                 if args:
                     self.io.ai_output(json.dumps(args, indent=4))
 
+    def _reset_partial_response_flags(self):
+        self._partial_response_received_flags = {
+            "content": False,
+            "reasoning": False,
+            "tool_calls": False,
+            "function_call": False,
+        }
+
+    def _register_partial_response(
+        self,
+        *,
+        content=False,
+        reasoning=False,
+        tool_calls=False,
+        function_call=False,
+    ):
+        flags = self._partial_response_received_flags
+        if content:
+            flags["content"] = True
+        if reasoning:
+            flags["reasoning"] = True
+        if tool_calls:
+            flags["tool_calls"] = True
+        if function_call:
+            flags["function_call"] = True
+
+def _received_any_partial_response(self, received_content_flag=False):
+        flags = self._partial_response_received_flags
+        if received_content_flag:
+            return True
+        return any(flags.values())
+
+    def _get_empty_response_message(self):
+        """Generate a specific error message based on what type of response was received."""
+        flags = self._partial_response_received_flags
+        
+        # Check what types of responses were received
+        has_content = flags.get("content", False)
+        has_reasoning = flags.get("reasoning", False)
+        has_tool_calls = flags.get("tool_calls", False)
+        has_function_call = flags.get("function_call", False)
+        
+        # If we received some response, be specific about what was missing
+        if has_tool_calls and not has_content:
+            if has_reasoning:
+                return ("Empty response received from LLM. "
+                       "Only tool calls and reasoning content were received, but no text response. "
+                       "Check if the model is configured to return text content.")
+            else:
+                return ("Empty response received from LLM. "
+                       "Only tool calls were received, but no text response. "
+                       "Check if the model is configured to return text content.")
+        elif has_reasoning and not has_content:
+            return ("Empty response received from LLM. "
+                   "Only reasoning content was received, but no text response. "
+                   "Check if the model is configured to return text content.")
+        elif has_function_call and not has_content:
+            return ("Empty response received from LLM. "
+                   "Only function calls were received, but no text response. "
+                   "Check if the model is configured to return text content.")
+        elif has_content and not has_content:  # This should never happen, but just in case
+            return ("Empty response received from LLM. "
+                   "Content flag was set but no actual content was received.")
+        else:
+            # Truly empty response
+            return ("Empty response received from LLM. "
+                   "No content, tool calls, or reasoning was received. "
+                   "Check your provider account, model availability, or network connectivity.")
+
     def show_send_output(self, completion):
         if self.verbose:
             print(completion)
@@ -3049,6 +3119,58 @@ class Coder:
             return
 
         self.partial_response_chunks.append(completion)
+
+        # Check for tool calls in the non-streaming response
+        try:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.tool_calls
+            ):
+                self._register_partial_response(tool_calls=True)
+        except (AttributeError, IndexError):
+            pass
+
+        # Check for function calls in the non-streaming response
+        try:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.function_call
+            ):
+                self._register_partial_response(function_call=True)
+        except (AttributeError, IndexError):
+            pass
+
+        # Check for reasoning content in the non-streaming response
+        try:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.reasoning_content
+            ):
+                self._register_partial_response(reasoning=True)
+        except AttributeError:
+            try:
+                if (
+                    completion.choices
+                    and completion.choices[0].message
+                    and completion.choices[0].message.reasoning
+                ):
+                    self._register_partial_response(reasoning=True)
+            except AttributeError:
+                pass
+
+        # Check for regular content in the non-streaming response
+        try:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.content
+            ):
+                self._register_partial_response(content=True)
+        except AttributeError:
+            pass
 
         response, func_err, content_err = self.consolidate_chunks()
 
@@ -3109,6 +3231,7 @@ class Coder:
 
                 try:
                     if chunk.choices[0].delta.tool_calls:
+                        self._register_partial_response(tool_calls=True)
                         received_content = True
                         self.token_profiler.on_token()
                         for tool_call_chunk in chunk.choices[0].delta.tool_calls:
@@ -3137,6 +3260,7 @@ class Coder:
                         self.tool_reflection = True
                         self.io.update_spinner_suffix(v)
 
+                    self._register_partial_response(function_call=True)
                     received_content = True
                     self.token_profiler.on_token()
                 except AttributeError:
@@ -3157,6 +3281,7 @@ class Coder:
                         text += f"<{REASONING_TAG}>\n\n"
                     text += reasoning_content
                     self.got_reasoning_content = True
+                    self._register_partial_response(reasoning=True)
                     received_content = True
                     self.token_profiler.on_token()
                     self.io.update_spinner_suffix(reasoning_content)
@@ -3170,6 +3295,7 @@ class Coder:
                             self.ended_reasoning_content = True
 
                         text += content
+                        self._register_partial_response(content=True)
                         received_content = True
                         self.token_profiler.on_token()
                         self.io.update_spinner_suffix(content)
@@ -3200,8 +3326,8 @@ class Coder:
         # The Part Doing the Heavy Lifting Now
         self.consolidate_chunks()
 
-        if not received_content and len(self.partial_response_tool_calls) == 0:
-            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
+        if not self._received_any_partial_response(received_content):
+self.io.tool_warning(self._get_empty_response_message())
 
     def consolidate_chunks(self):
         response = (
@@ -3221,6 +3347,7 @@ class Coder:
         for chunk in self.partial_response_chunks:
             try:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.tool_calls:
+                    self._register_partial_response(tool_calls=True)
                     for tool_call in chunk.choices[0].delta.tool_calls:
                         if (
                             hasattr(tool_call, "provider_specific_fields")
@@ -3249,6 +3376,7 @@ class Coder:
 
         try:
             if response.choices[0].message.tool_calls:
+                self._register_partial_response(tool_calls=True)
                 for i, tool_call in enumerate(response.choices[0].message.tool_calls):
                     # Add provider-specific fields if we collected any for this tool
                     tool_id = tool_call.id
@@ -3282,6 +3410,7 @@ class Coder:
                 self.partial_response_function_call = (
                     response.choices[0].message.tool_calls[0].function
                 )
+                self._register_partial_response(function_call=True)
         except AttributeError as e:
             func_err = e
 
@@ -3293,7 +3422,11 @@ class Coder:
             except AttributeError:
                 reasoning_content = None
 
-        self.partial_response_reasoning_content = reasoning_content or ""
+        if reasoning_content:
+            self.partial_response_reasoning_content = reasoning_content
+            self._register_partial_response(reasoning=True)
+        else:
+            self.partial_response_reasoning_content = ""
 
         try:
             content = response.choices[0].message.content
@@ -3309,7 +3442,11 @@ class Coder:
                     for block in content
                     if isinstance(block, dict) and block.get("type") == "text"
                 )
-            self.partial_response_content = content or ""
+            if content:
+                self.partial_response_content = content
+                self._register_partial_response(content=True)
+            else:
+                self.partial_response_content = ""
         except AttributeError as e:
             content_err = e
 

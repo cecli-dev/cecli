@@ -1487,7 +1487,7 @@ class InputOutput:
 
     def assistant_output(self, message, pretty=None):
         if not message:
-            self.tool_warning("Empty response received from LLM. Check your provider account?")
+self.tool_warning("Empty response received from LLM. No text content was returned. Check your provider account, model availability, or network connectivity.")
             return
 
         show_resp = message
