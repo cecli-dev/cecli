@@ -5,6 +5,7 @@
 from . import (
     command,
     command_interactive,
+    context_manager,
     delete_block,
     delete_line,
     delete_lines,
@@ -21,9 +22,6 @@ from . import (
     insert_block,
     list_changes,
     ls,
-    make_editable,
-    make_readonly,
-    remove,
     replace_all,
     replace_line,
     replace_lines,
@@ -32,7 +30,6 @@ from . import (
     thinking,
     undo_change,
     update_todo_list,
-    view,
     view_files_matching,
     view_files_with_symbol,
 )
@@ -41,6 +38,7 @@ from . import (
 TOOL_MODULES = [
     command,
     command_interactive,
+    context_manager,
     delete_block,
     delete_line,
     delete_lines,
@@ -57,9 +55,6 @@ TOOL_MODULES = [
     insert_block,
     list_changes,
     ls,
-    make_editable,
-    make_readonly,
-    remove,
     replace_all,
     replace_line,
     replace_lines,
@@ -68,7 +63,6 @@ TOOL_MODULES = [
     thinking,
     undo_change,
     update_todo_list,
-    view,
     view_files_matching,
     view_files_with_symbol,
 ]

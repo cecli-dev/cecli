@@ -58,7 +58,7 @@ class TestScrape(unittest.TestCase):
 
         try:
             # Run the cmd_web command
-            result = await self.commands.cmd_web("https://example.com", return_content=True)
+            result = await self.commands.do_run("web", "https://example.com", return_content=True)
 
             # Assert that the result contains some content
             self.assertIsNotNone(result)

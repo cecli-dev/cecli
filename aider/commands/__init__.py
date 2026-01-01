@@ -71,6 +71,7 @@ from .utils.helpers import (
 )
 from .utils.registry import CommandRegistry
 from .voice import VoiceCommand
+from .weak_model import WeakModelCommand
 from .web import WebCommand
 
 # Register commands
@@ -110,6 +111,7 @@ CommandRegistry.register(ReadOnlyCommand)
 CommandRegistry.register(ReadOnlyStubCommand)
 CommandRegistry.register(AddCommand)
 CommandRegistry.register(ModelCommand)
+CommandRegistry.register(WeakModelCommand)
 CommandRegistry.register(WebCommand)
 CommandRegistry.register(LintCommand)
 CommandRegistry.register(TestCommand)
@@ -217,6 +219,7 @@ __all__ = [
     "ReadOnlyStubCommand",
     "AddCommand",
     "ModelCommand",
+    "WeakModelCommand",
     "WebCommand",
     "LintCommand",
     "TestCommand",

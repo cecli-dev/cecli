@@ -1,8 +1,13 @@
 import os
-import traceback
 
 from aider.tools.utils.base_tool import BaseTool
-from aider.tools.utils.helpers import generate_unified_diff_snippet
+from aider.tools.utils.helpers import (
+    ToolError,
+    apply_change,
+    generate_unified_diff_snippet,
+    handle_tool_error,
+    validate_file_for_edit,
+)
 
 
 class Tool(BaseTool):
@@ -58,55 +63,28 @@ class Tool(BaseTool):
 
         Returns a result message.
         """
+        tool_name = "ExtractLines"
         try:
             # --- Validate Source File ---
-            abs_source_path = coder.abs_root_path(source_file_path)
-            rel_source_path = coder.get_rel_fname(abs_source_path)
-
-            if not os.path.isfile(abs_source_path):
-                coder.io.tool_error(f"Source file '{source_file_path}' not found")
-                return "Error: Source file not found"
-
-            if abs_source_path not in coder.abs_fnames:
-                if abs_source_path in coder.abs_read_only_fnames:
-                    coder.io.tool_error(
-                        f"Source file '{source_file_path}' is read-only. Use MakeEditable first."
-                    )
-                    return "Error: Source file is read-only. Use MakeEditable first."
-                else:
-                    coder.io.tool_error(f"Source file '{source_file_path}' not in context")
-                    return "Error: Source file not in context"
+            abs_source_path, rel_source_path, source_content = validate_file_for_edit(
+                coder, source_file_path
+            )
 
             # --- Validate Target File ---
             abs_target_path = coder.abs_root_path(target_file_path)
             rel_target_path = coder.get_rel_fname(abs_target_path)
             target_exists = os.path.isfile(abs_target_path)
-            target_is_editable = abs_target_path in coder.abs_fnames
-            target_is_readonly = abs_target_path in coder.abs_read_only_fnames
 
-            if target_exists and not target_is_editable:
-                if target_is_readonly:
-                    coder.io.tool_error(
-                        f"Target file '{target_file_path}' exists but is read-only. Use"
-                        " MakeEditable first."
-                    )
-                    return "Error: Target file exists but is read-only. Use MakeEditable first."
-                else:
-                    # This case shouldn't happen if file exists, but handle defensively
-                    coder.io.tool_error(
-                        f"Target file '{target_file_path}' exists but is not in context. Add it"
-                        " first."
-                    )
-                    return "Error: Target file exists but is not in context."
-
-            # --- Read Source Content ---
-            source_content = coder.io.read_text(abs_source_path)
-            if source_content is None:
-                coder.io.tool_error(
-                    f"Could not read source file '{source_file_path}' before ExtractLines"
-                    " operation."
-                )
-                return f"Error: Could not read source file '{source_file_path}'"
+            if target_exists:
+                # If target exists, validate it for editing
+                try:
+                    _, _, target_content = validate_file_for_edit(coder, target_file_path)
+                except ToolError as e:
+                    coder.io.tool_error(f"Target file validation failed: {str(e)}")
+                    return f"Error: {str(e)}"
+            else:
+                # Target doesn't exist, start with empty content
+                target_content = ""
 
             # --- Find Extraction Range ---
             if end_pattern and line_count:
@@ -114,7 +92,6 @@ class Tool(BaseTool):
                 return "Error: Cannot specify both end_pattern and line_count"
 
             source_lines = source_content.splitlines()
-            original_source_content = source_content
 
             start_pattern_line_indices = []
             for i, line in enumerate(source_lines):
@@ -197,16 +174,6 @@ class Tool(BaseTool):
             new_source_lines = source_lines[:start_line] + source_lines[end_line + 1 :]
             new_source_content = "\n".join(new_source_lines)
 
-            target_content = ""
-            if target_exists:
-                target_content = coder.io.read_text(abs_target_path)
-                if target_content is None:
-                    coder.io.tool_error(
-                        f"Could not read existing target file '{target_file_path}'."
-                    )
-                    return f"Error: Could not read target file '{target_file_path}'"
-            original_target_content = target_content  # For tracking
-
             # Append extracted lines to target content, ensuring a newline if target wasn't empty
             extracted_block = "\n".join(extracted_lines)
             if target_content and not target_content.endswith("\n"):
@@ -215,11 +182,11 @@ class Tool(BaseTool):
 
             # --- Generate Diffs ---
             source_diff_snippet = generate_unified_diff_snippet(
-                original_source_content, new_source_content, rel_source_path
+                source_content, new_source_content, rel_source_path
             )
             target_insertion_line = len(target_content.splitlines()) if target_content else 0
             target_diff_snippet = generate_unified_diff_snippet(
-                original_target_content, new_target_content, rel_target_path
+                target_content, new_target_content, rel_target_path
             )
 
             # --- Handle Dry Run ---
@@ -240,49 +207,43 @@ class Tool(BaseTool):
                 )
 
             # --- Apply Changes (Not Dry Run) ---
-            coder.io.write_text(abs_source_path, new_source_content)
-            coder.io.write_text(abs_target_path, new_target_content)
+            # Apply source change
+            source_metadata = {
+                "start_line": start_line + 1,
+                "end_line": end_line + 1,
+                "start_pattern": start_pattern,
+                "end_pattern": end_pattern,
+                "line_count": line_count,
+                "near_context": near_context,
+                "occurrence": occurrence,
+                "extracted_content": extracted_block,
+                "target_file": rel_target_path,
+            }
+            source_change_id = apply_change(
+                coder,
+                abs_source_path,
+                rel_source_path,
+                source_content,
+                new_source_content,
+                "extractlines_source",
+                source_metadata,
+            )
 
-            # --- Track Changes ---
-            source_change_id = "TRACKING_FAILED"
-            target_change_id = "TRACKING_FAILED"
-            try:
-                source_metadata = {
-                    "start_line": start_line + 1,
-                    "end_line": end_line + 1,
-                    "start_pattern": start_pattern,
-                    "end_pattern": end_pattern,
-                    "line_count": line_count,
-                    "near_context": near_context,
-                    "occurrence": occurrence,
-                    "extracted_content": extracted_block,
-                    "target_file": rel_target_path,
-                }
-                source_change_id = coder.change_tracker.track_change(
-                    file_path=rel_source_path,
-                    change_type="extractlines_source",
-                    original_content=original_source_content,
-                    new_content=new_source_content,
-                    metadata=source_metadata,
-                )
-            except Exception as track_e:
-                coder.io.tool_error(f"Error tracking source change for ExtractLines: {track_e}")
-
-            try:
-                target_metadata = {
-                    "insertion_line": target_insertion_line + 1,
-                    "inserted_content": extracted_block,
-                    "source_file": rel_source_path,
-                }
-                target_change_id = coder.change_tracker.track_change(
-                    file_path=rel_target_path,
-                    change_type="extractlines_target",
-                    original_content=original_target_content,
-                    new_content=new_target_content,
-                    metadata=target_metadata,
-                )
-            except Exception as track_e:
-                coder.io.tool_error(f"Error tracking target change for ExtractLines: {track_e}")
+            # Apply target change
+            target_metadata = {
+                "insertion_line": target_insertion_line + 1,
+                "inserted_content": extracted_block,
+                "source_file": rel_source_path,
+            }
+            target_change_id = apply_change(
+                coder,
+                abs_target_path,
+                rel_target_path,
+                target_content,
+                new_target_content,
+                "extractlines_target",
+                target_metadata,
+            )
 
             # --- Update Context ---
             coder.files_edited_by_tools.add(rel_source_path)
@@ -312,6 +273,9 @@ class Tool(BaseTool):
                 f" (Insertion):\n{target_diff_snippet}"
             )
 
+        except ToolError as e:
+            # Handle errors raised by utility functions or explicitly raised here
+            return handle_tool_error(coder, tool_name, e, add_traceback=False)
         except Exception as e:
-            coder.io.tool_error(f"Error in ExtractLines: {str(e)}\n{traceback.format_exc()}")
-            return f"Error: {str(e)}"
+            # Handle unexpected errors
+            return handle_tool_error(coder, tool_name, e)

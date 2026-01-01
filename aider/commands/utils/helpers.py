@@ -90,7 +90,9 @@ def validate_file_access(io, coder, file_path: str, require_in_chat: bool = Fals
     return True
 
 
-def format_command_result(io, command_name: str, success_message: str, error: Exception = None):
+def format_command_result(
+    io, command_name: str, success_message: str, error: Exception | str = None
+):
     """
     Format command execution result consistently.
 

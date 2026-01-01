@@ -2,6 +2,7 @@ from typing import List
 
 from aider.commands.utils.base_command import BaseCommand
 from aider.commands.utils.helpers import format_command_result
+from aider.commands.utils.save_load_manager import SaveLoadManager
 
 
 class LoadCommand(BaseCommand):
@@ -15,12 +16,13 @@ class LoadCommand(BaseCommand):
             io.tool_error("Please provide a filename containing commands to load.")
             return format_command_result(io, "load", "No filename provided")
 
+        manager = SaveLoadManager(coder, io)
+
         try:
-            with open(args.strip(), "r", encoding=io.encoding, errors="replace") as f:
-                commands = f.readlines()
-        except FileNotFoundError:
-            io.tool_error(f"File not found: {args}")
-            return format_command_result(io, "load", f"File not found: {args}")
+            commands = manager.load_commands(args.strip())
+        except FileNotFoundError as e:
+            io.tool_error(str(e))
+            return format_command_result(io, "load", str(e))
         except Exception as e:
             io.tool_error(f"Error reading file: {e}")
             return format_command_result(io, "load", f"Error reading file: {e}")
@@ -34,6 +36,7 @@ class LoadCommand(BaseCommand):
 
             commands_instance = Commands(io, coder)
 
+        should_raise_at_end = None
         for cmd in commands:
             cmd = cmd.strip()
             if not cmd or cmd.startswith("#"):
@@ -45,12 +48,17 @@ class LoadCommand(BaseCommand):
             except Exception as e:
                 # Handle SwitchCoder exception specifically
                 if type(e).__name__ == "SwitchCoder":
-                    io.tool_error(
-                        f"Command '{cmd}' is only supported in interactive mode, skipping."
-                    )
+                    # SwitchCoder is raised when switching between coder types (e.g., /architect, /ask).
+                    # This is expected behavior, not an error. But this gets in the way when running `/load` so we
+                    # ignore it and continue processing remaining commands.
+                    should_raise_at_end = e
+                    continue
                 else:
                     # Re-raise other exceptions
                     raise
+
+        if should_raise_at_end:
+            raise should_raise_at_end
 
         return format_command_result(
             io, "load", f"Loaded and executed commands from {args.strip()}"
@@ -59,7 +67,8 @@ class LoadCommand(BaseCommand):
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
         """Get completion options for load command."""
-        return []
+        manager = SaveLoadManager(coder, io)
+        return manager.list_files()
 
     @classmethod
     def get_help(cls) -> str:

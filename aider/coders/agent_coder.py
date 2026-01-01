@@ -34,43 +34,7 @@ from aider.mcp.server import LocalServer
 from aider.repo import ANY_GIT_ERROR
 
 # Import tool modules for registry
-# Import tool modules for registry
-from aider.tools import (
-    command,
-    command_interactive,
-    delete_block,
-    delete_line,
-    delete_lines,
-    extract_lines,
-    finished,
-    git_branch,
-    git_diff,
-    git_log,
-    git_remote,
-    git_show,
-    git_status,
-    grep,
-    indent_lines,
-    insert_block,
-    list_changes,
-    load_skill,
-    ls,
-    make_editable,
-    make_readonly,
-    remove,
-    remove_skill,
-    replace_all,
-    replace_line,
-    replace_lines,
-    replace_text,
-    show_numbered_context,
-    thinking,
-    undo_change,
-    update_todo_list,
-    view,
-    view_files_matching,
-    view_files_with_symbol,
-)
+from aider.tools import TOOL_MODULES
 
 from .base_coder import ChatChunks, Coder
 from .editblock_coder import do_replace, find_original_update_blocks, find_similar_lines
@@ -178,42 +142,7 @@ class AgentCoder(Coder):
         registry = {}
 
         # Add tools that have been imported
-        tool_modules = [
-            command,
-            command_interactive,
-            delete_block,
-            delete_line,
-            delete_lines,
-            extract_lines,
-            finished,
-            git_branch,
-            git_diff,
-            git_log,
-            git_remote,
-            git_show,
-            git_status,
-            grep,
-            indent_lines,
-            insert_block,
-            list_changes,
-            load_skill,
-            ls,
-            make_editable,
-            make_readonly,
-            remove,
-            remove_skill,
-            replace_all,
-            replace_line,
-            replace_lines,
-            replace_text,
-            show_numbered_context,
-            thinking,
-            undo_change,
-            update_todo_list,
-            view,
-            view_files_matching,
-            view_files_with_symbol,
-        ]
+        tool_modules = TOOL_MODULES
 
         # Process agent configuration if provided
         agent_config = self._get_agent_config()
@@ -229,7 +158,7 @@ class AgentCoder(Coder):
             tools_excludelist.append("removeskill")
 
         # Always include essential tools regardless of includelist/excludelist
-        essential_tools = {"makeeditable", "replacetext", "view", "finished"}
+        essential_tools = {"contextmanager", "replacetext", "finished"}
         for module in tool_modules:
             if hasattr(module, "Tool"):
                 tool_class = module.Tool
@@ -1069,8 +998,8 @@ class AgentCoder(Coder):
                 percentage = (total_tokens / max_input_tokens) * 100
                 result += f" ({percentage:.1f}% of limit)"
                 if percentage > 80:
-                    result += "\n\n⚠️ **Context is getting full!** Remove non-essential files via:\n"
-                    result += '- `[tool_call(Remove, file_path="path/to/large_file.ext")]`\n'
+                    result += "\n\n⚠️ **Context is getting full!**\n"
+                    result += "- Remove non-essential files via the `ContextManager` tool.\n"
                     result += "- Keep only essential files in context for best performance"
             result += "\n</context>"
 

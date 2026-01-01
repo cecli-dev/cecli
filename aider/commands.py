@@ -105,7 +105,7 @@ class Commands:
         commands = [f"/{cmd}" for cmd in registry_commands]
         return sorted(commands)
 
-    async def do_run(self, cmd_name, args):
+    async def do_run(self, cmd_name, args, **kwargs):
         # Execute command using registry
         command_class = CommandRegistry.get_command(cmd_name)
         if not command_class:
@@ -115,17 +115,19 @@ class Commands:
         self.cmd_running_event.clear()  # Command is running
         try:
             # Generate a spreadable kwargs dict with all relevant Commands attributes
-            kwargs = {
-                "original_read_only_fnames": self.original_read_only_fnames,
-                "voice_language": self.voice_language,
-                "voice_format": self.voice_format,
-                "voice_input_device": self.voice_input_device,
-                "verify_ssl": self.verify_ssl,
-                "parser": self.parser,
-                "verbose": self.verbose,
-                "editor": self.editor,
-                "system_args": self.args,
-            }
+            kwargs.update(
+                {
+                    "original_read_only_fnames": self.original_read_only_fnames,
+                    "voice_language": self.voice_language,
+                    "voice_format": self.voice_format,
+                    "voice_input_device": self.voice_input_device,
+                    "verify_ssl": self.verify_ssl,
+                    "parser": self.parser,
+                    "verbose": self.verbose,
+                    "editor": self.editor,
+                    "system_args": self.args,
+                }
+            )
 
             return await CommandRegistry.execute(
                 cmd_name,
