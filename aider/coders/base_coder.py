@@ -3063,11 +3063,48 @@ class Coder:
         if function_call:
             flags["function_call"] = True
 
-    def _received_any_partial_response(self, received_content_flag=False):
+def _received_any_partial_response(self, received_content_flag=False):
         flags = self._partial_response_received_flags
         if received_content_flag:
             return True
         return any(flags.values())
+
+    def _get_empty_response_message(self):
+        """Generate a specific error message based on what type of response was received."""
+        flags = self._partial_response_received_flags
+        
+        # Check what types of responses were received
+        has_content = flags.get("content", False)
+        has_reasoning = flags.get("reasoning", False)
+        has_tool_calls = flags.get("tool_calls", False)
+        has_function_call = flags.get("function_call", False)
+        
+        # If we received some response, be specific about what was missing
+        if has_tool_calls and not has_content:
+            if has_reasoning:
+                return ("Empty response received from LLM. "
+                       "Only tool calls and reasoning content were received, but no text response. "
+                       "Check if the model is configured to return text content.")
+            else:
+                return ("Empty response received from LLM. "
+                       "Only tool calls were received, but no text response. "
+                       "Check if the model is configured to return text content.")
+        elif has_reasoning and not has_content:
+            return ("Empty response received from LLM. "
+                   "Only reasoning content was received, but no text response. "
+                   "Check if the model is configured to return text content.")
+        elif has_function_call and not has_content:
+            return ("Empty response received from LLM. "
+                   "Only function calls were received, but no text response. "
+                   "Check if the model is configured to return text content.")
+        elif has_content and not has_content:  # This should never happen, but just in case
+            return ("Empty response received from LLM. "
+                   "Content flag was set but no actual content was received.")
+        else:
+            # Truly empty response
+            return ("Empty response received from LLM. "
+                   "No content, tool calls, or reasoning was received. "
+                   "Check your provider account, model availability, or network connectivity.")
 
     def show_send_output(self, completion):
         if self.verbose:
@@ -3290,7 +3327,7 @@ class Coder:
         self.consolidate_chunks()
 
         if not self._received_any_partial_response(received_content):
-            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
+self.io.tool_warning(self._get_empty_response_message())
 
     def consolidate_chunks(self):
         response = (

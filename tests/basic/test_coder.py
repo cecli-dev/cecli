@@ -2080,7 +2080,7 @@ This command will print 'Hello, World!' to the console."""
 
             # Verify warning was called
             io.tool_warning.assert_called_with(
-                "Empty response received from LLM. Check your provider account?"
+"Empty response received from LLM. No content, tool calls, or reasoning was received. Check your provider account, model availability, or network connectivity."
             )
 
             # Reset and test when content is received
@@ -2414,7 +2414,7 @@ This command will print 'Hello, World!' to the console."""
 
             # Verify that warning was shown for empty response
             io.tool_warning.assert_called_with(
-                "Empty response received from LLM. Check your provider account?"
+                "Empty response received from LLM. No content, tool calls, or reasoning was received. Check your provider account, model availability, or network connectivity."
             )
 
     async def test_received_content_flag_override(self):
