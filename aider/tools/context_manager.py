@@ -67,10 +67,37 @@ class Tool(BaseTool):
         create: list[str] | None
             Files to create and make editable.
         """
-        remove_files = remove or []
-        editable_files = editable or []
-        view_files = view or []
-        create_files = create or []
+
+        # Helper to parse string arguments that might be JSON arrays
+        def parse_arg(arg):
+            if arg is None:
+                return []
+            if isinstance(arg, list):
+                return arg
+            if isinstance(arg, str):
+                # Handle empty or whitespace-only string as empty list
+                if not arg or arg.isspace():
+                    return []
+                # Try to parse as JSON array
+                import json
+
+                try:
+                    parsed = json.loads(arg)
+                    if isinstance(parsed, list):
+                        return parsed
+                    else:
+                        # If it's not a list, wrap it in a list
+                        return [parsed]
+                except json.JSONDecodeError:
+                    # If not valid JSON, treat as a single file path
+                    return [arg]
+            # For any other type, wrap in list
+            return [arg]
+
+        remove_files = parse_arg(remove)
+        editable_files = parse_arg(editable)
+        view_files = parse_arg(view)
+        create_files = parse_arg(create)
 
         if not remove_files and not editable_files and not view_files and not create_files:
             raise ToolError("You must specify at least one of: remove, editable, view, or create")
