@@ -1953,4 +1953,479 @@ This command will print 'Hello, World!' to the console."""
             self.assertEqual(result[0]["content"], expected_content)
 
 
+    async def test_reset_partial_response_flags(self):
+        """Test that _reset_partial_response_flags initializes all flags to False."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Call the method
+            coder._reset_partial_response_flags()
+            
+            # Verify all flags are initialized to False
+            flags = coder._partial_response_received_flags
+            self.assertFalse(flags["content"])
+            self.assertFalse(flags["reasoning"])
+            self.assertFalse(flags["tool_calls"])
+            self.assertFalse(flags["function_call"])
+
+    async def test_register_partial_response(self):
+        """Test that _register_partial_response correctly sets flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Reset flags first
+            coder._reset_partial_response_flags()
+            
+            # Register content response
+            coder._register_partial_response(content=True)
+            self.assertTrue(coder._partial_response_received_flags["content"])
+            self.assertFalse(coder._partial_response_received_flags["reasoning"])
+            
+            # Register reasoning response
+            coder._register_partial_response(reasoning=True)
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+            
+            # Register tool_calls response
+            coder._register_partial_response(tool_calls=True)
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+            
+            # Register function_call response
+            coder._register_partial_response(function_call=True)
+            self.assertTrue(coder._partial_response_received_flags["function_call"])
+            
+            # Test multiple flags at once
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(content=True, reasoning=True)
+            self.assertTrue(coder._partial_response_received_flags["content"])
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+            self.assertFalse(coder._partial_response_received_flags["tool_calls"])
+
+    async def test_received_any_partial_response(self):
+        """Test that _received_any_partial_response correctly checks flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Reset flags first
+            coder._reset_partial_response_flags()
+            
+            # Test when no flags are set
+            self.assertFalse(coder._received_any_partial_response())
+            
+            # Test with received_content_flag=True
+            self.assertTrue(coder._received_any_partial_response(received_content_flag=True))
+            
+            # Test with content flag set
+            coder._register_partial_response(content=True)
+            self.assertTrue(coder._received_any_partial_response())
+            
+            # Test with reasoning flag set
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(reasoning=True)
+            self.assertTrue(coder._received_any_partial_response())
+            
+            # Test with tool_calls flag set
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(tool_calls=True)
+            self.assertTrue(coder._received_any_partial_response())
+            
+            # Test with function_call flag set
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(function_call=True)
+            self.assertTrue(coder._received_any_partial_response())
+
+    async def test_partial_response_tracking_integration(self):
+        """Test that partial response tracking is properly integrated into response handling."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Mock a response chunk with content
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta = MagicMock()
+            mock_chunk.choices[0].delta.content = "test content"
+            
+            # Simulate processing a chunk with content
+            coder.partial_response_chunks = [mock_chunk]
+            coder._reset_partial_response_flags()
+            
+            # Call consolidate_chunks which should register content
+            coder.consolidate_chunks()
+            
+            # Verify content flag was set
+            self.assertTrue(coder._partial_response_received_flags["content"])
+            
+            # Test with reasoning content
+            coder._reset_partial_response_flags()
+            mock_chunk.choices[0].delta.reasoning_content = "test reasoning"
+            coder.consolidate_chunks()
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+
+    async def test_empty_response_warning_integration(self):
+        """Test that empty response warning uses the new flag system."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test when no partial response is received
+            coder._reset_partial_response_flags()
+            coder.partial_response_chunks = []
+            coder.partial_response_tool_calls = []
+            
+            # This should trigger the empty response warning
+            coder.consolidate_chunks()
+            
+            # Verify warning was called
+            io.tool_warning.assert_called_with("Empty response received from LLM. Check your provider account?")
+            
+            # Reset and test when content is received
+            io.tool_warning.reset_mock()
+            coder._reset_partial_response_flags()
+            
+            # Add a content chunk
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta = MagicMock()
+            mock_chunk.choices[0].delta.content = "test content"
+            coder.partial_response_chunks = [mock_chunk]
+            
+            coder.consolidate_chunks()
+            
+            # Verify warning was NOT called when content is received
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_stream_registration(self):
+        """Test that show_send_output_stream properly registers different response types."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test content registration
+            coder._reset_partial_response_flags()
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta = MagicMock()
+            mock_chunk.choices[0].delta.content = "test content"
+            
+            # Simulate processing the chunk
+            coder.show_send_output_stream([mock_chunk])
+            
+            # Verify content was registered
+            self.assertTrue(coder._partial_response_received_flags["content"])
+            
+            # Test tool_calls registration
+            coder._reset_partial_response_flags()
+            mock_chunk.choices[0].delta.tool_calls = [MagicMock()]
+            mock_chunk.choices[0].delta.content = None
+            
+            coder.show_send_output_stream([mock_chunk])
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+            
+            # Test function_call registration
+            coder._reset_partial_response_flags()
+            mock_chunk.choices[0].delta.function_call = MagicMock()
+            mock_chunk.choices[0].delta.tool_calls = None
+            
+            coder.show_send_output_stream([mock_chunk])
+            self.assertTrue(coder._partial_response_received_flags["function_call"])
+            
+            # Test reasoning registration
+            coder._reset_partial_response_flags()
+            mock_chunk.choices[0].delta.reasoning_content = "test reasoning"
+            mock_chunk.choices[0].delta.function_call = None
+            
+            coder.show_send_output_stream([mock_chunk])
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+
+    async def test_consolidate_chunks_registration(self):
+        """Test that consolidate_chunks properly registers different response types."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test tool_calls registration in consolidate_chunks
+            coder._reset_partial_response_flags()
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta = MagicMock()
+            mock_chunk.choices[0].delta.tool_calls = [MagicMock()]
+            
+            coder.partial_response_chunks = [mock_chunk]
+            coder.consolidate_chunks()
+            
+            # Verify tool_calls was registered
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+
+    async def test_show_send_output_registration(self):
+        """Test that show_send_output properly registers different response types."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test tool_calls registration in show_send_output
+            coder._reset_partial_response_flags()
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.tool_calls = [MagicMock()]
+            
+            coder.show_send_output(mock_response)
+            
+            # Verify tool_calls was registered
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+            
+            # Test function_call registration
+            coder._reset_partial_response_flags()
+            mock_response.choices[0].message.tool_calls = [MagicMock()]
+            mock_response.choices[0].message.tool_calls[0].function = MagicMock()
+            
+            coder.show_send_output(mock_response)
+            self.assertTrue(coder._partial_response_received_flags["function_call"])
+            
+            # Test reasoning registration
+            coder._reset_partial_response_flags()
+            mock_response.choices[0].message.reasoning_content = "test reasoning"
+            mock_response.choices[0].message.tool_calls = None
+            
+            coder.show_send_output(mock_response)
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+            
+            # Test content registration
+            coder._reset_partial_response_flags()
+            mock_response.choices[0].message.content = "test content"
+            mock_response.choices[0].message.reasoning_content = None
+            
+            coder.show_send_output(mock_response)
+            self.assertTrue(coder._partial_response_received_flags["content"])
+
+    async def test_initialization_in_constructor(self):
+        """Test that _reset_partial_response_flags is called during Coder initialization."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Verify that flags are initialized when coder is created
+            self.assertIn("_partial_response_received_flags", coder.__dict__)
+            flags = coder._partial_response_received_flags
+            self.assertFalse(flags["content"])
+            self.assertFalse(flags["reasoning"])
+            self.assertFalse(flags["tool_calls"])
+            self.assertFalse(flags["function_call"])
+
+    async def test_empty_response_detection_edge_cases(self):
+        """Test edge cases for empty response detection."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test with only tool_calls (should not trigger warning)
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(tool_calls=True)
+            coder.partial_response_chunks = []
+            coder.partial_response_tool_calls = [MagicMock()]
+            
+            coder.consolidate_chunks()
+            io.tool_warning.assert_not_called()
+            
+            # Test with only function_call (should not trigger warning)
+            io.tool_warning.reset_mock()
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(function_call=True)
+            coder.partial_response_chunks = []
+            coder.partial_response_tool_calls = []
+            
+            coder.consolidate_chunks()
+            io.tool_warning.assert_not_called()
+            
+            # Test with only reasoning (should not trigger warning)
+            io.tool_warning.reset_mock()
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(reasoning=True)
+            coder.partial_response_chunks = []
+            coder.partial_response_tool_calls = []
+            
+            coder.consolidate_chunks()
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_registers_tool_calls(self):
+        """Test that show_send_output properly registers tool calls in non-streaming responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create a mock response with tool calls
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.tool_calls = [MagicMock()]
+            mock_response.choices[0].message.content = None
+            mock_response.choices[0].message.reasoning_content = None
+            mock_response.choices[0].message.function_call = None
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Call show_send_output
+            coder.show_send_output(mock_response)
+            
+            # Verify that tool_calls flag was set
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+            # Verify that no warning was shown
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_registers_content(self):
+        """Test that show_send_output properly registers content in non-streaming responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create a mock response with content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.tool_calls = None
+            mock_response.choices[0].message.content = "Test content"
+            mock_response.choices[0].message.reasoning_content = None
+            mock_response.choices[0].message.function_call = None
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Call show_send_output
+            coder.show_send_output(mock_response)
+            
+            # Verify that content flag was set
+            self.assertTrue(coder._partial_response_received_flags["content"])
+            # Verify that no warning was shown
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_registers_reasoning(self):
+        """Test that show_send_output properly registers reasoning content in non-streaming responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create a mock response with reasoning content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.tool_calls = None
+            mock_response.choices[0].message.content = None
+            mock_response.choices[0].message.reasoning_content = "Test reasoning"
+            mock_response.choices[0].message.function_call = None
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Call show_send_output
+            coder.show_send_output(mock_response)
+            
+            # Verify that reasoning flag was set
+            self.assertTrue(coder._partial_response_received_flags["reasoning"])
+            # Verify that no warning was shown
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_registers_function_call(self):
+        """Test that show_send_output properly registers function calls in non-streaming responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create a mock response with function call
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.tool_calls = None
+            mock_response.choices[0].message.content = None
+            mock_response.choices[0].message.reasoning_content = None
+            mock_response.choices[0].message.function_call = MagicMock()
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Call show_send_output
+            coder.show_send_output(mock_response)
+            
+            # Verify that function_call flag was set
+            self.assertTrue(coder._partial_response_received_flags["function_call"])
+            # Verify that no warning was shown
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_stream_registers_tool_calls(self):
+        """Test that show_send_output_stream properly registers tool calls in streaming responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create a mock streaming response with tool calls
+            mock_chunk = MagicMock()
+            mock_chunk.choices = [MagicMock()]
+            mock_chunk.choices[0].delta = MagicMock()
+            mock_chunk.choices[0].delta.tool_calls = [MagicMock()]
+            mock_chunk.choices[0].delta.content = None
+            mock_chunk.choices[0].delta.reasoning_content = None
+            mock_chunk.choices[0].delta.function_call = None
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Create an async generator for the mock chunk
+            async def mock_stream():
+                yield mock_chunk
+            
+            # Call show_send_output_stream
+            async for _ in coder.show_send_output_stream(mock_stream()):
+                pass
+            
+            # Verify that tool_calls flag was set
+            self.assertTrue(coder._partial_response_received_flags["tool_calls"])
+            # Verify that no warning was shown
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_stream_warns_on_empty_response(self):
+        """Test that show_send_output_stream shows warning for truly empty responses."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            io.tool_warning = MagicMock()
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Create an empty async generator (no chunks)
+            async def empty_stream():
+                if False:
+                    yield None
+            
+            # Reset flags before test
+            coder._reset_partial_response_flags()
+            
+            # Call show_send_output_stream with empty stream
+            async for _ in coder.show_send_output_stream(empty_stream()):
+                pass
+            
+            # Verify that warning was shown for empty response
+            io.tool_warning.assert_called_with("Empty response received from LLM. Check your provider account?")
+
+    async def test_received_content_flag_override(self):
+        """Test that received_content_flag=True overrides all other flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            
+            # Test with no flags set but received_content_flag=True
+            coder._reset_partial_response_flags()
+            self.assertTrue(coder._received_any_partial_response(received_content_flag=True))
+            
+            # Test with flags set and received_content_flag=True
+            coder._register_partial_response(content=True, reasoning=True)
+            self.assertTrue(coder._received_any_partial_response(received_content_flag=True))
+
 # Remove the unittest.main() since we're using pytest
