@@ -3063,7 +3063,7 @@ class Coder:
         if function_call:
             flags["function_call"] = True
 
-def _received_any_partial_response(self, received_content_flag=False):
+    def _received_any_partial_response(self, received_content_flag=False):
         flags = self._partial_response_received_flags
         if received_content_flag:
             return True
