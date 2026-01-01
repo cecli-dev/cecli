@@ -3085,32 +3085,52 @@ class Coder:
 
         # Check for tool calls in the non-streaming response
         try:
-            if completion.choices and completion.choices[0].message and completion.choices[0].message.tool_calls:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.tool_calls
+            ):
                 self._register_partial_response(tool_calls=True)
         except (AttributeError, IndexError):
             pass
 
         # Check for function calls in the non-streaming response
         try:
-            if completion.choices and completion.choices[0].message and completion.choices[0].message.function_call:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.function_call
+            ):
                 self._register_partial_response(function_call=True)
         except (AttributeError, IndexError):
             pass
 
         # Check for reasoning content in the non-streaming response
         try:
-            if completion.choices and completion.choices[0].message and completion.choices[0].message.reasoning_content:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.reasoning_content
+            ):
                 self._register_partial_response(reasoning=True)
         except AttributeError:
             try:
-                if completion.choices and completion.choices[0].message and completion.choices[0].message.reasoning:
+                if (
+                    completion.choices
+                    and completion.choices[0].message
+                    and completion.choices[0].message.reasoning
+                ):
                     self._register_partial_response(reasoning=True)
             except AttributeError:
                 pass
 
         # Check for regular content in the non-streaming response
         try:
-            if completion.choices and completion.choices[0].message and completion.choices[0].message.content:
+            if (
+                completion.choices
+                and completion.choices[0].message
+                and completion.choices[0].message.content
+            ):
                 self._register_partial_response(content=True)
         except AttributeError:
             pass
