@@ -1952,5 +1952,215 @@ This command will print 'Hello, World!' to the console."""
             )
             self.assertEqual(result[0]["content"], expected_content)
 
+    async def test_show_send_output_stream_valid_empty_with_finish_reason(self):
+        """Test that valid empty responses with finish_reason don't trigger warnings in streaming mode."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a valid response with finish_reason but no content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "stop"
+            mock_response.choices[0].delta = MagicMock()
+            del mock_response.choices[0].delta.content  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the streaming output method
+            list(coder.show_send_output_stream(mock_response))
+
+            # Verify that tool_warning was NOT called (valid empty response)
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_stream_truly_empty_response(self):
+        """Test that truly empty responses trigger warnings in streaming mode."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a truly empty response (no finish_reason, no content, no tool calls)
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = None  # No finish reason
+            mock_response.choices[0].delta = MagicMock()
+            del mock_response.choices[0].delta.content  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the streaming output method
+            list(coder.show_send_output_stream(mock_response))
+
+            # Verify that tool_warning WAS called (truly empty response)
+            io.tool_warning.assert_called_once_with(
+                "Empty response received from LLM. Check your provider account?"
+            )
+
+    async def test_show_send_output_stream_response_with_content(self):
+        """Test that responses with content don't trigger warnings in streaming mode."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a response with content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "stop"
+            mock_response.choices[0].delta = MagicMock()
+            mock_response.choices[0].delta.content = "Some response content"
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the streaming output method
+            list(coder.show_send_output_stream(mock_response))
+
+            # Verify that tool_warning was NOT called (has content)
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_stream_response_with_tool_calls(self):
+        """Test that responses with tool calls don't trigger warnings in streaming mode."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a response with tool calls but no content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "tool_calls"
+            mock_response.choices[0].delta = MagicMock()
+            del mock_response.choices[0].delta.content  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Mock partial_response_tool_calls to simulate tool calls
+            coder.partial_response_tool_calls = [{"id": "test_tool"}]
+
+            # Call the streaming output method
+            list(coder.show_send_output_stream(mock_response))
+
+            # Verify that tool_warning was NOT called (has tool calls)
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_valid_empty_with_finish_reason(self):
+        """Test that valid empty responses with finish_reason don't trigger warnings."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a valid response with finish_reason but no content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "stop"
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.content = None  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the non-streaming output method
+            coder.show_send_output(mock_response)
+
+            # Verify that tool_warning was NOT called (valid empty response)
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_truly_empty_response(self):
+        """Test that truly empty responses trigger warnings."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a truly empty response (no finish_reason, no content, no tool calls)
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = None  # No finish reason
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.content = None  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the non-streaming output method
+            coder.show_send_output(mock_response)
+
+            # Verify that tool_warning WAS called (truly empty response)
+            io.tool_warning.assert_called_once_with(
+                "Empty response received from LLM. Check your provider account?"
+            )
+
+    async def test_show_send_output_response_with_content(self):
+        """Test that responses with content don't trigger warnings."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a response with content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "stop"
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.content = "Some response content"
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Call the non-streaming output method
+            coder.show_send_output(mock_response)
+
+            # Verify that tool_warning was NOT called (has content)
+            io.tool_warning.assert_not_called()
+
+    async def test_show_send_output_response_with_tool_calls(self):
+        """Test that responses with tool calls don't trigger warnings."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            # Mock a response with tool calls but no content
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].finish_reason = "tool_calls"
+            mock_response.choices[0].message = MagicMock()
+            mock_response.choices[0].message.content = None  # No content
+
+            # Mock the consolidate_chunks method to return our response
+            coder.consolidate_chunks = MagicMock(return_value=mock_response)
+
+            # Mock tool_warning to check if it's called
+            io.tool_warning = MagicMock()
+
+            # Mock partial_response_tool_calls to simulate tool calls
+            coder.partial_response_tool_calls = [{"id": "test_tool"}]
+
+            # Call the non-streaming output method
+            coder.show_send_output(mock_response)
+
+            # Verify that tool_warning was NOT called (has tool calls)
+            io.tool_warning.assert_not_called()
+
 
 # Remove the unittest.main() since we're using pytest

@@ -3064,6 +3064,22 @@ class Coder:
             self.io.tool_error(content_err)
             raise Exception("No data found in LLM response!")
 
+        # Check if we have a valid response with a finish reason
+        has_valid_finish_reason = False
+        if completion and hasattr(completion, "choices") and completion.choices:
+            choice = completion.choices[0]
+            if hasattr(choice, "finish_reason") and choice.finish_reason:
+                has_valid_finish_reason = True
+
+        # Only warn if truly empty (no content, no tool calls, no valid finish_reason)
+        if (
+            not self.partial_response_content
+            and len(self.partial_response_tool_calls) == 0
+            and not has_valid_finish_reason
+        ):
+            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
+            return
+
         show_resp = self.render_incremental_response(True)
 
         if self.partial_response_reasoning_content:
@@ -3200,7 +3216,18 @@ class Coder:
         # The Part Doing the Heavy Lifting Now
         self.consolidate_chunks()
 
-        if not received_content and len(self.partial_response_tool_calls) == 0:
+        # Check if we have a valid response with a finish reason
+        has_valid_finish_reason = False
+        if completion and hasattr(completion, "choices") and completion.choices:
+            choice = completion.choices[0]
+            if hasattr(choice, "finish_reason") and choice.finish_reason:
+                has_valid_finish_reason = True
+
+        if (
+            not received_content
+            and len(self.partial_response_tool_calls) == 0
+            and not has_valid_finish_reason
+        ):
             self.io.tool_warning("Empty response received from LLM. Check your provider account?")
 
     def consolidate_chunks(self):
