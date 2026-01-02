@@ -1,7 +1,7 @@
 from unittest import TestCase, mock
 
-from aider.history import ChatSummary
-from aider.models import Model
+from cecli.history import ChatSummary
+from cecli.models import Model
 
 
 def count(msg):

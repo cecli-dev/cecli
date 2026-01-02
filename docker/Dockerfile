@@ -28,14 +28,14 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/pw-browsers
 ENV PLAYWRIGHT_SKIP_BROWSER_GC=1
 
 # Create directories with proper permissions
-RUN mkdir -p /home/appuser/.aider /home/appuser/.cache /home/appuser/pw-browsers && \
+RUN mkdir -p /home/appuser/.cecli /home/appuser/.cache /home/appuser/pw-browsers && \
     chown -R appuser:appuser /home/appuser /app /venv && \
-    chmod -R 777 /home/appuser/.aider /home/appuser/.cache /home/appuser/pw-browsers
+    chmod -R 777 /home/appuser/.cecli /home/appuser/.cache /home/appuser/pw-browsers
 
 # So git doesn't complain about unusual permissions
 RUN git config --system --add safe.directory /app
 
-# This puts the container's ~/.aider into the host's project directory (usually host's cwd).
+# This puts the container's ~/.cecli into the host's project directory (usually host's cwd).
 # That way caches, version checks, etc get stored in the host filesystem not
 # simply discarded every time the container exits.
 ENV HOME=/app
@@ -43,7 +43,7 @@ ENV HOME=/app
 #########################
 FROM base AS aider-ce
 
-ENV AIDER_DOCKER_IMAGE=dustinwashington/aider-ce
+ENV CECLI_DOCKER_IMAGE=dustinwashington/aider-ce
 
 # Copy requirements files
 COPY requirements.txt /tmp/aider/
@@ -70,4 +70,4 @@ RUN uv pip install . && \
 # Switch to appuser
 USER appuser
 
-ENTRYPOINT ["/venv/bin/aider-ce"]
+ENTRYPOINT ["/venv/bin/cecli"]

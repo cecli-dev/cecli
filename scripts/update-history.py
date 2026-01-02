@@ -14,7 +14,7 @@ def get_latest_version_from_history():
         history_content = f.read()
 
     # Find most recent version header
-    match = re.search(r"### Aider v(\d+\.\d+\.\d+)", history_content)
+    match = re.search(r"### cecli v(\d+\.\d+\.\d+)", history_content)
     if not match:
         raise ValueError("Could not find version header in HISTORY.md")
     return match.group(1)
@@ -28,8 +28,8 @@ def run_git_log():
         "--pretty=full",
         f"v{latest_ver}..HEAD",
         "--",
-        "aider/",
-        ":!aider/website/",
+        "cecli/",
+        ":!cecli/website/",
         ":!scripts/",
         ":!HISTORY.md",
     ]
@@ -44,8 +44,8 @@ def run_git_diff():
         "diff",
         f"v{latest_ver}..HEAD",
         "--",
-        "aider/",
-        ":!aider/website/",
+        "cecli/",
+        ":!cecli/website/",
         ":!scripts/",
         ":!HISTORY.md",
     ]
@@ -54,7 +54,7 @@ def run_git_diff():
 
 
 def main():
-    aider_args = sys.argv[1:]
+    cecli_args = sys.argv[1:]
 
     # Get the git log and diff output
     log_content = run_git_log()
@@ -66,7 +66,7 @@ def main():
         history_content = f.read()
 
     # Find the section for this version
-    version_header = f"### Aider v{latest_ver}"
+    version_header = f"### cecli v{latest_ver}"
     start_idx = history_content.find("# Release history")
     if start_idx == -1:
         raise ValueError("Could not find start of release history")
@@ -77,7 +77,7 @@ def main():
         raise ValueError(f"Could not find version header: {version_header}")
 
     # Find the next version header after this one
-    next_version_idx = history_content.find("\n### Aider v", version_idx + len(version_header))
+    next_version_idx = history_content.find("\n### cecli v", version_idx + len(version_header))
     if next_version_idx == -1:
         # No next version found, use the rest of the file
         relevant_history = history_content[start_idx:]
@@ -103,15 +103,15 @@ def main():
     print(f"Lines in {log_path}: {len(log_content.splitlines())}")
     print(f"Lines in {diff_path}: {len(diff_content.splitlines())}")
 
-    # Run blame to get aider percentage
+    # Run blame to get cecli percentage
     blame_result = subprocess.run(["python3", "scripts/blame.py"], capture_output=True, text=True)
-    aider_line = blame_result.stdout.strip().split("\n")[-1]  # Get last line with percentage
+    cecli_line = blame_result.stdout.strip().split("\n")[-1]  # Get last line with percentage
 
-    # Construct and run the aider command
-    message = history_prompt.format(aider_line=aider_line)
+    # Construct and run the cecli command
+    message = history_prompt.format(cecli_line=cecli_line)
 
     cmd = [
-        "aider",
+        "cecli",
         "--model",
         "gpt-5",
         hist_path,
@@ -123,7 +123,7 @@ def main():
         message,
         "--no-git",
         "--no-auto-lint",
-    ] + aider_args
+    ] + cecli_args
     subprocess.run(cmd)
 
     # Read back the updated history
@@ -146,7 +146,7 @@ def main():
     with open("HISTORY.md", "w") as f:
         f.write(full_history)
 
-    # Run update-docs.sh after aider
+    # Run update-docs.sh after cecli
     subprocess.run(["scripts/update-docs.sh"])
 
     # Cleanup

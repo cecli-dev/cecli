@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from aider.tools import grep
+from cecli.tools import grep
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")

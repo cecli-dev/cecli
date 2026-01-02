@@ -6,7 +6,7 @@
 
 # Recursively allow files under subtree
 !/.github/**
-!/aider/**
+!/cecli/**
 !/benchmark/**
 !/docker/**
 !/requirements/**

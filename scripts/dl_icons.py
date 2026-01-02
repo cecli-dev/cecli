@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 
 # Create the directory if it doesn't exist
-ICONS_DIR = Path("aider/website/assets/icons")
+ICONS_DIR = Path("cecli/website/assets/icons")
 ICONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Icons used in the README.md features section

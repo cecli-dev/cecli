@@ -5,24 +5,24 @@ from unittest.mock import MagicMock, patch
 from prompt_toolkit.input import DummyInput
 from prompt_toolkit.output import DummyOutput
 
-from aider.deprecated_args import handle_deprecated_model_args
-from aider.dump import dump  # noqa
-from aider.main import main
+from cecli.deprecated_args import handle_deprecated_model_args
+from cecli.dump import dump  # noqa
+from cecli.main import main
 
 
 class TestDeprecated(TestCase):
     def setUp(self):
         self.original_env = os.environ.copy()
         os.environ["OPENAI_API_KEY"] = "deadbeef"
-        os.environ["AIDER_CHECK_UPDATE"] = "false"
-        os.environ["AIDER_ANALYTICS"] = "false"
+        os.environ["CECLICHECK_UPDATE"] = "false"
+        os.environ["CECLIANALYTICS"] = "false"
 
     def tearDown(self):
         os.environ.clear()
         os.environ.update(self.original_env)
 
-    @patch("aider.io.InputOutput.tool_warning")
-    @patch("aider.io.InputOutput.offer_url")
+    @patch("cecli.io.InputOutput.tool_warning")
+    @patch("cecli.io.InputOutput.offer_url")
     async def test_deprecated_args_show_warnings(self, mock_offer_url, mock_tool_warning):
         # Prevent URL launches during tests
         mock_offer_url.return_value = False
@@ -48,7 +48,7 @@ class TestDeprecated(TestCase):
         for flag in deprecated_flags:
             mock_tool_warning.reset_mock()
 
-            with patch("aider.models.Model"), self.subTest(flag=flag):
+            with patch("cecli.models.Model"), self.subTest(flag=flag):
                 main(
                     [flag, "--no-git", "--exit", "--yes"], input=DummyInput(), output=DummyOutput()
                 )
@@ -71,14 +71,14 @@ class TestDeprecated(TestCase):
                 self.assertIn("deprecated", warning_msg)
                 self.assertIn("use --model", warning_msg.lower())
 
-    @patch("aider.io.InputOutput.tool_warning")
-    @patch("aider.io.InputOutput.offer_url")
+    @patch("cecli.io.InputOutput.tool_warning")
+    @patch("cecli.io.InputOutput.offer_url")
     async def test_model_alias_in_warning(self, mock_offer_url, mock_tool_warning):
         # Prevent URL launches during tests
         mock_offer_url.return_value = False
         # Test that the warning uses the model alias if available
-        with patch("aider.models.MODEL_ALIASES", {"gpt4": "gpt-4-0613"}):
-            with patch("aider.models.Model"):
+        with patch("cecli.models.MODEL_ALIASES", {"gpt4": "gpt-4-0613"}):
+            with patch("cecli.models.Model"):
                 main(
                     ["--4", "--no-git", "--exit", "--yes"], input=DummyInput(), output=DummyOutput()
                 )

@@ -24,11 +24,11 @@ load_dotenv()
 
 BOT_SUFFIX = """
 
-Note: [A bot script](https://github.com/Aider-AI/aider/blob/main/scripts/issues.py) made these updates to the issue.
+Note: [A bot script](https://github.com/Aider-AI/cecli/blob/main/scripts/issues.py) made these updates to the issue.
 """  # noqa
 
 DUPLICATE_COMMENT = (
-    """Thanks for trying aider and filing this issue.
+    """Thanks for trying cecli and filing this issue.
 
 This looks like a duplicate of #{oldest_issue_number}. Please see the comments there for more information, and feel free to continue the discussion within that issue.
 
@@ -48,14 +48,14 @@ CLOSE_STALE_COMMENT = (
 
 CLOSE_FIXED_ENHANCEMENT_COMMENT = (
     """I'm closing this enhancement request since it has been marked as 'fixed' for over """
-    """3 weeks. The requested feature should now be available in recent versions of aider.\n\n"""
+    """3 weeks. The requested feature should now be available in recent versions of cecli.\n\n"""
     """If you find that this enhancement is still needed, please feel free to reopen this """
     """issue or create a new one.""" + BOT_SUFFIX
 )
 
 CLOSE_FIXED_BUG_COMMENT = (
     """I'm closing this bug report since it has been marked as 'fixed' for over """
-    """3 weeks. This issue should be resolved in recent versions of aider.\n\n"""
+    """3 weeks. This issue should be resolved in recent versions of cecli.\n\n"""
     """If you find that this bug is still present, please feel free to reopen this """
     """issue or create a new one with steps to reproduce.""" + BOT_SUFFIX
 )
@@ -63,7 +63,7 @@ CLOSE_FIXED_BUG_COMMENT = (
 # GitHub API configuration
 GITHUB_API_URL = "https://api.github.com"
 REPO_OWNER = "dwash96"
-REPO_NAME = "aider-ce"
+REPO_NAME = "cecli"
 TOKEN = os.getenv("GITHUB_TOKEN")
 
 headers = {"Authorization": f"token {TOKEN}", "Accept": "application/vnd.github.v3+json"}

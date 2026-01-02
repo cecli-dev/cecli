@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from aider.models import ModelInfoManager
+from cecli.models import ModelInfoManager
 
 
 class TestModelInfoManager(TestCase):

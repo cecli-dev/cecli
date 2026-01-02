@@ -1,4 +1,4 @@
-from aider.scrape import Scraper
+from cecli.scrape import Scraper
 
 
 class DummyIO:
@@ -56,7 +56,7 @@ async def test_commands_web_disable_playwright(monkeypatch):
     """
     Test that Commands.cmd_web does not emit a misleading warning when --disable-playwright is set.
     """
-    from aider.commands import Commands
+    from cecli.commands import Commands
 
     # Dummy IO to capture outputs and warnings
     class DummyIO:
@@ -122,7 +122,7 @@ async def test_commands_web_disable_playwright(monkeypatch):
         async def scrape(self, url):
             return "dummy content"
 
-    monkeypatch.setattr("aider.scrape.Scraper", DummyScraper)
+    monkeypatch.setattr("cecli.scrape.Scraper", DummyScraper)
 
     io = DummyIO()
     coder = DummyCoder()

@@ -1,9 +1,5 @@
 name: Windows Check PyPI Version
 
-# Check to be sure `pip install aider-chat` installs the most recently published version on Windows.
-# If dependencies get yanked, it may render the latest version uninstallable.
-# See https://github.com/Aider-AI/aider/issues/3699 for example.
-
 on:
   schedule:
     # Run once a day at 1 AM UTC (offset from Ubuntu check)
@@ -29,22 +25,22 @@ jobs:
       - name: Install aider-ce
         run: pip install aider-ce
 
-      - name: Get installed aider version
+      - name: Get installed cecli version
         id: installed_version
         run: |
-          Write-Host "Running 'aider --version'..."
-          $aider_version_output = aider-ce --version
+          Write-Host "Running 'cecli --version'..."
+          $cecli_version_output = aider-ce --version
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "Error: 'aider --version' command failed."
+            Write-Error "Error: 'cecli --version' command failed."
             exit 1
           }
-          Write-Host "Raw aider --version output: $aider_version_output"
+          Write-Host "Raw cecli --version output: $cecli_version_output"
 
           # Extract version number (format X.Y.Z) using PowerShell regex
-          $match = [regex]::Match($aider_version_output, '\d+\.\d+\.\d+')
+          $match = [regex]::Match($cecli_version_output, '\d+\.\d+\.\d+')
 
           if (-not $match.Success) {
-            Write-Error "Error: Could not extract version number using regex '\d+\.\d+\.\d+' from output: $aider_version_output"
+            Write-Error "Error: Could not extract version number using regex '\d+\.\d+\.\d+' from output: $cecli_version_output"
             exit 1
           }
           $version_num = $match.Value
@@ -84,7 +80,7 @@ jobs:
           Write-Host "Installed version: ${{ steps.installed_version.outputs.version }}"
           Write-Host "Latest tag version: ${{ steps.latest_tag.outputs.tag }}"
           if ("${{ steps.installed_version.outputs.version }}" -ne "${{ steps.latest_tag.outputs.tag }}") {
-            Write-Error "Error: Installed aider version (${{ steps.installed_version.outputs.version }}) does not match the latest tag (${{ steps.latest_tag.outputs.tag }})."
+            Write-Error "Error: Installed cecli version (${{ steps.installed_version.outputs.version }}) does not match the latest tag (${{ steps.latest_tag.outputs.tag }})."
             exit 1
           }
           Write-Host "Versions match."

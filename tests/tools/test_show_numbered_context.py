@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from aider.tools import show_numbered_context
+from cecli.tools import show_numbered_context
 
 
 class DummyIO:
@@ -91,8 +91,8 @@ def test_conflicting_pattern_and_line_number_raise(coder_with_file):
 
 
 def test_target_symbol_empty_string_treated_as_missing():
-    from aider.tools.utils import helpers
-    from aider.tools.utils.helpers import ToolError
+    from cecli.tools.utils import helpers
+    from cecli.tools.utils.helpers import ToolError
 
     with pytest.raises(ToolError, match="Must specify either target_symbol or start_pattern"):
         helpers.determine_line_range(

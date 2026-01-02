@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from imgcat import imgcat
 from matplotlib import rc
 
-from aider.dump import dump  # noqa: F401
+from cecli.dump import dump  # noqa: F401
 
 
 def plot_swe_bench(data_file, is_lite):
@@ -52,13 +52,13 @@ def plot_swe_bench(data_file, is_lite):
         spine.set_linewidth(0.5)
 
     if is_lite:
-        colors = ["#17965A" if "Aider" in model else "#b3d1e6" for model in models]
+        colors = ["#17965A" if "cecli" in model else "#b3d1e6" for model in models]
     else:
-        colors = ["#1A75C2" if "Aider" in model else "#b3d1e6" for model in models]
+        colors = ["#1A75C2" if "cecli" in model else "#b3d1e6" for model in models]
 
     bars = []
     for model, pass_rate, color in zip(models, pass_rates, colors):
-        alpha = 0.9 if "Aider" in model else 0.3
+        alpha = 0.9 if "cecli" in model else 0.3
         hatch = ""
         # if is_lite:
         #    hatch = "///" if "(570)" in model else ""
@@ -66,15 +66,15 @@ def plot_swe_bench(data_file, is_lite):
         bars.append(bar[0])
 
     for label in ax.get_xticklabels():
-        if "Aider" in str(label):
+        if "cecli" in str(label):
             label.set_fontfamily("Helvetica Bold")
 
     for model, bar in zip(models, bars):
         yval = bar.get_height()
         y = yval - 1
         va = "top"
-        color = "#eee" if "Aider" in model else "#555"
-        fontfamily = "Helvetica Bold" if "Aider" in model else "Helvetica"
+        color = "#eee" if "cecli" in model else "#555"
+        fontfamily = "Helvetica Bold" if "cecli" in model else "Helvetica"
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             y,
@@ -92,7 +92,7 @@ def plot_swe_bench(data_file, is_lite):
         yval = bar.get_height()
         y = yval - 2.5
         va = "top"
-        color = "#eee" if "Aider" in model else "#555"
+        color = "#eee" if "cecli" in model else "#555"
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             y,

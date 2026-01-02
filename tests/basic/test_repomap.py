@@ -2,21 +2,21 @@ import difflib
 import os
 import re
 import time
-import unittest
 from pathlib import Path
 
 import git
+import pytest
 
-from aider.dump import dump  # noqa: F401
-from aider.io import InputOutput
-from aider.models import Model
-from aider.repomap import RepoMap
-from aider.utils import GitTemporaryDirectory, IgnorantTemporaryDirectory
+from cecli.dump import dump  # noqa: F401
+from cecli.io import InputOutput
+from cecli.repomap import RepoMap
+from cecli.utils import GitTemporaryDirectory, IgnorantTemporaryDirectory
 
 
-class TestRepoMap(unittest.TestCase):
-    def setUp(self):
-        self.GPT35 = Model("gpt-3.5-turbo")
+class TestRepoMap:
+    @pytest.fixture(autouse=True)
+    def setup(self, gpt35_model):
+        self.GPT35 = gpt35_model
 
     def test_get_repo_map(self):
         # Create a temporary directory with sample files for testing
@@ -38,10 +38,10 @@ class TestRepoMap(unittest.TestCase):
             result = repo_map.get_repo_map([], other_files)
 
             # Check if the result contains the expected tags map
-            self.assertIn("test_file1.py", result)
-            self.assertIn("test_file2.py", result)
-            self.assertIn("test_file3.md", result)
-            self.assertIn("test_file4.json", result)
+            assert "test_file1.py" in result
+            assert "test_file2.py" in result
+            assert "test_file3.md" in result
+            assert "test_file4.json" in result
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -78,9 +78,9 @@ class TestRepoMap(unittest.TestCase):
             # Get initial repo map
             initial_map = repo_map.get_repo_map([], other_files)
             dump(initial_map)
-            self.assertIn("function1", initial_map)
-            self.assertIn("function2", initial_map)
-            self.assertIn("function3", initial_map)
+            assert "function1" in initial_map
+            assert "function2" in initial_map
+            assert "function3" in initial_map
 
             # Add a new function to file1.py
             with open(os.path.join(temp_dir, "file1.py"), "a") as f:
@@ -88,16 +88,14 @@ class TestRepoMap(unittest.TestCase):
 
             # Get another repo map
             second_map = repo_map.get_repo_map([], other_files)
-            self.assertEqual(
-                initial_map, second_map, "RepoMap should not change with refresh='files'"
-            )
+            assert initial_map == second_map, "RepoMap should not change with refresh='files'"
 
             other_files = [
                 os.path.join(temp_dir, "file1.py"),
                 os.path.join(temp_dir, "file2.py"),
             ]
             second_map = repo_map.get_repo_map([], other_files)
-            self.assertIn("functionNEW", second_map)
+            assert "functionNEW" in second_map
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -137,9 +135,9 @@ class TestRepoMap(unittest.TestCase):
 
             # Get initial repo map
             initial_map = repo_map.get_repo_map(chat_files, other_files)
-            self.assertIn("function1", initial_map)
-            self.assertIn("function2", initial_map)
-            self.assertNotIn("functionNEW", initial_map)
+            assert "function1" in initial_map
+            assert "function2" in initial_map
+            assert "functionNEW" not in initial_map
 
             # Add a new function to file1.py
             with open(os.path.join(temp_dir, "file1.py"), "a") as f:
@@ -147,14 +145,12 @@ class TestRepoMap(unittest.TestCase):
 
             # Get another repo map without force_refresh
             second_map = repo_map.get_repo_map(chat_files, other_files)
-            self.assertEqual(
-                initial_map, second_map, "RepoMap should not change without force_refresh"
-            )
+            assert initial_map == second_map, "RepoMap should not change without force_refresh"
 
             # Get a new repo map with force_refresh
             final_map = repo_map.get_repo_map(chat_files, other_files, force_refresh=True)
-            self.assertIn("functionNEW", final_map)
-            self.assertNotEqual(initial_map, final_map, "RepoMap should change with force_refresh")
+            assert "functionNEW" in final_map
+            assert initial_map != final_map, "RepoMap should change with force_refresh"
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -204,11 +200,11 @@ print(my_function(3, 4))
             result = repo_map.get_repo_map([], other_files)
 
             # Check if the result contains the expected tags map with identifiers
-            self.assertIn("test_file_with_identifiers.py", result)
-            self.assertIn("MyClass", result)
-            self.assertIn("my_method", result)
-            self.assertIn("my_function", result)
-            self.assertIn("test_file_pass.py", result)
+            assert "test_file_with_identifiers.py" in result
+            assert "MyClass" in result
+            assert "my_method" in result
+            assert "my_function" in result
+            assert "test_file_pass.py" in result
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -238,7 +234,7 @@ print(my_function(3, 4))
 
             # Check if the result contains each specific file in the expected tags map without ctags
             for file in test_files:
-                self.assertIn(file, result)
+                assert file in result
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -265,10 +261,10 @@ print(my_function(3, 4))
             dump(result)
 
             # Check if the result contains the expected tags map
-            self.assertNotIn("test_file1.py", result)
-            self.assertNotIn("test_file2.py", result)
-            self.assertIn("test_file3.md", result)
-            self.assertIn("test_file4.json", result)
+            assert "test_file1.py" not in result
+            assert "test_file2.py" not in result
+            assert "test_file3.md" in result
+            assert "test_file4.json" in result
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -297,7 +293,7 @@ class MyClass:
 
             result = repo_map.get_repo_map([], other_files)
 
-            self.assertIn(method_name, result)
+            assert method_name in result
 
             del repo_map
 
@@ -325,20 +321,16 @@ class MyClass:
 
             result = repo_map.get_repo_map([], other_files)
 
-            self.assertIn(test_file_name_100_chars, result)
-            self.assertNotIn(method_name, result)
+            assert test_file_name_100_chars in result
+            assert method_name not in result
 
             del repo_map
 
 
-class TestRepoMapTypescript(unittest.TestCase):
-    def setUp(self):
-        self.GPT35 = Model("gpt-3.5-turbo")
-
-
-class TestRepoMapAllLanguages(unittest.TestCase):
-    def setUp(self):
-        self.GPT35 = Model("gpt-3.5-turbo")
+class TestRepoMapAllLanguages:
+    @pytest.fixture(autouse=True)
+    def setup(self, gpt35_model):
+        self.GPT35 = gpt35_model
         self.fixtures_dir = Path(__file__).parent.parent / "fixtures" / "languages"
 
     def test_language_c(self):
@@ -463,7 +455,7 @@ class TestRepoMapAllLanguages(unittest.TestCase):
         fixture_dir = self.fixtures_dir / lang
         filename = f"test.{key}"
         fixture_path = fixture_dir / filename
-        self.assertTrue(fixture_path.exists(), f"Fixture file missing for {lang}: {fixture_path}")
+        assert fixture_path.exists(), f"Fixture file missing for {lang}: {fixture_path}"
 
         # Read the fixture content
         with open(fixture_path, "r", encoding="utf-8") as f:
@@ -481,17 +473,13 @@ class TestRepoMapAllLanguages(unittest.TestCase):
             dump(result)
 
             print(result)
-            self.assertGreater(len(result.strip().splitlines()), 1)
+            assert len(result.strip().splitlines()) > 1
 
             # Check if the result contains all the expected files and symbols
-            self.assertIn(
-                filename, result, f"File for language {lang} not found in repo map: {result}"
-            )
-            self.assertIn(
-                symbol,
-                result,
-                f"Key symbol '{symbol}' for language {lang} not found in repo map: {result}",
-            )
+            assert filename in result, f"File for language {lang} not found in repo map: {result}"
+            assert (
+                symbol in result
+            ), f"Key symbol '{symbol}' for language {lang} not found in repo map: {result}"
 
             # close the open cache files, so Windows won't error
             del repo_map
@@ -506,8 +494,8 @@ class TestRepoMapAllLanguages(unittest.TestCase):
         )
 
         # Ensure the paths exist
-        self.assertTrue(sample_code_base.exists(), "Sample code base directory not found")
-        self.assertTrue(expected_map_file.exists(), "Expected repo map file not found")
+        assert sample_code_base.exists(), "Sample code base directory not found"
+        assert expected_map_file.exists(), "Expected repo map file not found"
 
         # Initialize RepoMap with the sample code base as root
         io = InputOutput()
@@ -553,11 +541,7 @@ class TestRepoMapAllLanguages(unittest.TestCase):
                 )
             )
             diff_str = "\n".join(diff)
-            self.fail(f"Generated map differs from expected map:\n{diff_str}")
+            pytest.fail(f"Generated map differs from expected map:\n{diff_str}")
 
         # If we reach here, the maps are identical
-        self.assertEqual(generated_map_str, expected_map, "Generated map matches expected map")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert generated_map_str == expected_map, "Generated map matches expected map"

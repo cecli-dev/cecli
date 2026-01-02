@@ -1,26 +1,28 @@
 """
-Tests for aider/helpers/skills.py
+Tests for cecli/helpers/skills.py
 """
 
 import os
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from aider.helpers.skills import SkillsManager
+import pytest
+
+from cecli.helpers.skills import SkillsManager
 
 
-class TestSkills(unittest.TestCase):
+class TestSkills:
     """Test suite for skills helper module."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def setup(self):
         """Set up test fixtures."""
+        import shutil
+
         self.temp_dir = tempfile.mkdtemp()
 
-    def tearDown(self):
-        """Clean up test fixtures."""
-        import shutil
+        yield
 
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
@@ -29,18 +31,18 @@ class TestSkills(unittest.TestCase):
         """Test that SkillsManager initializes correctly."""
         # Test with empty directory paths
         manager = SkillsManager([])
-        self.assertEqual(manager.directory_paths, [])
-        self.assertIsNone(manager.include_list)
-        self.assertEqual(manager.exclude_list, set())
-        self.assertIsNone(manager.git_root)
+        assert manager.directory_paths == []
+        assert manager.include_list is None
+        assert manager.exclude_list == set()
+        assert manager.git_root is None
         # Test _loaded_skills is initialized as empty set
-        self.assertEqual(manager._loaded_skills, set())
+        assert manager._loaded_skills == set()
 
         # Test with directory paths
         manager = SkillsManager(["/tmp/test"])
-        self.assertEqual(len(manager.directory_paths), 1)
-        self.assertIsInstance(manager.directory_paths[0], Path)
-        self.assertEqual(manager._loaded_skills, set())
+        assert len(manager.directory_paths) == 1
+        assert isinstance(manager.directory_paths[0], Path)
+        assert manager._loaded_skills == set()
 
         # Test with include/exclude lists
         manager = SkillsManager(
@@ -49,10 +51,10 @@ class TestSkills(unittest.TestCase):
             exclude_list=["skill3"],
             git_root="/tmp",
         )
-        self.assertEqual(manager.include_list, {"skill1", "skill2"})
-        self.assertEqual(manager.exclude_list, {"skill3"})
-        self.assertEqual(manager.git_root, Path("/tmp").expanduser().resolve())
-        self.assertEqual(manager._loaded_skills, set())
+        assert manager.include_list == {"skill1", "skill2"}
+        assert manager.exclude_list == {"skill3"}
+        assert manager.git_root == Path("/tmp").expanduser().resolve()
+        assert manager._loaded_skills == set()
 
     def test_create_and_parse_skill(self):
         """Test creating a skill and parsing its metadata."""
@@ -91,34 +93,32 @@ These are the main instructions.
         manager = SkillsManager([self.temp_dir])
         skill_content = manager.get_skill_content("test-skill")
 
-        self.assertIsNotNone(skill_content)
-        self.assertEqual(skill_content.metadata.name, "test-skill")
-        self.assertEqual(skill_content.metadata.description, "A test skill")
-        self.assertEqual(
-            skill_content.instructions, "# Test Skill\n\nThese are the main instructions."
-        )
+        assert skill_content is not None
+        assert skill_content.metadata.name == "test-skill"
+        assert skill_content.metadata.description == "A test skill"
+        assert skill_content.instructions == "# Test Skill\n\nThese are the main instructions."
 
         # Check references - should be Path objects
-        self.assertEqual(len(skill_content.references), 1)
-        self.assertIn("api.md", skill_content.references)
-        self.assertIsInstance(skill_content.references["api.md"], Path)
-        self.assertEqual(skill_content.references["api.md"].name, "api.md")
+        assert len(skill_content.references) == 1
+        assert "api.md" in skill_content.references
+        assert isinstance(skill_content.references["api.md"], Path)
+        assert skill_content.references["api.md"].name == "api.md"
 
         # Check scripts - should be Path objects
-        self.assertEqual(len(skill_content.scripts), 1)
-        self.assertIn("setup.sh", skill_content.scripts)
-        self.assertIsInstance(skill_content.scripts["setup.sh"], Path)
-        self.assertEqual(skill_content.scripts["setup.sh"].name, "setup.sh")
+        assert len(skill_content.scripts) == 1
+        assert "setup.sh" in skill_content.scripts
+        assert isinstance(skill_content.scripts["setup.sh"], Path)
+        assert skill_content.scripts["setup.sh"].name == "setup.sh"
 
         # Check assets - should be Path objects
-        self.assertEqual(len(skill_content.assets), 1)
-        self.assertIn("icon.png", skill_content.assets)
-        self.assertIsInstance(skill_content.assets["icon.png"], Path)
-        self.assertEqual(skill_content.assets["icon.png"].name, "icon.png")
+        assert len(skill_content.assets) == 1
+        assert "icon.png" in skill_content.assets
+        assert isinstance(skill_content.assets["icon.png"], Path)
+        assert skill_content.assets["icon.png"].name == "icon.png"
 
         # Test that skill was NOT added to _loaded_skills (only load_skill() does that)
-        self.assertNotIn("test-skill", manager._loaded_skills)
-        self.assertEqual(manager._loaded_skills, set())
+        assert "test-skill" not in manager._loaded_skills
+        assert manager._loaded_skills == set()
 
     def test_skill_summary_loader(self):
         """Test the skill_summary_loader function."""
@@ -141,40 +141,40 @@ Test content.
         summary = SkillsManager.skill_summary_loader([self.temp_dir])
 
         # Check that the summary contains expected information
-        self.assertIn("Found 1 skill(s)", summary)
-        self.assertIn("Skill: test-skill", summary)
-        self.assertIn("Description: A test skill for validation", summary)
+        assert "Found 1 skill(s)" in summary
+        assert "Skill: test-skill" in summary
+        assert "Description: A test skill for validation" in summary
 
         # Test with include list
         summary = SkillsManager.skill_summary_loader([self.temp_dir], include_list=["test-skill"])
-        self.assertIn("Found 1 skill(s)", summary)
+        assert "Found 1 skill(s)" in summary
 
         # Test with exclude list
         summary = SkillsManager.skill_summary_loader([self.temp_dir], exclude_list=["test-skill"])
-        self.assertIn("No skills found", summary)
+        assert "No skills found" in summary
 
     def test_resolve_skill_directories(self):
         """Test the resolve_skill_directories function."""
         # Test with absolute path
         paths = SkillsManager.resolve_skill_directories([self.temp_dir])
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0], Path(self.temp_dir).resolve())
+        assert len(paths) == 1
+        assert paths[0] == Path(self.temp_dir).resolve()
 
         # Test with relative path and git root
         paths = SkillsManager.resolve_skill_directories(["./test-dir"], git_root=self.temp_dir)
         # Should not resolve because directory doesn't exist
-        self.assertEqual(len(paths), 0)
+        assert len(paths) == 0
 
         # Create the directory and test again
         test_dir = Path(self.temp_dir) / "test-dir"
         test_dir.mkdir()
         paths = SkillsManager.resolve_skill_directories(["./test-dir"], git_root=self.temp_dir)
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(paths[0], test_dir.resolve())
+        assert len(paths) == 1
+        assert paths[0] == test_dir.resolve()
 
         # Test with non-existent path
         paths = SkillsManager.resolve_skill_directories(["/non-existent/path"])
-        self.assertEqual(len(paths), 0)
+        assert len(paths) == 0
 
     def test_remove_skill(self):
         """Test the remove_skill instance method."""
@@ -205,17 +205,17 @@ Test content.
 
         # First add the skill
         result = manager.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' loaded successfully", result)
-        self.assertIn("test-skill", manager._loaded_skills)
+        assert "Skill 'test-skill' loaded successfully" in result
+        assert "test-skill" in manager._loaded_skills
 
         # Test removing a skill that exists
         result = manager.remove_skill("test-skill")
-        self.assertEqual("Skill 'test-skill' removed successfully.", result)
-        self.assertNotIn("test-skill", manager._loaded_skills)
+        assert result == "Skill 'test-skill' removed successfully."
+        assert "test-skill" not in manager._loaded_skills
 
         # Test removing the same skill again (should say not loaded)
         result = manager.remove_skill("test-skill")
-        self.assertEqual("Skill 'test-skill' is not loaded.", result)
+        assert result == "Skill 'test-skill' is not loaded."
 
         # Test removing a skill not in include list (but not loaded)
         mock_coder2 = MagicMock()
@@ -225,12 +225,12 @@ Test content.
 
         manager2 = SkillsManager([self.temp_dir], coder=mock_coder2)
         result = manager2.remove_skill("test-skill")
-        self.assertEqual("Skill 'test-skill' is not loaded.", result)
+        assert result == "Skill 'test-skill' is not loaded."
 
         # Test without coder reference
         manager_no_coder = SkillsManager([self.temp_dir])
         result = manager_no_coder.remove_skill("test-skill")
-        self.assertEqual("Error: Skills manager not connected to a coder instance.", result)
+        assert result == "Error: Skills manager not connected to a coder instance."
 
         # Test not in agent mode
         mock_coder3 = MagicMock()
@@ -240,7 +240,7 @@ Test content.
 
         manager3 = SkillsManager([self.temp_dir], coder=mock_coder3)
         result = manager3.remove_skill("test-skill")
-        self.assertEqual("Error: Skill removal is only available in agent mode.", result)
+        assert result == "Error: Skill removal is only available in agent mode."
 
         # Test with empty skill name
         mock_coder4 = MagicMock()
@@ -250,7 +250,7 @@ Test content.
 
         manager4 = SkillsManager([self.temp_dir], coder=mock_coder4)
         result = manager4.remove_skill("")
-        self.assertEqual("Error: Skill name is required.", result)
+        assert result == "Error: Skill name is required."
 
     def test_load_skill(self):
         """Test the add_skill instance method."""
@@ -281,19 +281,17 @@ Test content.
 
         # Test adding a skill that exists
         result = manager.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' loaded successfully", result)
-        self.assertIn("test-skill", manager._loaded_skills)
+        assert "Skill 'test-skill' loaded successfully" in result
+        assert "test-skill" in manager._loaded_skills
 
         # Test adding the same skill again (should say already loaded)
         result = manager.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' is already loaded", result)
+        assert "Skill 'test-skill' is already loaded" in result
 
         # Test adding a non-existent skill
         result = manager.load_skill("non-existent-skill")
-        self.assertIn(
-            "Error: Skill 'non-existent-skill' not found in configured directories.", result
-        )
-        self.assertNotIn("non-existent-skill", manager._loaded_skills)
+        assert "Error: Skill 'non-existent-skill' not found in configured directories." in result
+        assert "non-existent-skill" not in manager._loaded_skills
 
         # Test with skill in exclude list (should still work since add_skill doesn't check exclude list)
         mock_coder2 = MagicMock()
@@ -303,13 +301,13 @@ Test content.
 
         manager2 = SkillsManager([self.temp_dir], coder=mock_coder2)
         result = manager2.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' loaded successfully", result)
-        self.assertIn("test-skill", manager2._loaded_skills)
+        assert "Skill 'test-skill' loaded successfully" in result
+        assert "test-skill" in manager2._loaded_skills
 
         # Test without coder reference
         manager_no_coder = SkillsManager([self.temp_dir])
         result = manager_no_coder.load_skill("test-skill")
-        self.assertEqual("Error: Skills manager not connected to a coder instance.", result)
+        assert result == "Error: Skills manager not connected to a coder instance."
 
         # Test not in agent mode
         mock_coder3 = MagicMock()
@@ -319,7 +317,7 @@ Test content.
 
         manager3 = SkillsManager([self.temp_dir], coder=mock_coder3)
         result = manager3.load_skill("test-skill")
-        self.assertEqual("Error: Skill loading is only available in agent mode.", result)
+        assert result == "Error: Skill loading is only available in agent mode."
 
     def test_get_skill_content_does_not_add_to_loaded_skills(self):
         """Test that get_skill_content() does NOT add to _loaded_skills."""
@@ -354,27 +352,27 @@ Test content.
         manager = SkillsManager([self.temp_dir])
 
         # Test initial state
-        self.assertEqual(manager._loaded_skills, set())
+        assert manager._loaded_skills == set()
 
         # Get first skill content
         skill1 = manager.get_skill_content("skill1")
-        self.assertIsNotNone(skill1)
-        self.assertEqual(manager._loaded_skills, set())  # Should NOT be added
+        assert skill1 is not None
+        assert manager._loaded_skills == set()  # Should NOT be added
 
         # Get second skill content
         skill2 = manager.get_skill_content("skill2")
-        self.assertIsNotNone(skill2)
-        self.assertEqual(manager._loaded_skills, set())  # Should NOT be added
+        assert skill2 is not None
+        assert manager._loaded_skills == set()  # Should NOT be added
 
         # Get non-existent skill (should not add to _loaded_skills)
         skill3 = manager.get_skill_content("nonexistent")
-        self.assertIsNone(skill3)
-        self.assertEqual(manager._loaded_skills, set())
+        assert skill3 is None
+        assert manager._loaded_skills == set()
 
         # Get same skill again (should not add to _loaded_skills)
         skill1_again = manager.get_skill_content("skill1")
-        self.assertIsNotNone(skill1_again)
-        self.assertEqual(manager._loaded_skills, set())
+        assert skill1_again is not None
+        assert manager._loaded_skills == set()
 
     def test_get_skills_content_only_returns_loaded_skills(self):
         """Test that get_skills_content() only returns skills in _loaded_skills."""
@@ -410,7 +408,7 @@ Test content.
 
         # Test with no loaded skills
         content = manager.get_skills_content()
-        self.assertIsNone(content)
+        assert content is None
 
         # Load only skill1 via load_skill() (requires mock coder)
         mock_coder = MagicMock()
@@ -420,19 +418,19 @@ Test content.
         manager.coder = mock_coder
 
         result = manager.load_skill("skill1")
-        self.assertIn("Skill 'skill1' loaded successfully", result)
+        assert "Skill 'skill1' loaded successfully" in result
         content = manager.get_skills_content()
-        self.assertIsNotNone(content)
-        self.assertIn("skill1", content)
-        self.assertNotIn("skill2", content)
+        assert content is not None
+        assert "skill1" in content
+        assert "skill2" not in content
 
         # Load skill2 as well
         result = manager.load_skill("skill2")
-        self.assertIn("Skill 'skill2' loaded successfully", result)
+        assert "Skill 'skill2' loaded successfully" in result
         content = manager.get_skills_content()
-        self.assertIsNotNone(content)
-        self.assertIn("skill1", content)
-        self.assertIn("skill2", content)
+        assert content is not None
+        assert "skill1" in content
+        assert "skill2" in content
 
     def test_add_skill_updates_loaded_skills(self):
         """Test that load_skill() updates _loaded_skills."""
@@ -460,17 +458,17 @@ Test content.
         manager = SkillsManager([self.temp_dir], coder=mock_coder)
 
         # Test initial state
-        self.assertEqual(manager._loaded_skills, set())
+        assert manager._loaded_skills == set()
 
         # Add skill via load_skill() (simulating /load-skill command)
         result = manager.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' loaded successfully", result)
-        self.assertIn("test-skill", manager._loaded_skills)
+        assert "Skill 'test-skill' loaded successfully" in result
+        assert "test-skill" in manager._loaded_skills
 
         # Test get_skills_content returns the skill
         content = manager.get_skills_content()
-        self.assertIsNotNone(content)
-        self.assertIn("test-skill", content)
+        assert content is not None
+        assert "test-skill" in content
 
     def test_remove_skill_updates_loaded_skills(self):
         """Test that remove_skill() updates _loaded_skills."""
@@ -497,17 +495,17 @@ Test content.
         # Create skills manager and load the skill first via load_skill()
         manager = SkillsManager([self.temp_dir], coder=mock_coder)
         result = manager.load_skill("test-skill")
-        self.assertIn("Skill 'test-skill' loaded successfully", result)
-        self.assertIn("test-skill", manager._loaded_skills)
+        assert "Skill 'test-skill' loaded successfully" in result
+        assert "test-skill" in manager._loaded_skills
 
         # Remove the skill
         result = manager.remove_skill("test-skill")
-        self.assertEqual("Skill 'test-skill' removed successfully.", result)
-        self.assertNotIn("test-skill", manager._loaded_skills)
+        assert result == "Skill 'test-skill' removed successfully."
+        assert "test-skill" not in manager._loaded_skills
 
         # Test get_skills_content returns None
         content = manager.get_skills_content()
-        self.assertIsNone(content)
+        assert content is None
 
     def test_skill_not_loaded_when_get_skill_content_fails(self):
         """Test that skill is not added to _loaded_skills when get_skill_content() fails."""
@@ -525,13 +523,9 @@ No frontmatter, so get_skill_content() should fail.
 
         # Try to get invalid skill content
         skill = manager.get_skill_content("invalid-skill")
-        self.assertIsNone(skill)
-        self.assertEqual(manager._loaded_skills, set())
+        assert skill is None
+        assert manager._loaded_skills == set()
 
         # Test get_skills_content returns None
         content = manager.get_skills_content()
-        self.assertIsNone(content)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert content is None

@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from aider.tools import insert_block
+from cecli.tools import insert_block
 
 
 class DummyIO:
@@ -46,7 +46,7 @@ class DummyCoder:
         self.repo = SimpleNamespace(root=str(root))
         self.io = DummyIO()
         self.change_tracker = DummyChangeTracker()
-        self.aider_edited_files = set()
+        self.coder_edited_files = set()
         self.files_edited_by_tools = set()
         self.abs_read_only_fnames = set()
         self.abs_fnames = set()

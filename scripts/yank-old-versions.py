@@ -37,7 +37,7 @@ def get_versions_supporting_python38_or_lower(package_name):
 
 
 def main():
-    package_name = "aider-chat"  # Replace with your package name
+    package_name = "cecli-chat"  # Replace with your package name
     compatible_versions = get_versions_supporting_python38_or_lower(package_name)
 
     print(f"Versions of {package_name} compatible with Python 3.8 or lower:")

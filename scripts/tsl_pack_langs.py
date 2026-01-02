@@ -44,7 +44,7 @@ def main():
     lang_def_path = "../../tmp/tree-sitter-language-pack/sources/language_definitions.json"
 
     # Path to store the tags.scm files
-    output_dir = "aider/queries/tree-sitter-language-pack"
+    output_dir = "cecli/queries/tree-sitter-language-pack"
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)

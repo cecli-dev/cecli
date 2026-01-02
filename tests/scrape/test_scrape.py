@@ -1,15 +1,75 @@
 import sys
-import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from aider.commands import Commands
-from aider.io import InputOutput
-from aider.scrape import Scraper
+import pytest
+
+from cecli.commands import Commands
+from cecli.io import InputOutput
+from cecli.scrape import Scraper
 
 
-class TestScrape(unittest.TestCase):
-    @patch("aider.scrape.Scraper.scrape_with_httpx")
-    @patch("aider.scrape.Scraper.scrape_with_playwright")
+class TestScrape:
+    @pytest.fixture
+    def commands(self):
+        io = InputOutput(yes=True)
+
+        class DummyCoder:
+            def __init__(self):
+                self.cur_messages = []
+                self.main_model = type(
+                    "M", (), {"edit_format": "code", "name": "dummy", "info": {}}
+                )()
+                self.tui = None
+                self.args = type("Args", (), {"disable_playwright": False})()
+
+            def get_rel_fname(self, fname):
+                return fname
+
+            def get_inchat_relative_files(self):
+                return []
+
+            def abs_root_path(self, fname):
+                return fname
+
+            def get_all_abs_files(self):
+                return []
+
+            def get_announcements(self):
+                return []
+
+        return Commands(io, DummyCoder())
+
+    @patch("cecli.commands.web.install_playwright")
+    @patch("cecli.commands.web.Scraper")
+    async def test_cmd_web_imports_playwright(
+        self, mock_scraper_class, mock_install_playwright, commands
+    ):
+        async def mock_install(*args, **kwargs):
+            sys.modules["playwright"] = MagicMock()
+            return True
+
+        mock_install_playwright.side_effect = mock_install
+        mock_scraper_instance = mock_scraper_class.return_value
+        mock_scraper_instance.scrape = AsyncMock(return_value="Scraped content")
+
+        commands.io.tool_error = MagicMock()
+
+        try:
+            result = await commands.do_run("web", "https://example.com", return_content=True)
+
+            assert result is not None
+            assert "Scraped content" in result
+
+            playwright_imported = "playwright" in sys.modules
+            assert playwright_imported, "Playwright should be importable after running cmd_web"
+
+            commands.io.tool_error.assert_not_called()
+        finally:
+            if "playwright" in sys.modules:
+                del sys.modules["playwright"]
+
+    @patch("cecli.scrape.Scraper.scrape_with_httpx")
+    @patch("cecli.scrape.Scraper.scrape_with_playwright")
     async def test_scrape_self_signed_ssl(self, mock_scrape_playwright, mock_scrape_httpx):
         # Test with SSL verification - playwright fails
         mock_scrape_playwright.return_value = (None, None)
@@ -18,7 +78,7 @@ class TestScrape(unittest.TestCase):
             print_error=MagicMock(), playwright_available=True, verify_ssl=True
         )
         result_verify = await scraper_verify.scrape("https://self-signed.badssl.com")
-        self.assertIsNone(result_verify)
+        assert result_verify is None
         scraper_verify.print_error.assert_called()
 
         # Test without SSL verification - playwright succeeds
@@ -30,61 +90,11 @@ class TestScrape(unittest.TestCase):
             print_error=MagicMock(), playwright_available=True, verify_ssl=False
         )
         result_no_verify = await scraper_no_verify.scrape("https://self-signed.badssl.com")
-        self.assertIsNotNone(result_no_verify)
-        self.assertIn("self-signed", result_no_verify)
+        assert result_no_verify is not None
+        assert "self-signed" in result_no_verify
         scraper_no_verify.print_error.assert_not_called()
 
-    def setUp(self):
-        self.io = InputOutput(yes=True)
-        self.commands = Commands(self.io, None)
-
-    @patch("aider.commands.install_playwright")
-    @patch("aider.commands.Scraper")
-    async def test_cmd_web_imports_playwright(self, mock_scraper_class, mock_install_playwright):
-        # Since install_playwright is mocked, we need to simulate its side effect
-        # of making the playwright module importable.
-        def mock_install(*args, **kwargs):
-            sys.modules["playwright"] = MagicMock()
-            return True
-
-        mock_install_playwright.side_effect = mock_install
-
-        mock_scraper_instance = mock_scraper_class.return_value
-        mock_scraper_instance.scrape.return_value = "Scraped content"
-
-        # Create a mock print_error function
-        mock_print_error = MagicMock()
-        self.commands.io.tool_error = mock_print_error
-
-        try:
-            # Run the cmd_web command
-            result = await self.commands.do_run("web", "https://example.com", return_content=True)
-
-            # Assert that the result contains some content
-            self.assertIsNotNone(result)
-            self.assertIn("Scraped content", result)
-
-            # Try to import playwright
-            try:
-                import playwright  # noqa: F401
-
-                playwright_imported = True
-            except ImportError:
-                playwright_imported = False
-
-            # Assert that playwright was successfully imported
-            self.assertTrue(
-                playwright_imported, "Playwright should be importable after running cmd_web"
-            )
-
-            # Assert that print_error was never called
-            mock_print_error.assert_not_called()
-        finally:
-            # Clean up sys.modules to avoid side effects on other tests
-            if "playwright" in sys.modules:
-                del sys.modules["playwright"]
-
-    @patch("aider.scrape.Scraper.scrape_with_playwright")
+    @patch("cecli.scrape.Scraper.scrape_with_playwright")
     async def test_scrape_actual_url_with_playwright(self, mock_scrape_playwright):
         # Create a Scraper instance with a mock print_error function
         mock_print_error = MagicMock()
@@ -100,8 +110,8 @@ class TestScrape(unittest.TestCase):
         result = await scraper.scrape("https://example.com")
 
         # Assert that the result contains expected content
-        self.assertIsNotNone(result)
-        self.assertIn("Example Domain", result)
+        assert result is not None
+        assert "Example Domain" in result
 
         # Assert that print_error was never called
         mock_print_error.assert_not_called()
@@ -125,14 +135,14 @@ class TestScrape(unittest.TestCase):
         scraper = Scraper(print_error=mock_print_error, playwright_available=True)
 
         # Mock the necessary objects and methods
-        scraper.scrape_with_playwright = MagicMock()
+        scraper.scrape_with_playwright = AsyncMock()
         scraper.scrape_with_playwright.return_value = (None, None)
 
         # Call the scrape method
         result = await scraper.scrape("https://example.com")
 
         # Assert that the result is None
-        self.assertIsNone(result)
+        assert result is None
 
         # Assert that print_error was called with the expected error message
         mock_print_error.assert_called_once_with(
@@ -147,7 +157,7 @@ class TestScrape(unittest.TestCase):
         result = await scraper.scrape("https://example.com")
 
         # Assert that the result is not None
-        self.assertIsNotNone(result)
+        assert result is not None
 
         # Assert that print_error was not called
         mock_print_error.assert_not_called()
@@ -158,13 +168,13 @@ class TestScrape(unittest.TestCase):
 
         # Mock the scrape_with_playwright method
         plain_text = "This is plain text content."
-        scraper.scrape_with_playwright = MagicMock(return_value=(plain_text, "text/plain"))
+        scraper.scrape_with_playwright = AsyncMock(return_value=(plain_text, "text/plain"))
 
         # Call the scrape method
         result = await scraper.scrape("https://example.com")
 
         # Assert that the result is the same as the input plain text
-        self.assertEqual(result, plain_text)
+        assert result == plain_text
 
     async def test_scrape_text_html(self):
         # Create a Scraper instance
@@ -172,7 +182,7 @@ class TestScrape(unittest.TestCase):
 
         # Mock the scrape_with_playwright method
         html_content = "<html><body><h1>Test</h1><p>This is HTML content.</p></body></html>"
-        scraper.scrape_with_playwright = MagicMock(return_value=(html_content, "text/html"))
+        scraper.scrape_with_playwright = AsyncMock(return_value=(html_content, "text/html"))
 
         # Mock the html_to_markdown method
         expected_markdown = "# Test\n\nThis is HTML content."
@@ -182,11 +192,7 @@ class TestScrape(unittest.TestCase):
         result = await scraper.scrape("https://example.com")
 
         # Assert that the result is the expected markdown
-        self.assertEqual(result, expected_markdown)
+        assert result == expected_markdown
 
         # Assert that html_to_markdown was called with the HTML content
         scraper.html_to_markdown.assert_called_once_with(html_content)
-
-
-if __name__ == "__main__":
-    unittest.main()

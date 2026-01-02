@@ -16,14 +16,14 @@ from google.oauth2 import service_account
 TOKENS_PER_WEEK = "15B"
 
 # Badge tooltip texts
-GITHUB_STARS_TOOLTIP = "Total number of GitHub stars the Aider project has received"
+GITHUB_STARS_TOOLTIP = "Total number of GitHub stars the cecli project has received"
 PYPI_DOWNLOADS_TOOLTIP = "Total number of installations via pip from PyPI"
-TOKENS_WEEKLY_TOOLTIP = "Number of tokens processed weekly by Aider users"
-OPENROUTER_TOOLTIP = "Aider's ranking among applications on the OpenRouter platform"
-SINGULARITY_TOOLTIP = "Percentage of the new code in Aider's last release written by Aider itself"
+TOKENS_WEEKLY_TOOLTIP = "Number of tokens processed weekly by cecli users"
+OPENROUTER_TOOLTIP = "cecli's ranking among applications on the OpenRouter platform"
+SINGULARITY_TOOLTIP = "Percentage of the new code in cecli's last release written by cecli itself"
 
 # Cache settings
-CACHE_DIR = os.path.expanduser("~/.cache/aider-badges")
+CACHE_DIR = os.path.expanduser("~/.cache/cecli-badges")
 CACHE_DURATION = 24 * 60 * 60  # 24 hours in seconds
 
 
@@ -85,7 +85,7 @@ def write_to_cache(package_name, downloads):
         return False
 
 
-def get_downloads_from_bigquery(credentials_path=None, package_name="aider-chat"):
+def get_downloads_from_bigquery(credentials_path=None, package_name="cecli-chat"):
     """
     Fetch download statistics for a package from Google BigQuery PyPI dataset
     Uses a 24-hour cache to avoid unnecessary API calls
@@ -151,7 +151,7 @@ def get_downloads_from_bigquery(credentials_path=None, package_name="aider-chat"
 
 
 def get_total_downloads(
-    api_key=None, package_name="aider-chat", use_bigquery=False, credentials_path=None
+    api_key=None, package_name="cecli-chat", use_bigquery=False, credentials_path=None
 ):
     """
     Fetch total downloads for a Python package
@@ -185,7 +185,7 @@ def get_total_downloads(
         sys.exit(1)
 
 
-def get_github_stars(repo="paul-gauthier/aider"):
+def get_github_stars(repo="paul-gauthier/cecli"):
     """
     Fetch the number of GitHub stars for a repository
     """
@@ -205,14 +205,14 @@ def get_github_stars(repo="paul-gauthier/aider"):
         return None
 
 
-def get_latest_release_aider_percentage():
+def get_latest_release_cecli_percentage():
     """
-    Get the percentage of code written by Aider in the LATEST release
+    Get the percentage of code written by cecli in the LATEST release
     from the blame.yml file
     """
     blame_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "aider",
+        "cecli",
         "website",
         "_data",
         "blame.yml",
@@ -245,7 +245,7 @@ def get_latest_release_aider_percentage():
                 continue
 
         if latest_release:
-            percentage = latest_release.get("aider_percentage", 0)
+            percentage = latest_release.get("cecli_percentage", 0)
             version = latest_release.get("end_tag", "unknown")
             return percentage, version
 
@@ -272,26 +272,26 @@ def format_number(number):
         return str(number)
 
 
-def generate_badges_md(downloads, stars, aider_percentage):
+def generate_badges_md(downloads, stars, cecli_percentage):
     """
     Generate markdown for badges with updated values
     """
     # Format downloads to 1 decimal place with M suffix
     downloads_formatted = format_number(downloads)
 
-    # Round aider percentage to whole number
-    aider_percent_rounded = round(aider_percentage)
+    # Round cecli percentage to whole number
+    cecli_percent_rounded = round(cecli_percentage)
 
-    markdown = f"""  <a href="https://github.com/Aider-AI/aider/stargazers"><img alt="GitHub Stars" title="{GITHUB_STARS_TOOLTIP}"
-src="https://img.shields.io/github/stars/Aider-AI/aider?style=flat-square&logo=github&color=f1c40f&labelColor=555555"/></a>
-  <a href="https://pypi.org/project/aider-chat/"><img alt="PyPI Downloads" title="{PYPI_DOWNLOADS_TOOLTIP}"
+    markdown = f"""  <a href="https://github.com/Aider-AI/cecli/stargazers"><img alt="GitHub Stars" title="{GITHUB_STARS_TOOLTIP}"
+src="https://img.shields.io/github/stars/Aider-AI/cecli?style=flat-square&logo=github&color=f1c40f&labelColor=555555"/></a>
+  <a href="https://pypi.org/project/cecli-chat/"><img alt="PyPI Downloads" title="{PYPI_DOWNLOADS_TOOLTIP}"
 src="https://img.shields.io/badge/📦%20Installs-{downloads_formatted}-2ecc71?style=flat-square&labelColor=555555"/></a>
   <img alt="Tokens per week" title="{TOKENS_WEEKLY_TOOLTIP}"
 src="https://img.shields.io/badge/📈%20Tokens%2Fweek-{TOKENS_PER_WEEK}-3498db?style=flat-square&labelColor=555555"/>
   <a href="https://openrouter.ai/#options-menu"><img alt="OpenRouter Ranking" title="{OPENROUTER_TOOLTIP}"
 src="https://img.shields.io/badge/🏆%20OpenRouter-Top%2020-9b59b6?style=flat-square&labelColor=555555"/></a>
-  <a href="https://aider.chat/HISTORY.html"><img alt="Singularity" title="{SINGULARITY_TOOLTIP}"
-src="https://img.shields.io/badge/🔄%20Singularity-{aider_percent_rounded}%25-e74c3c?style=flat-square&labelColor=555555"/></a>"""  # noqa
+  <a href="https://cecli.chat/HISTORY.html"><img alt="Singularity" title="{SINGULARITY_TOOLTIP}"
+src="https://img.shields.io/badge/🔄%20Singularity-{cecli_percent_rounded}%25-e74c3c?style=flat-square&labelColor=555555"/></a>"""  # noqa
 
     return markdown
 
@@ -323,13 +323,13 @@ def get_badges_md():
             sys.exit(1)
 
     # Get PyPI downloads for the default package
-    total_downloads = get_total_downloads(api_key, "aider-chat", use_bigquery, credentials_path)
+    total_downloads = get_total_downloads(api_key, "cecli-chat", use_bigquery, credentials_path)
 
     # Get GitHub stars for the default repo
-    stars = get_github_stars("paul-gauthier/aider")
+    stars = get_github_stars("paul-gauthier/cecli")
 
-    # Get Aider contribution percentage in latest release
-    percentage, _ = get_latest_release_aider_percentage()
+    # Get cecli contribution percentage in latest release
+    percentage, _ = get_latest_release_cecli_percentage()
 
     # Generate and return badges markdown
     return generate_badges_md(total_downloads, stars, percentage)
@@ -362,13 +362,13 @@ def get_badges_html():
             sys.exit(1)
 
     # Get PyPI downloads for the default package
-    total_downloads = get_total_downloads(api_key, "aider-chat", use_bigquery, credentials_path)
+    total_downloads = get_total_downloads(api_key, "cecli-chat", use_bigquery, credentials_path)
 
     # Get GitHub stars for the default repo
-    stars = get_github_stars("paul-gauthier/aider")
+    stars = get_github_stars("paul-gauthier/cecli")
 
-    # Get Aider contribution percentage in latest release
-    percentage, _ = get_latest_release_aider_percentage()
+    # Get cecli contribution percentage in latest release
+    percentage, _ = get_latest_release_cecli_percentage()
 
     # Format values
     downloads_formatted = format_number(total_downloads)
@@ -383,14 +383,14 @@ def get_badges_html():
         stars_formatted = f"{round(stars / 1_000)}K"
     else:
         stars_formatted = str(int(round(stars)))
-    aider_percent_rounded = round(percentage)
+    cecli_percent_rounded = round(percentage)
 
     # Generate HTML badges
-    html = f"""<a href="https://github.com/Aider-AI/aider" class="github-badge badge-stars" title="{GITHUB_STARS_TOOLTIP}">
+    html = f"""<a href="https://github.com/Aider-AI/cecli" class="github-badge badge-stars" title="{GITHUB_STARS_TOOLTIP}">
     <span class="badge-label">⭐ GitHub Stars</span>
     <span class="badge-value">{stars_formatted}</span>
 </a>
-<a href="https://pypi.org/project/aider-chat/" class="github-badge badge-installs" title="{PYPI_DOWNLOADS_TOOLTIP}">
+<a href="https://pypi.org/project/cecli-chat/" class="github-badge badge-installs" title="{PYPI_DOWNLOADS_TOOLTIP}">
     <span class="badge-label">📦 Installs</span>
     <span class="badge-value">{downloads_formatted}</span>
 </a>
@@ -404,7 +404,7 @@ def get_badges_html():
 </a>
 <a href="/HISTORY.html" class="github-badge badge-coded" title="{SINGULARITY_TOOLTIP}">
     <span class="badge-label">🔄 Singularity</span>
-    <span class="badge-value">{aider_percent_rounded}%</span>
+    <span class="badge-value">{cecli_percent_rounded}%</span>
 </a>"""  # noqa
 
     return html
@@ -534,7 +534,7 @@ def main():
     # Ensure cache directory exists
     ensure_cache_dir()
 
-    parser = argparse.ArgumentParser(description="Get total downloads and GitHub stars for aider")
+    parser = argparse.ArgumentParser(description="Get total downloads and GitHub stars for cecli")
     parser.add_argument(
         "--api-key",
         help=(
@@ -543,12 +543,12 @@ def main():
         ),
     )
     parser.add_argument(
-        "--package", default="aider-chat", help="Package name (default: aider-chat)"
+        "--package", default="cecli-chat", help="Package name (default: cecli-chat)"
     )
     parser.add_argument(
         "--github-repo",
-        default="paul-gauthier/aider",
-        help="GitHub repository (default: paul-gauthier/aider)",
+        default="paul-gauthier/cecli",
+        help="GitHub repository (default: paul-gauthier/cecli)",
     )
     parser.add_argument("--markdown", action="store_true", help="Generate markdown badges block")
     parser.add_argument(
@@ -605,9 +605,9 @@ def main():
     if stars is not None:
         print(f"GitHub stars for {args.github_repo}: {stars:,}")
 
-    # Get Aider contribution percentage in latest release
-    percentage, version = get_latest_release_aider_percentage()
-    print(f"Aider wrote {percentage:.2f}% of code in the LATEST release ({version})")
+    # Get cecli contribution percentage in latest release
+    percentage, version = get_latest_release_cecli_percentage()
+    print(f"cecli wrote {percentage:.2f}% of code in the LATEST release ({version})")
 
     # Get testimonials JavaScript
     testimonials_js = get_testimonials_js()

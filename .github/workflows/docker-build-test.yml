@@ -3,7 +3,7 @@ name: Docker Build Test
 on:
   push:
     paths-ignore:
-      - 'aider/website/**'
+      - 'cecli/website/**'
       - 'README.md'
       - 'HISTORY.md'
       - '.github/workflows/*'
@@ -12,7 +12,7 @@ on:
       - main
   pull_request:
     paths-ignore:
-      - 'aider/website/**'
+      - 'cecli/website/**'
       - 'README.md'
       - 'HISTORY.md'
       - '.github/workflows/*'

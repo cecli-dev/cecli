@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import git
 
-from aider.io import InputOutput
-from aider.repo import GitRepo
-from aider.tools import git_branch
-from aider.utils import GitTemporaryDirectory
+from cecli.io import InputOutput
+from cecli.repo import GitRepo
+from cecli.tools import git_branch
+from cecli.utils import GitTemporaryDirectory
 
 
 def _make_repo():

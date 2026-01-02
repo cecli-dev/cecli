@@ -29,12 +29,12 @@ import typer
 from dotenv import load_dotenv
 from rich.console import Console
 
-from aider.dump import dump  # noqa: F401
+from cecli.dump import dump  # noqa: F401
 
 # Cache for commit-hash -> version lookup
 _VERSION_CACHE = {}
 
-BENCHMARK_DNAME = Path(os.environ.get("AIDER_BENCHMARK_DIR", "tmp.benchmarks"))
+BENCHMARK_DNAME = Path(os.environ.get("CECLIBENCHMARK_DIR", "tmp.benchmarks"))
 
 EXERCISES_DIR_DEFAULT = "polyglot-benchmark"
 
@@ -180,7 +180,7 @@ def main(
     replay: str = typer.Option(
         None,
         "--replay",
-        help="Replay previous .aider.chat.history.md responses from previous benchmark run",
+        help="Replay previous .cecli.dev.history.md responses from previous benchmark run",
     ),
     keywords: str = typer.Option(
         None, "--keywords", "-k", help="Only run tests that contain keywords (comma sep)"
@@ -191,7 +191,7 @@ def main(
     cont: bool = typer.Option(False, "--cont", help="Continue the (single) matching testdir"),
     make_new: bool = typer.Option(False, "--new", help="Make a new dated testdir"),
     no_unit_tests: bool = typer.Option(False, "--no-unit-tests", help="Do not run unit tests"),
-    no_aider: bool = typer.Option(False, "--no-aider", help="Do not run aider"),
+    no_cecli: bool = typer.Option(False, "--no-cecli", help="Do not run cecli"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     stats_only: bool = typer.Option(
         False, "--stats", "-s", help="Do not run tests, just collect stats on completed tests"
@@ -209,7 +209,7 @@ def main(
         None, "--num-ctx", help="Override model context window size"
     ),
     read_model_settings: str = typer.Option(
-        None, "--read-model-settings", help="Load aider model settings from YAML file"
+        None, "--read-model-settings", help="Load cecli model settings from YAML file"
     ),
     reasoning_effort: Optional[str] = typer.Option(
         None, "--reasoning-effort", help="Set reasoning effort for models that support it"
@@ -259,15 +259,15 @@ def main(
     import importlib_resources  # Used for model metadata registration
     import lox  # Only needed for threaded runs
 
-    from aider import models, sendchat
-    from aider.coders import base_coder
+    from cecli import models, sendchat
+    from cecli.coders import base_coder
 
     repo = git.Repo(search_parent_directories=True)
     commit_hash = repo.head.object.hexsha[:7]
     if repo.is_dirty():
         commit_hash += "-dirty"
 
-    if "AIDER_DOCKER" not in os.environ:
+    if "CECLIDOCKER" not in os.environ:
         print("Warning: benchmarking runs unvetted code from GPT, run in a docker container")
         return
 
@@ -338,7 +338,7 @@ def main(
 
     test_dnames = sorted(str(d.relative_to(original_dname)) for d in exercise_dirs)
 
-    resource_metadata = importlib_resources.files("aider.resources").joinpath("model-metadata.json")
+    resource_metadata = importlib_resources.files("cecli.resources").joinpath("model-metadata.json")
     model_metadata_files_loaded = models.register_litellm_models([resource_metadata])
     dump(model_metadata_files_loaded)
 
@@ -381,7 +381,7 @@ def main(
                 edit_format,
                 tries,
                 no_unit_tests,
-                no_aider,
+                no_cecli,
                 verbose,
                 commit_hash,
                 replay,
@@ -409,7 +409,7 @@ def main(
                 edit_format,
                 tries,
                 no_unit_tests,
-                no_aider,
+                no_cecli,
                 verbose,
                 commit_hash,
                 replay,
@@ -460,7 +460,7 @@ def show_diffs(dirnames):
         print()
         print(testcase)
         for outcome, dirname in zip(all_outcomes, dirnames):
-            print(outcome, f"{dirname}/{testcase}/.aider.chat.history.md")
+            print(outcome, f"{dirname}/{testcase}/.cecli.dev.history.md")
 
     changed = set(testcases) - unchanged
     print()
@@ -475,9 +475,9 @@ def load_results(dirname, stats_languages=None):
 
     if stats_languages:
         languages = [lang.strip().lower() for lang in stats_languages.split(",")]
-        glob_patterns = [f"{lang}/exercises/practice/*/.aider.results.json" for lang in languages]
+        glob_patterns = [f"{lang}/exercises/practice/*/.cecli.results.json" for lang in languages]
     else:
-        glob_patterns = ["*/exercises/practice/*/.aider.results.json"]
+        glob_patterns = ["*/exercises/practice/*/.cecli.results.json"]
 
     for pattern in glob_patterns:
         for fname in dirname.glob(pattern):
@@ -682,7 +682,7 @@ def summarize_results(dirname, verbose, stats_languages=None):
 
     if variants["model"]:
         a_model = set(variants["model"]).pop()
-        command = f"aider-ce --model {a_model}"
+        command = f"cecli --model {a_model}"
         print(f"  command: {command}")
 
     print(f"  date: {date}")
@@ -803,7 +803,7 @@ def get_versions(commit_hashes):
 
         try:
             version_src = subprocess.check_output(
-                ["git", "show", f"{short}:aider/__init__.py"], universal_newlines=True
+                ["git", "show", f"{short}:cecli/__init__.py"], universal_newlines=True
             )
             match = re.search(r'__version__ = "(.*)"', version_src)
             ver = match.group(1) if match else None
@@ -822,7 +822,7 @@ def get_replayed_content(replay_dname, test_dname):
     dump(replay_dname, test_dname)
 
     test_name = test_dname.name
-    replay_fname = replay_dname / test_name / ".aider.chat.history.md"
+    replay_fname = replay_dname / test_name / ".cecli.dev.history.md"
     dump(replay_fname)
 
     res = replay_fname.read_text()
@@ -842,7 +842,7 @@ def run_test(original_dname, testdir, *args, **kwargs):
         traceback.print_exc()
 
         testdir = Path(testdir)
-        results_fname = testdir / ".aider.results.json"
+        results_fname = testdir / ".cecli.results.json"
         results_fname.write_text(json.dumps(dict(exception=traceback.format_exc())))
 
 
@@ -853,7 +853,7 @@ def run_test_real(
     edit_format,
     tries,
     no_unit_tests,
-    no_aider,
+    no_cecli,
     verbose,
     commit_hash,
     replay,
@@ -870,10 +870,10 @@ def run_test_real(
     # Lazy imports: only needed in the actual benchmark execution path
     import git
 
-    import aider.prompts.utils.system as prompts
-    from aider import models
-    from aider.coders import Coder
-    from aider.io import InputOutput
+    import cecli.prompts.utils.system as prompts
+    from cecli import models
+    from cecli.coders import Coder
+    from cecli.io import InputOutput
 
     if not os.path.isdir(testdir):
         print("Not a dir:", testdir)
@@ -881,9 +881,9 @@ def run_test_real(
 
     testdir = Path(testdir)
 
-    history_fname = testdir / ".aider.chat.history.md"
+    history_fname = testdir / ".cecli.dev.history.md"
 
-    results_fname = testdir / ".aider.results.json"
+    results_fname = testdir / ".cecli.results.json"
     if results_fname.exists():
         try:
             res = json.loads(results_fname.read_text())
@@ -1005,11 +1005,11 @@ def run_test_real(
             r = git.Repo.init(testdir)
             # Set a local identity to avoid commit failures in clean containers
             with r.config_writer() as cw:
-                cw.set_value("user", "name", "aider-benchmark")
-                cw.set_value("user", "email", "aider-benchmark@example.com")
+                cw.set_value("user", "name", "cecli-benchmark")
+                cw.set_value("user", "email", "cecli-benchmark@example.com")
             # Add existing files (solution set and any current files)
             r.index.add([str(p.relative_to(testdir)) for p in testdir.rglob("*") if p.is_file()])
-            r.index.commit("Initial commit for aider benchmark")
+            r.index.commit("Initial commit for cecli benchmark")
     except Exception as e:
         if verbose:
             print(f"Warning: failed to initialize git repo in {testdir}: {e}")
@@ -1053,7 +1053,7 @@ def run_test_real(
     for i in range(tries):
         start = time.time()
 
-        if no_aider:
+        if no_cecli:
             pass
         elif replay:
             response = get_replayed_content(replay, testdir)
@@ -1069,7 +1069,7 @@ def run_test_real(
 
         dur += time.time() - start
 
-        if not no_aider:
+        if not no_cecli:
             pat = r"^[+]? *[#].* [.][.][.] "
             # Count the number of lines that match pat in response
             dump(response)
@@ -1192,8 +1192,8 @@ def run_unit_tests(original_dname, testdir, history_fname, test_files):
         ".py": ["pytest"],
         ".rs": ["cargo", "test", "--", "--include-ignored"],
         ".go": ["go", "test", "./..."],
-        ".js": ["/aider/benchmark/npm-test.sh"],
-        ".cpp": ["/aider/benchmark/cpp-test.sh"],
+        ".js": ["/cecli/benchmark/npm-test.sh"],
+        ".cpp": ["/cecli/benchmark/cpp-test.sh"],
         ".java": ["./gradlew", "test"],
     }
 

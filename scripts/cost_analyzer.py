@@ -16,7 +16,7 @@ class TokenUsage:
 
 def parse_token_line(line):
     """
-    Parse a token usage line from Aider history.
+    Parse a token usage line from cecli history.
     Example: "> Tokens: 12k sent, 133 received. Cost: $0.04 message, $0.10 session."
     """
     # fmt: off
@@ -44,7 +44,7 @@ def parse_token_line(line):
 
 
 def extract_costs(history_file):
-    """Extract cost and token information from Aider history file."""
+    """Extract cost and token information from cecli history file."""
     usages = []
 
     with open(history_file, "r", encoding="utf-8") as f:
@@ -58,7 +58,7 @@ def extract_costs(history_file):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Calculate total Aider session costs from history files"
+        description="Calculate total cecli session costs from history files"
     )
     parser.add_argument(
         "directory",
@@ -87,11 +87,11 @@ def main():
         return 1
 
     # Find all history files
-    pattern = "**/.aider*.history.md" if args.recursive else ".aider*.history.md"
+    pattern = "**/.cecli*.history.md" if args.recursive else ".cecli*.history.md"
     history_files = list(target_dir.glob(pattern))
 
     if not history_files:
-        print(f"No Aider history files found in '{target_dir}'")
+        print(f"No cecli history files found in '{target_dir}'")
         return 0
 
     total_cost = 0.0

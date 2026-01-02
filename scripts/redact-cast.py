@@ -5,7 +5,7 @@ import sys
 import pyte
 from tqdm import tqdm
 
-from aider.dump import dump  # noqa
+from cecli.dump import dump  # noqa
 
 
 def main():

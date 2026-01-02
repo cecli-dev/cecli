@@ -22,9 +22,9 @@ dynamic = ["dependencies", "optional-dependencies", "version"]
 Homepage = "https://github.com/dwash96/aider-ce"
 
 [project.scripts]
-aider-ce = "aider.main:main"
-"cecli" = "aider.main:main"
-"ce.cli" = "aider.main:main"
+aider-ce = "cecli.main:main"
+"cecli" = "cecli.main:main"
+"ce.cli" = "cecli.main:main"
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements/requirements.in" }
@@ -39,16 +39,16 @@ tui = { file = "requirements/requirements-tui.in" }
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["aider*"]
+include = ["cecli*"]
 
 [build-system]
 requires = ["setuptools>=68", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
-write_to = "aider/_version.py"
+write_to = "cecli/_version.py"
 local_scheme = "no-local-version"
 
 [tool.codespell]
-skip = "*.svg,Gemfile.lock,tests/fixtures/*,aider/website/assets/*"
+skip = "*.svg,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*"
 write-changes = true

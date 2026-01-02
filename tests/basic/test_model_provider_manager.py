@@ -119,8 +119,8 @@ def _install_stubs():
 
 _install_stubs()
 
-from aider.helpers.model_providers import ModelProviderManager  # noqa: E402
-from aider.models import MODEL_SETTINGS, Model, ModelInfoManager  # noqa: E402
+from cecli.helpers.model_providers import ModelProviderManager  # noqa: E402
+from cecli.models import MODEL_SETTINGS, Model, ModelInfoManager  # noqa: E402
 
 
 class DummyResponse:
@@ -282,9 +282,77 @@ def test_refresh_provider_cache_uses_static_models(monkeypatch, tmp_path):
     assert info["input_cost_per_token"] == 0.5 / manager.DEFAULT_TOKEN_PRICE_RATIO
 
 
+def test_pricing_normalization_detects_token_format(tmp_path):
+    """Test that pricing < 0.001 is treated as $/token, not $/M."""
+    payload = {
+        "data": [
+            {
+                "id": "demo/model",
+                "context_length": 2048,
+                # Pricing in $/token format (like synthetic provider)
+                "pricing": {"prompt": "0.00000055", "completion": "0.00000219"},
+            }
+        ]
+    }
+
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    cache_file = manager._get_cache_file("demo")
+    cache_file.write_text(json.dumps(payload))
+    manager._cache_loaded["demo"] = True
+    manager._provider_cache["demo"] = payload
+
+    info = manager.get_model_info("demo/demo/model")
+
+    assert info["max_input_tokens"] == 2048
+    # Values < 0.001 should NOT be divided (already in $/token format)
+    assert info["input_cost_per_token"] == 0.00000055
+    assert info["output_cost_per_token"] == 0.00000219
+
+
+def test_pricing_normalization_detects_million_format(tmp_path):
+    """Test that pricing >= 0.001 is treated as $/M and converted to $/token."""
+    payload = {
+        "data": [
+            {
+                "id": "demo/model",
+                "context_length": 2048,
+                # Pricing in $/M format (like some providers)
+                "pricing": {"prompt": "1.0", "completion": "2.0"},
+            }
+        ]
+    }
+
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    cache_file = manager._get_cache_file("demo")
+    cache_file.write_text(json.dumps(payload))
+    manager._cache_loaded["demo"] = True
+    manager._provider_cache["demo"] = payload
+
+    info = manager.get_model_info("demo/demo/model")
+
+    assert info["max_input_tokens"] == 2048
+    # Values >= 0.001 should be divided by 1000000 (convert $/M to $/token)
+    assert info["input_cost_per_token"] == 1.0 / manager.DEFAULT_TOKEN_PRICE_RATIO
+    assert info["output_cost_per_token"] == 2.0 / manager.DEFAULT_TOKEN_PRICE_RATIO
+
+
 def test_model_info_manager_delegates_to_provider(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "aider.models.litellm",
+        "cecli.models.litellm",
         types.SimpleNamespace(
             _lazy_module=None,
             get_model_info=lambda *a, **k: {},
@@ -304,11 +372,11 @@ def test_model_info_manager_delegates_to_provider(monkeypatch, tmp_path):
     }
 
     monkeypatch.setattr(
-        "aider.helpers.model_providers.ModelProviderManager.supports_provider",
+        "cecli.helpers.model_providers.ModelProviderManager.supports_provider",
         lambda self, provider: provider == "openrouter",
     )
     monkeypatch.setattr(
-        "aider.helpers.model_providers.ModelProviderManager.get_model_info",
+        "cecli.helpers.model_providers.ModelProviderManager.get_model_info",
         lambda self, model: stub_info,
     )
 
@@ -335,15 +403,15 @@ def test_model_dynamic_settings_added(monkeypatch, tmp_path):
         }
 
     monkeypatch.setattr(
-        "aider.helpers.model_providers.ModelProviderManager.supports_provider",
+        "cecli.helpers.model_providers.ModelProviderManager.supports_provider",
         _fake_supports,
     )
     monkeypatch.setattr(
-        "aider.helpers.model_providers.ModelProviderManager.get_model_info",
+        "cecli.helpers.model_providers.ModelProviderManager.get_model_info",
         _fake_get,
     )
     monkeypatch.setattr(
-        "aider.models.litellm",
+        "cecli.models.litellm",
         types.SimpleNamespace(
             _lazy_module=None,
             get_model_info=lambda *a, **k: {},

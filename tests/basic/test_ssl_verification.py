@@ -5,26 +5,26 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from prompt_toolkit.input import DummyInput
 from prompt_toolkit.output import DummyOutput
 
-from aider.main import main
+from cecli.main import main
 
 
 class TestSSLVerification(TestCase):
     def setUp(self):
         self.original_env = os.environ.copy()
         os.environ["OPENAI_API_KEY"] = "test-key"
-        os.environ["AIDER_CHECK_UPDATE"] = "false"
-        os.environ["AIDER_ANALYTICS"] = "false"
+        os.environ["CECLICHECK_UPDATE"] = "false"
+        os.environ["CECLIANALYTICS"] = "false"
 
     def tearDown(self):
         os.environ.clear()
         os.environ.update(self.original_env)
 
-    @patch("aider.io.InputOutput.offer_url")
-    @patch("aider.models.ModelInfoManager.set_verify_ssl")
-    @patch("aider.llm.litellm._load_litellm")
+    @patch("cecli.io.InputOutput.offer_url")
+    @patch("cecli.models.ModelInfoManager.set_verify_ssl")
+    @patch("cecli.llm.litellm._load_litellm")
     @patch("httpx.Client")
     @patch("httpx.AsyncClient")
-    @patch("aider.models.fuzzy_match_models", return_value=[])
+    @patch("cecli.models.fuzzy_match_models", return_value=[])
     async def test_no_verify_ssl_flag_sets_model_info_manager(
         self,
         mock_fuzzy_match,
@@ -41,7 +41,7 @@ class TestSSLVerification(TestCase):
         mock_module = MagicMock()
 
         # Mock Model class to avoid actual model initialization
-        with patch("aider.models.Model") as mock_model:
+        with patch("cecli.models.Model") as mock_model:
             # Configure the mock to avoid the TypeError
             mock_model.return_value.info = {}
             mock_model.return_value.validate_environment.return_value = {
@@ -49,7 +49,7 @@ class TestSSLVerification(TestCase):
                 "keys_in_environment": [],
             }
 
-            with patch("aider.llm.litellm._lazy_module", mock_module):
+            with patch("cecli.llm.litellm._lazy_module", mock_module):
                 # Run main with --no-verify-ssl flag
                 main(
                     ["--no-verify-ssl", "--exit", "--yes", "--map-tokens", "1024"],
@@ -67,14 +67,14 @@ class TestSSLVerification(TestCase):
                 # Verify SSL_VERIFY environment variable was set to empty string
                 self.assertEqual(os.environ.get("SSL_VERIFY"), "")
 
-    @patch("aider.io.InputOutput.offer_url", new=AsyncMock)
-    @patch("aider.models.model_info_manager.set_verify_ssl")
+    @patch("cecli.io.InputOutput.offer_url", new=AsyncMock)
+    @patch("cecli.models.model_info_manager.set_verify_ssl")
     async def test_default_ssl_verification(self, mock_set_verify_ssl, mock_offer_url):
         # Prevent actual URL opening
         mock_offer_url.return_value = False
         # Run main without --no-verify-ssl flag
-        with patch("aider.main.InputOutput"):
-            with patch("aider.coders.Coder.create"):
+        with patch("cecli.main.InputOutput"):
+            with patch("cecli.coders.Coder.create"):
                 main(["--exit", "--yes"], input=DummyInput(), output=DummyOutput())
 
                 # Verify model_info_manager.set_verify_ssl was not called

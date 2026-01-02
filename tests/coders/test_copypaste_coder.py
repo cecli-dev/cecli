@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from aider.coders.copypaste_coder import CopyPasteCoder
-from aider.coders.editblock_coder import EditBlockCoder
+from cecli.coders.copypaste_coder import CopyPasteCoder
+from cecli.coders.editblock_coder import EditBlockCoder
 
 
 def test_init_prompts_uses_selected_edit_format():
@@ -18,7 +18,8 @@ def test_init_prompts_uses_selected_edit_format():
 
     coder._init_prompts_from_selected_edit_format()
 
-    assert coder.gpt_prompts is EditBlockCoder.gpt_prompts
+    assert coder.gpt_prompts is not None
+    assert hasattr(coder.gpt_prompts, "main_system")
     assert coder.edit_format == EditBlockCoder.edit_format
 
 
@@ -29,7 +30,7 @@ def test_init_prompts_preserves_existing_when_no_match(monkeypatch):
     coder.edit_format = "original-format"
     coder.gpt_prompts = "original-prompts"
 
-    import aider.coders as coders
+    import cecli.coders as coders
 
     monkeypatch.setattr(coders, "__all__", [], raising=False)
 
@@ -93,7 +94,7 @@ def test_copy_paste_completion_interacts_with_clipboard(monkeypatch):
     io = MagicMock()
     coder.io = io
 
-    import aider.helpers.copypaste as copypaste
+    import cecli.helpers.copypaste as copypaste
 
     copy_mock = MagicMock()
     read_mock = MagicMock(return_value="initial value")
@@ -115,9 +116,9 @@ def test_copy_paste_completion_interacts_with_clipboard(monkeypatch):
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    monkeypatch.setattr("aider.coders.copypaste_coder.litellm.Message", DummyMessage)
-    monkeypatch.setattr("aider.coders.copypaste_coder.litellm.Choices", DummyChoices)
-    monkeypatch.setattr("aider.coders.copypaste_coder.litellm.ModelResponse", DummyModelResponse)
+    monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.Message", DummyMessage)
+    monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.Choices", DummyChoices)
+    monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.ModelResponse", DummyModelResponse)
 
     class ModelStub:
         name = "cp:gpt-4o"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # flake8: noqa: E501
 """
-Generate a celebratory SVG image for Aider reaching 30,000 GitHub stars.
+Generate a celebratory SVG image for cecli reaching 30,000 GitHub stars.
 This creates a shareable social media graphic with confetti animation.
 """
 
@@ -12,8 +12,8 @@ import random
 from pathlib import Path
 
 # Default colors for the celebration image
-AIDER_GREEN = "#14b014"
-AIDER_BLUE = "#4C6EF5"
+CECLIGREEN = "#14b014"
+CECLIBLUE = "#4C6EF5"
 DARK_COLOR = "#212529"
 LIGHT_COLOR = "#F8F9FA"
 GOLD_COLOR = "#f1c40f"
@@ -27,7 +27,7 @@ def embed_font():
     """Returns base64 encoded font data for the GlassTTYVT220 font."""
     # Path to the font file
     font_path = (
-        Path(__file__).parent.parent / "aider" / "website" / "assets" / "Glass_TTY_VT220.ttf"
+        Path(__file__).parent.parent / "cecli" / "website" / "assets" / "Glass_TTY_VT220.ttf"
     )
 
     # If font file doesn't exist, return empty string
@@ -46,7 +46,7 @@ def embed_font():
 def generate_confetti(count=150, width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     """Generate SVG confetti elements for the celebration."""
     confetti = []
-    colors = [AIDER_GREEN, AIDER_BLUE, GOLD_COLOR, "#e74c3c", "#9b59b6", "#3498db", "#2ecc71"]
+    colors = [CECLIGREEN, CECLIBLUE, GOLD_COLOR, "#e74c3c", "#9b59b6", "#3498db", "#2ecc71"]
 
     # Define text safe zones
     # Main content safe zone (centered area)
@@ -169,7 +169,7 @@ def generate_celebration_svg(output_path=None, width=DEFAULT_WIDTH, height=DEFAU
   <style>
     {font_face}
     .main-bg {{ fill: url(#bg-gradient); }}
-    .aider-logo {{ font-family: 'GlassTTYVT220', monospace; font-size: 120px; fill: {AIDER_GREEN}; text-anchor: middle; filter: url(#glow); }}
+    .cecli-logo {{ font-family: 'GlassTTYVT220', monospace; font-size: 120px; fill: {CECLIGREEN}; text-anchor: middle; filter: url(#glow); }}
     .stars-text {{ font-family: 'GlassTTYVT220', monospace; font-size: 72px; fill: {GOLD_COLOR}; text-anchor: middle; filter: url(#glow); }}
     .tagline {{ font-family: sans-serif; font-size: 32px; fill: {LIGHT_COLOR}; text-anchor: middle; }}
     .footer {{ font-family: sans-serif; font-size: 24px; fill: {LIGHT_COLOR}; text-anchor: middle; opacity: 0.8; }}
@@ -186,10 +186,10 @@ def generate_celebration_svg(output_path=None, width=DEFAULT_WIDTH, height=DEFAU
     {confetti}
 
     <!-- Main content -->
-    <text x="{width/2}" y="{height/2 - 100}" class="aider-logo">aider</text>
+    <text x="{width/2}" y="{height/2 - 100}" class="cecli-logo">cecli</text>
     <text x="{width/2}" y="{height/2 + 20}" class="stars-text">30,000 GitHub stars!</text>
     <text x="{width/2}" y="{height/2 + 100}" class="tagline">Thank you to our amazing community!</text>
-    <text x="{width/2}" y="{height - 50}" class="footer">github.com/Aider-AI/aider</text>
+    <text x="{width/2}" y="{height - 50}" class="footer">github.com/Aider-AI/cecli</text>
 
   </g>
 </svg>
@@ -206,14 +206,14 @@ def generate_celebration_svg(output_path=None, width=DEFAULT_WIDTH, height=DEFAU
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate a celebration SVG for Aider's 30K GitHub stars"
+        description="Generate a celebration SVG for cecli's 30K GitHub stars"
     )
     parser.add_argument(
         "--output",
         "-o",
         type=str,
-        default="aider-30k-stars.svg",
-        help="Output file path (default: aider-30k-stars.svg)",
+        default="cecli-30k-stars.svg",
+        help="Output file path (default: cecli-30k-stars.svg)",
     )
     parser.add_argument(
         "--width",

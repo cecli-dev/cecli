@@ -34,9 +34,9 @@ ENV PLAYWRIGHT_BROWSERS_PATH=${OLDHOME}/pw-browsers
 ENV PLAYWRIGHT_SKIP_BROWSER_GC=1
 
 # Create directories with proper permissions
-RUN mkdir -p ${OLDHOME}/.aider ${OLDHOME}/.cache ${OLDHOME}/pw-browsers && \
+RUN mkdir -p ${OLDHOME}/.cecli ${OLDHOME}/.cache ${OLDHOME}/pw-browsers && \
     chown -R ${DEFAULTUSER}:${DEFAULTGROUP} ${OLDHOME} /app /venv && \
-    chmod -R 777 ${OLDHOME}/.aider ${OLDHOME}/.cache ${OLDHOME}/pw-browsers
+    chmod -R 777 ${OLDHOME}/.cecli ${OLDHOME}/.cache ${OLDHOME}/pw-browsers
 
 # So git doesn't complain about unusual permissions
 RUN git config --system --add safe.directory /app
@@ -47,12 +47,12 @@ RUN git config --system --add safe.directory /app
 ENV HOME=/app
 
 # Copy requirements files
-COPY requirements.txt /tmp/aider/
-COPY requirements/ /tmp/aider/requirements/
+COPY requirements.txt /tmp/cecli/
+COPY requirements/ /tmp/cecli/requirements/
 
 # Install dependencies as root
-RUN uv pip install --no-cache-dir -r /tmp/aider/requirements.txt && \
-    rm -rf /tmp/aider
+RUN uv pip install --no-cache-dir -r /tmp/cecli/requirements.txt && \
+    rm -rf /tmp/cecli
 
 # Install playwright browsers
 RUN uv pip install --no-cache-dir playwright && \
@@ -79,7 +79,7 @@ echo '* Checking available models'
 curl -sS http://localhost:11434/v1/models | jq .data[].id | tr -d '\"'
 echo '* Start cecli with stream: false, see https://github.com/Aider-AI/aider/issues/4594'
 echo 'cecli --no-stream --model ollama/<pick your model from the list above>'
-echo '  later you can best add it to .aider.conf.yml, see https://aider.chat/docs/config/aider_conf.html'
+echo '  later you can best add it to .cecli.conf.yml, see https://aider.chat/docs/config/aider_conf.html'
 EOF
 
 # switch to non-root and set the host-mounted /app to HOME to persist ~/.aider

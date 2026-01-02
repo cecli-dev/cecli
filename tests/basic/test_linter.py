@@ -1,31 +1,33 @@
-import os
-import unittest
+import platform
 from unittest.mock import MagicMock, patch
 
-from aider.dump import dump  # noqa
-from aider.linter import Linter
+import pytest
+
+from cecli.dump import dump  # noqa
+from cecli.linter import Linter
 
 
-class TestLinter(unittest.TestCase):
-    def setUp(self):
+class TestLinter:
+    @pytest.fixture(autouse=True)
+    def setup(self):
         self.linter = Linter(encoding="utf-8", root="/test/root")
 
     def test_init(self):
-        self.assertEqual(self.linter.encoding, "utf-8")
-        self.assertEqual(self.linter.root, "/test/root")
-        self.assertIn("python", self.linter.languages)
+        assert self.linter.encoding == "utf-8"
+        assert self.linter.root == "/test/root"
+        assert "python" in self.linter.languages
 
     def test_set_linter(self):
         self.linter.set_linter("javascript", "eslint")
-        self.assertEqual(self.linter.languages["javascript"], "eslint")
+        assert self.linter.languages["javascript"] == "eslint"
 
     def test_get_rel_fname(self):
         import os
 
-        self.assertEqual(self.linter.get_rel_fname("/test/root/file.py"), "file.py")
+        assert self.linter.get_rel_fname("/test/root/file.py") == "file.py"
         expected_path = os.path.normpath("../../other/path/file.py")
         actual_path = os.path.normpath(self.linter.get_rel_fname("/other/path/file.py"))
-        self.assertEqual(actual_path, expected_path)
+        assert actual_path == expected_path
 
     @patch("subprocess.Popen")
     def test_run_cmd(self, mock_popen):
@@ -38,17 +40,18 @@ class TestLinter(unittest.TestCase):
         mock_popen.return_value = mock_process
 
         result = self.linter.run_cmd("test_cmd", "test_file.py", "code")
-        self.assertIsNone(result)
+        assert result is None
 
+    @pytest.mark.skipif(
+        platform.system() != "Windows", reason="Windows-specific test for dir command"
+    )
     def test_run_cmd_win(self):
-        if os.name != "nt":
-            self.skipTest("This test only runs on Windows")
         from pathlib import Path
 
         root = Path(__file__).parent.parent.parent.absolute().as_posix()
         linter = Linter(encoding="utf-8", root=root)
         result = linter.run_cmd("dir", "tests\\basic", "code")
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("subprocess.Popen")
     def test_run_cmd_with_errors(self, mock_popen):
@@ -61,8 +64,8 @@ class TestLinter(unittest.TestCase):
         mock_popen.return_value = mock_process
 
         result = self.linter.run_cmd("test_cmd", "test_file.py", "code")
-        self.assertIsNotNone(result)
-        self.assertIn("Error message", result.text)
+        assert result is not None
+        assert "Error message" in result.text
 
     def test_run_cmd_with_special_chars(self):
         with patch("subprocess.Popen") as mock_popen:
@@ -82,12 +85,8 @@ class TestLinter(unittest.TestCase):
             mock_popen.assert_called_once()
             call_args = mock_popen.call_args[0][0]
 
-            self.assertIn(special_path, call_args)
+            assert special_path in call_args
 
             # The result should contain the error message
-            self.assertIsNotNone(result)
-            self.assertIn("Error message", result.text)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert result is not None
+            assert "Error message" in result.text

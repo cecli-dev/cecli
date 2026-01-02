@@ -8,14 +8,14 @@ from pathlib import Path
 
 import yaml
 
-from aider.dump import dump  # noqa
+from cecli.dump import dump  # noqa
 
 HARD_SET_NUM = 3  # Number of models that defines the hard set threshold
 
 
 def get_dirs_from_leaderboard():
     # Load the leaderboard data
-    with open("aider/website/_data/polyglot_leaderboard.yml") as f:
+    with open("cecli/website/_data/polyglot_leaderboard.yml") as f:
         leaderboard = yaml.safe_load(f)
     return [(entry["dirname"], entry["model"]) for entry in leaderboard]
 
@@ -34,7 +34,7 @@ def load_results(dirname):
     parse_errors = []  # Track which exercises had parse errors for this model
 
     # Look in language subdirectories under exercises/practice
-    for fname in benchmark_dir.glob("*/exercises/practice/*/.aider.results.json"):
+    for fname in benchmark_dir.glob("*/exercises/practice/*/.cecli.results.json"):
         error = False
         try:
             results = json.loads(fname.read_text())
@@ -92,7 +92,7 @@ def analyze_exercise_solutions(dirs=None, topn=None, copy_hard_set=False):
                     (
                         entry["pass_rate_2"]
                         for entry in yaml.safe_load(
-                            open("aider/website/_data/polyglot_leaderboard.yml")
+                            open("cecli/website/_data/polyglot_leaderboard.yml")
                         )
                         if entry["dirname"] == dirname
                     ),

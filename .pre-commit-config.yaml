@@ -18,7 +18,7 @@ repos:
     rev: v2.2.6
     hooks:
       - id: codespell
-        args: ["--skip", "aider/website/docs/languages.md"]
+        args: ["--skip", "cecli/website/docs/languages.md"]
         additional_dependencies:
           - tomli
   - repo: local
@@ -26,7 +26,7 @@ repos:
       - id: filter-model-metadata
         name: Filter model metadata to chat mode only
         entry: node scripts/filter-chat-mode.js
-        args: ["aider/resources/model-metadata.json"]
+        args: ["cecli/resources/model-metadata.json"]
         language: system
-        files: ^aider/resources/model-metadata\.json$
+        files: ^cecli/resources/model-metadata\.json$
         pass_filenames: false

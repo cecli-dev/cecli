@@ -1,0 +1,69 @@
+theme: just-the-docs
+url: "https://aider.chat"
+
+# Analytics configuration
+analytics:
+  enabled: false  # Single switch to control analytics and cookie consent
+  posthog_key: 'phc_99T7muzafUMMZX15H8XePbMSreEUzahHbtWjy3l5Qbv'
+  posthog_host: 'https://us.i.posthog.com'
+
+plugins:
+  - jekyll-redirect-from
+  - jekyll-sitemap
+  - jekyll-feed
+
+defaults:
+  - scope:
+      path: "README.md"
+      type: "pages"
+    values:
+      description: "aider is AI pair programming in your terminal"
+
+exclude:
+  - "tmp*"
+  - "**/tmp*"
+  - OLD
+  - "**/OLD/**"
+  - "OLD/**"
+  - vendor
+  - feed.xml
+
+aux_links:
+  "GitHub":
+    - "https://github.com/dwash96/cecli"
+  "Discord":
+    - "https://discord.gg/AX9ZEA7nJn"
+  "Blog":
+    - "/blog/"
+
+nav_external_links:
+  - title: "GitHub"
+    url: "https://github.com/dwash96/cecli"
+  - title: "Discord"
+    url: "https://discord.gg/AX9ZEA7nJn"
+
+repository: dwash96/cecli
+
+callouts:
+  tip:
+    title: Tip
+    color: green
+  note:
+    title: Note
+    color: yellow
+
+# Custom CSS for our table of contents
+kramdown:
+  syntax_highlighter_opts:
+    css_class: highlight
+    
+sass:
+  style: compressed
+  
+# Additional CSS
+compress_html:
+  clippings: all
+  comments: all
+  endings: all
+  startings: []
+  

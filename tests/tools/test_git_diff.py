@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import git
 
-from aider.io import InputOutput
-from aider.repo import GitRepo
-from aider.tools import git_diff
-from aider.utils import GitTemporaryDirectory
+from cecli.io import InputOutput
+from cecli.repo import GitRepo
+from cecli.tools import git_diff
+from cecli.utils import GitTemporaryDirectory
 
 
 def test_gitdiff_head_argument_includes_working_tree_changes():

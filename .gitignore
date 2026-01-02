@@ -6,7 +6,7 @@
 
 # Recursively allow files under subtree
 !/.github/**
-!/aider/**
+!/cecli/**
 !/benchmark/**
 !/docker/**
 !/requirements/**
@@ -34,5 +34,8 @@
 .aider*
 aider/__version__.py
 aider/_version.py
+.cecli*
+cecli/__version__.py
+cecli/_version.py
 *.pyc
 env/

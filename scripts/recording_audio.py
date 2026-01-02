@@ -20,7 +20,7 @@ load_dotenv()
 
 # Configuration
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OUTPUT_DIR = "aider/website/assets/audio"
+OUTPUT_DIR = "cecli/website/assets/audio"
 VOICE = "onyx"  # Options: alloy, echo, fable, onyx, nova, shimmer
 MP3_BITRATE = "32k"  # Lower bitrate for smaller files
 

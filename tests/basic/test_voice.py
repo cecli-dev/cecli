@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from aider.voice import Voice
+from cecli.voice import Voice
 
 
 @pytest.fixture
@@ -136,7 +136,7 @@ def test_run_record_process_device_selection():
 
     with (
         patch.dict("sys.modules", {"sounddevice": mock_sd, "soundfile": mock_sf}),
-        patch("aider.llm.litellm", mock_litellm),
+        patch("cecli.llm.litellm", mock_litellm),
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
         patch("builtins.open", mock_open()),
         patch("os.remove"),
@@ -172,7 +172,7 @@ def test_run_record_process_device_selection():
         # Mock stdin.readline to simulate user pressing ENTER
         with patch("sys.stdin.readline", return_value=""):
             # Call the function
-            from aider.voice import _run_record_process
+            from cecli.voice import _run_record_process
 
             result = _run_record_process(stdin_fd, audio_format, device_name, history, language)
 
@@ -227,10 +227,10 @@ def test_run_record_process_no_device_found():
         mock_litellm = MagicMock()
         mock_litellm.transcription = MagicMock(return_value=MagicMock(text="Test transcription"))
 
-        with patch("aider.llm.litellm", mock_litellm):
+        with patch("cecli.llm.litellm", mock_litellm):
             # Mock stdin.readline to simulate user pressing ENTER
             with patch("sys.stdin.readline", return_value=""):
-                from aider.voice import _run_record_process
+                from cecli.voice import _run_record_process
 
                 result = _run_record_process(stdin_fd, audio_format, device_name, None, None)
 

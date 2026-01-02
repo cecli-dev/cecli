@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Interactively generate aider/resources/providers.json from litellm data.
+Interactively generate cecli/resources/providers.json from litellm data.
 
 This script reads litellm's openai_like provider definitions and walks the user
 through building cecli's provider registry, mirroring the workflow used by
@@ -122,7 +122,7 @@ def main():
     litellm_providers_path = (
         script_dir.parent / "../litellm/litellm/llms/openai_like/providers.json"
     ).resolve()
-    output_path = (repo_root / "aider" / "resources" / "providers.json").resolve()
+    output_path = (repo_root / "cecli" / "resources" / "providers.json").resolve()
 
     if not litellm_providers_path.exists():
         print(f"Error: Could not find litellm providers at {litellm_providers_path}")

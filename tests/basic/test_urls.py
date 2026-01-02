@@ -1,6 +1,6 @@
 import requests
 
-from aider import urls
+from cecli import urls
 
 
 def test_urls():

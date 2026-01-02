@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from aider.prompts.utils.prompt_registry import PromptRegistry
+from cecli.prompts.utils.prompt_registry import PromptRegistry
 
 
 class TestPromptRegistry:
@@ -27,7 +27,7 @@ class TestPromptRegistry:
         """Set up test fixtures."""
         # Create a fresh instance for each test
         self.registry = PromptRegistry.__new__(PromptRegistry)
-        self.registry._prompts_dir = Path(__file__).parent / "../../aider/prompts"
+        self.registry._prompts_dir = Path(__file__).parent / "../../cecli/prompts"
         self.registry._initialized = True
         self.registry._prompts_cache = {}
         self.registry._base_prompts = None

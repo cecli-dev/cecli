@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Script to generate an SVG logo for Aider with embedded font.
+Script to generate an SVG logo for cecli with embedded font.
 Reads the Glass_TTY_VT220.ttf font, subsets it to only include the letters needed,
-and creates an SVG with the word "aider" in terminal green (#14b014) on a transparent background.
+and creates an SVG with the word "cecli" in terminal green (#14b014) on a transparent background.
 """
 
 import argparse
@@ -54,7 +54,7 @@ def subset_font(font_path, text):
     return font_data
 
 
-def generate_svg_with_embedded_font(font_path, text="aider", color="#14b014", output_path=None):
+def generate_svg_with_embedded_font(font_path, text="cecli", color="#14b014", output_path=None):
     """
     Generate an SVG with embedded TTF font data.
 
@@ -124,17 +124,17 @@ def main():
     parser.add_argument(
         "--font",
         type=str,
-        default="aider/website/assets/Glass_TTY_VT220.ttf",
+        default="cecli/website/assets/Glass_TTY_VT220.ttf",
         help="Path to the TTF font file",
     )
-    parser.add_argument("--text", type=str, default="aider", help="Text to display in the SVG")
+    parser.add_argument("--text", type=str, default="cecli", help="Text to display in the SVG")
     parser.add_argument(
         "--color", type=str, default="#14b014", help="Color of the text (hex format)"
     )
     parser.add_argument(
         "--output",
         type=str,
-        default="aider/website/assets/logo.svg",
+        default="cecli/website/assets/logo.svg",
         help="Path to save the SVG file",
     )
     parser.add_argument(

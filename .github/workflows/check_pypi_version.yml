@@ -1,9 +1,5 @@
 name: Check PyPI Version
 
-# Check to be sure `pip install aider-chat` installs the most recently published version.
-# If dependencies get yanked, it may render the latest version uninstallable.
-# See https://github.com/Aider-AI/aider/issues/3699 for example.
-
 on:
   schedule:
     # Run once a day at midnight UTC
@@ -26,23 +22,23 @@ jobs:
       - name: Install aider-ce
         run: pip install aider-ce
 
-      - name: Get installed aider version
+      - name: Get installed cecli version
         id: installed_version
         run: |
           set -x # Enable debugging output
-          aider_version_output=$(aider-ce --version)
+          cecli_version_output=$(aider-ce --version)
           if [ $? -ne 0 ]; then
-            echo "Error: 'aider --version' command failed."
+            echo "Error: 'cecli --version' command failed."
             exit 1
           fi
-          echo "Raw aider --version output: $aider_version_output"
+          echo "Raw cecli --version output: $cecli_version_output"
 
           # Extract version number (format X.Y.Z)
-          version_num=$(echo "$aider_version_output" | grep -oP '\d+\.\d+\.\d+')
+          version_num=$(echo "$cecli_version_output" | grep -oP '\d+\.\d+\.\d+')
 
           # Check if grep found anything
           if [ -z "$version_num" ]; then
-            echo "Error: Could not extract version number using grep -oP '\d+\.\d+\.\d+' from output: $aider_version_output"
+            echo "Error: Could not extract version number using grep -oP '\d+\.\d+\.\d+' from output: $cecli_version_output"
             exit 1
           fi
 
@@ -80,7 +76,7 @@ jobs:
           echo "Installed version: ${{ steps.installed_version.outputs.version }}"
           echo "Latest tag version: ${{ steps.latest_tag.outputs.tag }}"
           if [ "${{ steps.installed_version.outputs.version }}" != "${{ steps.latest_tag.outputs.tag }}" ]; then
-            echo "Error: Installed aider version (${{ steps.installed_version.outputs.version }}) does not match the latest tag (${{ steps.latest_tag.outputs.tag }})."
+            echo "Error: Installed cecli version (${{ steps.installed_version.outputs.version }}) does not match the latest tag (${{ steps.latest_tag.outputs.tag }})."
             exit 1
           fi
           echo "Versions match."

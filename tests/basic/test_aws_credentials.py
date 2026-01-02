@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch
 
-from aider.models import Model
+from cecli.models import Model
 
 
 class TestAWSCredentials:
@@ -18,7 +18,7 @@ class TestAWSCredentials:
             os.environ["AWS_PROFILE"] = "test-profile"
 
             # Create a model instance
-            with patch("aider.llm.litellm.validate_environment") as mock_validate:
+            with patch("cecli.llm.litellm.validate_environment") as mock_validate:
                 # Mock the litellm validate_environment to return missing AWS keys
                 mock_validate.return_value = {
                     "missing_keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
@@ -50,7 +50,7 @@ class TestAWSCredentials:
             os.environ["AWS_PROFILE"] = "test-profile"
 
             # Create a model instance
-            with patch("aider.llm.litellm.validate_environment") as mock_validate:
+            with patch("cecli.llm.litellm.validate_environment") as mock_validate:
                 # Mock the litellm validate_environment to return missing AWS keys
                 mock_validate.return_value = {
                     "missing_keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
@@ -82,7 +82,7 @@ class TestAWSCredentials:
             os.environ["AWS_PROFILE"] = "test-profile"
 
             # Create a model instance
-            with patch("aider.llm.litellm.validate_environment") as mock_validate:
+            with patch("cecli.llm.litellm.validate_environment") as mock_validate:
                 # Mock the litellm validate_environment to return missing AWS keys
                 mock_validate.return_value = {
                     "missing_keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
@@ -113,7 +113,7 @@ class TestAWSCredentials:
             os.environ.clear()
 
             # Create a model instance
-            with patch("aider.llm.litellm.validate_environment") as mock_validate:
+            with patch("cecli.llm.litellm.validate_environment") as mock_validate:
                 # Mock the litellm validate_environment to return missing AWS keys
                 mock_validate.return_value = {
                     "missing_keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
@@ -145,7 +145,7 @@ class TestAWSCredentials:
             os.environ["AWS_PROFILE"] = "test-profile"
 
             # Create a model instance
-            with patch("aider.llm.litellm.validate_environment") as mock_validate:
+            with patch("cecli.llm.litellm.validate_environment") as mock_validate:
                 # Mock the litellm validate_environment to return missing AWS keys and another key
                 mock_validate.return_value = {
                     "missing_keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "ANOTHER_KEY"],

@@ -3,7 +3,7 @@ name: Windows Python Tests
 on:
   push:
     paths-ignore:
-      - 'aider/website/**'
+      - 'cecli/website/**'
       - 'README.md'
       - 'HISTORY.md'
       - '.github/workflows/*'
@@ -12,7 +12,7 @@ on:
       - main
   pull_request:
     paths-ignore:
-      - 'aider/website/**'
+      - 'cecli/website/**'
       - 'README.md'
       - 'HISTORY.md'
       - '.github/workflows/*'
@@ -45,7 +45,5 @@ jobs:
         uv pip install --system pytest pytest-asyncio pytest-mock -r requirements/requirements.in -r requirements/requirements-help.in -r requirements/requirements-playwright.in '.[help,playwright]'
 
     - name: Run tests
-      env:
-        AIDER_ANALYTICS: false
       run: |
         pytest
