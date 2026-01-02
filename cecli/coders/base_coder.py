@@ -16,6 +16,7 @@ import time
 import traceback
 import weakref
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from unittest.mock import Mock
 
@@ -80,6 +81,16 @@ class MissingAPIKeyError(ValueError):
 
 class FinishReasonLength(Exception):
     pass
+
+
+@dataclass
+class ConsolidatedResponseMetadata:
+    """LiteLLM response metadata extracted during chunk consolidation."""
+
+    choice_has_finish_reason: bool = False
+    choice_has_content: bool = False
+    choice_has_tool_calls: bool = False
+    choice_content_text: str = ""
 
 
 def wrap_fence(name):
@@ -2397,7 +2408,7 @@ class Coder:
             # Process any tools using MCP servers
             try:
                 if self.partial_response_tool_calls:
-                    tool_call_response, a, b = self.consolidate_chunks()
+                    tool_call_response, a, b, _ = self.consolidate_chunks()
                     if await self.process_tool_calls(tool_call_response):
                         self.num_tool_calls += 1
                         self.reflected_message = True
@@ -3149,7 +3160,7 @@ class Coder:
 
         self.partial_response_chunks.append(completion)
 
-        response, func_err, content_err = self.consolidate_chunks()
+        response, func_err, content_err, response_meta = self.consolidate_chunks()
 
         resp_hash = dict(
             function_call=str(self.partial_response_function_call),
@@ -3163,32 +3174,26 @@ class Coder:
             self.io.tool_error(content_err)
             raise Exception("No data found in LLM response!")
 
-        response_choice = None
-        if response and hasattr(response, "choices") and response.choices:
-            response_choice = response.choices[0]
-
         completion_choice = None
         if completion and hasattr(completion, "choices") and completion.choices:
             completion_choice = completion.choices[0]
 
         # Check if we have a valid response with a finish reason
-        has_valid_finish_reason = False
-        for choice in (completion_choice, response_choice):
-            if not has_valid_finish_reason and self._choice_has_finish_reason(choice):
-                has_valid_finish_reason = True
+        has_valid_finish_reason = response_meta.choice_has_finish_reason
+        if not has_valid_finish_reason and self._choice_has_finish_reason(completion_choice):
+            has_valid_finish_reason = True
 
-        response_has_content = bool(self.partial_response_content)
-        if not response_has_content:
-            response_has_content = self._choice_has_content(response_choice)
-
-        response_has_tool_calls = len(self.partial_response_tool_calls) > 0
-        if not response_has_tool_calls:
-            response_has_tool_calls = self._choice_has_tool_calls(response_choice)
+        response_has_content = (
+            bool(self.partial_response_content) or response_meta.choice_has_content
+        )
+        response_has_tool_calls = (
+            len(self.partial_response_tool_calls) > 0 or response_meta.choice_has_tool_calls
+        )
 
         if response_has_content and not self.partial_response_content:
-            fallback_content = self._choice_content_text(
-                response_choice
-            ) or self._choice_content_text(completion_choice)
+            fallback_content = response_meta.choice_content_text or self._choice_content_text(
+                completion_choice
+            )
             if fallback_content:
                 self.partial_response_content = fallback_content
 
@@ -3332,29 +3337,23 @@ class Coder:
                 yield text
 
         # The Part Doing the Heavy Lifting Now
-        response, _, _ = self.consolidate_chunks()
-
-        response_choice = None
-        if response and hasattr(response, "choices") and response.choices:
-            response_choice = response.choices[0]
+        response, _, _, response_meta = self.consolidate_chunks()
 
         completion_choice = None
         if completion and hasattr(completion, "choices") and completion.choices:
             completion_choice = completion.choices[0]
 
         # Check if we have a valid response with a finish reason
-        has_valid_finish_reason = False
-        for choice in (completion_choice, response_choice):
-            if not has_valid_finish_reason and self._choice_has_finish_reason(choice):
-                has_valid_finish_reason = True
+        has_valid_finish_reason = response_meta.choice_has_finish_reason
+        if not has_valid_finish_reason and self._choice_has_finish_reason(completion_choice):
+            has_valid_finish_reason = True
 
-        response_has_content = bool(self.partial_response_content)
-        if not response_has_content:
-            response_has_content = self._choice_has_content(response_choice)
-
-        response_has_tool_calls = len(self.partial_response_tool_calls) > 0
-        if not response_has_tool_calls:
-            response_has_tool_calls = self._choice_has_tool_calls(response_choice)
+        response_has_content = (
+            bool(self.partial_response_content) or response_meta.choice_has_content
+        )
+        response_has_tool_calls = (
+            len(self.partial_response_tool_calls) > 0 or response_meta.choice_has_tool_calls
+        )
 
         if not response_has_content and not response_has_tool_calls and not has_valid_finish_reason:
             self.io.tool_warning("Empty response received from LLM. Check your provider account?")
@@ -3395,6 +3394,7 @@ class Coder:
         )
         func_err = None
         content_err = None
+        response_meta = ConsolidatedResponseMetadata()
 
         # Collect provider-specific fields from chunks to preserve them
         # We need to track both by ID (primary) and index (fallback) since
@@ -3497,7 +3497,15 @@ class Coder:
         except AttributeError as e:
             content_err = e
 
-        return response, func_err, content_err
+        response_choice = None
+        if response and hasattr(response, "choices") and response.choices:
+            response_choice = response.choices[0]
+            response_meta.choice_has_finish_reason = self._choice_has_finish_reason(response_choice)
+            response_meta.choice_content_text = self._choice_content_text(response_choice) or ""
+            response_meta.choice_has_content = bool(response_meta.choice_content_text)
+            response_meta.choice_has_tool_calls = self._choice_has_tool_calls(response_choice)
+
+        return response, func_err, content_err, response_meta
 
     def stream_wrapper(self, content, final):
         if not hasattr(self, "_streaming_buffer_length"):

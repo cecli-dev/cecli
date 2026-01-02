@@ -11,7 +11,11 @@ import pytest
 from litellm.types.utils import Choices, ModelResponse
 
 from cecli.coders import Coder
-from cecli.coders.base_coder import FinishReasonLength, UnknownEditFormat
+from cecli.coders.base_coder import (
+    ConsolidatedResponseMetadata,
+    FinishReasonLength,
+    UnknownEditFormat,
+)
 from cecli.commands import SwitchCoder
 from cecli.dump import dump  # noqa: F401
 from cecli.io import InputOutput
@@ -55,6 +59,19 @@ class TestCoder:
         response.choices[0].finish_reason = finish_reason
         response.choices[0].message.content = content
         return response
+
+    @staticmethod
+    def _make_consolidated_tuple(response):
+        choice = None
+        if response and getattr(response, "choices", None):
+            choice = response.choices[0]
+        meta = ConsolidatedResponseMetadata(
+            choice_has_finish_reason=Coder._choice_has_finish_reason(choice),
+            choice_has_content=Coder._choice_has_content(choice),
+            choice_has_tool_calls=Coder._choice_has_tool_calls(choice),
+            choice_content_text=Coder._choice_content_text(choice) if choice else "",
+        )
+        return (response, None, None, meta)
 
     @staticmethod
     def _reset_partial_response_state(coder):
@@ -2015,7 +2032,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response.__aiter__.return_value = iter([mock_response])
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2043,7 +2062,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response.__aiter__.return_value = iter([mock_response])
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2073,7 +2094,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response.__aiter__.return_value = iter([mock_response])
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2101,7 +2124,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response.__aiter__.return_value = iter([mock_response])
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2126,7 +2151,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response = self._make_model_response(finish_reason="stop", content=None)
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2148,7 +2175,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response = self._make_model_response(finish_reason=None, content=None)
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2174,7 +2203,9 @@ This command will print 'Hello, World!' to the console."""
             )
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
@@ -2196,7 +2227,9 @@ This command will print 'Hello, World!' to the console."""
             mock_response = self._make_model_response(finish_reason="tool_calls", content=None)
 
             # Mock the consolidate_chunks method to return our response
-            coder.consolidate_chunks = MagicMock(return_value=(mock_response, None, None))
+            coder.consolidate_chunks = MagicMock(
+                return_value=self._make_consolidated_tuple(mock_response)
+            )
 
             # Mock tool_warning to check if it's called
             io.tool_warning = MagicMock()
