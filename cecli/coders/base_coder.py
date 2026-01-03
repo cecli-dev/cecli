@@ -28,7 +28,7 @@ except ImportError:  # Babel not installed – we will fall back to a small mapp
     Locale = None
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import httpx
 from litellm import experimental_mcp_client
@@ -3146,6 +3146,28 @@ class Coder:
         tool_calls = cls._safe_getattr(delta, "tool_calls")
         return bool(tool_calls)
 
+    def _warn_if_truly_empty_response(
+        self,
+        response_meta: ConsolidatedResponseMetadata,
+        response_has_content: Optional[bool] = None,
+        response_has_tool_calls: Optional[bool] = None,
+    ) -> bool:
+        if response_has_content is None:
+            response_has_content = (
+                bool(self.partial_response_content) or response_meta.choice_has_content
+            )
+        if response_has_tool_calls is None:
+            response_has_tool_calls = (
+                bool(self.partial_response_tool_calls) or response_meta.choice_has_tool_calls
+            )
+
+        has_valid_finish_reason = response_meta.choice_has_finish_reason
+
+        if not response_has_content and not response_has_tool_calls and not has_valid_finish_reason:
+            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
+            return True
+        return False
+
     def show_send_output(self, completion):
         if self.verbose:
             print(completion)
@@ -3178,11 +3200,6 @@ class Coder:
         if completion and hasattr(completion, "choices") and completion.choices:
             completion_choice = completion.choices[0]
 
-        # Check if we have a valid response with a finish reason
-        has_valid_finish_reason = response_meta.choice_has_finish_reason
-        if not has_valid_finish_reason and self._choice_has_finish_reason(completion_choice):
-            has_valid_finish_reason = True
-
         response_has_content = (
             bool(self.partial_response_content) or response_meta.choice_has_content
         )
@@ -3197,9 +3214,11 @@ class Coder:
             if fallback_content:
                 self.partial_response_content = fallback_content
 
-        # Only warn if truly empty (no content, no tool calls, no valid finish_reason)
-        if not response_has_content and not response_has_tool_calls and not has_valid_finish_reason:
-            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
+        if self._warn_if_truly_empty_response(
+            response_meta,
+            response_has_content=response_has_content,
+            response_has_tool_calls=response_has_tool_calls,
+        ):
             return
 
         show_resp = self.render_incremental_response(True)
@@ -3223,11 +3242,8 @@ class Coder:
         ):
             raise FinishReasonLength()
 
-    async def _show_send_output_stream_async(self, completion):
-        """
-        Internal async helper that contains the original streaming logic.
-        This is an async generator that yields chunks from a streaming completion.
-        """
+    async def show_send_output_stream(self, completion):
+        """Yield streaming chunks from the LLM completion."""
         async for chunk in completion:
             if self.args.debug:
                 with open(".cecli/logs/chunks.log", "a") as f:
@@ -3339,15 +3355,6 @@ class Coder:
         # The Part Doing the Heavy Lifting Now
         response, _, _, response_meta = self.consolidate_chunks()
 
-        completion_choice = None
-        if completion and hasattr(completion, "choices") and completion.choices:
-            completion_choice = completion.choices[0]
-
-        # Check if we have a valid response with a finish reason
-        has_valid_finish_reason = response_meta.choice_has_finish_reason
-        if not has_valid_finish_reason and self._choice_has_finish_reason(completion_choice):
-            has_valid_finish_reason = True
-
         response_has_content = (
             bool(self.partial_response_content) or response_meta.choice_has_content
         )
@@ -3355,36 +3362,11 @@ class Coder:
             len(self.partial_response_tool_calls) > 0 or response_meta.choice_has_tool_calls
         )
 
-        if not response_has_content and not response_has_tool_calls and not has_valid_finish_reason:
-            self.io.tool_warning("Empty response received from LLM. Check your provider account?")
-
-    def show_send_output_stream(self, completion):
-        """
-        Synchronous wrapper around _show_send_output_stream_async.
-
-        * When **no event loop** is running (the normal test scenario) we
-          execute the async generator to completion with ``asyncio.run`` and
-          yield the collected items one‑by‑one.
-
-        * When an **event loop is already running** (e.g. the method is called
-          from async code) we simply return the async generator itself so the
-          caller can ``async for`` over it.
-        """
-
-        def _run_sync():
-            async def _collect_all():
-                return [chunk async for chunk in self._show_send_output_stream_async(completion)]
-
-            collected_chunks = asyncio.run(_collect_all())
-            for chunk in collected_chunks:
-                yield chunk
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return _run_sync()
-        else:
-            return self._show_send_output_stream_async(completion)
+        self._warn_if_truly_empty_response(
+            response_meta,
+            response_has_content=response_has_content,
+            response_has_tool_calls=response_has_tool_calls,
+        )
 
     def consolidate_chunks(self):
         response = (
