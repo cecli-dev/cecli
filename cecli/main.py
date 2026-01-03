@@ -1074,14 +1074,14 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         if not args.test_cmd:
             io.tool_error("No --test-cmd provided.")
             return await graceful_exit(coder, 1)
-        await coder.commands.cmd_test(args.test_cmd)
+await coder.commands.do_run("test", args.test_cmd)
         if io.placeholder:
             await coder.run(io.placeholder)
     if args.commit:
         if args.dry_run:
             io.tool_output("Dry run enabled, skipping commit.")
         else:
-            await coder.commands.cmd_commit()
+await coder.commands.do_run("commit", "")
     if args.lint or args.test or args.commit:
         return await graceful_exit(coder)
     if args.show_repo_map:
