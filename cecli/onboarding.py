@@ -10,7 +10,7 @@ import requests
 
 from cecli import urls
 from cecli.io import InputOutput
-from cecli.mcp.oauth import find_available_port, generate_pkce_codes
+from cecli.mcp import find_available_port, generate_pkce_codes
 
 
 def check_openrouter_tier(api_key):

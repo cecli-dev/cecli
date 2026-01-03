@@ -22,7 +22,7 @@ from cecli.helpers.similarity import (
     normalize_vector,
 )
 from cecli.helpers.skills import SkillsManager
-from cecli.mcp.server import LocalServer
+from cecli.mcp import LocalServer
 from cecli.repo import ANY_GIT_ERROR
 from cecli.tools import TOOL_MODULES
 

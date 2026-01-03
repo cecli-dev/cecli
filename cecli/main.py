@@ -47,7 +47,7 @@ from cecli.helpers.file_searcher import generate_search_path_list
 from cecli.history import ChatSummary
 from cecli.io import InputOutput
 from cecli.llm import litellm
-from cecli.mcp import load_mcp_servers
+from cecli.mcp import McpServerManager
 from cecli.models import ModelSettings
 from cecli.onboarding import offer_openrouter_oauth, select_default_model
 from cecli.repo import ANY_GIT_ERROR, GitRepo
@@ -971,11 +971,11 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         if max_input_tokens:
             args.context_compaction_max_tokens = int(max_input_tokens * ratio)
     try:
-        mcp_servers = load_mcp_servers(
+        mcp_manager = McpServerManager(
             args.mcp_servers, args.mcp_servers_file, io, args.verbose, args.mcp_transport
         )
-        if not mcp_servers:
-            mcp_servers = []
+        await mcp_manager.connect_all()
+
         coder = await Coder.create(
             main_model=main_model,
             edit_format=args.edit_format,
@@ -1011,7 +1011,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             detect_urls=args.detect_urls,
             auto_copy_context=args.copy_paste,
             auto_accept_architect=args.auto_accept_architect,
-            mcp_servers=mcp_servers,
+            mcp_manager=mcp_manager,
             add_gitignore_files=args.add_gitignore_files,
             enable_context_compaction=args.enable_context_compaction,
             context_compaction_max_tokens=args.context_compaction_max_tokens,
@@ -1265,11 +1265,9 @@ async def graceful_exit(coder=None, exit_code=0):
     if coder:
         if hasattr(coder, "_autosave_future"):
             await coder._autosave_future
-        for server in coder.mcp_servers:
-            try:
-                await server.exit_stack.aclose()
-            except Exception:
-                pass
+
+        if coder.mcp_manager and coder.mcp_manager.is_connected:
+            await coder.mcp_manager.disconnect_all()
     return exit_code
 
 

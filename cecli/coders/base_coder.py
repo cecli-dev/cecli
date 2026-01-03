@@ -44,7 +44,7 @@ from cecli.history import ChatSummary
 from cecli.io import ConfirmGroup, InputOutput
 from cecli.linter import Linter
 from cecli.llm import litellm
-from cecli.mcp.server import LocalServer
+from cecli.mcp import LocalServer
 from cecli.models import RETRY_TIMEOUT
 from cecli.reasoning_tags import (
     REASONING_TAG,
@@ -137,7 +137,7 @@ class Coder:
     chat_language = None
     commit_language = None
     file_watcher = None
-    mcp_servers = None
+    mcp_manager = None
     mcp_tools = None
     run_one_completed = True
     compact_context_completed = True
@@ -248,8 +248,8 @@ class Coder:
 
         if res is not None:
             if from_coder:
-                if from_coder.mcp_servers and kwargs.get("mcp_servers", False):
-                    res.mcp_servers = from_coder.mcp_servers
+                if from_coder.mcp_manager:
+                    res.mcp_manager = from_coder.mcp_manager
                     res.mcp_tools = from_coder.mcp_tools
 
                 # Transfer TUI app weak reference
@@ -315,7 +315,7 @@ class Coder:
         file_watcher=None,
         auto_copy_context=False,
         auto_accept_architect=True,
-        mcp_servers=None,
+        mcp_manager=None,
         enable_context_compaction=False,
         context_compaction_max_tokens=None,
         context_compaction_summary_tokens=8192,
@@ -349,7 +349,7 @@ class Coder:
         self.args = args
 
         self.num_cache_warming_pings = num_cache_warming_pings
-        self.mcp_servers = mcp_servers
+        self.mcp_manager = mcp_manager
         self.enable_context_compaction = enable_context_compaction
 
         self.context_compaction_max_tokens = context_compaction_max_tokens
@@ -2547,7 +2547,7 @@ class Coder:
                         and tool_name_from_schema.lower() == tool_call.function.name.lower()
                     ):
                         # Find the McpServer instance that will be used for communication
-                        for server in self.mcp_servers:
+                        for server in self.mcp_manager:
                             if server.name == server_name:
                                 if server not in server_tool_calls:
                                     server_tool_calls[server] = []
@@ -2725,7 +2725,11 @@ class Coder:
         Initialize tools from all configured MCP servers. MCP Servers that fail to be
         initialized will not be available to the Coder instance.
         """
+        # TODO(@gopar): refactor here once we have fully moved over to use the mcp manager
         tools = []
+
+        if self.mcp_manager is None:
+            return None
 
         async def get_server_tools(server):
             # Check if we already have tools for this server in mcp_tools
@@ -2746,11 +2750,11 @@ class Coder:
                 return None
 
         async def get_all_server_tools():
-            tasks = [get_server_tools(server) for server in self.mcp_servers]
+            tasks = [get_server_tools(server) for server in self.mcp_manager]
             results = await asyncio.gather(*tasks)
             return [result for result in results if result is not None]
 
-        if self.mcp_servers:
+        if self.mcp_manager:
             # Retry initialization in case of CancelledError
             max_retries = 3
             for i in range(max_retries):

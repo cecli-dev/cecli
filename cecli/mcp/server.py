@@ -13,13 +13,13 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientMetadata
 
-from cecli.mcp.oauth import (
+from .oauth import (
     FileBasedTokenStorage,
     create_oauth_callback_server,
-    find_available_port,
     get_mcp_oauth_token,
     save_mcp_oauth_token,
 )
+from .utils import find_available_port
 
 
 class McpServer:

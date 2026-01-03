@@ -1,10 +1,7 @@
 import asyncio
-import base64
-import hashlib
 import http.server
 import json
 import os
-import secrets
 import socketserver
 import threading
 import time
@@ -14,19 +11,6 @@ from urllib.parse import parse_qs, urlparse
 
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-
-
-def find_available_port(start_port=8484, end_port=8584):
-    """Find an available port in the given range."""
-    for port in range(start_port, end_port + 1):
-        try:
-            # Check if the port is available by trying to bind to it
-            with socketserver.TCPServer(("localhost", port), None):
-                return port
-        except OSError:
-            # Port is likely already in use
-            continue
-    return None
 
 
 def create_oauth_callback_server(
@@ -137,15 +121,6 @@ def create_oauth_callback_server(
         return auth_code, state
 
     return get_auth_code, shutdown
-
-
-def generate_pkce_codes():
-    """Generate PKCE code verifier and challenge."""
-    code_verifier = secrets.token_urlsafe(64)
-    hasher = hashlib.sha256()
-    hasher.update(code_verifier.encode("utf-8"))
-    code_challenge = base64.urlsafe_b64encode(hasher.digest()).rstrip(b"=").decode("utf-8")
-    return code_verifier, code_challenge
 
 
 def get_token_file_path():
