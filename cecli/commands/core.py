@@ -1,9 +1,11 @@
 import asyncio
+import json
 import re
 import sys
 from pathlib import Path
 
 from cecli.commands.utils.registry import CommandRegistry
+from cecli.helpers import plugin_manager
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.repo import ANY_GIT_ERROR
 
@@ -77,8 +79,70 @@ class Commands:
         self.help = None
         self.editor = editor
         self.original_read_only_fnames = set(original_read_only_fnames or [])
+
+        try:
+            self.custom_commands = json.loads(getattr(self.args, "command_paths", "[]"))
+        except (json.JSONDecodeError, TypeError) as e:
+            self.io.tool_warning(f"Failed to parse command paths JSON: {e}")
+            self.custom_commands = []
+
+        # Load custom commands from plugin paths
+        self._load_custom_commands(self.custom_commands)
+
         self.cmd_running_event = asyncio.Event()
         self.cmd_running_event.set()
+
+    def _load_custom_commands(self, custom_commands):
+        """
+        Load custom commands from plugin paths.
+
+        Args:
+            custom_commands: List of file or directory paths to load custom commands from.
+                             If None or empty, no custom commands are loaded.
+        """
+        if not custom_commands:
+            return
+
+        for path_str in custom_commands:
+            path = Path(path_str)
+            try:
+                if path.is_dir():
+                    # Find all Python files in the directory
+                    for py_file in path.glob("*.py"):
+                        self._load_command_from_file(py_file)
+                else:
+                    # If it's a file, try to load it directly
+                    if path.exists() and path.suffix == ".py":
+                        self._load_command_from_file(path)
+            except Exception as e:
+                # Log error but continue with other paths
+                if self.io:
+                    self.io.tool_error(f"Error loading custom commands from {path}: {e}")
+
+    def _load_command_from_file(self, file_path):
+        """
+        Load a command class from a Python file.
+
+        Args:
+            file_path: Path to the Python file to load.
+        """
+        try:
+            # Load the module using plugin_manager
+            module = plugin_manager.load_module(str(file_path))
+
+            # Look for a class named exactly "CustomCommand" in the module
+            if hasattr(module, "CustomCommand"):
+                command_class = getattr(module, "CustomCommand")
+                if isinstance(command_class, type):
+                    # Register the command class
+                    CommandRegistry.register(command_class)
+                    if self.io and self.verbose:
+                        self.io.tool_output(f"Registered custom command: {command_class.NORM_NAME}")
+
+        except Exception as e:
+            # Log error but continue with other files
+            if self.io:
+                self.io.tool_error(f"Error loading command from {file_path}: {e}")
 
     def is_command(self, inp):
         return inp[0] in "/!"

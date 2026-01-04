@@ -327,7 +327,7 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--enable-context-compaction",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="Enable automatic compaction of chat history to conserve tokens (default: False)",
     )
     group.add_argument(
@@ -974,6 +974,12 @@ def get_parser(default_config_files, git_root):
             "Specify a command to run for notifications instead of the terminal bell. If not"
             " specified, a default command for your OS may be used."
         ),
+    )
+    group.add_argument(
+        "--command-paths",
+        help="JSON array of paths to custom commands files",
+        action="append",
+        default=None,
     )
     group.add_argument(
         "--command-prefix",
