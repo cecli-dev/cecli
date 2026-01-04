@@ -104,19 +104,6 @@ class McpServerManager:
 
         self._connected = False
 
-    async def __aenter__(self):
-        """Async context manager entry."""
-        await self.connect_all()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.disconnect_all()
-
-    async def __aiter__(self):
-        for server in self._servers:
-            yield server
-
     def __iter__(self):
         for server in self._servers:
             yield server
