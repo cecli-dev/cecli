@@ -33,25 +33,25 @@ but these are useful for scripting:
 ```
 --stream, --no-stream
                       Enable/disable streaming responses (default: True) [env var:
-                      AIDER_STREAM]
+                      CECLI_STREAM]
 --message COMMAND, --msg COMMAND, -m COMMAND
                       Specify a single message to send GPT, process reply then exit
-                      (disables chat mode) [env var: AIDER_MESSAGE]
+                      (disables chat mode) [env var: CECLI_MESSAGE]
 --message-file MESSAGE_FILE, -f MESSAGE_FILE
                       Specify a file containing the message to send GPT, process reply,
-                      then exit (disables chat mode) [env var: AIDER_MESSAGE_FILE]
---yes                 Always say yes to every confirmation [env var: AIDER_YES]
+                      then exit (disables chat mode) [env var: CECLI_MESSAGE_FILE]
+--yes                 Always say yes to every confirmation [env var: CECLI_YES]
 --auto-commits, --no-auto-commits
                       Enable/disable auto commit of GPT changes (default: True) [env var:
-                      AIDER_AUTO_COMMITS]
+                      CECLI_AUTO_COMMITS]
 --dirty-commits, --no-dirty-commits
                       Enable/disable commits when repo is found dirty (default: True) [env
-                      var: AIDER_DIRTY_COMMITS]
+                      var: CECLI_DIRTY_COMMITS]
 --dry-run, --no-dry-run
                       Perform a dry run without modifying files (default: False) [env var:
-                      AIDER_DRY_RUN]
+                      CECLI_DRY_RUN]
 --commit              Commit all pending changes with a suitable commit message, then exit
-                      [env var: AIDER_COMMIT]
+                      [env var: CECLI_COMMIT]
 ```
 
 

@@ -1,8 +1,5 @@
-import base64
-import hashlib
 import http.server
 import os
-import secrets
 import socketserver
 import threading
 import time
@@ -13,6 +10,7 @@ import requests
 
 from cecli import urls
 from cecli.io import InputOutput
+from cecli.mcp.oauth import find_available_port, generate_pkce_codes
 
 
 def check_openrouter_tier(api_key):
@@ -117,24 +115,7 @@ async def select_default_model(args, io):
     await io.offer_url(urls.models_and_keys, "Open documentation URL for more info?")
 
 
-def find_available_port(start_port=8484, end_port=8584):
-    for port in range(start_port, end_port + 1):
-        try:
-            with socketserver.TCPServer(("localhost", port), None):
-                return port
-        except OSError:
-            continue
-    return None
-
-
-def generate_pkce_codes():
-    code_verifier = secrets.token_urlsafe(64)
-    hasher = hashlib.sha256()
-    hasher.update(code_verifier.encode("utf-8"))
-    code_challenge = base64.urlsafe_b64encode(hasher.digest()).rstrip(b"=").decode("utf-8")
-    return code_verifier, code_challenge
-
-
+# Function to exchange the authorization code for an API key
 def exchange_code_for_key(code, code_verifier, io):
     try:
         response = requests.post(

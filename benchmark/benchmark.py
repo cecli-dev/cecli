@@ -40,7 +40,7 @@ logger = logging.getLogger("cecli.benchmark")
 # Cache for commit-hash -> version lookup
 _VERSION_CACHE = {}
 
-BENCHMARK_DNAME = Path(os.environ.get("CECLIBENCHMARK_DIR", "tmp.benchmarks"))
+BENCHMARK_DNAME = Path(os.environ.get("CECLI_BENCHMARK_DIR", "tmp.benchmarks"))
 EXERCISES_DIR_DEFAULT = "cecli-cat"
 RESULTS_DIR_DEFAULT = "cat-results"
 
@@ -209,9 +209,11 @@ def main(
         return 1
     results_dir = resolved_results_dir
 
-    if not dry and "CECLIDOCKER" not in os.environ:
+    if not dry and "CECLI_DOCKER" not in os.environ:
         logger.warning("Warning: Benchmarking runs unvetted code. Run in a docker container.")
-        logger.warning("Set CECLIDOCKER in the environment to by-pass this check at your own risk.")
+        logger.warning(
+            "Set CECLI_DOCKER in the environment to by-pass this check at your own risk."
+        )
         return
 
     # Check dirs exist

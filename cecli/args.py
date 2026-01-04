@@ -38,7 +38,7 @@ def get_parser(default_config_files, git_root):
         add_config_file_help=True,
         default_config_files=default_config_files,
         config_file_parser_class=configargparse.YAMLConfigFileParser,
-        auto_env_var_prefix="CECLI",
+        auto_env_var_prefix="CECLI_",
     )
     # List of valid edit formats for argparse validation & shtab completion.
     # Dynamically gather them from the registered coder classes so the list
@@ -327,7 +327,7 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--enable-context-compaction",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="Enable automatic compaction of chat history to conserve tokens (default: False)",
     )
     group.add_argument(
@@ -567,7 +567,7 @@ def get_parser(default_config_files, git_root):
 
     group.add_argument(
         "--cecli-ignore",
-        metavar="CECLIIGNORE",
+        metavar="CECLI_IGNORE",
         type=lambda path_str: resolve_cecli_ignore_path(path_str, git_root),
         default=default_cecli_ignore_file,
         help="Specify the cecli ignore file (default: .cecli.ignore in git root)",
@@ -974,6 +974,12 @@ def get_parser(default_config_files, git_root):
             "Specify a command to run for notifications instead of the terminal bell. If not"
             " specified, a default command for your OS may be used."
         ),
+    )
+    group.add_argument(
+        "--command-paths",
+        help="JSON array of paths to custom commands files",
+        action="append",
+        default=None,
     )
     group.add_argument(
         "--command-prefix",

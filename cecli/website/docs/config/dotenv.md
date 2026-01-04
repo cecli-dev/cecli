@@ -62,432 +62,432 @@ cog.outl("```")
 # Main model:
 
 ## Specify the model to use for the main chat
-#AIDER_MODEL=
+#CECLI_MODEL=
 
 ########################
 # API Keys and settings:
 
 ## Specify the OpenAI API key
-#AIDER_OPENAI_API_KEY=
+#CECLI_OPENAI_API_KEY=
 
 ## Specify the Anthropic API key
-#AIDER_ANTHROPIC_API_KEY=
+#CECLI_ANTHROPIC_API_KEY=
 
 ## Specify the api base url
-#AIDER_OPENAI_API_BASE=
+#CECLI_OPENAI_API_BASE=
 
 ## (deprecated, use --set-env OPENAI_API_TYPE=<value>)
-#AIDER_OPENAI_API_TYPE=
+#CECLI_OPENAI_API_TYPE=
 
 ## (deprecated, use --set-env OPENAI_API_VERSION=<value>)
-#AIDER_OPENAI_API_VERSION=
+#CECLI_OPENAI_API_VERSION=
 
 ## (deprecated, use --set-env OPENAI_API_DEPLOYMENT_ID=<value>)
-#AIDER_OPENAI_API_DEPLOYMENT_ID=
+#CECLI_OPENAI_API_DEPLOYMENT_ID=
 
 ## (deprecated, use --set-env OPENAI_ORGANIZATION=<value>)
-#AIDER_OPENAI_ORGANIZATION_ID=
+#CECLI_OPENAI_ORGANIZATION_ID=
 
 ## Set an environment variable (to control API settings, can be used multiple times)
-#AIDER_SET_ENV=
+#CECLI_SET_ENV=
 
 ## Set an API key for a provider (eg: --api-key provider=<key> sets PROVIDER_API_KEY=<key>)
-#AIDER_API_KEY=
+#CECLI_API_KEY=
 
 #################
 # Model settings:
 
 ## List known models which match the (partial) MODEL name
-#AIDER_LIST_MODELS=
+#CECLI_LIST_MODELS=
 
 ## Specify a file with aider model settings for unknown models
-#AIDER_MODEL_SETTINGS_FILE=.aider.model.settings.yml
+#CECLI_MODEL_SETTINGS_FILE=.aider.model.settings.yml
 
 ## Specify a file with context window and costs for unknown models
-#AIDER_MODEL_METADATA_FILE=.aider.model.metadata.json
+#CECLI_MODEL_METADATA_FILE=.aider.model.metadata.json
 
 ## Add a model alias (can be used multiple times)
-#AIDER_ALIAS=
+#CECLI_ALIAS=
 
 ## Set the reasoning_effort API parameter (default: not set)
-#AIDER_REASONING_EFFORT=
+#CECLI_REASONING_EFFORT=
 
 ## Set the thinking token budget for models that support it. Use 0 to disable. (default: not set)
-#AIDER_THINKING_TOKENS=
+#CECLI_THINKING_TOKENS=
 
 ## Verify the SSL cert when connecting to models (default: True)
-#AIDER_VERIFY_SSL=true
+#CECLI_VERIFY_SSL=true
 
 ## Timeout in seconds for API calls (default: None)
-#AIDER_TIMEOUT=
+#CECLI_TIMEOUT=
 
 ## Specify what edit format the LLM should use (default depends on model)
-#AIDER_EDIT_FORMAT=
+#CECLI_EDIT_FORMAT=
 
 ## Use architect edit format for the main chat
-#AIDER_ARCHITECT=
+#CECLI_ARCHITECT=
 
 ## Enable/disable automatic acceptance of architect changes (default: True)
-#AIDER_AUTO_ACCEPT_ARCHITECT=true
+#CECLI_AUTO_ACCEPT_ARCHITECT=true
 
 ## Specify the model to use for commit messages and chat history summarization (default depends on --model)
-#AIDER_WEAK_MODEL=
+#CECLI_WEAK_MODEL=
 
 ## Specify the model to use for editor tasks (default depends on --model)
-#AIDER_EDITOR_MODEL=
+#CECLI_EDITOR_MODEL=
 
 ## Specify the edit format for the editor model (default: depends on editor model)
-#AIDER_EDITOR_EDIT_FORMAT=
+#CECLI_EDITOR_EDIT_FORMAT=
 
 ## Only work with models that have meta-data available (default: True)
-#AIDER_SHOW_MODEL_WARNINGS=true
+#CECLI_SHOW_MODEL_WARNINGS=true
 
 ## Check if model accepts settings like reasoning_effort/thinking_tokens (default: True)
-#AIDER_CHECK_MODEL_ACCEPTS_SETTINGS=true
+#CECLI_CHECK_MODEL_ACCEPTS_SETTINGS=true
 
 ## Soft limit on tokens for chat history, after which summarization begins. If unspecified, defaults to the model's max_chat_history_tokens.
-#AIDER_MAX_CHAT_HISTORY_TOKENS=
+#CECLI_MAX_CHAT_HISTORY_TOKENS=
 
 #################
 # Cache settings:
 
 ## Enable caching of prompts (default: False)
-#AIDER_CACHE_PROMPTS=false
+#CECLI_CACHE_PROMPTS=false
 
 ## Number of times to ping at 5min intervals to keep prompt cache warm (default: 0)
-#AIDER_CACHE_KEEPALIVE_PINGS=false
+#CECLI_CACHE_KEEPALIVE_PINGS=false
 
 ###################
 # Repomap settings:
 
 ## Suggested number of tokens to use for repo map, use 0 to disable
-#AIDER_MAP_TOKENS=
+#CECLI_MAP_TOKENS=
 
 ## Control how often the repo map is refreshed. Options: auto, always, files, manual (default: auto)
-#AIDER_MAP_REFRESH=auto
+#CECLI_MAP_REFRESH=auto
 
 ## Multiplier for map tokens when no files are specified (default: 2)
-#AIDER_MAP_MULTIPLIER_NO_FILES=true
+#CECLI_MAP_MULTIPLIER_NO_FILES=true
 
 ## Maximum line length for the repo map code. Prevents sending crazy long lines of minified JS files etc. (default: 100)
-#AIDER_MAP_MAX_LINE_LENGTH=100
+#CECLI_MAP_MAX_LINE_LENGTH=100
 
 ################
 # History Files:
 
 ## Specify the chat input history file (default: .aider.input.history)
-#AIDER_INPUT_HISTORY_FILE=.aider.input.history
+#CECLI_INPUT_HISTORY_FILE=.aider.input.history
 
 ## Specify the chat history file (default: .aider.chat.history.md)
-#AIDER_CHAT_HISTORY_FILE=.aider.chat.history.md
+#CECLI_CHAT_HISTORY_FILE=.aider.chat.history.md
 
 ## Restore the previous chat history messages (default: False)
-#AIDER_RESTORE_CHAT_HISTORY=false
+#CECLI_RESTORE_CHAT_HISTORY=false
 
 ## Log the conversation with the LLM to this file (for example, .aider.llm.history)
-#AIDER_LLM_HISTORY_FILE=
+#CECLI_LLM_HISTORY_FILE=
 
 ##################
 # Output settings:
 
 ## Use colors suitable for a dark terminal background (default: False)
-#AIDER_DARK_MODE=false
+#CECLI_DARK_MODE=false
 
 ## Use colors suitable for a light terminal background (default: False)
-#AIDER_LIGHT_MODE=false
+#CECLI_LIGHT_MODE=false
 
 ## Enable/disable pretty, colorized output (default: True)
-#AIDER_PRETTY=true
+#CECLI_PRETTY=true
 
 ## Enable/disable streaming responses (default: True)
-#AIDER_STREAM=true
+#CECLI_STREAM=true
 
 ## Set the color for user input (default: #00cc00)
-#AIDER_USER_INPUT_COLOR=#00cc00
+#CECLI_USER_INPUT_COLOR=#00cc00
 
 ## Set the color for tool output (default: None)
-#AIDER_TOOL_OUTPUT_COLOR=
+#CECLI_TOOL_OUTPUT_COLOR=
 
 ## Set the color for tool error messages (default: #FF2222)
-#AIDER_TOOL_ERROR_COLOR=#FF2222
+#CECLI_TOOL_ERROR_COLOR=#FF2222
 
 ## Set the color for tool warning messages (default: #FFA500)
-#AIDER_TOOL_WARNING_COLOR=#FFA500
+#CECLI_TOOL_WARNING_COLOR=#FFA500
 
 ## Set the color for assistant output (default: #0088ff)
-#AIDER_ASSISTANT_OUTPUT_COLOR=#0088ff
+#CECLI_ASSISTANT_OUTPUT_COLOR=#0088ff
 
 ## Set the color for the completion menu (default: terminal's default text color)
-#AIDER_COMPLETION_MENU_COLOR=
+#CECLI_COMPLETION_MENU_COLOR=
 
 ## Set the background color for the completion menu (default: terminal's default background color)
-#AIDER_COMPLETION_MENU_BG_COLOR=
+#CECLI_COMPLETION_MENU_BG_COLOR=
 
 ## Set the color for the current item in the completion menu (default: terminal's default background color)
-#AIDER_COMPLETION_MENU_CURRENT_COLOR=
+#CECLI_COMPLETION_MENU_CURRENT_COLOR=
 
 ## Set the background color for the current item in the completion menu (default: terminal's default text color)
-#AIDER_COMPLETION_MENU_CURRENT_BG_COLOR=
+#CECLI_COMPLETION_MENU_CURRENT_BG_COLOR=
 
 ## Set the markdown code theme (default: default, other options include monokai, solarized-dark, solarized-light, or a Pygments builtin style, see https://pygments.org/styles for available themes)
-#AIDER_CODE_THEME=default
+#CECLI_CODE_THEME=default
 
 ## Show diffs when committing changes (default: False)
-#AIDER_SHOW_DIFFS=false
+#CECLI_SHOW_DIFFS=false
 
 ###############
 # Git settings:
 
 ## Enable/disable looking for a git repo (default: True)
-#AIDER_GIT=true
+#CECLI_GIT=true
 
 ## Enable/disable adding .aider* to .gitignore (default: True)
-#AIDER_GITIGNORE=true
+#CECLI_GITIGNORE=true
 
 ## Enable/disable the addition of files listed in .gitignore to Aider's editing scope.
-#AIDER_ADD_GITIGNORE_FILES=false
+#CECLI_ADD_GITIGNORE_FILES=false
 
 ## Specify the aider ignore file (default: .aiderignore in git root)
-#AIDER_AIDERIGNORE=.aiderignore
+#CECLI_AIDERIGNORE=.aiderignore
 
 ## Only consider files in the current subtree of the git repository
-#AIDER_SUBTREE_ONLY=false
+#CECLI_SUBTREE_ONLY=false
 
 ## Enable/disable auto commit of LLM changes (default: True)
-#AIDER_AUTO_COMMITS=true
+#CECLI_AUTO_COMMITS=true
 
 ## Enable/disable commits when repo is found dirty (default: True)
-#AIDER_DIRTY_COMMITS=true
+#CECLI_DIRTY_COMMITS=true
 
 ## Attribute aider code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.
-#AIDER_ATTRIBUTE_AUTHOR=
+#CECLI_ATTRIBUTE_AUTHOR=
 
 ## Attribute aider commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for aider edits.
-#AIDER_ATTRIBUTE_COMMITTER=
+#CECLI_ATTRIBUTE_COMMITTER=
 
 ## Prefix commit messages with 'aider: ' if aider authored the changes (default: False)
-#AIDER_ATTRIBUTE_COMMIT_MESSAGE_AUTHOR=false
+#CECLI_ATTRIBUTE_COMMIT_MESSAGE_AUTHOR=false
 
 ## Prefix all commit messages with 'aider: ' (default: False)
-#AIDER_ATTRIBUTE_COMMIT_MESSAGE_COMMITTER=false
+#CECLI_ATTRIBUTE_COMMIT_MESSAGE_COMMITTER=false
 
 ## Attribute aider edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.
-#AIDER_ATTRIBUTE_CO_AUTHORED_BY=true
+#CECLI_ATTRIBUTE_CO_AUTHORED_BY=true
 
 ## Enable/disable git pre-commit hooks with --no-verify (default: False)
-#AIDER_GIT_COMMIT_VERIFY=false
+#CECLI_GIT_COMMIT_VERIFY=false
 
 ## Commit all pending changes with a suitable commit message, then exit
-#AIDER_COMMIT=false
+#CECLI_COMMIT=false
 
 ## Specify a custom prompt for generating commit messages
-#AIDER_COMMIT_PROMPT=
+#CECLI_COMMIT_PROMPT=
 
 ## Perform a dry run without modifying files (default: False)
-#AIDER_DRY_RUN=false
+#CECLI_DRY_RUN=false
 
 ## Skip the sanity check for the git repository (default: False)
-#AIDER_SKIP_SANITY_CHECK_REPO=false
+#CECLI_SKIP_SANITY_CHECK_REPO=false
 
 ## Enable/disable watching files for ai coding comments (default: False)
-#AIDER_WATCH_FILES=false
+#CECLI_WATCH_FILES=false
 
 ########################
 # Fixing and committing:
 
 ## Lint and fix provided files, or dirty files if none provided
-#AIDER_LINT=false
+#CECLI_LINT=false
 
 ## Specify lint commands to run for different languages, eg: "python: flake8 --select=..." (can be used multiple times)
-#AIDER_LINT_CMD=
+#CECLI_LINT_CMD=
 
 ## Enable/disable automatic linting after changes (default: True)
-#AIDER_AUTO_LINT=true
+#CECLI_AUTO_LINT=true
 
 ## Specify command to run tests
-#AIDER_TEST_CMD=
+#CECLI_TEST_CMD=
 
 ## Enable/disable automatic testing after changes (default: False)
-#AIDER_AUTO_TEST=false
+#CECLI_AUTO_TEST=false
 
 ## Run tests, fix problems found and then exit
-#AIDER_TEST=false
+#CECLI_TEST=false
 
 ############
 # Analytics:
 
 ## Enable/disable analytics for current session (default: random)
-#AIDER_ANALYTICS=
+#CECLI_ANALYTICS=
 
 ## Specify a file to log analytics events
-#AIDER_ANALYTICS_LOG=
+#CECLI_ANALYTICS_LOG=
 
 ## Permanently disable analytics
-#AIDER_ANALYTICS_DISABLE=false
+#CECLI_ANALYTICS_DISABLE=false
 
 ## Send analytics to custom PostHog instance
-#AIDER_ANALYTICS_POSTHOG_HOST=
+#CECLI_ANALYTICS_POSTHOG_HOST=
 
 ## Send analytics to custom PostHog project
-#AIDER_ANALYTICS_POSTHOG_PROJECT_API_KEY=
+#CECLI_ANALYTICS_POSTHOG_PROJECT_API_KEY=
 
 ############
 # Upgrading:
 
 ## Check for updates and return status in the exit code
-#AIDER_JUST_CHECK_UPDATE=false
+#CECLI_JUST_CHECK_UPDATE=false
 
 ## Check for new aider versions on launch
-#AIDER_CHECK_UPDATE=true
+#CECLI_CHECK_UPDATE=true
 
 ## Show release notes on first run of new version (default: None, ask user)
-#AIDER_SHOW_RELEASE_NOTES=
+#CECLI_SHOW_RELEASE_NOTES=
 
 ## Install the latest version from the main branch
-#AIDER_INSTALL_MAIN_BRANCH=false
+#CECLI_INSTALL_MAIN_BRANCH=false
 
 ## Upgrade aider to the latest version from PyPI
-#AIDER_UPGRADE=false
+#CECLI_UPGRADE=false
 
 ########
 # Modes:
 
 ## Specify a single message to send the LLM, process reply then exit (disables chat mode)
-#AIDER_MESSAGE=
+#CECLI_MESSAGE=
 
 ## Specify a file containing the message to send the LLM, process reply, then exit (disables chat mode)
-#AIDER_MESSAGE_FILE=
+#CECLI_MESSAGE_FILE=
 
 ## Run aider in your browser (default: False)
-#AIDER_GUI=false
+#CECLI_GUI=false
 
 ## Enable automatic copy/paste of chat between aider and web UI (default: False)
-#AIDER_COPY_PASTE=false
+#CECLI_COPY_PASTE=false
 
 ## Apply the changes from the given file instead of running the chat (debug)
-#AIDER_APPLY=
+#CECLI_APPLY=
 
 ## Apply clipboard contents as edits using the main model's editor format
-#AIDER_APPLY_CLIPBOARD_EDITS=false
+#CECLI_APPLY_CLIPBOARD_EDITS=false
 
 ## Do all startup activities then exit before accepting user input (debug)
-#AIDER_EXIT=false
+#CECLI_EXIT=false
 
 ## Print the repo map and exit (debug)
-#AIDER_SHOW_REPO_MAP=false
+#CECLI_SHOW_REPO_MAP=false
 
 ## Print the system prompts and exit (debug)
-#AIDER_SHOW_PROMPTS=false
+#CECLI_SHOW_PROMPTS=false
 
 #################
 # Voice settings:
 
 ## Audio format for voice recording (default: wav). webm and mp3 require ffmpeg
-#AIDER_VOICE_FORMAT=wav
+#CECLI_VOICE_FORMAT=wav
 
 ## Specify the language for voice using ISO 639-1 code (default: auto)
-#AIDER_VOICE_LANGUAGE=en
+#CECLI_VOICE_LANGUAGE=en
 
 ## Specify the input device name for voice recording
-#AIDER_VOICE_INPUT_DEVICE=
+#CECLI_VOICE_INPUT_DEVICE=
 
 #################
 # Other settings:
 
 ## Never prompt for or attempt to install Playwright for web scraping (default: False).
-#AIDER_DISABLE_PLAYWRIGHT=false
+#CECLI_DISABLE_PLAYWRIGHT=false
 
 ## specify a file to edit (can be used multiple times)
-#AIDER_FILE=
+#CECLI_FILE=
 
 ## specify a read-only file (can be used multiple times)
-#AIDER_READ=
+#CECLI_READ=
 
 ## Use VI editing mode in the terminal (default: False)
-#AIDER_VIM=false
+#CECLI_VIM=false
 
 ## Specify the language to use in the chat (default: None, uses system settings)
-#AIDER_CHAT_LANGUAGE=
+#CECLI_CHAT_LANGUAGE=
 
 ## Specify the language to use in the commit message (default: None, user language)
-#AIDER_COMMIT_LANGUAGE=
+#CECLI_COMMIT_LANGUAGE=
 
 ## Always say yes to every confirmation
-#AIDER_YES_ALWAYS=
+#CECLI_YES_ALWAYS=
 
 ## Enable verbose output
-#AIDER_VERBOSE=false
+#CECLI_VERBOSE=false
 
 ## Load and execute /commands from a file on launch
-#AIDER_LOAD=
+#CECLI_LOAD=
 
 ## Specify the encoding for input and output (default: utf-8)
-#AIDER_ENCODING=utf-8
+#CECLI_ENCODING=utf-8
 
 ## Line endings to use when writing files (default: platform)
-#AIDER_LINE_ENDINGS=platform
+#CECLI_LINE_ENDINGS=platform
 
 ## Specify the .env file to load (default: .env in git root)
-#AIDER_ENV_FILE=.env
+#CECLI_ENV_FILE=.env
 
 ## Enable/disable suggesting shell commands (default: True)
-#AIDER_SUGGEST_SHELL_COMMANDS=true
+#CECLI_SUGGEST_SHELL_COMMANDS=true
 
 ## Enable/disable fancy input with history and completion (default: True)
-#AIDER_FANCY_INPUT=true
+#CECLI_FANCY_INPUT=true
 
 ## Enable/disable multi-line input mode with Meta-Enter to submit (default: False)
-#AIDER_MULTILINE=false
+#CECLI_MULTILINE=false
 
 ## Enable/disable terminal bell notifications when LLM responses are ready (default: False)
-#AIDER_NOTIFICATIONS=false
+#CECLI_NOTIFICATIONS=false
 
 ## Specify a command to run for notifications instead of the terminal bell. If not specified, a default command for your OS may be used.
-#AIDER_NOTIFICATIONS_COMMAND=
+#CECLI_NOTIFICATIONS_COMMAND=
 
 ## Enable/disable detection and offering to add URLs to chat (default: True)
-#AIDER_DETECT_URLS=true
+#CECLI_DETECT_URLS=true
 
 ## Specify which editor to use for the /editor command
-#AIDER_EDITOR=
+#CECLI_EDITOR=
 
 ## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: aider --shell-completions bash
-#AIDER_SHELL_COMPLETIONS=
+#CECLI_SHELL_COMPLETIONS=
 
 ############################
 # Deprecated model settings:
 
 ## Use claude-3-opus-20240229 model for the main chat (deprecated, use --model)
-#AIDER_OPUS=false
+#CECLI_OPUS=false
 
 ## Use anthropic/claude-3-7-sonnet-20250219 model for the main chat (deprecated, use --model)
-#AIDER_SONNET=false
+#CECLI_SONNET=false
 
 ## Use claude-3-5-haiku-20241022 model for the main chat (deprecated, use --model)
-#AIDER_HAIKU=false
+#CECLI_HAIKU=false
 
 ## Use gpt-4-0613 model for the main chat (deprecated, use --model)
-#AIDER_4=false
+#CECLI_4=false
 
 ## Use gpt-4o model for the main chat (deprecated, use --model)
-#AIDER_4O=false
+#CECLI_4O=false
 
 ## Use gpt-4o-mini model for the main chat (deprecated, use --model)
-#AIDER_MINI=false
+#CECLI_MINI=false
 
 ## Use gpt-4-1106-preview model for the main chat (deprecated, use --model)
-#AIDER_4_TURBO=false
+#CECLI_4_TURBO=false
 
 ## Use gpt-3.5-turbo model for the main chat (deprecated, use --model)
-#AIDER_35TURBO=false
+#CECLI_35TURBO=false
 
 ## Use deepseek/deepseek-chat model for the main chat (deprecated, use --model)
-#AIDER_DEEPSEEK=false
+#CECLI_DEEPSEEK=false
 
 ## Use o1-mini model for the main chat (deprecated, use --model)
-#AIDER_O1_MINI=false
+#CECLI_O1_MINI=false
 
 ## Use o1-preview model for the main chat (deprecated, use --model)
-#AIDER_O1_PREVIEW=false
+#CECLI_O1_PREVIEW=false
 ```
 <!--[[[end]]]-->

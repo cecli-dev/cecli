@@ -70,23 +70,25 @@ class WeakModelCommand(BaseCommand):
                 coder.coder_commit_hashes = temp_coder.coder_commit_hashes
 
                 # Restore the original model configuration
-                from cecli.commands import SwitchCoder
+                from cecli.commands import SwitchCoderSignal
 
-                raise SwitchCoder(main_model=original_main_model, edit_format=original_edit_format)
+                raise SwitchCoderSignal(
+                    main_model=original_main_model, edit_format=original_edit_format
+                )
             except Exception as e:
                 # If there's an error, still restore the original model
-                if not isinstance(e, SwitchCoder):
+                if not isinstance(e, SwitchCoderSignal):
                     io.tool_error(str(e))
-                    raise SwitchCoder(
+                    raise SwitchCoderSignal(
                         main_model=original_main_model, edit_format=original_edit_format
                     )
                 else:
-                    # Re-raise SwitchCoder if that's what was thrown
+                    # Re-raise SwitchCoderSignal if that's what was thrown
                     raise
         else:
-            from cecli.commands import SwitchCoder
+            from cecli.commands import SwitchCoderSignal
 
-            raise SwitchCoder(main_model=model, edit_format=coder.edit_format)
+            raise SwitchCoderSignal(main_model=model, edit_format=coder.edit_format)
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:

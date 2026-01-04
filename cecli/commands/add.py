@@ -137,9 +137,9 @@ class AddCommand(BaseCommand):
             map_tokens = 0
             map_mul_no_files = 1
 
-        from cecli.commands import SwitchCoder
+        from cecli.commands import SwitchCoderSignal
 
-        raise SwitchCoder(
+        raise SwitchCoderSignal(
             edit_format=coder.edit_format,
             summarize_from_coder=False,
             from_coder=coder,

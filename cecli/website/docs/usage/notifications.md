@@ -82,6 +82,6 @@ notifications_command: "your-custom-command"
 Or in your `.env` file:
 
 ```
-AIDER_NOTIFICATIONS=true
-AIDER_NOTIFICATIONS_COMMAND=your-custom-command
+CECLI_NOTIFICATIONS=true
+CECLI_NOTIFICATIONS_COMMAND=your-custom-command
 ```

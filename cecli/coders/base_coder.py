@@ -38,7 +38,7 @@ from rich.console import Console
 
 import cecli.prompts.utils.system as prompts
 from cecli import __version__, models, urls, utils
-from cecli.commands import Commands, SwitchCoder
+from cecli.commands import Commands, SwitchCoderSignal
 from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import coroutines
 from cecli.helpers.profiler import TokenProfiler
@@ -59,6 +59,7 @@ from cecli.repomap import RepoMap
 from cecli.run_cmd import run_cmd
 from cecli.sessions import SessionManager
 from cecli.tools.utils.output import print_tool_response
+from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import format_tokens, is_image_file
 
 from ..dump import dump  # noqa: F401
@@ -440,7 +441,7 @@ class Coder:
 
         self.show_diffs = show_diffs
 
-        self.commands = commands or Commands(self.io, self)
+        self.commands = commands or Commands(self.io, self, args=args)
         self.commands.coder = self
 
         self.data_cache = {
@@ -1389,7 +1390,7 @@ class Coder:
                     if task.exception():
                         raise task.exception()
 
-            except (SwitchCoder, SystemExit):
+            except (SwitchCoderSignal, SystemExit):
                 # Re-raise SwitchCoder to be handled by outer try block
                 raise
             except KeyboardInterrupt:
@@ -1480,7 +1481,7 @@ class Coder:
                 self.io.set_placeholder("")
                 self.keyboard_interrupt()
                 await self.io.stop_task_streams()
-            except (SwitchCoder, SystemExit):
+            except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
                 if self.verbose or self.args.debug:
@@ -1515,7 +1516,7 @@ class Coder:
                     if self.io.output_task.done():
                         exception = self.io.output_task.exception()
                         if exception:
-                            if isinstance(exception, SwitchCoder):
+                            if isinstance(exception, SwitchCoderSignal):
                                 await self.io.output_task
                                 raise exception
 
@@ -1538,7 +1539,7 @@ class Coder:
                 self.io.stop_spinner()
                 self.keyboard_interrupt()
                 await self.io.stop_task_streams()
-            except (SwitchCoder, SystemExit):
+            except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
                 if self.verbose or self.args.debug:
@@ -2158,7 +2159,7 @@ class Coder:
             return
 
         delay = 5 * 60 - 5
-        delay = float(os.environ.get("CECLICACHE_KEEPALIVE_DELAY", delay))
+        delay = float(os.environ.get("CECLI_CACHE_KEEPALIVE_DELAY", delay))
         self.next_cache_warm = time.time() + delay
         self.warming_pings_left = self.num_cache_warming_pings
         self.cache_warming_chunks = chunks
@@ -2535,10 +2536,8 @@ class Coder:
 
         for server, tool_calls in server_tool_calls.items():
             for tool_call in tool_calls:
-                if hasattr(self, "tool_registry") and self.tool_registry.get(
-                    tool_call.function.name.lower(), None
-                ):
-                    self.tool_registry.get(tool_call.function.name.lower()).format_output(
+                if ToolRegistry.get_tool(tool_call.function.name.lower()):
+                    ToolRegistry.get_tool(tool_call.function.name.lower()).format_output(
                         coder=self, mcp_server=server, tool_response=tool_call
                     )
                 else:
@@ -2782,7 +2781,7 @@ class Coder:
                 )
                 return (server.name, server_tools)
             except Exception as e:
-                if server.name != "unnamed-server" and server.name != "local_tools":
+                if server.name != "unnamed-server" and server.name != "Local":
                     self.io.tool_warning(f"Error initializing MCP server {server.name}: {e}")
                 return None
 

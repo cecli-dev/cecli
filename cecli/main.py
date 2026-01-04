@@ -3,7 +3,7 @@ import os
 from cecli.helpers.file_searcher import handle_core_files
 
 try:
-    if not os.getenv("CECLIDEFAULT_TLS"):
+    if not os.getenv("CECLI_DEFAULT_TLS"):
         import truststore
 
         truststore.inject_into_ssl()
@@ -39,7 +39,7 @@ from cecli import __version__, models, urls, utils
 from cecli.args import get_parser
 from cecli.coders import Coder
 from cecli.coders.base_coder import UnknownEditFormat
-from cecli.commands import Commands, SwitchCoder
+from cecli.commands import Commands, SwitchCoderSignal
 from cecli.deprecated_args import handle_deprecated_model_args
 from cecli.format_settings import format_settings, scrub_sensitive_info
 from cecli.helpers.copypaste import ClipboardWatcher
@@ -554,6 +554,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         args.tui_config = convert_yaml_to_json_string(args.tui_config)
     if hasattr(args, "mcp_servers") and args.mcp_servers is not None:
         args.mcp_servers = convert_yaml_to_json_string(args.mcp_servers)
+    if hasattr(args, "command_paths") and args.command_paths is not None:
+        args.command_paths = convert_yaml_to_json_string(args.command_paths)
     if args.debug:
         global log_file
         os.makedirs(".cecli/logs/", exist_ok=True)
@@ -1074,14 +1076,14 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         if not args.test_cmd:
             io.tool_error("No --test-cmd provided.")
             return await graceful_exit(coder, 1)
-        await coder.commands.cmd_test(args.test_cmd)
+        await coder.commands.do_run("test", args.test_cmd)
         if io.placeholder:
             await coder.run(io.placeholder)
     if args.commit:
         if args.dry_run:
             io.tool_output("Dry run enabled, skipping commit.")
         else:
-            await coder.commands.cmd_commit()
+            await coder.commands.do_run("commit", "")
     if args.lint or args.test or args.commit:
         return await graceful_exit(coder)
     if args.show_repo_map:
@@ -1127,7 +1129,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         io.tool_output()
         try:
             await coder.run(with_message=args.message)
-        except (SwitchCoder, KeyboardInterrupt, SystemExit):
+        except (SwitchCoderSignal, KeyboardInterrupt, SystemExit):
             pass
         return await graceful_exit(coder)
     if args.message_file:
@@ -1135,7 +1137,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             message_from_file = io.read_text(args.message_file)
             io.tool_output()
             await coder.run(with_message=message_from_file)
-        except (SwitchCoder, KeyboardInterrupt, SystemExit):
+        except (SwitchCoderSignal, KeyboardInterrupt, SystemExit):
             pass
         except FileNotFoundError:
             io.tool_error(f"Message file not found: {args.message_file}")
@@ -1167,7 +1169,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             coder.ok_to_warm_cache = bool(args.cache_keepalive_pings)
             await coder.run()
             return await graceful_exit(coder)
-        except SwitchCoder as switch:
+        except SwitchCoderSignal as switch:
             coder.ok_to_warm_cache = False
             if hasattr(switch, "placeholder") and switch.placeholder is not None:
                 io.placeholder = switch.placeholder

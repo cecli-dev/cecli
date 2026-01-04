@@ -46,9 +46,9 @@ class LoadCommand(BaseCommand):
             try:
                 await commands_instance.run(cmd)
             except Exception as e:
-                # Handle SwitchCoder exception specifically
-                if type(e).__name__ == "SwitchCoder":
-                    # SwitchCoder is raised when switching between coder types (e.g., /architect, /ask).
+                # Handle SwitchCoderSignal exception specifically
+                if type(e).__name__ == "SwitchCoderSignal":
+                    # SwitchCoderSignal is raised when switching between coder types (e.g., /architect, /ask).
                     # This is expected behavior, not an error. But this gets in the way when running `/load` so we
                     # ignore it and continue processing remaining commands.
                     should_raise_at_end = e

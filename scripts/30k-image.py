@@ -12,8 +12,8 @@ import random
 from pathlib import Path
 
 # Default colors for the celebration image
-CECLIGREEN = "#14b014"
-CECLIBLUE = "#4C6EF5"
+CECLI_GREEN = "#14b014"
+CECLI_BLUE = "#4C6EF5"
 DARK_COLOR = "#212529"
 LIGHT_COLOR = "#F8F9FA"
 GOLD_COLOR = "#f1c40f"
@@ -46,7 +46,7 @@ def embed_font():
 def generate_confetti(count=150, width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
     """Generate SVG confetti elements for the celebration."""
     confetti = []
-    colors = [CECLIGREEN, CECLIBLUE, GOLD_COLOR, "#e74c3c", "#9b59b6", "#3498db", "#2ecc71"]
+    colors = [CECLI_GREEN, CECLI_BLUE, GOLD_COLOR, "#e74c3c", "#9b59b6", "#3498db", "#2ecc71"]
 
     # Define text safe zones
     # Main content safe zone (centered area)
@@ -169,7 +169,7 @@ def generate_celebration_svg(output_path=None, width=DEFAULT_WIDTH, height=DEFAU
   <style>
     {font_face}
     .main-bg {{ fill: url(#bg-gradient); }}
-    .cecli-logo {{ font-family: 'GlassTTYVT220', monospace; font-size: 120px; fill: {CECLIGREEN}; text-anchor: middle; filter: url(#glow); }}
+    .cecli-logo {{ font-family: 'GlassTTYVT220', monospace; font-size: 120px; fill: {CECLI_GREEN}; text-anchor: middle; filter: url(#glow); }}
     .stars-text {{ font-family: 'GlassTTYVT220', monospace; font-size: 72px; fill: {GOLD_COLOR}; text-anchor: middle; filter: url(#glow); }}
     .tagline {{ font-family: sans-serif; font-size: 32px; fill: {LIGHT_COLOR}; text-anchor: middle; }}
     .footer {{ font-family: sans-serif; font-size: 24px; fill: {LIGHT_COLOR}; text-anchor: middle; opacity: 0.8; }}

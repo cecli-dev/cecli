@@ -13,7 +13,7 @@ from prompt_toolkit.input import DummyInput
 from prompt_toolkit.output import DummyOutput
 
 from cecli.coders import Coder, CopyPasteCoder
-from cecli.commands import SwitchCoder
+from cecli.commands import SwitchCoderSignal
 from cecli.dump import dump
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.io import InputOutput
@@ -64,8 +64,8 @@ def test_env(mocker, temp_cwd, temp_home):
     """
     test_env_vars = {
         "OPENAI_API_KEY": "deadbeef",
-        "CECLICHECK_UPDATE": "false",
-        "CECLIANALYTICS": "false",
+        "CECLI_CHECK_UPDATE": "false",
+        "CECLI_ANALYTICS": "false",
     }
     if platform.system() == "Windows":
         test_env_vars["USERPROFILE"] = temp_home
@@ -263,7 +263,7 @@ def test_gitignore_files_flag_add_command(dummy_io, git_temp_dir, flag, should_i
     coder = main(args, **dummy_io, return_coder=True, force_git_root=git_temp_dir)
     try:
         asyncio.run(coder.commands.do_run("add", "ignored.txt"))
-    except SwitchCoder:
+    except SwitchCoderSignal:
         pass
     if should_include:
         assert abs_ignored_file in coder.abs_fnames
@@ -413,10 +413,10 @@ def test_mode_sets_code_theme(mode_flag, expected_theme, dummy_io, git_temp_dir,
 @pytest.mark.parametrize(
     "env_file,env_content,check_attribute,expected_value,use_flag",
     [
-        (".env.test", "CECLIDARK_MODE=True", "code_theme", "monokai", True),
-        (".env", "CECLIDARK_MODE=True", "code_theme", "monokai", False),
-        (".env", "CECLISHOW_DIFFS=off", "show_diffs", False, False),
-        (".env", "CECLISHOW_DIFFS=on", "show_diffs", True, False),
+        (".env.test", "CECLI_DARK_MODE=True", "code_theme", "monokai", True),
+        (".env", "CECLI_DARK_MODE=True", "code_theme", "monokai", False),
+        (".env", "CECLI_SHOW_DIFFS=off", "show_diffs", False, False),
+        (".env", "CECLI_SHOW_DIFFS=on", "show_diffs", True, False),
     ],
     ids=["dark_mode_with_flag", "dark_mode_default", "bool_false", "bool_true"],
 )
@@ -497,18 +497,18 @@ def test_lint_option_with_glob_pattern(dummy_io, git_temp_dir, mocker):
 
 
 def test_verbose_mode_lists_env_vars(dummy_io, mocker, capsys):
-    Path(".env").write_text("CECLIDARK_MODE=on")
+    Path(".env").write_text("CECLI_DARK_MODE=on")
     main(["--no-git", "--verbose", "--exit", "--yes-always"], **dummy_io)
     captured = capsys.readouterr()
     output = captured.out
     relevant_output = "\n".join(
-        line for line in output.splitlines() if "CECLIDARK_MODE" in line or "dark_mode" in line
+        line for line in output.splitlines() if "CECLI_DARK_MODE" in line or "dark_mode" in line
     )
-    assert "CECLIDARK_MODE" in relevant_output
+    assert "CECLI_DARK_MODE" in relevant_output
     assert "dark_mode" in relevant_output
     import re
 
-    assert re.search("CECLIDARK_MODE:\\s+on", relevant_output)
+    assert re.search("CECLI_DARK_MODE:\\s+on", relevant_output)
     assert re.search("dark_mode:\\s+True", relevant_output)
 
 
@@ -782,7 +782,7 @@ def test_no_verify_ssl_sets_model_info_manager(dummy_io, git_temp_dir, mocker):
 
 
 def test_pytest_env_vars(dummy_io, git_temp_dir):
-    assert os.environ.get("CECLIANALYTICS") == "false"
+    assert os.environ.get("CECLI_ANALYTICS") == "false"
 
 
 @pytest.mark.parametrize(

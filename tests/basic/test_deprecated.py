@@ -14,8 +14,8 @@ class TestDeprecated(TestCase):
     def setUp(self):
         self.original_env = os.environ.copy()
         os.environ["OPENAI_API_KEY"] = "deadbeef"
-        os.environ["CECLICHECK_UPDATE"] = "false"
-        os.environ["CECLIANALYTICS"] = "false"
+        os.environ["CECLI_CHECK_UPDATE"] = "false"
+        os.environ["CECLI_ANALYTICS"] = "false"
 
     def tearDown(self):
         os.environ.clear()

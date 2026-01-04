@@ -73,13 +73,13 @@ class TestHelp:
         while time.time() - start_time < max_time:
             try:
                 # Try to run /help hi
-                # It may raise SwitchCoder (if help initialized) or return None (if help not initialized)
+                # It may raise SwitchCoderSignal (if help initialized) or return None (if help not initialized)
                 await commands.run("/help hi")
                 # If we get here, help initialization failed and command returned
-                # Don't assert SwitchCoder was raised
+                # Don't assert SwitchCoderSignal was raised
                 break
-            except cecli.commands.SwitchCoder:
-                # SwitchCoder was raised, help initialized successfully
+            except cecli.commands.SwitchCoderSignal:
+                # SwitchCoderSignal was raised, help initialized successfully
                 break
             except (ReadTimeout, ConnectionError):
                 await asyncio.sleep(delay)

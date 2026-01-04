@@ -25,6 +25,7 @@
 !/HISTORY.md
 !/LICENSE.txt
 !/MANIFEST.in
+!/shim.pyproject.toml
 !/pyproject.toml
 !/pytest.ini
 !/README.md

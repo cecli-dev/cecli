@@ -102,13 +102,13 @@ aider --mcp-transport http
 You can also configure MCP servers using environment variables in your `.env` file using JSON or YAML format:
 
 ```
-AIDER_MCP_SERVERS={"mcpServers":{"git":{"transport": "stdio", "command":"uvx","args":["mcp-server-git"]}}}
+CECLI_MCP_SERVERS={"mcpServers":{"git":{"transport": "stdio", "command":"uvx","args":["mcp-server-git"]}}}
 ```
 
 Or specify a configuration file:
 
 ```
-AIDER_MCP_SERVERS_FILE=/path/to/mcp.json
+CECLI_MCP_SERVERS_FILE=/path/to/mcp.json
 ```
 
 ## Troubleshooting

@@ -651,3 +651,142 @@ class TestModels:
         base_model, kwargs = parse_model_with_suffix(model_input, overrides)
         assert base_model == expected_base, f"Failed ({description}): base model mismatch"
         assert kwargs == expected_kwargs, f"Failed ({description}): kwargs mismatch"
+
+    def test_print_matching_models_with_pricing(self):
+        """Test that print_matching_models displays pricing information correctly."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock model_info_manager to return pricing data
+        with patch("cecli.models.model_info_manager") as mock_manager:
+            mock_manager.get_model_info.return_value = {
+                "input_cost_per_token": 0.000005,  # $5 per 1M tokens
+                "output_cost_per_token": 0.000015,  # $15 per 1M tokens
+            }
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            with patch.object(io, "tool_output") as mock_tool_output:
+                print_matching_models(io, "gpt-4")
+
+                # Check that the header was printed
+                mock_tool_output.assert_any_call('Models which match "gpt-4":')
+
+                # Check that pricing was included in the output
+                calls = [str(call) for call in mock_tool_output.call_args_list]
+                pricing_found = any("$5.00/1m/input" in call for call in calls)
+                output_pricing_found = any("$15.00/1m/output" in call for call in calls)
+                assert pricing_found, "Input pricing not found in output"
+                assert output_pricing_found, "Output pricing not found in output"
+
+    def test_print_matching_models_with_cache_pricing(self):
+        """Test that print_matching_models displays cache pricing when available."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock model_info_manager to return pricing data with cache
+        with patch("cecli.models.model_info_manager") as mock_manager:
+            mock_manager.get_model_info.return_value = {
+                "input_cost_per_token": 0.000003,  # $3 per 1M tokens
+                "output_cost_per_token": 0.000012,  # $12 per 1M tokens
+                "cache_cost_per_token": 0.000001,  # $1 per 1M tokens
+            }
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            with patch.object(io, "tool_output") as mock_tool_output:
+                print_matching_models(io, "claude-3-5-sonnet")
+
+                # Check that all pricing was included in the output
+                calls = [str(call) for call in mock_tool_output.call_args_list]
+                input_found = any("$3.00/1m/input" in call for call in calls)
+                output_found = any("$12.00/1m/output" in call for call in calls)
+                cache_found = any("$1.00/1m/cache" in call for call in calls)
+                assert input_found, "Input pricing not found in output"
+                assert output_found, "Output pricing not found in output"
+                assert cache_found, "Cache pricing not found in output"
+
+    def test_print_matching_models_without_pricing(self):
+        """Test that print_matching_models works when no pricing info is available."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock model_info_manager to return no pricing data
+        with patch("cecli.models.model_info_manager") as mock_manager:
+            mock_manager.get_model_info.return_value = {}
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            with patch.object(io, "tool_output") as mock_tool_output:
+                print_matching_models(io, "gpt-4")
+
+                # Check that the header was printed
+                mock_tool_output.assert_any_call('Models which match "gpt-4":')
+
+                # Check that no pricing was included in the output
+                calls = [str(call) for call in mock_tool_output.call_args_list]
+                pricing_found = any("/1m/" in call for call in calls)
+                assert not pricing_found, "Pricing should not be in output when not available"
+
+    def test_print_matching_models_partial_pricing(self):
+        """Test that print_matching_models displays only available pricing info."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock model_info_manager to return only input pricing
+        with patch("cecli.models.model_info_manager") as mock_manager:
+            mock_manager.get_model_info.return_value = {
+                "input_cost_per_token": 0.000002,  # $2 per 1M tokens
+                # No output or cache pricing
+            }
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            with patch.object(io, "tool_output") as mock_tool_output:
+                print_matching_models(io, "gpt-3.5")
+
+                # Check that only input pricing was included
+                calls = [str(call) for call in mock_tool_output.call_args_list]
+                input_found = any("$2.00/1m/input" in call for call in calls)
+                output_found = any("/1m/output" in call for call in calls)
+                assert input_found, "Input pricing not found in output"
+                assert not output_found, "Output pricing should not be in output when not available"
+
+    def test_print_matching_models_no_matches(self):
+        """Test that print_matching_models handles no matches correctly."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock fuzzy_match_models to return no matches
+        with patch("cecli.models.fuzzy_match_models") as mock_fuzzy:
+            mock_fuzzy.return_value = []
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            with patch.object(io, "tool_output") as mock_tool_output:
+                print_matching_models(io, "nonexistent-model")
+
+                # Check that the no matches message was printed
+                mock_tool_output.assert_called_once_with('No models match "nonexistent-model".')
+
+    def test_print_matching_models_price_formatting(self):
+        """Test that pricing is formatted correctly with 2 decimal places."""
+        from cecli.io import InputOutput
+        from cecli.models import print_matching_models
+
+        # Mock fuzzy_match_models to return a test model
+        with patch("cecli.models.fuzzy_match_models") as mock_fuzzy:
+            mock_fuzzy.return_value = ["test-model"]
+
+            # Mock model_info_manager to return pricing with various values
+            with patch("cecli.models.model_info_manager") as mock_manager:
+                mock_manager.get_model_info.return_value = {
+                    "input_cost_per_token": 0.0000025,  # $2.50 per 1M tokens
+                    "output_cost_per_token": 0.0000105,  # $10.50 per 1M tokens
+                }
+
+                io = InputOutput(pretty=False, fancy_input=False, yes=True)
+                with patch.object(io, "tool_output") as mock_tool_output:
+                    print_matching_models(io, "test-model")
+
+                    # Check that pricing is formatted with 2 decimal places
+                    calls = [str(call) for call in mock_tool_output.call_args_list]
+                    input_found = any("$2.50/1m/input" in call for call in calls)
+                    output_found = any("$10.50/1m/output" in call for call in calls)
+                    assert input_found, "Input pricing format incorrect"
+                    assert output_found, "Output pricing format incorrect"

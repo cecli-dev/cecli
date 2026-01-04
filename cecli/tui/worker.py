@@ -7,7 +7,7 @@ import warnings
 from typing import Optional
 
 from cecli.coders import Coder
-from cecli.commands import SwitchCoder
+from cecli.commands import SwitchCoderSignal
 
 # Suppress asyncio task destroyed warnings during shutdown
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
@@ -91,7 +91,7 @@ class CoderWorker:
                 break  # Normal exit
             except asyncio.CancelledError:
                 break
-            except SwitchCoder as switch:
+            except SwitchCoderSignal as switch:
                 # Handle chat mode switches (e.g., /chat-mode architect)
                 try:
                     kwargs = dict(io=self.coder.io, from_coder=self.coder)

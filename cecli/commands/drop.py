@@ -82,7 +82,7 @@ class DropCommand(BaseCommand):
             return format_command_result(io, "drop", "Removed files from chat")
 
         finally:
-            # This mimics the SwitchCoder behavior in the original cmd_drop
+            # This mimics the SwitchCoderSignal behavior in the original cmd_drop
             if coder.repo_map:
                 map_tokens = coder.repo_map.max_map_tokens
                 map_mul_no_files = coder.repo_map.map_mul_no_files
@@ -90,10 +90,10 @@ class DropCommand(BaseCommand):
                 map_tokens = 0
                 map_mul_no_files = 1
 
-            # Raise SwitchCoder to trigger coder recreation
-            from . import SwitchCoder
+            # Raise SwitchCoderSignal to trigger coder recreation
+            from . import SwitchCoderSignal
 
-            raise SwitchCoder(
+            raise SwitchCoderSignal(
                 edit_format=coder.edit_format,
                 summarize_from_coder=False,
                 from_coder=coder,

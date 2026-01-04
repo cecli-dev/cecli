@@ -34,7 +34,7 @@ from cecli.dump import dump  # noqa: F401
 # Cache for commit-hash -> version lookup
 _VERSION_CACHE = {}
 
-BENCHMARK_DNAME = Path(os.environ.get("CECLIBENCHMARK_DIR", "tmp.benchmarks"))
+BENCHMARK_DNAME = Path(os.environ.get("CECLI_BENCHMARK_DIR", "tmp.benchmarks"))
 
 EXERCISES_DIR_DEFAULT = "polyglot-benchmark"
 
@@ -267,7 +267,7 @@ def main(
     if repo.is_dirty():
         commit_hash += "-dirty"
 
-    if "CECLIDOCKER" not in os.environ:
+    if "CECLI_DOCKER" not in os.environ:
         print("Warning: benchmarking runs unvetted code from GPT, run in a docker container")
         return
 

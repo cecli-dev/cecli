@@ -41,9 +41,9 @@ This loop continues automatically until the `Finished` tool is called, or the ma
 
 Agent Mode uses a centralized local tool registry that manages all available tools:
 
-- **File Discovery Tools**: `View`, `ViewFilesMatching`, `ViewFilesWithSymbol`, `Ls`, `Grep`
+- **File Discovery Tools**: `ViewFilesMatching`, `ViewFilesWithSymbol`, `Ls`, `Grep`
 - **Editing Tools**: `ReplaceText`, `InsertBlock`, `DeleteBlock`, `ReplaceLines`, `DeleteLines`
-- **Context Management Tools**: `MakeEditable`, `MakeReadonly`, `Remove`
+- **Context Management Tools**: `ContextManager`
 - **Git Tools**: `GitDiff`, `GitLog`, `GitShow`, `GitStatus`
 - **Utility Tools**: `UpdateTodoList`, `ListChanges`, `UndoChange`, `Finished`
 - **Skill Management**: `LoadSkill`, `RemoveSkill`
@@ -154,8 +154,9 @@ Agent Mode can also be configured directly in the relevant config.yml file:
 agent: true
 agent-config:
   # Tool configuration
-  tools_includelist: ["view", "makeeditable", "replacetext", "finished"]  # Optional: Whitelist of tools
+  tools_includelist: [contextmanager", "replacetext", "finished"]  # Optional: Whitelist of tools
   tools_excludelist: ["command", "commandinteractive"]  # Optional: Blacklist of tools
+  tool_paths: ["./custom-tools", "~/my-tools"]  # Optional: Directories or files containing custom tools
   
   # Context blocks configuration
   include_context_blocks: ["todo_list", "git_status"]  # Optional: Context blocks to include
@@ -177,6 +178,7 @@ agent-config:
 - **`skip_cli_confirmations`**: YOLO mode, be brave and let the LLM cook, can also use the option `yolo` (default: False)
 - **`tools_includelist`**: Array of tool names to allow (only these tools will be available)
 - **`tools_excludelist`**: Array of tool names to exclude (these tools will be disabled)
+- **`tool_paths`**: Array of directories or Python files containing custom tools to load
 - **`include_context_blocks`**: Array of context block names to include (overrides default set)
 - **`exclude_context_blocks`**: Array of context block names to exclude from default set
 
@@ -184,10 +186,67 @@ agent-config:
 
 Certain tools are always available regardless of includelist/excludelist settings:
 
-- `makeeditable` - Make files editable
+- `ContextManager` - Add, drop, and make files editable in the context
 - `replacetext` - Basic text replacement
-- `view` - View files
 - `finished` - Complete the task
+
+The registry also supports **Custom Tools** that can be loaded from specified directories or files using the `tool_paths` configuration option. Custom tools must be Python files containing a `Tool` class that inherits from `BaseTool` and defines a `NORM_NAME` attribute.
+
+##### Creating Custom Tools
+
+Custom tools can be created by writing Python files that follow this structure:
+
+```python
+from cecli.tools.utils.base_tool import BaseTool
+
+class Tool(BaseTool):
+    NORM_NAME = "mycustomtool"
+    SCHEMA = {
+        "type": "function",
+        "function": {
+            "name": "MyCustomTool",
+            "description": "Description of what the tool does",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parameter_name": {
+                        "type": "string",
+                        "description": "Description of the parameter"
+                    }
+                },
+                "required": ["parameter_name"],
+            },
+        },
+    }
+
+    @classmethod
+    def execute(cls, coder, parameter_name):
+        """
+        Execute the custom tool.
+        
+        Args:
+            coder: The coder instance
+            parameter_name: The parameter value
+        
+        Returns:
+            A string result message
+        """
+        # Tool implementation here
+        return f"Tool executed with parameter: {parameter_name}"
+```
+
+To load custom tools, specify the `tool_paths` configuration option in your agent config:
+
+```yaml
+agent-config:
+  tool_paths: ["./custom-tools", "~/my-tools"]
+```
+
+The `tool_paths` can include:
+- **Directories**: All `.py` files in the directory will be scanned for `Tool` classes
+- **Individual Python files**: Specific tool files can be loaded directly
+
+Tools are loaded automatically when the registry is built and will be available alongside the built-in tools.
 
 #### Context Blocks
 
@@ -202,7 +261,7 @@ The following context blocks are available by default and can be customized usin
 
 When `include_context_blocks` is specified, only the listed blocks will be included. When `exclude_context_blocks` is specified, the listed blocks will be removed from the default set.
 
-#### Other CECLI CLI/Config Options for Agent Mode
+#### Other Cecli Config Options for Agent Mode
 
 - `use-enhanced-map` - Use enhanced repo map that takes into account import relationships between files
 
@@ -221,8 +280,9 @@ agent: true
 # Agent Mode configuration
 agent-config:
   # Tool configuration
-  tools_includelist: ["view", "makeeditable", "replacetext", "finished"]  # Optional: Whitelist of tools
+  tools_includelist: ["contextmanager", "replacetext", "finished"]  # Optional: Whitelist of tools
   tools_excludelist: ["command", "commandinteractive"]  # Optional: Blacklist of tools
+  tool_paths: ["./custom-tools", "~/my-tools"]  # Optional: Directories or files containing custom tools
   
   # Context blocks configuration
   include_context_blocks: ["todo_list", "git_status"]  # Optional: Context blocks to include

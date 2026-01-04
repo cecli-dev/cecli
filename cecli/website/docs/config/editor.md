@@ -18,7 +18,7 @@ You can specify the text editor with the `--editor` switch or using
 
 Aider checks the following environment variables in order to determine which editor to use:
 
-1. `AIDER_EDITOR`
+1. `CECLI_EDITOR`
 2. `VISUAL`
 3. `EDITOR`
 
@@ -35,7 +35,7 @@ If no editor is configured, aider will use these platform-specific defaults:
 You can set your preferred editor in your shell's configuration file (e.g., `.bashrc`, `.zshrc`):
 
 ```bash
-export AIDER_EDITOR=vim
+export CECLI_EDITOR=vim
 ```
 
 ## Popular Editors by Platform
@@ -44,71 +44,71 @@ export AIDER_EDITOR=vim
 
 1. **vim**
    ```bash
-   export AIDER_EDITOR=vim
+   export CECLI_EDITOR=vim
    ```
 
 2. **Emacs**
    ```bash
-   export AIDER_EDITOR=emacs
+   export CECLI_EDITOR=emacs
    ```
 
 3. **VSCode**
    ```bash
-   export AIDER_EDITOR="code --wait"
+   export CECLI_EDITOR="code --wait"
    ```
 
 4. **Sublime Text**
    ```bash
-   export AIDER_EDITOR="subl --wait"
+   export CECLI_EDITOR="subl --wait"
    ```
 
 5. **BBEdit**
    ```bash
-   export AIDER_EDITOR="bbedit --wait"
+   export CECLI_EDITOR="bbedit --wait"
    ```
 
 ### Linux
 
 1. **vim**
    ```bash
-   export AIDER_EDITOR=vim
+   export CECLI_EDITOR=vim
    ```
 
 2. **Emacs**
    ```bash
-   export AIDER_EDITOR=emacs
+   export CECLI_EDITOR=emacs
    ```
 
 3. **nano**
    ```bash
-   export AIDER_EDITOR=nano
+   export CECLI_EDITOR=nano
    ```
 
 4. **VSCode**
    ```bash
-   export AIDER_EDITOR="code --wait"
+   export CECLI_EDITOR="code --wait"
    ```
 
 5. **Sublime Text**
    ```bash
-   export AIDER_EDITOR="subl --wait"
+   export CECLI_EDITOR="subl --wait"
    ```
 
 ### Windows
 
 1. **Notepad**
    ```bat
-   set AIDER_EDITOR=notepad
+   set CECLI_EDITOR=notepad
    ```
 
 2. **VSCode**
    ```bat
-   set AIDER_EDITOR="code --wait"
+   set CECLI_EDITOR="code --wait"
    ```
 
 3. **Notepad++**
    ```bat
-   set AIDER_EDITOR="notepad++ -multiInst -notabbar -nosession -noPlugin -waitForClose"
+   set CECLI_EDITOR="notepad++ -multiInst -notabbar -nosession -noPlugin -waitForClose"
    ```
 
 ## Editor command arguments
@@ -123,5 +123,5 @@ If you encounter issues with your editor not blocking (returning to the prompt i
 2. You've included the necessary command-line arguments for blocking mode
 3. The editor command is properly quoted if it contains spaces or special characters, e.g.:
    ```bash
-   export AIDER_EDITOR="code --wait"
+   export CECLI_EDITOR="code --wait"
    ```

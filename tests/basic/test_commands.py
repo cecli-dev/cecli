@@ -12,7 +12,7 @@ import git
 import pyperclip
 
 from cecli.coders import Coder
-from cecli.commands import Commands, SwitchCoder
+from cecli.commands import Commands, SwitchCoderSignal
 from cecli.dump import dump  # noqa: F401
 from cecli.io import InputOutput
 from cecli.models import Model
@@ -1795,10 +1795,10 @@ class TestCommands(TestCase):
         commands = Commands(io, coder)
 
         # Test switching the main model
-        with self.assertRaises(SwitchCoder) as context:
+        with self.assertRaises(SwitchCoderSignal) as context:
             commands.cmd_model("gpt-4")
 
-        # Check that the SwitchCoder exception contains the correct model configuration
+        # Check that the SwitchCoderSignal exception contains the correct model configuration
         self.assertEqual(context.exception.kwargs.get("main_model").name, "gpt-4")
         self.assertEqual(
             context.exception.kwargs.get("main_model").editor_model.name,
@@ -1822,10 +1822,10 @@ class TestCommands(TestCase):
         # Mock sanity check to avoid network calls
         with mock.patch("cecli.models.sanity_check_models"):
             # Test switching the main model to gpt-4 (default 'whole')
-            with self.assertRaises(SwitchCoder) as context:
+            with self.assertRaises(SwitchCoderSignal) as context:
                 commands.cmd_model("gpt-4")
 
-        # Check that the SwitchCoder exception contains the correct model configuration
+        # Check that the SwitchCoderSignal exception contains the correct model configuration
         self.assertEqual(context.exception.kwargs.get("main_model").name, "gpt-4")
         # Check that the edit format is preserved
         self.assertEqual(context.exception.kwargs.get("edit_format"), "udiff")
@@ -1836,7 +1836,7 @@ class TestCommands(TestCase):
         commands = Commands(io, coder)
 
         # Test switching the editor model
-        with self.assertRaises(SwitchCoder) as context:
+        with self.assertRaises(SwitchCoderSignal) as context:
             commands.cmd_editor_model("gpt-4")
 
         # Check that the SwitchCoder exception contains the correct model configuration
@@ -1853,10 +1853,10 @@ class TestCommands(TestCase):
         commands = Commands(io, coder)
 
         # Test switching the weak model
-        with self.assertRaises(SwitchCoder) as context:
+        with self.assertRaises(SwitchCoderSignal) as context:
             commands.cmd_weak_model("gpt-4")
 
-        # Check that the SwitchCoder exception contains the correct model configuration
+        # Check that the SwitchCoderSignal exception contains the correct model configuration
         self.assertEqual(context.exception.kwargs.get("main_model").name, self.GPT35.name)
         self.assertEqual(
             context.exception.kwargs.get("main_model").editor_model.name,
@@ -1875,10 +1875,10 @@ class TestCommands(TestCase):
         # Mock sanity check to avoid network calls
         with mock.patch("cecli.models.sanity_check_models"):
             # Test switching the main model to gpt-4 (default 'whole')
-            with self.assertRaises(SwitchCoder) as context:
+            with self.assertRaises(SwitchCoderSignal) as context:
                 commands.cmd_model("gpt-4")
 
-        # Check that the SwitchCoder exception contains the correct model configuration
+        # Check that the SwitchCoderSignal exception contains the correct model configuration
         self.assertEqual(context.exception.kwargs.get("main_model").name, "gpt-4")
         # Check that the edit format is updated to the new model's default
         self.assertEqual(context.exception.kwargs.get("edit_format"), "diff")
@@ -1894,7 +1894,7 @@ class TestCommands(TestCase):
         with mock.patch("cecli.coders.Coder.run") as mock_run:
             mock_run.return_value = canned_reply
 
-            with self.assertRaises(SwitchCoder):
+            with self.assertRaises(SwitchCoderSignal):
                 commands.cmd_ask(question)
 
             mock_run.assert_called_once()
@@ -2190,10 +2190,10 @@ class TestCommands(TestCase):
             commands_file = Path(repo_dir) / "test_commands.txt"
             commands_file.write_text("/ask Tell me about the code\n/model gpt-4\n")
 
-            # Mock run to raise SwitchCoder for /ask and /model
+            # Mock run to raise SwitchCoderSignal for /ask and /model
             async def mock_run(cmd):
                 if cmd.startswith(("/ask", "/model")):
-                    raise SwitchCoder()
+                    raise SwitchCoderSignal()
                 return None
 
             with mock.patch.object(commands, "run", side_effect=mock_run):
@@ -2243,7 +2243,7 @@ class TestCommands(TestCase):
             orig_coder.abs_fnames.add(str(editable_path))
             orig_coder.abs_read_only_fnames.add(str(other_ro_path))
 
-            # Simulate SwitchCoder by creating a new coder from the original one
+            # Simulate SwitchCoderSignal by creating a new coder from the original one
             new_coder = await Coder.create(from_coder=orig_coder)
             new_commands = new_coder.commands
 

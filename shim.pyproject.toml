@@ -1,6 +1,7 @@
+
 [project]
-name = "cecli-dev"
-description = "we also can't pronounce cecli"
+name = "aider-ce"
+description = "⚠️ DEPRECATED: This package has been renamed to 'cecli-dev'."
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -15,12 +16,11 @@ classifiers = [
     "Topic :: Software Development",
 ]
 requires-python = ">=3.10"
-dynamic = ["dependencies", "optional-dependencies", "version"]
+dependencies = ["cecli-dev"]
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/dwash96/cecli"
-Documentation = "https://github.com/dwash96/cecli"
-Repository = "https://github.com/dwash96/cecli"
 
 [project.scripts]
 aider-ce = "cecli.main:main"
@@ -28,19 +28,14 @@ aider-ce = "cecli.main:main"
 "ce.cli" = "cecli.main:main"
 
 [tool.setuptools.dynamic]
-dependencies = { file = "requirements/requirements.in" }
-
-[tool.setuptools.dynamic.optional-dependencies]
-dev = { file = "requirements/requirements-dev.in" }
-help = { file = "requirements/requirements-help.in" }
-playwright = { file = "requirements/requirements-playwright.in" }
-tui = { file = "requirements/requirements-tui.in" }
+# No optional dependencies needed for shim package
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["cecli*"]
+include = []  # Empty include to create a meta-package shim
+namespaces = false
 
 [build-system]
 requires = ["setuptools>=68", "setuptools_scm[toml]>=8"]

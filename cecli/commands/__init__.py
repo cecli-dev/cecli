@@ -5,10 +5,6 @@ This package contains individual command implementations that follow the
 BaseCommand pattern for modular, testable command execution.
 """
 
-import sys
-import traceback
-from pathlib import Path
-
 from .add import AddCommand
 from .agent import AgentCommand
 from .architect import ArchitectCommand
@@ -22,6 +18,7 @@ from .context_blocks import ContextBlocksCommand
 from .context_management import ContextManagementCommand
 from .copy import CopyCommand
 from .copy_context import CopyContextCommand
+from .core import Commands, SwitchCoderSignal
 from .diff import DiffCommand
 
 # Import and register commands
@@ -127,50 +124,6 @@ CommandRegistry.register(CommandPrefixCommand)
 CommandRegistry.register(LoadSkillCommand)
 CommandRegistry.register(RemoveSkillCommand)
 
-# Import SwitchCoder and Commands directly from commands.py
-# We need to handle the circular import carefully
-
-# Add parent directory to path to import commands.py directly
-parent_dir = str(Path(__file__).parent.parent)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-# Import the commands module directly
-try:
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "cecli.commands_module", Path(__file__).parent.parent / "commands.py"
-    )
-    commands_module = importlib.util.module_from_spec(spec)
-    sys.modules["cecli.commands_module"] = commands_module
-    spec.loader.exec_module(commands_module)
-
-    # Get the classes from the module
-    Commands = getattr(commands_module, "Commands", None)
-    SwitchCoder = getattr(commands_module, "SwitchCoder", None)
-
-    if Commands is None or SwitchCoder is None:
-        raise ImportError("Commands or SwitchCoder not found in commands.py")
-
-except Exception as e:
-    # Print the error for debugging
-    print(f"Error importing commands.py: {e}")
-    traceback.print_exc()
-
-    # Fallback: define simple placeholder classes
-    class SwitchCoder(Exception):
-        def __init__(self, placeholder=None, **kwargs):
-            self.kwargs = kwargs
-            self.placeholder = placeholder
-
-    class Commands:
-        """Placeholder for Commands class defined in original commands.py"""
-
-        def __init__(self, *args, **kwargs):
-            # Accept any arguments but do nothing
-            pass
-
 
 __all__ = [
     "BaseCommand",
@@ -234,6 +187,6 @@ __all__ = [
     "CommandPrefixCommand",
     "LoadSkillCommand",
     "RemoveSkillCommand",
-    "SwitchCoder",
+    "SwitchCoderSignal",
     "Commands",
 ]

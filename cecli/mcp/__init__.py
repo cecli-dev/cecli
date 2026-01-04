@@ -11,7 +11,7 @@ def _parse_mcp_servers_from_json_string(json_string, io, verbose=False, mcp_tran
     try:
         config = json.loads(json_string)
         if verbose:
-            io.tool_output("Loading MCP servers from provided JSON string")
+            io.tool_output("Loading MCP servers from provided JSON")
 
         if "mcpServers" in config:
             for name, server_config in config["mcpServers"].items():
@@ -22,21 +22,21 @@ def _parse_mcp_servers_from_json_string(json_string, io, verbose=False, mcp_tran
                 server_config["name"] = name
                 transport = server_config.get("transport", mcp_transport)
                 if transport == "stdio":
-                    servers.append(McpServer(server_config))
+                    servers.append(McpServer(server_config, io=io, verbose=verbose))
                 elif transport == "http":
-                    servers.append(HttpStreamingServer(server_config))
+                    servers.append(HttpStreamingServer(server_config, io=io, verbose=verbose))
                 elif transport == "sse":
-                    servers.append(SseServer(server_config))
+                    servers.append(SseServer(server_config, io=io, verbose=verbose))
 
             if verbose:
-                io.tool_output(f"Loaded {len(servers)} MCP servers from JSON string")
+                io.tool_output(f"Loaded {len(servers)} MCP servers")
             return servers
         else:
-            io.tool_warning("No 'mcpServers' key found in MCP config JSON string")
+            io.tool_warning("No 'mcpServers' key found in MCP config")
     except json.JSONDecodeError:
-        io.tool_error("Invalid JSON in MCP config string")
+        io.tool_error("Invalid JSON in MCP config")
     except Exception as e:
-        io.tool_error(f"Error loading MCP config from string: {e}")
+        io.tool_error(f"Error loading MCP config: {e}")
 
     return servers
 
@@ -100,44 +100,24 @@ def _resolve_mcp_config_path(file_path, io, verbose=False):
 
 def _parse_mcp_servers_from_file(file_path, io, verbose=False, mcp_transport="stdio"):
     """Parse MCP servers from a JSON file."""
-    servers = []
-
     # Resolve the file path relative to closest cecli.conf.yml, git directory, or CWD
     resolved_file_path = _resolve_mcp_config_path(file_path, io, verbose)
 
     try:
         with open(resolved_file_path, "r") as f:
-            config = json.load(f)
+            json_string = f.read()
 
         if verbose:
             io.tool_output(f"Loading MCP servers from file: {file_path}")
 
-        if "mcpServers" in config:
-            for name, server_config in config["mcpServers"].items():
-                if verbose:
-                    io.tool_output(f"Loading MCP server: {name}")
+        return _parse_mcp_servers_from_json_string(json_string, io, verbose, mcp_transport)
 
-                # Create a server config with name included
-                server_config["name"] = name
-                transport = server_config.get("transport", mcp_transport)
-                if transport == "stdio":
-                    servers.append(McpServer(server_config))
-                elif transport == "http":
-                    servers.append(HttpStreamingServer(server_config))
-
-            if verbose:
-                io.tool_output(f"Loaded {len(servers)} MCP servers from {file_path}")
-            return servers
-        else:
-            io.tool_warning(f"No 'mcpServers' key found in MCP config file: {file_path}")
     except FileNotFoundError:
         io.tool_warning(f"MCP config file not found: {file_path}")
-    except json.JSONDecodeError:
-        io.tool_error(f"Invalid JSON in MCP config file: {file_path}")
     except Exception as e:
-        io.tool_error(f"Error loading MCP config from file: {e}")
+        io.tool_error(f"Error reading MCP config file: {e}")
 
-    return servers
+    return []
 
 
 def load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose=False, mcp_transport="stdio"):
@@ -169,6 +149,6 @@ def load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose=False, mcp_trans
         # and maybe it is actually prompt_toolkit's fault
         # but this hack works swimmingly because ???
         # so sure! why not
-        servers = [McpServer(json.loads('{"cecli_default": {}}'))]
+        servers = [McpServer(json.loads('{"cecli_default": {}}'), io=io, verbose=verbose)]
 
     return servers

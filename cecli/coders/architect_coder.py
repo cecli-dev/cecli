@@ -1,6 +1,6 @@
 import asyncio
 
-from ..commands import SwitchCoder
+from ..commands import SwitchCoderSignal
 from .ask_coder import AskCoder
 from .base_coder import Coder
 
@@ -60,4 +60,4 @@ class ArchitectCoder(AskCoder):
         except Exception as e:
             self.io.tool_error(e)
 
-        raise SwitchCoder(main_model=self.main_model, edit_format="architect")
+        raise SwitchCoderSignal(main_model=self.main_model, edit_format="architect")

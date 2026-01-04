@@ -96,9 +96,9 @@ class BaseCommand(ABC):
         """
         if not args.strip():
             # Switch to the corresponding chat mode
-            from cecli.commands import SwitchCoder
+            from cecli.commands import SwitchCoderSignal
 
-            raise SwitchCoder(edit_format=edit_format)
+            raise SwitchCoderSignal(edit_format=edit_format)
 
         from cecli.coders.base_coder import Coder
 
@@ -121,9 +121,9 @@ class BaseCommand(ABC):
         await new_coder.generate(user_message=user_msg, preproc=False)
         coder.coder_commit_hashes = new_coder.coder_commit_hashes
 
-        from cecli.commands import SwitchCoder
+        from cecli.commands import SwitchCoderSignal
 
-        raise SwitchCoder(
+        raise SwitchCoderSignal(
             main_model=original_main_model,
             edit_format=original_edit_format,
             done_messages=new_coder.done_messages,

@@ -16,7 +16,7 @@ from cecli.coders.base_coder import (
     FinishReasonLength,
     UnknownEditFormat,
 )
-from cecli.commands import SwitchCoder
+from cecli.commands import SwitchCoderSignal
 from cecli.dump import dump  # noqa: F401
 from cecli.io import InputOutput
 from cecli.models import Model
@@ -290,7 +290,9 @@ class TestCoder:
             mock_args = MagicMock(tui=False)
             coder = await Coder.create(self.GPT35, None, io, args=mock_args)
 
-            coder.get_file_mentions = MagicMock(return_value=set(["file1.txt", "file2.txt"]))
+            coder.get_file_mentions = MagicMock(
+                return_value=set(["file1.txt", "file2.txt"])
+            )
 
             await coder.check_for_file_mentions("Please check file1.txt for the info")
 
@@ -300,7 +302,9 @@ class TestCoder:
 
             io.confirm_ask.reset_mock()
 
-            await coder.check_for_file_mentions("Please check file1.txt and file2.txt again")
+            await coder.check_for_file_mentions(
+                "Please check file1.txt and file2.txt again"
+            )
 
             assert io.confirm_ask.call_count == 1
             assert len(coder.abs_fnames) == 1
@@ -471,7 +475,9 @@ Once I have these, I can show you precisely how to do the thing.
             ]
 
             for content, addable_files in test_cases:
-                coder.get_addable_relative_files = MagicMock(return_value=set(addable_files))
+                coder.get_addable_relative_files = MagicMock(
+                    return_value=set(addable_files)
+                )
                 mentioned_files = coder.get_file_mentions(content)
                 expected_files = set(addable_files)
                 assert (
@@ -595,7 +601,9 @@ Once I have these, I can show you precisely how to do the thing.
         await coder.run(with_message="hi")
         assert len(coder.abs_fnames) == 2
 
-        some_content_which_will_error_if_read_with_encoding_utf8 = "ÅÍÎÏ".encode(encoding)
+        some_content_which_will_error_if_read_with_encoding_utf8 = "ÅÍÎÏ".encode(
+            encoding
+        )
         with open(file1, "wb") as f:
             f.write(some_content_which_will_error_if_read_with_encoding_utf8)
 
@@ -671,7 +679,9 @@ new
             fname1.write_text("ONE\n")
 
             io = InputOutput(yes=True)
-            coder = await Coder.create(self.GPT35, "diff", io=io, fnames=[str(fname1), str(fname2)])
+            coder = await Coder.create(
+                self.GPT35, "diff", io=io, fnames=[str(fname1), str(fname2)]
+            )
 
             async def mock_send(*args, **kwargs):
                 coder.partial_response_content = f"""
@@ -695,7 +705,9 @@ TWO
                 return "commit message"
 
             coder.send = mock_send
-            coder.repo.get_commit_message = MagicMock(side_effect=mock_get_commit_message)
+            coder.repo.get_commit_message = MagicMock(
+                side_effect=mock_get_commit_message
+            )
 
             await coder.run(with_message="hi")
 
@@ -1014,7 +1026,9 @@ two
 
             # Create the first coder
             io = InputOutput(yes=True)
-            coder1 = await Coder.create(self.GPT35, None, io=io, fnames=[test_file.name])
+            coder1 = await Coder.create(
+                self.GPT35, None, io=io, fnames=[test_file.name]
+            )
 
             # Create a new coder from the first coder
             coder2 = await Coder.create(from_coder=coder1)
@@ -1024,7 +1038,9 @@ two
 
             # Ensure the abs_fnames contain the correct absolute path
             expected_abs_path = os.path.realpath(str(test_file))
-            coder1_abs_fnames = set(os.path.realpath(path) for path in coder1.abs_fnames)
+            coder1_abs_fnames = set(
+                os.path.realpath(path) for path in coder1.abs_fnames
+            )
             assert expected_abs_path in coder1_abs_fnames
             assert expected_abs_path in coder2.abs_fnames
 
@@ -1074,7 +1090,9 @@ This command will print 'Hello, World!' to the console."""
     async def test_no_suggest_shell_commands(self):
         with GitTemporaryDirectory():
             io = InputOutput(yes=True)
-            coder = await Coder.create(self.GPT35, "diff", io=io, suggest_shell_commands=False)
+            coder = await Coder.create(
+                self.GPT35, "diff", io=io, suggest_shell_commands=False
+            )
             assert not coder.suggest_shell_commands
 
     async def test_detect_urls_enabled(self):
@@ -1083,7 +1101,9 @@ This command will print 'Hello, World!' to the console."""
             mock_args = MagicMock()
             mock_args.yes_always_commands = False
             mock_args.disable_scraping = False
-            coder = await Coder.create(self.GPT35, "diff", io=io, detect_urls=True, args=mock_args)
+            coder = await Coder.create(
+                self.GPT35, "diff", io=io, detect_urls=True, args=mock_args
+            )
 
             # Track calls to do_run
             do_run_calls = []
@@ -1124,9 +1144,7 @@ This command will print 'Hello, World!' to the console."""
         invalid_format = "invalid_format"
         valid_formats = ["diff", "whole", "map"]
         exc = UnknownEditFormat(invalid_format, valid_formats)
-        expected_msg = (
-            f"Unknown edit format {invalid_format}. Valid formats are: {', '.join(valid_formats)}"
-        )
+        expected_msg = f"Unknown edit format {invalid_format}. Valid formats are: {', '.join(valid_formats)}"
         assert str(exc) == expected_msg
 
     async def test_unknown_edit_format_creation(self):
@@ -1385,13 +1403,17 @@ This command will print 'Hello, World!' to the console."""
 
         # 1. Test with self.chat_language set
         coder.chat_language = "fr_CA"
-        with patch.object(coder, "normalize_language", return_value="French Canadian") as mock_norm:
+        with patch.object(
+            coder, "normalize_language", return_value="French Canadian"
+        ) as mock_norm:
             assert coder.get_user_language() == "French Canadian"
             mock_norm.assert_called_once_with("fr_CA")
         coder.chat_language = None  # Reset
 
         # 2. Test with locale.getlocale()
-        with patch("locale.getlocale", return_value=("en_GB", "UTF-8")) as mock_getlocale:
+        with patch(
+            "locale.getlocale", return_value=("en_GB", "UTF-8")
+        ) as mock_getlocale:
             with patch.object(
                 coder, "normalize_language", return_value="British English"
             ) as mock_norm:
@@ -1401,7 +1423,9 @@ This command will print 'Hello, World!' to the console."""
 
         # Test with locale.getlocale() returning None or empty
         with patch("locale.getlocale", return_value=(None, None)) as mock_getlocale:
-            with patch("os.environ.get") as mock_env_get:  # Ensure env vars are not used yet
+            with patch(
+                "os.environ.get"
+            ) as mock_env_get:  # Ensure env vars are not used yet
                 mock_env_get.return_value = None
                 # Should be None if nothing found
                 assert coder.get_user_language() is None
@@ -1411,8 +1435,12 @@ This command will print 'Hello, World!' to the console."""
             "locale.getlocale", side_effect=Exception("locale error")
         ):  # Mock locale to fail
             with patch("os.environ.get") as mock_env_get:
-                mock_env_get.side_effect = lambda key: ("de_DE.UTF-8" if key == "LANG" else None)
-                with patch.object(coder, "normalize_language", return_value="German") as mock_norm:
+                mock_env_get.side_effect = lambda key: (
+                    "de_DE.UTF-8" if key == "LANG" else None
+                )
+                with patch.object(
+                    coder, "normalize_language", return_value="German"
+                ) as mock_norm:
                     assert coder.get_user_language() == "German"
                     mock_env_get.assert_any_call("LANG")
                     mock_norm.assert_called_once_with("de_DE")
@@ -1421,8 +1449,12 @@ This command will print 'Hello, World!' to the console."""
         # by os.environ.get, but our code checks in order, so we mock the first one it finds)
         with patch("locale.getlocale", side_effect=Exception("locale error")):
             with patch("os.environ.get") as mock_env_get:
-                mock_env_get.side_effect = lambda key: ("es_ES" if key == "LANGUAGE" else None)
-                with patch.object(coder, "normalize_language", return_value="Spanish") as mock_norm:
+                mock_env_get.side_effect = lambda key: (
+                    "es_ES" if key == "LANGUAGE" else None
+                )
+                with patch.object(
+                    coder, "normalize_language", return_value="Spanish"
+                ) as mock_norm:
                     assert coder.get_user_language() == "Spanish"
                     # LANG would be called first
                     mock_env_get.assert_any_call("LANGUAGE")
@@ -1430,7 +1462,9 @@ This command will print 'Hello, World!' to the console."""
 
         # 4. Test priority: chat_language > locale > env
         coder.chat_language = "it_IT"
-        with patch("locale.getlocale", return_value=("en_US", "UTF-8")) as mock_getlocale:
+        with patch(
+            "locale.getlocale", return_value=("en_US", "UTF-8")
+        ) as mock_getlocale:
             with patch("os.environ.get", return_value="de_DE") as mock_env_get:
                 with patch.object(
                     coder, "normalize_language", side_effect=lambda x: x.upper()
@@ -1465,10 +1499,12 @@ This command will print 'Hello, World!' to the console."""
                 new_callable=AsyncMock,
                 return_value=mock_editor,
             ):
-                with pytest.raises(SwitchCoder):
+                with pytest.raises(SwitchCoderSignal):
                     await coder.reply_completed()
 
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False
+                )
                 mock_editor.generate.assert_called_once()
 
     async def test_architect_coder_auto_accept_false_confirmed(self):
@@ -1490,10 +1526,12 @@ This command will print 'Hello, World!' to the console."""
                 new_callable=AsyncMock,
                 return_value=mock_editor,
             ):
-                with pytest.raises(SwitchCoder):
+                with pytest.raises(SwitchCoderSignal):
                     await coder.reply_completed()
 
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False
+                )
                 mock_editor.generate.assert_called_once()
 
     async def test_architect_coder_auto_accept_false_rejected(self):
@@ -1513,7 +1551,9 @@ This command will print 'Hello, World!' to the console."""
                 result = await coder.reply_completed()
 
                 assert result is None
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False
+                )
                 mock_create.assert_not_called()
 
     @patch("cecli.coders.base_coder.experimental_mcp_client")
@@ -1533,7 +1573,9 @@ This command will print 'Hello, World!' to the console."""
 
             # Create coder with mock MCP server
             with patch.object(Coder, "initialize_mcp_tools", return_value=mock_tools):
-                coder = await Coder.create(self.GPT35, "diff", io=io, mcp_servers=[mock_server])
+                coder = await Coder.create(
+                    self.GPT35, "diff", io=io, mcp_servers=[mock_server]
+                )
 
                 # Manually set mcp_tools since we're bypassing initialize_mcp_tools
                 coder.mcp_tools = mock_tools
@@ -1797,7 +1839,9 @@ This command will print 'Hello, World!' to the console."""
             assert not result
 
             # Verify that confirm_ask was called
-            io.confirm_ask.assert_called_once_with("Run tools?", group_response="Run MCP Tools")
+            io.confirm_ask.assert_called_once_with(
+                "Run tools?", group_response="Run MCP Tools"
+            )
 
             # Verify that no messages were added
             assert len(coder.cur_messages) == 0
@@ -1879,7 +1923,9 @@ This command will print 'Hello, World!' to the console."""
                 assert "ASSISTANT: \n" in context
                 return "commit message"
 
-            coder.repo.get_commit_message = AsyncMock(side_effect=mock_get_commit_message)
+            coder.repo.get_commit_message = AsyncMock(
+                side_effect=mock_get_commit_message
+            )
 
             # To trigger a commit, the file must be modified
             fname.write_text("one changed\n")
@@ -1968,7 +2014,9 @@ This command will print 'Hello, World!' to the console."""
 
             # Mock BlobResourceContents for text
             text_blob_content = "Hello from blob! "
-            encoded_text_blob = base64.b64encode(text_blob_content.encode("utf-8")).decode("utf-8")
+            encoded_text_blob = base64.b64encode(
+                text_blob_content.encode("utf-8")
+            ).decode("utf-8")
             mock_text_blob_resource = MagicMock(spec=["blob"])
             mock_text_blob_resource.blob = encoded_text_blob
 
@@ -2148,7 +2196,9 @@ This command will print 'Hello, World!' to the console."""
             self._reset_partial_response_state(coder)
 
             # Mock a valid response with finish_reason but no content
-            mock_response = self._make_model_response(finish_reason="stop", content=None)
+            mock_response = self._make_model_response(
+                finish_reason="stop", content=None
+            )
 
             # Mock the consolidate_chunks method to return our response
             coder.consolidate_chunks = MagicMock(
@@ -2224,7 +2274,9 @@ This command will print 'Hello, World!' to the console."""
             self._reset_partial_response_state(coder)
 
             # Mock a response with tool calls but no content
-            mock_response = self._make_model_response(finish_reason="tool_calls", content=None)
+            mock_response = self._make_model_response(
+                finish_reason="tool_calls", content=None
+            )
 
             # Mock the consolidate_chunks method to return our response
             coder.consolidate_chunks = MagicMock(

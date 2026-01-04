@@ -11,7 +11,7 @@ command line switches.
 Most options can also be set in an `.aider.conf.yml` file
 which can be placed in your home directory or at the root of
 your git repo. 
-Or by setting environment variables like `AIDER_xxx`
+Or by setting environment variables like `CECLI_xxx`
 either in your shell or a `.env` file.
 
 Here are 4 equivalent ways of setting an option. 
@@ -31,13 +31,13 @@ dark-mode: true
 By setting an environment variable:
 
 ```
-export AIDER_DARK_MODE=true
+export CECLI_DARK_MODE=true
 ```
 
 Using an `.env` file:
 
 ```
-AIDER_DARK_MODE=true
+CECLI_DARK_MODE=true
 ```
 
 {% include keys.md %}

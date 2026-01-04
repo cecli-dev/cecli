@@ -696,7 +696,7 @@ versions.
   - Still auto-completes the full paths of the repo files like `/add`.
   - Now supports globs like `src/**/*.py`
 - Renamed `--yes` to `--yes-always`.
-  - Now uses `AIDER_YES_ALWAYS` env var and `yes-always:` YAML key.
+  - Now uses `CECLI_YES_ALWAYS` env var and `yes-always:` YAML key.
   - Existing YAML and .env files will need to be updated.
   - Can still abbreviate to `--yes` on the command line.
 - Config file now uses standard YAML list syntax with `  - list entries`, one per line.  
@@ -1125,7 +1125,7 @@ versions.
 ### Aider v0.39.0
 
 - Use `--sonnet` for Claude 3.5 Sonnet, which is the top model on [aider's LLM code editing leaderboard](https://aider.chat/docs/leaderboards/#claude-35-sonnet-takes-the-top-spot).
-- All `AIDER_xxx` environment variables can now be set in `.env` (by @jpshack-at-palomar).
+- All `CECLI_xxx` environment variables can now be set in `.env` (by @jpshack-at-palomar).
 - Use `--llm-history-file` to log raw messages sent to the LLM (by @daniel-vainsencher).
 - Commit messages are no longer prefixed with "aider:". Instead the git author and committer names have "(aider)" added.
 

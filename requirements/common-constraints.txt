@@ -259,7 +259,7 @@ matplotlib==3.10.7
     # via -r requirements/requirements-dev.in
 mccabe==0.7.0
     # via flake8
-mcp==1.22.0
+mcp==1.25.0
     # via -r requirements/requirements.in
 mdit-py-plugins==0.5.0
     # via textual
