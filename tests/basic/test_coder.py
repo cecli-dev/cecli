@@ -1927,3 +1927,117 @@ This command will print 'Hello, World!' to the console."""
                 " (application/octet-stream)]"
             )
             assert result[0]["content"] == expected_content
+
+    async def test_reset_partial_response_flags(self):
+        """Test that _reset_partial_response_flags initializes all flags to False."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            coder._reset_partial_response_flags()
+            flags = coder._partial_response_received_flags
+            assert flags["content"] is False
+            assert flags["reasoning"] is False
+            assert flags["tool_calls"] is False
+            assert flags["function_call"] is False
+
+    async def test_register_partial_response(self):
+        """Test that _register_partial_response correctly sets flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(content=True)
+            assert coder._partial_response_received_flags["content"] is True
+            assert coder._partial_response_received_flags["reasoning"] is False
+
+            coder._register_partial_response(reasoning=True)
+            assert coder._partial_response_received_flags["reasoning"] is True
+
+            coder._register_partial_response(tool_calls=True)
+            assert coder._partial_response_received_flags["tool_calls"] is True
+
+            coder._register_partial_response(function_call=True)
+            assert coder._partial_response_received_flags["function_call"] is True
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(content=True, reasoning=True)
+            assert coder._partial_response_received_flags["content"] is True
+            assert coder._partial_response_received_flags["reasoning"] is True
+            assert coder._partial_response_received_flags["tool_calls"] is False
+
+    async def test_received_any_partial_response(self):
+        """Test that _received_any_partial_response correctly checks flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            coder._reset_partial_response_flags()
+            assert coder._received_any_partial_response() is False
+            assert coder._received_any_partial_response(received_content_flag=True) is True
+
+            coder._register_partial_response(content=True)
+            assert coder._received_any_partial_response() is True
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(reasoning=True)
+            assert coder._received_any_partial_response() is True
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(tool_calls=True)
+            assert coder._received_any_partial_response() is True
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(function_call=True)
+            assert coder._received_any_partial_response() is True
+
+    async def test_get_empty_response_message_variants(self):
+        """Verify _get_empty_response_message returns descriptive strings."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(tool_calls=True)
+            msg = coder._get_empty_response_message()
+            assert "Only tool calls" in msg
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(tool_calls=True, reasoning=True)
+            msg = coder._get_empty_response_message()
+            assert "tool calls and reasoning" in msg
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(reasoning=True)
+            msg = coder._get_empty_response_message()
+            assert "Only reasoning content" in msg
+
+            coder._reset_partial_response_flags()
+            coder._register_partial_response(function_call=True)
+            msg = coder._get_empty_response_message()
+            assert "Only function calls" in msg
+    async def test_initialization_in_constructor(self):
+        """Test that coders initialize the partial response flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            assert "_partial_response_received_flags" in coder.__dict__
+            flags = coder._partial_response_received_flags
+            assert flags["content"] is False
+            assert flags["reasoning"] is False
+            assert flags["tool_calls"] is False
+            assert flags["function_call"] is False
+
+    async def test_received_content_flag_override(self):
+        """Test that received_content_flag overrides other flags."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=True)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+
+            coder._reset_partial_response_flags()
+            assert coder._received_any_partial_response(received_content_flag=True) is True
+
+            coder._register_partial_response(content=True, reasoning=True)
+            assert coder._received_any_partial_response(received_content_flag=True) is True

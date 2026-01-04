@@ -575,6 +575,9 @@ class Coder:
                 self.io.tool_output("JSON Schema:")
                 self.io.tool_output(json.dumps(self.functions, indent=4))
 
+        # Track partial response state for each request
+        self._reset_partial_response_flags()
+
     @property
     def gpt_prompts(self):
         """Get prompts from the registry based on the coder type."""
@@ -2997,6 +3000,7 @@ class Coder:
         self.partial_response_chunks = []
         self.partial_response_tool_calls = []
         self.partial_response_function_call = dict()
+        self._reset_partial_response_flags()
 
         completion = None
         self.token_profiler.start()
@@ -3042,6 +3046,84 @@ class Coder:
                 if args:
                     self.io.ai_output(json.dumps(args, indent=4))
 
+    def _reset_partial_response_flags(self):
+        self._partial_response_received_flags = {
+            "content": False,
+            "reasoning": False,
+            "tool_calls": False,
+            "function_call": False,
+        }
+
+    def _register_partial_response(
+        self,
+        *,
+        content=False,
+        reasoning=False,
+        tool_calls=False,
+        function_call=False,
+    ):
+        if not hasattr(self, "_partial_response_received_flags"):
+            self._reset_partial_response_flags()
+
+        flags = self._partial_response_received_flags
+        if content:
+            flags["content"] = True
+        if reasoning:
+            flags["reasoning"] = True
+        if tool_calls:
+            flags["tool_calls"] = True
+        if function_call:
+            flags["function_call"] = True
+
+    def _received_any_partial_response(self, received_content_flag=False):
+        if not hasattr(self, "_partial_response_received_flags"):
+            return False
+
+        flags = self._partial_response_received_flags
+        if received_content_flag:
+            return True
+        return any(flags.values())
+
+    def _get_empty_response_message(self):
+        """Generate a descriptive warning for empty responses."""
+        flags = getattr(self, "_partial_response_received_flags", {})
+
+        has_content = flags.get("content", False)
+        has_reasoning = flags.get("reasoning", False)
+        has_tool_calls = flags.get("tool_calls", False)
+        has_function_call = flags.get("function_call", False)
+
+        if has_tool_calls and not has_content:
+            if has_reasoning:
+                return (
+                    "Empty response received from LLM. "
+                    "Only tool calls and reasoning content were received, but no text response. "
+                    "Check if the model is configured to return text content."
+                )
+            return (
+                "Empty response received from LLM. "
+                "Only tool calls were received, but no text response. "
+                "Check if the model is configured to return text content."
+            )
+        if has_reasoning and not has_content:
+            return (
+                "Empty response received from LLM. "
+                "Only reasoning content was received, but no text response. "
+                "Check if the model is configured to return text content."
+            )
+        if has_function_call and not has_content:
+            return (
+                "Empty response received from LLM. "
+                "Only function calls were received, but no text response. "
+                "Check if the model is configured to return text content."
+            )
+
+        return (
+            "Empty response received from LLM. "
+            "No content, tool calls, or reasoning was received. "
+            "Check your provider account, model availability, or network connectivity."
+        )
+
     def show_send_output(self, completion):
         if self.verbose:
             print(completion)
@@ -3055,6 +3137,31 @@ class Coder:
             return
 
         self.partial_response_chunks.append(completion)
+
+        try:
+            message = None
+            if completion.choices and completion.choices[0].message:
+                message = completion.choices[0].message
+        except (AttributeError, IndexError):
+            message = None
+
+        if message:
+            if getattr(message, "tool_calls", None):
+                self._register_partial_response(tool_calls=True)
+
+            if getattr(message, "function_call", None):
+                self._register_partial_response(function_call=True)
+
+            reasoning_content = getattr(message, "reasoning_content", None)
+            if reasoning_content:
+                self._register_partial_response(reasoning=True)
+            else:
+                reasoning_attr = getattr(message, "reasoning", None)
+                if reasoning_attr:
+                    self._register_partial_response(reasoning=True)
+
+            if getattr(message, "content", None):
+                self._register_partial_response(content=True)
 
         response, func_err, content_err = self.consolidate_chunks()
 
@@ -3080,7 +3187,10 @@ class Coder:
 
         show_resp = replace_reasoning_tags(show_resp, self.reasoning_tag_name)
 
-        self.io.assistant_output(show_resp, pretty=self.show_pretty())
+        if show_resp:
+            self.io.assistant_output(show_resp, pretty=self.show_pretty())
+        elif not self._received_any_partial_response():
+            self.io.tool_warning(self._get_empty_response_message())
 
         if (
             hasattr(completion.choices[0], "finish_reason")
@@ -3227,6 +3337,8 @@ class Coder:
         for chunk in self.partial_response_chunks:
             try:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.tool_calls:
+                    if not self.stream:
+                        self._register_partial_response(tool_calls=True)
                     for tool_call in chunk.choices[0].delta.tool_calls:
                         if (
                             hasattr(tool_call, "provider_specific_fields")
@@ -3255,6 +3367,8 @@ class Coder:
 
         try:
             if response.choices[0].message.tool_calls:
+                if not self.stream:
+                    self._register_partial_response(tool_calls=True)
                 for i, tool_call in enumerate(response.choices[0].message.tool_calls):
                     # Add provider-specific fields if we collected any for this tool
                     tool_id = tool_call.id
@@ -3288,6 +3402,8 @@ class Coder:
                 self.partial_response_function_call = (
                     response.choices[0].message.tool_calls[0].function
                 )
+                if self.partial_response_function_call and not self.stream:
+                    self._register_partial_response(function_call=True)
         except AttributeError as e:
             func_err = e
 
@@ -3299,7 +3415,12 @@ class Coder:
             except AttributeError:
                 reasoning_content = None
 
-        self.partial_response_reasoning_content = reasoning_content or ""
+        if reasoning_content:
+            self.partial_response_reasoning_content = reasoning_content
+            if not self.stream:
+                self._register_partial_response(reasoning=True)
+        else:
+            self.partial_response_reasoning_content = ""
 
         try:
             content = response.choices[0].message.content
@@ -3315,7 +3436,12 @@ class Coder:
                     for block in content
                     if isinstance(block, dict) and block.get("type") == "text"
                 )
-            self.partial_response_content = content or ""
+            if content:
+                self.partial_response_content = content
+                if not self.stream:
+                    self._register_partial_response(content=True)
+            else:
+                self.partial_response_content = ""
         except AttributeError as e:
             content_err = e
 
