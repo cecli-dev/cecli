@@ -94,9 +94,14 @@ class McpServer:
         async with self._cleanup_lock:
             try:
                 await self.exit_stack.aclose()
-                self.session = None
+            except (asyncio.CancelledError, RuntimeError, GeneratorExit):
+                # Expected during shutdown - anyio cancel scopes don't play
+                # well with asyncio teardown. Resources are still cleaned up.
+                pass
             except Exception as e:
                 logging.error(f"Error during cleanup of server {self.name}: {e}")
+            finally:
+                self.session = None
 
 
 class HttpBasedMcpServer(McpServer):
@@ -236,9 +241,14 @@ class HttpBasedMcpServer(McpServer):
                 if hasattr(self, "_oauth_shutdown"):
                     self._oauth_shutdown()
                 await self.exit_stack.aclose()
-                self.session = None
+            except (asyncio.CancelledError, RuntimeError, GeneratorExit):
+                # Expected during shutdown - anyio cancel scopes don't play
+                # well with asyncio teardown. Resources are still cleaned up.
+                pass
             except Exception as e:
                 logging.error(f"Error during cleanup of server {self.name}: {e}")
+            finally:
+                self.session = None
 
 
 class HttpStreamingServer(HttpBasedMcpServer):
