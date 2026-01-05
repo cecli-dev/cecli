@@ -242,13 +242,34 @@ def get_parser(default_config_files, git_root):
         ),
     )
 
+    #######
+    group = parser.add_argument_group("Customization Settings")
+    group.add_argument(
+        "--custom",
+        metavar="CUSTOM_JSON",
+        help=(
+            "Specify cecli customizations configurations (for prompts, commands, etc.) as a JSON"
+            " string"
+        ),
+        default=None,
+    )
     ########
     group = parser.add_argument_group("TUI Settings")
+
+    env_val = os.environ.get("CECLI_TUI")
+
+    if env_val is not None and env_val.lower() == "false":
+        tui_default = False
+        linear_output_default = True
+    else:
+        tui_default = None
+        linear_output_default = None
+
     group.add_argument(
         "--tui",
         action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Launch Textual TUI interface (experimental)",
+        default=tui_default,
+        help="Launch Textual TUI interface",
     )
     group.add_argument(
         "--tui-config",
@@ -803,8 +824,8 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--linear-output",
         action=argparse.BooleanOptionalAction,
-        help="Run input and output sequentially instead of us simultaneous streams (default: True)",
-        default=True,
+        help="Run input and output sequentially instead of us simultaneous streams (default: None)",
+        default=linear_output_default,
     )
     group.add_argument(
         "--debug",
@@ -974,12 +995,6 @@ def get_parser(default_config_files, git_root):
             "Specify a command to run for notifications instead of the terminal bell. If not"
             " specified, a default command for your OS may be used."
         ),
-    )
-    group.add_argument(
-        "--command-paths",
-        help="JSON array of paths to custom commands files",
-        action="append",
-        default=None,
     )
     group.add_argument(
         "--command-prefix",

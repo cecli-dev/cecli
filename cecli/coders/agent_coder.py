@@ -16,6 +16,7 @@ from litellm import experimental_mcp_client
 
 from cecli import urls, utils
 from cecli.change_tracker import ChangeTracker
+from cecli.helpers import nested
 from cecli.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -105,50 +106,61 @@ class AgentCoder(Coder):
                 self.io.tool_warning(f"Failed to parse agent-config JSON: {e}")
                 return {}
 
-        if "large_file_token_threshold" not in config:
-            config["large_file_token_threshold"] = 25000
-
-        if "tools_paths" not in config:
-            config["tools_paths"] = []
-        if "tools_includelist" not in config:
-            config["tools_includelist"] = []
-        if "tools_excludelist" not in config:
-            config["tools_excludelist"] = []
-
-        if "include_context_blocks" in config:
-            self.allowed_context_blocks = set(config["include_context_blocks"])
-        else:
-            self.allowed_context_blocks = {
-                "context_summary",
-                "directory_structure",
-                "environment_info",
-                "git_status",
-                "symbol_outline",
-                "todo_list",
-                "skills",
-            }
-
-        if "exclude_context_blocks" in config:
-            for context_block in config["exclude_context_blocks"]:
-                try:
-                    self.allowed_context_blocks.remove(context_block)
-                except KeyError:
-                    pass
-
-        self.large_file_token_threshold = config["large_file_token_threshold"]
-        self.skip_cli_confirmations = config.get(
-            "skip_cli_confirmations", config.get("yolo", False)
+        config["large_file_token_threshold"] = nested.getter(
+            config, "large_file_token_threshold", 25000
+        )
+        config["skip_cli_confirmations"] = nested.getter(
+            config, "skip_cli_confirmations", nested.getter(config, "yolo", [])
         )
 
-        if "skills" in self.allowed_context_blocks:
-            if "skills_paths" not in config:
-                config["skills_paths"] = []
-            if "skills_includelist" not in config:
-                config["skills_includelist"] = []
-            if "skills_excludelist" not in config:
-                config["skills_excludelist"] = []
+        config["tools_paths"] = nested.getter(config, "tools_paths", [])
+        config["tools_includelist"] = nested.getter(
+            config, ["tools_includelist", "tools_whitelist"], []
+        )
+        config["tools_excludelist"] = nested.getter(
+            config, ["tools_excludelist", "tools_blacklist"], []
+        )
 
-        if "skills" not in self.allowed_context_blocks or not config.get("skills_paths", []):
+        config["include_context_blocks"] = set(
+            nested.getter(
+                config,
+                "include_context_blocks",
+                {
+                    "context_summary",
+                    "directory_structure",
+                    "environment_info",
+                    "git_status",
+                    "symbol_outline",
+                    "todo_list",
+                    "skills",
+                },
+            )
+        )
+        config["exclude_context_blocks"] = set(nested.getter(config, "exclude_context_blocks", []))
+
+        self.large_file_token_threshold = config["large_file_token_threshold"]
+        self.skip_cli_confirmations = config["skip_cli_confirmations"]
+
+        self.allowed_context_blocks = config["include_context_blocks"]
+
+        for context_block in config["exclude_context_blocks"]:
+            try:
+                self.allowed_context_blocks.remove(context_block)
+            except KeyError:
+                pass
+
+        if "skills" in self.allowed_context_blocks:
+            config["skills_paths"] = nested.getter(config, "skills_paths", [])
+            config["skills_includelist"] = nested.getter(
+                config, ["skills_includelist", "skills_whitelist"], []
+            )
+            config["skills_excludelist"] = nested.getter(
+                config, ["skills_excludelist", "skills_blacklist"], []
+            )
+
+        if "skills" not in self.allowed_context_blocks or not nested.getter(
+            config, "skills_paths", []
+        ):
             config["tools_excludelist"].append("loadskill")
             config["tools_excludelist"].append("removeskill")
 

@@ -554,8 +554,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         args.tui_config = convert_yaml_to_json_string(args.tui_config)
     if hasattr(args, "mcp_servers") and args.mcp_servers is not None:
         args.mcp_servers = convert_yaml_to_json_string(args.mcp_servers)
-    if hasattr(args, "command_paths") and args.command_paths is not None:
-        args.command_paths = convert_yaml_to_json_string(args.command_paths)
+    if hasattr(args, "custom") and args.custom is not None:
+        args.custom = convert_yaml_to_json_string(args.custom)
     if args.debug:
         global log_file
         os.makedirs(".cecli/logs/", exist_ok=True)
@@ -628,7 +628,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     output_queue = None
     input_queue = None
     pre_init_io = get_io(args.pretty)
-    if args.tui or args.tui is None and not args.linear_output:
+    if args.tui or args.linear_output is None:
         try:
             from cecli.tui import create_tui_io
 
@@ -643,6 +643,9 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             sys.exit(1)
     else:
         io = pre_init_io
+        if args.linear_output is None:
+            args.linear_output = True
+
     if not args.tui:
         try:
             io.rule()

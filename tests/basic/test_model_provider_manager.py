@@ -430,3 +430,121 @@ def test_model_dynamic_settings_added(monkeypatch, tmp_path):
 
     model = Model(model_name)
     assert model.info["max_tokens"] == 2048
+
+
+def test_get_account_id_from_env(monkeypatch, tmp_path):
+    config = {
+        "fireworks_ai": {
+            "api_base": "https://api.fireworks.ai/inference/v1",
+            "api_key_env": ["FIREWORKS_AI_API_KEY"],
+            "account_id_env": "FIREWORKS_AI_ACCOUNT_ID",
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setenv("FIREWORKS_AI_ACCOUNT_ID", "test-account-123")
+
+    assert manager._get_account_id("fireworks_ai") == "test-account-123"
+
+
+def test_get_account_id_missing_env(monkeypatch, tmp_path):
+    config = {
+        "fireworks_ai": {
+            "api_base": "https://api.fireworks.ai/inference/v1",
+            "api_key_env": ["FIREWORKS_AI_API_KEY"],
+            "account_id_env": "FIREWORKS_AI_ACCOUNT_ID",
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.delenv("FIREWORKS_AI_ACCOUNT_ID", raising=False)
+
+    assert manager._get_account_id("fireworks_ai") is None
+
+
+def test_get_account_id_no_config(tmp_path):
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "api_key_env": ["DEMO_KEY"],
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+
+    assert manager._get_account_id("demo") is None
+
+
+def test_models_url_account_id_substitution(monkeypatch, tmp_path):
+    config = {
+        "fireworks_ai": {
+            "api_base": "https://api.fireworks.ai/inference/v1",
+            "api_key_env": ["FIREWORKS_AI_API_KEY"],
+            "models_url": "https://api.fireworks.ai/v1/accounts/{account_id}/models",
+            "account_id_env": "FIREWORKS_AI_ACCOUNT_ID",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setenv("FIREWORKS_AI_ACCOUNT_ID", "my-account-id")
+
+    captured = {}
+
+    def _fake_get(url, *, headers=None, timeout=None, verify=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        captured["verify"] = verify
+        return DummyResponse({"data": []})
+
+    monkeypatch.setattr("requests.get", _fake_get)
+
+    manager._fetch_provider_models("fireworks_ai")
+
+    assert captured["url"] == "https://api.fireworks.ai/v1/accounts/my-account-id/models"
+
+
+def test_models_url_account_id_missing_skips_fetch(monkeypatch, tmp_path, capsys):
+    config = {
+        "fireworks_ai": {
+            "api_base": "https://api.fireworks.ai/inference/v1",
+            "api_key_env": ["FIREWORKS_AI_API_KEY"],
+            "models_url": "https://api.fireworks.ai/v1/accounts/{account_id}/models",
+            "account_id_env": "FIREWORKS_AI_ACCOUNT_ID",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.delenv("FIREWORKS_AI_ACCOUNT_ID", raising=False)
+
+    assert manager._fetch_provider_models("fireworks_ai") is None
+
+    captured = capsys.readouterr()
+    assert "account_id_env not set" in captured.out
+
+
+def test_models_url_without_placeholder_unchanged(monkeypatch, tmp_path):
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "api_key_env": ["DEMO_KEY"],
+            "models_url": "https://example.com/v1/models",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+
+    captured = {}
+
+    def _fake_get(url, *, headers=None, timeout=None, verify=None):
+        captured["url"] = url
+        return DummyResponse({"data": []})
+
+    monkeypatch.setattr("requests.get", _fake_get)
+
+    manager._fetch_provider_models("demo")
+
+    assert captured["url"] == "https://example.com/v1/models"

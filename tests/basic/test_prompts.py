@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from cecli.prompts.utils.prompt_registry import PromptRegistry
+from cecli.prompts.utils.registry import PromptRegistry
 
 
 class TestPromptRegistry:
@@ -25,22 +25,29 @@ class TestPromptRegistry:
 
     def setup_method(self):
         """Set up test fixtures."""
-        # Create a fresh instance for each test
-        self.registry = PromptRegistry.__new__(PromptRegistry)
-        self.registry._prompts_dir = Path(__file__).parent / "../../cecli/prompts"
-        self.registry._initialized = True
-        self.registry._prompts_cache = {}
-        self.registry._base_prompts = None
+        # Clear class-level state for each test
+        PromptRegistry._prompts_cache = {}
+        PromptRegistry._base_prompts = None
 
     def test_singleton_pattern(self):
         """Test that PromptRegistry follows singleton pattern."""
-        registry1 = PromptRegistry()
-        registry2 = PromptRegistry()
-        assert registry1 is registry2, "PromptRegistry should be a singleton"
+        # With static methods, we test that class-level state is shared
+        # by checking that cache is maintained across calls
+        PromptRegistry.reload_prompts()  # Clear cache
+        assert len(PromptRegistry._prompts_cache) == 0
+
+        # First call should populate cache
+        prompts1 = PromptRegistry.get_prompt("editblock")
+        assert len(PromptRegistry._prompts_cache) == 1
+
+        # Second call should use same cache
+        prompts2 = PromptRegistry.get_prompt("editblock")
+        assert len(PromptRegistry._prompts_cache) == 1
+        assert prompts1 is prompts2  # Same object from cache
 
     def test_get_base_prompts(self):
         """Test loading base prompts."""
-        base_prompts = self.registry._get_base_prompts()
+        base_prompts = PromptRegistry._get_base_prompts()
         assert isinstance(base_prompts, dict)
         assert "_inherits" in base_prompts
         assert base_prompts["_inherits"] == []
@@ -53,15 +60,15 @@ class TestPromptRegistry:
             temp_path = f.name
 
         try:
-            result = self.registry._load_yaml_file(Path(temp_path))
+            result = PromptRegistry._load_yaml_file(Path(temp_path))
             assert result == {"test_key": "test_value", "nested": {"key": "value"}}
         finally:
             os.unlink(temp_path)
 
     def test_load_yaml_file_not_found(self):
         """Test loading a non-existent YAML file returns empty dict."""
-        result = self.registry._load_yaml_file(Path("/nonexistent/path/file.yml"))
-        assert result == {}
+        with pytest.raises(ValueError, match="Prompt YAML file not found"):
+            PromptRegistry._load_yaml_file("/nonexistent/path/file.yml")
 
     def test_load_yaml_file_invalid_yaml(self):
         """Test loading an invalid YAML file raises ValueError."""
@@ -71,7 +78,7 @@ class TestPromptRegistry:
 
         try:
             with pytest.raises(ValueError, match="Error parsing YAML file"):
-                self.registry._load_yaml_file(Path(temp_path))
+                PromptRegistry._load_yaml_file(Path(temp_path))
         finally:
             os.unlink(temp_path)
 
@@ -79,7 +86,7 @@ class TestPromptRegistry:
         """Test simple dictionary merging."""
         base = {"key1": "value1", "key2": "value2"}
         override = {"key2": "new_value2", "key3": "value3"}
-        result = self.registry._merge_prompts(base, override)
+        result = PromptRegistry._merge_prompts(base, override)
         expected = {"key1": "value1", "key2": "new_value2", "key3": "value3"}
         assert result == expected
 
@@ -87,7 +94,7 @@ class TestPromptRegistry:
         """Test nested dictionary merging."""
         base = {"key1": "value1", "nested": {"a": 1, "b": 2}}
         override = {"nested": {"b": 20, "c": 30}, "key2": "value2"}
-        result = self.registry._merge_prompts(base, override)
+        result = PromptRegistry._merge_prompts(base, override)
         expected = {"key1": "value1", "nested": {"a": 1, "b": 20, "c": 30}, "key2": "value2"}
         assert result == expected
 
@@ -95,13 +102,13 @@ class TestPromptRegistry:
         """Test deeply nested dictionary merging."""
         base = {"a": {"b": {"c": {"d": 1, "e": 2}}}}
         override = {"a": {"b": {"c": {"e": 20, "f": 30}}}}
-        result = self.registry._merge_prompts(base, override)
+        result = PromptRegistry._merge_prompts(base, override)
         expected = {"a": {"b": {"c": {"d": 1, "e": 20, "f": 30}}}}
         assert result == expected
 
     def test_resolve_inheritance_chain_base(self):
         """Test inheritance chain resolution for base.yml."""
-        chain = self.registry._resolve_inheritance_chain("base")
+        chain = PromptRegistry._resolve_inheritance_chain("base")
         assert chain == ["base"]
 
     def test_resolve_inheritance_chain_simple(self):
@@ -120,15 +127,34 @@ class TestPromptRegistry:
             with open(simple_path, "w") as f:
                 yaml.dump({"_inherits": ["base"]}, f)
 
-            # Create a test registry with our temp directory
-            test_registry = PromptRegistry.__new__(PromptRegistry)
-            test_registry._prompts_dir = temp_path
-            test_registry._initialized = True
-            test_registry._prompts_cache = {}
-            test_registry._base_prompts = None
+            # Monkey-patch importlib_resources to use our temp directory
+            import importlib_resources
 
-            chain = test_registry._resolve_inheritance_chain("simple")
-            assert chain == ["base", "simple"]
+            original_files = importlib_resources.files
+
+            # Create a mock files function that returns our temp directory
+            def mock_files(package):
+                if package == "cecli.prompts":
+
+                    class MockPath:
+                        def joinpath(self, filename):
+                            return temp_path / filename
+
+                        def read_text(self, encoding="utf-8"):
+                            # This won't be called directly, but we need to implement it
+                            pass
+
+                    return MockPath()
+                return original_files(package)
+
+            importlib_resources.files = mock_files
+
+            try:
+                chain = PromptRegistry._resolve_inheritance_chain("simple")
+                assert chain == ["base", "simple"]
+            finally:
+                # Restore original function
+                importlib_resources.files = original_files
 
     def test_resolve_inheritance_chain_complex(self):
         """Test inheritance chain resolution for a complex prompt."""
@@ -151,15 +177,34 @@ class TestPromptRegistry:
             with open(editblock_fenced_path, "w") as f:
                 yaml.dump({"_inherits": ["editblock", "base"]}, f)
 
-            # Create a test registry with our temp directory
-            test_registry = PromptRegistry.__new__(PromptRegistry)
-            test_registry._prompts_dir = temp_path
-            test_registry._initialized = True
-            test_registry._prompts_cache = {}
-            test_registry._base_prompts = None
+            # Monkey-patch importlib_resources to use our temp directory
+            import importlib_resources
 
-            chain = test_registry._resolve_inheritance_chain("editblock_fenced")
-            assert chain == ["base", "editblock", "editblock_fenced"]
+            original_files = importlib_resources.files
+
+            # Create a mock files function that returns our temp directory
+            def mock_files(package):
+                if package == "cecli.prompts":
+
+                    class MockPath:
+                        def joinpath(self, filename):
+                            return temp_path / filename
+
+                        def read_text(self, encoding="utf-8"):
+                            # This won't be called directly, but we need to implement it
+                            pass
+
+                    return MockPath()
+                return original_files(package)
+
+            importlib_resources.files = mock_files
+
+            try:
+                chain = PromptRegistry._resolve_inheritance_chain("editblock_fenced")
+                assert chain == ["base", "editblock", "editblock_fenced"]
+            finally:
+                # Restore original function
+                importlib_resources.files = original_files
 
     def test_resolve_inheritance_chain_circular_dependency(self):
         """Test detection of circular dependencies."""
@@ -177,25 +222,44 @@ class TestPromptRegistry:
             with open(b_path, "w") as f:
                 yaml.dump({"_inherits": ["a"]}, f)
 
-            # Create a test registry with our temp directory
-            test_registry = PromptRegistry.__new__(PromptRegistry)
-            test_registry._prompts_dir = temp_path
-            test_registry._initialized = True
-            test_registry._prompts_cache = {}
-            test_registry._base_prompts = None
+            # Monkey-patch importlib_resources to use our temp directory
+            import importlib_resources
 
-            # Should detect circular dependency
-            with pytest.raises(ValueError, match="Circular dependency detected"):
-                test_registry._resolve_inheritance_chain("a")
+            original_files = importlib_resources.files
+
+            # Create a mock files function that returns our temp directory
+            def mock_files(package):
+                if package == "cecli.prompts":
+
+                    class MockPath:
+                        def joinpath(self, filename):
+                            return temp_path / filename
+
+                        def read_text(self, encoding="utf-8"):
+                            # This won't be called directly, but we need to implement it
+                            pass
+
+                    return MockPath()
+                return original_files(package)
+
+            importlib_resources.files = mock_files
+
+            try:
+                # Should detect circular dependency
+                with pytest.raises(ValueError, match="Circular dependency detected"):
+                    PromptRegistry._resolve_inheritance_chain("a")
+            finally:
+                # Restore original function
+                importlib_resources.files = original_files
 
     def test_resolve_inheritance_chain_file_not_found(self):
         """Test error when prompt file doesn't exist."""
         with pytest.raises(FileNotFoundError, match="Prompt file not found"):
-            self.registry._resolve_inheritance_chain("nonexistent")
+            PromptRegistry._resolve_inheritance_chain("nonexistent")
 
     def test_get_prompt_base(self):
         """Test getting base prompts."""
-        prompts = self.registry.get_prompt("base")
+        prompts = PromptRegistry.get_prompt("base")
         assert isinstance(prompts, dict)
         assert "_inherits" not in prompts  # Should be removed
         assert "system_reminder" in prompts
@@ -204,7 +268,7 @@ class TestPromptRegistry:
 
     def test_get_prompt_editblock(self):
         """Test getting editblock prompts."""
-        prompts = self.registry.get_prompt("editblock")
+        prompts = PromptRegistry.get_prompt("editblock")
         assert isinstance(prompts, dict)
         assert "_inherits" not in prompts  # Should be removed
         assert "main_system" in prompts
@@ -213,7 +277,7 @@ class TestPromptRegistry:
 
     def test_get_prompt_patch(self):
         """Test getting patch prompts (inherits from editblock)."""
-        prompts = self.registry.get_prompt("patch")
+        prompts = PromptRegistry.get_prompt("patch")
         assert isinstance(prompts, dict)
         assert "_inherits" not in prompts  # Should be removed
         assert "main_system" in prompts
@@ -224,40 +288,40 @@ class TestPromptRegistry:
     def test_get_prompt_caching(self):
         """Test that prompts are cached."""
         # Clear cache
-        self.registry.reload_prompts()
-        assert len(self.registry._prompts_cache) == 0
+        PromptRegistry.reload_prompts()
+        assert len(PromptRegistry._prompts_cache) == 0
 
         # First call should populate cache
-        prompts1 = self.registry.get_prompt("editblock")
-        assert len(self.registry._prompts_cache) == 1
+        prompts1 = PromptRegistry.get_prompt("editblock")
+        assert len(PromptRegistry._prompts_cache) == 1
 
         # Second call should use cache
-        prompts2 = self.registry.get_prompt("editblock")
-        assert len(self.registry._prompts_cache) == 1
+        prompts2 = PromptRegistry.get_prompt("editblock")
+        assert len(PromptRegistry._prompts_cache) == 1
         assert prompts1 is prompts2  # Same object from cache
 
     def test_get_prompt_removes_inherits_key(self):
         """Test that _inherits key is removed from final prompts."""
         # Test with a few different prompt types
         for prompt_name in ["base", "editblock", "patch", "editor_diff_fenced"]:
-            prompts = self.registry.get_prompt(prompt_name)
+            prompts = PromptRegistry.get_prompt(prompt_name)
             assert "_inherits" not in prompts, f"_inherits key found in {prompt_name}"
 
     def test_reload_prompts(self):
         """Test that reload_prompts clears cache."""
         # Populate cache
-        self.registry.get_prompt("editblock")
-        self.registry.get_prompt("patch")
-        assert len(self.registry._prompts_cache) == 2
+        PromptRegistry.get_prompt("editblock")
+        PromptRegistry.get_prompt("patch")
+        assert len(PromptRegistry._prompts_cache) == 2
 
         # Reload should clear cache
-        self.registry.reload_prompts()
-        assert len(self.registry._prompts_cache) == 0
-        assert self.registry._base_prompts is None
+        PromptRegistry.reload_prompts()
+        assert len(PromptRegistry._prompts_cache) == 0
+        assert PromptRegistry._base_prompts is None
 
     def test_list_available_prompts(self):
         """Test listing available prompts."""
-        prompts = self.registry.list_available_prompts()
+        prompts = PromptRegistry.list_available_prompts()
         assert isinstance(prompts, list)
         assert len(prompts) > 0
         assert "editblock" in prompts
@@ -268,12 +332,12 @@ class TestPromptRegistry:
     def test_inheritance_chain_real_example(self):
         """Test a real inheritance chain from the actual YAML files."""
         # Test editor_diff_fenced which has a deep inheritance chain
-        chain = self.registry._resolve_inheritance_chain("editor_diff_fenced")
+        chain = PromptRegistry._resolve_inheritance_chain("editor_diff_fenced")
         expected_chain = ["base", "editblock", "editblock_fenced", "editor_diff_fenced"]
         assert chain == expected_chain, f"Expected {expected_chain}, got {chain}"
 
         # Get the prompts and verify they have expected content
-        prompts = self.registry.get_prompt("editor_diff_fenced")
+        prompts = PromptRegistry.get_prompt("editor_diff_fenced")
         assert "main_system" in prompts
         assert "system_reminder" in prompts
         assert "go_ahead_tip" in prompts
@@ -281,11 +345,11 @@ class TestPromptRegistry:
 
     def test_all_prompts_loadable(self):
         """Test that all available prompts can be loaded without errors."""
-        prompt_names = self.registry.list_available_prompts()
+        prompt_names = PromptRegistry.list_available_prompts()
 
         for name in prompt_names:
             try:
-                prompts = self.registry.get_prompt(name)
+                prompts = PromptRegistry.get_prompt(name)
                 assert isinstance(prompts, dict)
                 # Some prompts might be minimal (like copypaste)
                 if name != "copypaste":
@@ -296,10 +360,10 @@ class TestPromptRegistry:
     def test_prompt_override_behavior(self):
         """Test that prompt overrides work correctly in inheritance chain."""
         # Get editblock prompts
-        editblock_prompts = self.registry.get_prompt("editblock")
+        editblock_prompts = PromptRegistry.get_prompt("editblock")
 
         # Get patch prompts (inherits from editblock)
-        patch_prompts = self.registry.get_prompt("patch")
+        patch_prompts = PromptRegistry.get_prompt("patch")
 
         # Patch should have different system_reminder than editblock
         assert editblock_prompts["system_reminder"] != patch_prompts["system_reminder"]
@@ -316,13 +380,12 @@ class TestPromptInheritanceIntegration:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.registry = PromptRegistry()
-        self.registry.reload_prompts()
+        PromptRegistry.reload_prompts()
 
     def test_complete_inheritance_workflow(self):
         """Test complete workflow from YAML files to merged prompts."""
         # Test a prompt with deep inheritance
-        prompts = self.registry.get_prompt("editor_diff_fenced")
+        prompts = PromptRegistry.get_prompt("editor_diff_fenced")
 
         # Verify it has content from all levels of inheritance
         assert "main_system" in prompts  # From editblock
@@ -337,7 +400,7 @@ class TestPromptInheritanceIntegration:
     def test_yaml_structure_preserved(self):
         """Test that YAML structure (lists, multiline strings) is preserved."""
         # Get editblock prompts which have example_messages list
-        prompts = self.registry.get_prompt("editblock")
+        prompts = PromptRegistry.get_prompt("editblock")
 
         assert "example_messages" in prompts
         example_messages = prompts["example_messages"]
@@ -364,16 +427,15 @@ class TestPromptInheritanceChains:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.registry = PromptRegistry()
-        self.registry.reload_prompts()
+        PromptRegistry.reload_prompts()
 
     def test_all_inheritance_chains_resolvable(self):
         """Test that all inheritance chains can be resolved without errors."""
-        prompt_names = self.registry.list_available_prompts()
+        prompt_names = PromptRegistry.list_available_prompts()
 
         for name in prompt_names:
             try:
-                chain = self.registry._resolve_inheritance_chain(name)
+                chain = PromptRegistry._resolve_inheritance_chain(name)
                 assert isinstance(chain, list)
                 assert len(chain) > 0
                 assert "base" in chain, f"Prompt '{name}' should inherit from base"
@@ -413,7 +475,7 @@ class TestPromptInheritanceChains:
                 continue  # Already tested separately
 
             try:
-                chain = self.registry._resolve_inheritance_chain(prompt_name)
+                chain = PromptRegistry._resolve_inheritance_chain(prompt_name)
                 assert (
                     chain == expected_chain
                 ), f"Chain for '{prompt_name}' mismatch. Expected {expected_chain}, got {chain}"

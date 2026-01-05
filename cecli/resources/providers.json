@@ -57,6 +57,15 @@
     ],
     "display_name": "veniceai"
   },
+  "fireworks_ai": {
+    "api_base": "https://api.fireworks.ai/inference/v1",
+    "api_key_env": [
+      "FIREWORKS_AI_API_KEY"
+    ],
+    "display_name": "fireworks_ai",
+    "models_url": "https://api.fireworks.ai/v1/accounts/{account_id}/models",
+    "account_id_env": "FIREWORKS_AI_ACCOUNT_ID"
+  },
   "xiaomi_mimo": {
     "api_base": "https://api.xiaomimimo.com/v1",
     "api_key_env": [

@@ -38,7 +38,7 @@ import cecli.prompts.utils.system as prompts
 from cecli import __version__, models, urls, utils
 from cecli.commands import Commands, SwitchCoderSignal
 from cecli.exceptions import LiteLLMExceptions
-from cecli.helpers import coroutines
+from cecli.helpers import coroutines, nested
 from cecli.helpers.profiler import TokenProfiler
 from cecli.history import ChatSummary
 from cecli.io import ConfirmGroup, InputOutput
@@ -61,7 +61,7 @@ from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import format_tokens, is_image_file
 
 from ..dump import dump  # noqa: F401
-from ..prompts.utils.prompt_registry import registry
+from ..prompts.utils.registry import PromptObject, PromptRegistry
 from .chat_chunks import ChatChunks
 
 
@@ -564,6 +564,29 @@ class Coder:
             except Exception as e:
                 self.io.tool_warning(f"Could not remove todo list file {todo_file_path}: {e}")
 
+        customizations = dict()
+        try:
+            if self.args:
+                customizations = nested.getter(self.args, "custom", "{}")
+                customizations = json.loads(customizations)
+        except (json.JSONDecodeError, TypeError):
+            customizations = dict()
+            pass
+
+        self.custom = customizations
+
+        if nested.getter(self.custom, "prompt_map.all", None):
+            prompts = PromptRegistry.get_prompt(nested.getter(self.custom, "prompt_map.all"))
+            prompt_obj = PromptObject(prompts)
+            Coder._prompt_cache[self.prompt_format] = prompt_obj
+
+        if nested.getter(self.custom, f"prompt_map.{self.prompt_format}", None):
+            prompts = PromptRegistry.get_prompt(
+                nested.getter(self.custom, f"prompt_map.{self.prompt_format}")
+            )
+            prompt_obj = PromptObject(prompts)
+            Coder._prompt_cache[self.prompt_format] = prompt_obj
+
         # validate the functions jsonschema
         if self.functions:
             from jsonschema import Draft7Validator
@@ -603,14 +626,7 @@ class Coder:
             return Coder._prompt_cache[prompt_name]
 
         # Get prompts from registry
-        prompts = registry.get_prompt(prompt_name)
-
-        # Create a simple object that allows attribute access
-        class PromptObject:
-            def __init__(self, prompts_dict):
-                for key, value in prompts_dict.items():
-                    setattr(self, key, value)
-
+        prompts = PromptRegistry.get_prompt(prompt_name)
         # Cache the prompt object
         prompt_obj = PromptObject(prompts)
         Coder._prompt_cache[prompt_name] = prompt_obj

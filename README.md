@@ -22,6 +22,7 @@ LLMs are a part of our lives from here on out so join us in learning about and c
 * [Skills](https://github.com/dwash96/cecli/blob/main/aider/website/docs/config/skills.md)
 * [Session Management](https://github.com/dwash96/cecli/blob/main/aider/website/docs/sessions.md)
 * [Custom Commands](https://github.com/dwash96/cecli/blob/main/cecli/website/docs/config/custom-commands.md)
+* [Custom System Prompts](https://github.com/dwash96/cecli/blob/main/cecli/website/docs/config/custom-system-prompts.md)
 * [Custom Tools](https://github.com/dwash96/cecli/blob/main/cecli/website/docs/config/agent-mode.md#creating-custom-tools)
 * [Advanced Model Configuration](https://github.com/dwash96/cecli/blob/main/aider/website/docs/config/model-aliases.md#advanced-model-settings)
 * [Aider Original Documentation (still mostly applies)](https://aider.chat/)

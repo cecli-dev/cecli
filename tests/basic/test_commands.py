@@ -6,6 +6,7 @@ import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase, mock
 
 import git
@@ -129,6 +130,16 @@ class TestCommands(TestCase):
             commands.cmd_copy("")
             # Assert tool_error was called indicating no assistant messages
             mock_tool_error.assert_called_once_with("No assistant messages found to copy.")
+
+    def test_command_paths_none_does_not_warn(self):
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        args = SimpleNamespace(command_paths=None)
+
+        with mock.patch.object(io, "tool_warning") as tool_warning:
+            commands = Commands(io, coder=None, args=args)
+
+        self.assertEqual(commands.custom_commands, [])
+        tool_warning.assert_not_called()
 
     async def test_cmd_copy_pyperclip_exception(self):
         io = InputOutput(pretty=False, fancy_input=False, yes=True)

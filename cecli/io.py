@@ -40,6 +40,7 @@ from rich.spinner import SPINNERS
 from rich.style import Style as RichStyle
 from rich.text import Text
 
+from cecli.commands import SwitchCoderSignal
 from cecli.helpers import coroutines
 
 from .dump import dump  # noqa: F401
@@ -1025,6 +1026,7 @@ class InputOutput:
                 IndexError,
                 RuntimeError,
                 SystemExit,
+                SwitchCoderSignal,
             ):
                 pass
 
@@ -1042,6 +1044,7 @@ class InputOutput:
                 IndexError,
                 RuntimeError,
                 SystemExit,
+                SwitchCoderSignal,
             ):
                 pass
 

@@ -47,3 +47,5 @@ jobs:
     - name: Run tests
       run: |
         pytest
+      env:
+        CECLI_TUI: "false"
