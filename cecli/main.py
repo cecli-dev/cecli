@@ -47,7 +47,7 @@ from cecli.helpers.file_searcher import generate_search_path_list
 from cecli.history import ChatSummary
 from cecli.io import InputOutput
 from cecli.llm import litellm
-from cecli.mcp import McpServerManager
+from cecli.mcp import McpServerManager, load_mcp_servers
 from cecli.models import ModelSettings
 from cecli.onboarding import offer_openrouter_oauth, select_default_model
 from cecli.repo import ANY_GIT_ERROR, GitRepo
@@ -973,9 +973,10 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         if max_input_tokens:
             args.context_compaction_max_tokens = int(max_input_tokens * ratio)
     try:
-        mcp_manager = McpServerManager(
+        mcp_servers = load_mcp_servers(
             args.mcp_servers, args.mcp_servers_file, io, args.verbose, args.mcp_transport
         )
+        mcp_manager = McpServerManager(mcp_servers, io, args.verbose)
 
         coder = await Coder.create(
             main_model=main_model,

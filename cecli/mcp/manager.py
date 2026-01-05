@@ -2,7 +2,6 @@ import asyncio
 import logging
 
 from cecli.mcp.server import McpServer
-from cecli.mcp.utils import load_mcp_servers
 
 
 class McpServerManager:
@@ -15,11 +14,9 @@ class McpServerManager:
 
     def __init__(
         self,
-        mcp_servers: str | None = None,
-        mcp_servers_file: str | None = None,
+        servers: list[McpServer],
         io=None,
         verbose: bool = False,
-        mcp_transport: str = "stdio",
     ):
         """
         Initialize the MCP server manager.
@@ -29,14 +26,12 @@ class McpServerManager:
             mcp_servers_file: Path to a JSON file containing MCP server configurations
             io: InputOutput instance for user interaction
             verbose: Whether to output verbose logging
-            mcp_transport: Default transport type for MCP servers
         """
         self.io = io
         self.verbose = verbose
-        self._connected_servers: set[McpServer] = set()
+        self._servers = servers
         self._server_tools: dict[str, list] = {}  # Maps server name to its tools
-
-        self._servers = load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose, mcp_transport)
+        self._connected_servers: set[McpServer] = set()
 
     def _log_verbose(self, message: str) -> None:
         """Log a verbose message if verbose mode is enabled and IO is available."""

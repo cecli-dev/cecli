@@ -1479,8 +1479,7 @@ This command will print 'Hello, World!' to the console."""
             failing_server.connect = AsyncMock()
             failing_server.disconnect = AsyncMock()
 
-            manager = McpServerManager("", "")
-            manager._servers = [working_server, failing_server]
+            manager = McpServerManager([working_server, failing_server])
             manager._connected_servers = [working_server]
 
             # Mock load_mcp_tools to succeed for working_server and fail for failing_server
@@ -1531,8 +1530,7 @@ This command will print 'Hello, World!' to the console."""
             failing_server.connect = AsyncMock()
             failing_server.disconnect = AsyncMock()
 
-            manager = McpServerManager("", "")
-            manager._servers = [failing_server]
+            manager = McpServerManager([failing_server])
             manager._connected_servers = []
 
             # Mock load_mcp_tools to succeed for working_server and fail for failing_server
@@ -1603,8 +1601,7 @@ This command will print 'Hello, World!' to the console."""
             mock_server.connect = AsyncMock()
             mock_server.disconnect = AsyncMock()
 
-            manager = McpServerManager("", "")
-            manager._servers = [mock_server]
+            manager = McpServerManager([mock_server])
             manager._connected_servers = [mock_server]
 
             # Create a tool call
@@ -1676,8 +1673,7 @@ This command will print 'Hello, World!' to the console."""
             mock_server.connect = AsyncMock()
             mock_server.session = AsyncMock()
 
-            manager = McpServerManager("", "")
-            manager._servers = [mock_server]
+            manager = McpServerManager([mock_server])
             manager._connected_servers = [mock_server]
 
             # Create coder with max tool calls exceeded
@@ -1719,8 +1715,7 @@ This command will print 'Hello, World!' to the console."""
             mock_server.connect = AsyncMock()
             mock_server.disconnect = AsyncMock()
 
-            manager = McpServerManager("", "")
-            manager._servers = [mock_server]
+            manager = McpServerManager([mock_server])
             manager._connected_servers = [mock_server]
 
             # Create coder with mock MCP tools
