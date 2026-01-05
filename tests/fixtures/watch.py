@@ -2,10 +2,6 @@
 # flake8: noqa
 
 # Regular not AI comment
-#ai 1 do something
-# AI 2 make this better
-# ai! 3 urgent change needed
-#AI! 4 another urgent one
 # this is not an ai comment
 # cecli is not an ai comment
 # not an ai! comment
