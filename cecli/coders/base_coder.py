@@ -2737,7 +2737,7 @@ class Coder:
             try:
                 did_connect = await self.mcp_manager.connect_server(server.name)
                 if not did_connect:
-                    return None
+                    raise Exception("Failed to load tools")
 
                 server = self.mcp_manager.get_server(server.name)
                 server_tools = await experimental_mcp_client.load_mcp_tools(

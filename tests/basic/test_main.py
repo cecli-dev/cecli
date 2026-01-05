@@ -334,6 +334,7 @@ def test_message_file_flag(dummy_io, git_temp_dir, mocker, tmp_path):
     MockCoder = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
     mock_coder_instance.run = AsyncMock()
+    mock_coder_instance.mcp_manager = False
     mock_coder_instance._autosave_future = mock_autosave_future()
     MockCoder.return_value = mock_coder_instance
     main(["--yes-always", "--message-file", str(message_file)], **dummy_io)
@@ -973,6 +974,7 @@ def test_model_overrides_suffix_applied(dummy_io, git_temp_dir, mocker):
     MockCoder = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
     mock_coder_instance._autosave_future = mock_autosave_future()
+    mock_coder_instance.mcp_manager = False
     MockCoder.return_value = mock_coder_instance
     mock_instance = MockModel.return_value
     mock_instance.info = {}
@@ -1004,6 +1006,7 @@ def test_model_overrides_no_match_preserves_model_name(dummy_io, git_temp_dir, m
     MockModel = mocker.patch("cecli.models.Model")
     MockCoder = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
+    mock_coder_instance.mcp_manager = False
     mock_coder_instance._autosave_future = mock_autosave_future()
     MockCoder.return_value = mock_coder_instance
     mock_instance = MockModel.return_value
@@ -1345,6 +1348,7 @@ def test_load_dotenv_files_override(dummy_io, git_temp_dir, mocker):
 def test_mcp_servers_parsing(dummy_io, git_temp_dir, mocker):
     mock_coder_create = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
+    mock_coder_instance.mcp_manager = False
     mock_coder_instance._autosave_future = mock_autosave_future()
     mock_coder_create.return_value = mock_coder_instance
     main(
@@ -1358,10 +1362,12 @@ def test_mcp_servers_parsing(dummy_io, git_temp_dir, mocker):
     )
     mock_coder_create.assert_called_once()
     _, kwargs = mock_coder_create.call_args
-    assert "mcp_servers" in kwargs
-    assert kwargs["mcp_servers"] is not None
-    assert len(kwargs["mcp_servers"]) > 0
-    assert hasattr(kwargs["mcp_servers"][0], "name")
+
+    assert "mcp_manager" in kwargs
+    assert kwargs["mcp_manager"] is not None
+    assert len(kwargs["mcp_manager"].servers) > 0
+    assert hasattr(kwargs["mcp_manager"].servers[0], "name")
+
     mock_coder_create.reset_mock()
     mock_coder_instance._autosave_future = mock_autosave_future()
     mcp_file = Path("mcp_servers.json")
@@ -1370,7 +1376,8 @@ def test_mcp_servers_parsing(dummy_io, git_temp_dir, mocker):
     main(["--mcp-servers-file", str(mcp_file), "--exit", "--yes-always"], **dummy_io)
     mock_coder_create.assert_called_once()
     _, kwargs = mock_coder_create.call_args
-    assert "mcp_servers" in kwargs
-    assert kwargs["mcp_servers"] is not None
-    assert len(kwargs["mcp_servers"]) > 0
-    assert hasattr(kwargs["mcp_servers"][0], "name")
+
+    assert "mcp_manager" in kwargs
+    assert kwargs["mcp_manager"] is not None
+    assert len(kwargs["mcp_manager"].servers) > 0
+    assert hasattr(kwargs["mcp_manager"].servers[0], "name")
