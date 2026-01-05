@@ -5,6 +5,8 @@ import secrets
 import socketserver
 from pathlib import Path
 
+from .server import McpServer
+
 
 def find_available_port(start_port=8484, end_port=8584):
     """Find an available port in the given range."""
@@ -146,7 +148,9 @@ def _parse_mcp_servers_from_file(file_path, io, verbose=False, mcp_transport="st
     return []
 
 
-def load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose=False, mcp_transport="stdio"):
+def load_mcp_servers(
+    mcp_servers, mcp_servers_file, io, verbose=False, mcp_transport="stdio"
+) -> list["McpServer"]:
     """Load MCP servers from a JSON string or file."""
     servers = []
 
@@ -161,8 +165,6 @@ def load_mcp_servers(mcp_servers, mcp_servers_file, io, verbose=False, mcp_trans
         servers = _parse_mcp_servers_from_file(mcp_servers_file, io, verbose, mcp_transport)
 
     if not servers:
-        from .server import McpServer
-
         # A default MCP server is actually now necessary for the overall agentic loop
         # and a dummy server does suffice for the job
         # because I am not smart enough to figure out why

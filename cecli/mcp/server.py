@@ -19,7 +19,6 @@ from .oauth import (
     get_mcp_oauth_token,
     save_mcp_oauth_token,
 )
-from .utils import find_available_port
 
 
 class McpServer:
@@ -126,6 +125,8 @@ class HttpBasedMcpServer(McpServer):
                     self.io.tool_output(
                         f"Found existing redirect URI: {existing_redirect_uri}", log_only=True
                     )
+
+        from .utils import find_available_port
 
         # If we have an existing redirect URI, parse it to get the port
         if existing_redirect_uri:

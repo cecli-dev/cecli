@@ -2727,9 +2727,6 @@ class Coder:
         # TODO(@gopar): refactor here once we have fully moved over to use the mcp manager
         tools = []
 
-        if self.mcp_manager is None:
-            return None
-
         async def get_server_tools(server):
             # Check if we already have tools for this server in mcp_tools
             if self.mcp_tools:
@@ -2738,9 +2735,13 @@ class Coder:
                         return (server.name, server_tools)
 
             try:
-                session = await server.connect()
+                did_connect = await self.mcp_manager.connect_server(server.name)
+                if not did_connect:
+                    return None
+
+                server = self.mcp_manager.get_server(server.name)
                 server_tools = await experimental_mcp_client.load_mcp_tools(
-                    session=session, format="openai"
+                    session=server.session, format="openai"
                 )
                 return (server.name, server_tools)
             except Exception as e:

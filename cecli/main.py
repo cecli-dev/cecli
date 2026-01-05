@@ -976,7 +976,6 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         mcp_manager = McpServerManager(
             args.mcp_servers, args.mcp_servers_file, io, args.verbose, args.mcp_transport
         )
-        await mcp_manager.connect_all()
 
         coder = await Coder.create(
             main_model=main_model,
