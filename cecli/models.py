@@ -309,6 +309,7 @@ class Model(ModelSettings):
         verbose=False,
         io=None,
         override_kwargs=None,
+        retries=None,
     ):
         provided_model = model or ""
         if isinstance(provided_model, Model):
@@ -327,6 +328,7 @@ class Model(ModelSettings):
             model = provided_model
         model = MODEL_ALIASES.get(model, model)
         self.name = model
+        self.retries = retries
         self.max_chat_history_tokens = 1024
         self.weak_model = None
         self.editor_model = None
@@ -950,6 +952,17 @@ class Model(ModelSettings):
                     "Editor-Version": f"cecli/{__version__}",
                     "Copilot-Integration-Id": "vscode-chat",
                 }
+        if self.retries:
+            try:
+                retries_config = json.loads(self.retries)
+                if "timeout" in retries_config:
+                    kwargs["timeout"] = retries_config["timeout"]
+                if "backoff-factor" in retries_config:
+                    kwargs["num_retries"] = 5
+                if "retry-on-unavailable" in retries_config and retries_config["retry-on-unavailable"]:
+                    kwargs["num_retries"] = kwargs.get("num_retries", 5)
+            except (json.JSONDecodeError, TypeError):
+                pass
         try:
             res = await litellm.acompletion(**kwargs)
         except Exception as err:

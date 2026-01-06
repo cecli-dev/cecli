@@ -556,6 +556,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         args.mcp_servers = convert_yaml_to_json_string(args.mcp_servers)
     if hasattr(args, "custom") and args.custom is not None:
         args.custom = convert_yaml_to_json_string(args.custom)
+    if hasattr(args, "retries") and args.retries is not None:
+        args.retries = convert_yaml_to_json_string(args.retries)
     if args.debug:
         global log_file
         os.makedirs(".cecli/logs/", exist_ok=True)
@@ -861,6 +863,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         verbose=args.verbose,
         io=io,
         override_kwargs=main_model_overrides,
+        retries=args.retries,
     )
     if args.copy_paste and main_model.copy_paste_transport == "api":
         main_model.enable_copy_paste_mode()

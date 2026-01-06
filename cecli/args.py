@@ -241,6 +241,12 @@ def get_parser(default_config_files, git_root):
             " If unspecified, defaults to the model's max_chat_history_tokens."
         ),
     )
+    group.add_argument(
+        "--retries",
+        metavar="RETRIES_JSON",
+        help="Specify LLM retry configuration as a JSON string",
+        default=None,
+    )
 
     #######
     group = parser.add_argument_group("Customization Settings")
