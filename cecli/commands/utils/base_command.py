@@ -1,8 +1,38 @@
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from typing import List
 
 
-class BaseCommand(ABC):
+class CommandMeta(ABCMeta):
+    """Metaclass for validating command classes at definition time."""
+
+    def __new__(mcs, name, bases, namespace):
+        # Create the class first
+        cls = super().__new__(mcs, name, bases, namespace)
+
+        # Skip validation for BaseCommand itself
+        if name == "BaseCommand":
+            return cls
+
+        # Validate class name
+        if not name.endswith("Command"):
+            raise TypeError(f"Command class must end with 'Command', got '{name}'")
+
+        # Validate NORM_NAME
+        if getattr(cls, "NORM_NAME", None) is None:
+            raise TypeError("Command class must define NORM_NAME")
+
+        # Validate DESCRIPTION
+        if getattr(cls, "DESCRIPTION", None) is None:
+            raise TypeError("Command class must define DESCRIPTION")
+
+        # Validate execute method is implemented
+        if "execute" not in namespace:
+            raise TypeError("Command class must implement execute method")
+
+        return cls
+
+
+class BaseCommand(ABC, metaclass=CommandMeta):
     """Abstract base class for all commands."""
 
     # Class properties (similar to BaseTool)
