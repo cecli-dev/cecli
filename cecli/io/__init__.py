@@ -1,6 +1,5 @@
 import ast
 import asyncio
-import base64
 import functools
 import json
 import os
@@ -41,12 +40,13 @@ from rich.style import Style as RichStyle
 from rich.text import Text
 
 from cecli.commands import SwitchCoderSignal
+from cecli.dump import dump  # noqa: F401
+from cecli.editor import pipe_editor
 from cecli.helpers import coroutines
+from cecli.utils import run_fzf
+from cecli.waiting import Spinner
 
-from .dump import dump  # noqa: F401
-from .editor import pipe_editor
-from .utils import is_image_file, run_fzf
-from .waiting import Spinner
+from .file_io import FileIO
 
 # Constants
 NOTIFICATION_MESSAGE = "cecli is waiting for your input"
@@ -141,7 +141,13 @@ class ConfirmGroup:
 
 class AutoCompleter(Completer):
     def __init__(
-        self, root, rel_fnames, addable_rel_fnames, commands, encoding, abs_read_only_fnames=None
+        self,
+        root,
+        rel_fnames,
+        addable_rel_fnames,
+        commands,
+        encoding,
+        abs_read_only_fnames=None,
     ):
         self.addable_rel_fnames = addable_rel_fnames
         self.rel_fnames = rel_fnames
@@ -503,6 +509,14 @@ class InputOutput:
         self._validate_color_settings()
         self.append_chat_history(f"\n# cecli chat started at {current_time}\n\n")
 
+        self.files = FileIO(
+            encoding=self.encoding,
+            line_endings=self.line_endings,
+            newline=self.newline,
+            dry_run=self.dry_run,
+            tool_error=self.tool_error,
+        )
+
     def _spinner_supports_unicode(self) -> bool:
         if not self.is_tty:
             return False
@@ -628,62 +642,19 @@ class InputOutput:
 
         return Style.from_dict(style_dict)
 
-    def read_image(self, filename):
-        try:
-            with open(str(filename), "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read())
-                return encoded_string.decode("utf-8")
-        except OSError as err:
-            self.tool_error(f"{filename}: unable to read: {err}")
-            return
-        except FileNotFoundError:
-            self.tool_error(f"{filename}: file not found error")
-            return
-        except IsADirectoryError:
-            self.tool_error(f"{filename}: is a directory")
-            return
-        except Exception as e:
-            self.tool_error(f"{filename}: {e}")
-            return
+    def read_image(self, filename: str):
+        return self.files.read_image(filename)
 
-    def read_text(self, filename, silent=False):
-        if is_image_file(filename):
-            return self.read_image(filename)
+    def read_text(self, filename: str, silent: bool = False):
+        return self.files.read_text(filename, silent)
 
-        try:
-            with open(str(filename), "r", encoding=self.encoding) as f:
-                return f.read()
-        except FileNotFoundError:
-            if not silent:
-                self.tool_error(f"{filename}: file not found error")
-            return
-        except IsADirectoryError:
-            if not silent:
-                self.tool_error(f"{filename}: is a directory")
-            return
-        except OSError as err:
-            if not silent:
-                self.tool_error(f"{filename}: unable to read: {err}")
-            return
-        except UnicodeError as e:
-            if not silent:
-                self.tool_error(f"{filename}: {e}")
-                self.tool_error("Use --encoding to set the unicode encoding.")
-            return
-
-    def _detect_newline(self, filename):
-        try:
-            with open(filename, "rb") as f:
-                chunk = f.read(1024)
-                if b"\r\n" in chunk:
-                    return "\r\n"
-                elif b"\n" in chunk:
-                    return "\n"
-        except (FileNotFoundError, IsADirectoryError):
-            pass  # File doesn't exist or is a directory, will use default
-        return None
-
-    def write_text(self, filename, content, max_retries=5, initial_delay=0.1):
+    def write_text(
+        self,
+        filename: str,
+        content: str,
+        max_retries: int = 5,
+        initial_delay: float = 0.1,
+    ):
         """
         Writes content to a file, retrying with progressive backoff if the file is locked.
 
@@ -692,31 +663,7 @@ class InputOutput:
         :param max_retries: Maximum number of retries if a file lock is encountered.
         :param initial_delay: Initial delay (in seconds) before the first retry.
         """
-        if self.dry_run:
-            return
-
-        newline = self.newline
-        if self.line_endings == "preserve":
-            newline = self._detect_newline(filename) or self.newline
-
-        delay = initial_delay
-        for attempt in range(max_retries):
-            try:
-                with open(str(filename), "w", encoding=self.encoding, newline=newline) as f:
-                    f.write(content)
-                return  # Successfully wrote the file
-            except PermissionError as err:
-                if attempt < max_retries - 1:
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                else:
-                    self.tool_error(
-                        f"Unable to write file {filename} after {max_retries} attempts: {err}"
-                    )
-                    raise
-            except OSError as err:
-                self.tool_error(f"Unable to write file {filename}: {err}")
-                raise
+        return self.files.write_text(filename, content, max_retries, initial_delay)
 
     def rule(self):
         if self.pretty:
