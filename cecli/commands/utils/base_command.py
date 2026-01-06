@@ -13,19 +13,15 @@ class CommandMeta(ABCMeta):
         if name == "BaseCommand":
             return cls
 
-        # Validate class name
         if not name.endswith("Command"):
             raise TypeError(f"Command class must end with 'Command', got '{name}'")
 
-        # Validate NORM_NAME
         if getattr(cls, "NORM_NAME", None) is None:
             raise TypeError("Command class must define NORM_NAME")
 
-        # Validate DESCRIPTION
         if getattr(cls, "DESCRIPTION", None) is None:
             raise TypeError("Command class must define DESCRIPTION")
 
-        # Validate execute method is implemented
         if "execute" not in namespace:
             raise TypeError("Command class must implement execute method")
 
