@@ -2017,6 +2017,7 @@ This command will print 'Hello, World!' to the console."""
             coder._register_partial_response(function_call=True)
             msg = coder._get_empty_response_message()
             assert "Only function calls" in msg
+
     async def test_initialization_in_constructor(self):
         """Test that coders initialize the partial response flags."""
         with GitTemporaryDirectory():
