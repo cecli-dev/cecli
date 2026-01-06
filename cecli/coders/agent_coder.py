@@ -22,7 +22,7 @@ from cecli.helpers.similarity import (
     normalize_vector,
 )
 from cecli.helpers.skills import SkillsManager
-from cecli.mcp import LocalServer
+from cecli.mcp import LocalServer, McpServerManager
 from cecli.repo import ANY_GIT_ERROR
 from cecli.tools.utils.registry import ToolRegistry
 
@@ -197,14 +197,17 @@ class AgentCoder(Coder):
             local_tools = self.get_local_tool_schemas()
             if not local_tools:
                 return
+
             local_server_config = {"name": server_name}
             local_server = LocalServer(local_server_config)
-            if not self.mcp_servers:
-                self.mcp_servers = []
-            if not any(isinstance(s, LocalServer) for s in self.mcp_servers):
-                self.mcp_servers.append(local_server)
+
+            if not self.mcp_manager:
+                self.mcp_manager = McpServerManager()
+            if not self.mcp_manager.get_server(server_name):
+                await self.mcp_manager.add_server(local_server)
             if not self.mcp_tools:
                 self.mcp_tools = []
+
             if server_name not in [name for name, _ in self.mcp_tools]:
                 self.mcp_tools.append((local_server.name, local_tools))
 
@@ -245,9 +248,7 @@ class AgentCoder(Coder):
                             t.get("function", {}).get("name") == norm_tool_name
                             for t in server_tools
                         ):
-                            server = next(
-                                (s for s in self.mcp_servers if s.name == server_name), None
-                            )
+                            server = self.mcp_manager.get_server(server_name)
                             if server:
                                 for params in parsed_args_list:
                                     tasks.append(
@@ -943,7 +944,7 @@ I will proceed based on the current context.""")
         if self.mcp_tools:
             for server_name, server_tools in self.mcp_tools:
                 if any(t.get("function", {}).get("name") == norm_tool_name for t in server_tools):
-                    server = next((s for s in self.mcp_servers if s.name == server_name), None)
+                    server = self.mcp_manager.get_server(server_name)
                     if server:
                         return await self._execute_mcp_tool(server, norm_tool_name, params)
                     else:

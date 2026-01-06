@@ -1721,7 +1721,6 @@ This command will print 'Hello, World!' to the console."""
             # Create coder with mock MCP tools
             coder = await Coder.create(self.GPT35, "diff", io=io, mcp_manager=manager)
             coder.mcp_tools = [("test_server", [{"function": {"name": "test_tool"}}])]
-            coder.mcp_servers = [mock_server]
 
             # Test process_tool_calls
             result = await coder.process_tool_calls(response)

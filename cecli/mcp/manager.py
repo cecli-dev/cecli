@@ -188,6 +188,30 @@ class McpServerManager:
             self._log_warning(f"Error disconnecting from MCP server {name}: {e}")
             return False
 
+    async def add_server(self, server: McpServer, connect: bool = False) -> bool:
+        """
+        Add a new MCP server to the manager.
+
+        Args:
+            server: McpServer instance to add
+            connect: Whether to immediately connect to the server
+
+        Returns:
+            Boolean indicating success or failure
+        """
+        existing_server = self.get_server(server.name)
+        if existing_server:
+            self._log_warning(f"MCP server with name '{server.name}' already exists")
+            return False
+
+        self._servers.append(server)
+        self._log_verbose(f"Added MCP server: {server.name}")
+
+        if connect:
+            return await self.connect_server(server.name)
+
+        return True
+
     @property
     def connected_servers(self) -> list["McpServer"]:
         """Get the list of successfully connected servers."""
