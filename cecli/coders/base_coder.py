@@ -2865,7 +2865,13 @@ class Coder:
             if self.args.tui:
                 message = f"Add file to the chat? ({rel_fname})"
 
-            if await self.io.confirm_ask(message, subject=rel_fname, group=group, allow_never=True):
+            if await self.io.confirm_ask(
+                message,
+                subject=rel_fname,
+                group=group,
+                group_response=str(new_mentions),
+                allow_never=True,
+            ):
                 self.add_rel_fname(rel_fname)
                 added_fnames.append(rel_fname)
             else:

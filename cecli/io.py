@@ -1264,11 +1264,11 @@ class InputOutput:
 
             if self.yes is True and not explicit_yes_required:
                 res = "y"
+            elif group_response and group_response in self.group_responses:
+                return self.group_responses[group_response]
             elif group and group.preference:
                 res = group.preference
                 self.user_input(f"{question} - {res}", log_only=False)
-            elif group_response and group_response in self.group_responses:
-                return self.group_responses[group_response]
             else:
                 # Ring the bell if needed
                 self.ring_bell()

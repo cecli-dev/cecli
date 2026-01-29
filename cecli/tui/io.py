@@ -473,11 +473,11 @@ class TextualInputOutput(InputOutput):
                 hist = f"{question.strip()} {res}"
                 self.append_chat_history(hist, linebreak=True, blockquote=True)
                 return True
+            elif group_response and group_response in self.group_responses:
+                return self.group_responses[group_response]
             elif group and group.preference:
                 res = group.preference
                 self.user_input(f"{question} - {res}", log_only=False)
-            elif group_response and group_response in self.group_responses:
-                return self.group_responses[group_response]
             else:
                 # Send confirmation request to TUI with full options
                 self.output_queue.put(
