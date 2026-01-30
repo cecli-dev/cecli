@@ -9,7 +9,7 @@ Cecli is available as a docker image:
 
 - `dustinwashington/cecli` installs the cecli core, a smaller image that's good to get started quickly.
 
-### Aider core 
+### cecli core 
 
 ```bash
 docker pull dustinwashington/cecli
@@ -28,7 +28,7 @@ docker run \
 You should run the above commands from the root of your git repo,
 since the `--volume` arg maps your current directory into the
 docker container.
-Given that, you need to be in the root of your git repo for aider to be able to
+Given that, you need to be in the root of your git repo for cecli to be able to
 see the repo and all its files.
 
 You should be sure your that

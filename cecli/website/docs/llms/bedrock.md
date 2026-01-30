@@ -5,8 +5,8 @@ nav_order: 560
 
 # Amazon Bedrock
 
-Aider can connect to models provided by Amazon Bedrock.
-To configure Aider to use the Amazon Bedrock API, you need to set up your AWS credentials.
+cecli can connect to models provided by Amazon Bedrock.
+To configure cecli to use the Amazon Bedrock API, you need to set up your AWS credentials.
 This can be done using the AWS CLI or by setting environment variables.
 
 ## Select a Model from Amazon Bedrock
@@ -37,7 +37,7 @@ request with the ID or ARN of an inference profile that contains this model."}'
 
 ## Installation and Configuration
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -84,19 +84,19 @@ $env:AWS_REGION = 'us-west-2'   # Put whichever AWS region that you'd like, that
 
 ## Get Started
 
-Once your AWS credentials are set up, you can run Aider with the `--model` command line switch, specifying the Bedrock model you want to use:
+Once your AWS credentials are set up, you can run cecli with the `--model` command line switch, specifying the Bedrock model you want to use:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
-aider --model bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
+cecli --model bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
 ```
 
 Sometimes it seems to help if you prefix the model name with "us.":
 
 ```bash
-aider --model bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
+cecli --model bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
 ```
 
 
@@ -105,20 +105,20 @@ aider --model bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
 To see some models available via Bedrock, run:
 
 ```bash
-aider --list-models bedrock/
+cecli --list-models bedrock/
 ```
 
-Make sure you have access to these models in your AWS account before attempting to use them with Aider.
+Make sure you have access to these models in your AWS account before attempting to use them with cecli.
 
 ## Install boto3
 You may need to install the `boto3` package.
 
 ```bash
-# If you installed with aider-install or `uv tool`
-uv tool run --from aider-chat pip install boto3
+# If you installed with cecli-install or `uv tool`
+uv tool run --from cecli-chat pip install boto3
 
 # Or with pipx...
-pipx inject aider-chat boto3
+pipx inject cecli-chat boto3
 
 # Or with pip
 pip install -U boto3

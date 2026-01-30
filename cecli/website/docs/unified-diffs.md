@@ -13,7 +13,7 @@ nav_exclude: true
 
 ![robot flowchart](/assets/benchmarks-udiff.svg)
 
-Aider now asks GPT-4 Turbo to use
+cecli now asks GPT-4 Turbo to use
 [unified diffs](#choose-a-familiar-editing-format)
 to edit your code.
 This dramatically improves GPT-4 Turbo's performance on a
@@ -24,7 +24,7 @@ where it writes
 code with comments
 like "...add logic here...".
 
-Aider's new "laziness" benchmark suite 
+cecli's new "laziness" benchmark suite 
 is designed to both provoke and quantify lazy coding.
 It consists of
 89 python refactoring tasks
@@ -33,16 +33,16 @@ which tend to make GPT-4 Turbo write lazy comments like
 
 This new laziness benchmark produced the following results with `gpt-4-1106-preview`:
 
-- **GPT-4 Turbo only scored 20% as a baseline** using aider's existing "SEARCH/REPLACE block" edit format. It outputs "lazy comments" on 12 of the tasks.
-- **Aider's new unified diff edit format raised the score to 61%**. Using this format reduced laziness by 3X, with GPT-4 Turbo only using lazy comments on 4 of the tasks.
+- **GPT-4 Turbo only scored 20% as a baseline** using cecli's existing "SEARCH/REPLACE block" edit format. It outputs "lazy comments" on 12 of the tasks.
+- **cecli's new unified diff edit format raised the score to 61%**. Using this format reduced laziness by 3X, with GPT-4 Turbo only using lazy comments on 4 of the tasks.
 - **It's worse to add a prompt that says the user is blind, has no hands, will tip $2000 and fears truncated code trauma.** Widely circulated "emotional appeal" folk remedies 
 produced worse benchmark scores
 for both the baseline SEARCH/REPLACE and new unified diff editing formats.
 
 The older `gpt-4-0613` also did better on the laziness benchmark using unified diffs:
 
-- **The June GPT-4's baseline was 26%** using aider's existing "SEARCH/REPLACE block" edit format.
-- **Aider's new unified diff edit format raised June GPT-4's score to 59%**. 
+- **The June GPT-4's baseline was 26%** using cecli's existing "SEARCH/REPLACE block" edit format.
+- **cecli's new unified diff edit format raised June GPT-4's score to 59%**. 
 - The benchmark was designed to use large files, and
 28% of them are too large to fit in June GPT-4's 8k context window.
 This puts a hard ceiling of 72% on how well the June model could possibly score.
@@ -59,26 +59,26 @@ GPT less likely to
 leave informal editing instructions in comments
 or be lazy about writing all the needed code.
 
-Aider's new unified diff editing format
+cecli's new unified diff editing format
 outperforms other solutions I evaluated by a wide margin.
 I explored many other approaches including:
 prompts about being tireless and diligent,
 OpenAI's function/tool calling capabilities,
-numerous variations on aider's existing editing formats,
+numerous variations on cecli's existing editing formats,
 line number based formats
 and other diff-like formats.
 The results shared here reflect
 an extensive investigation and benchmark evaluations of many approaches.
 
 The rest of this article will describe
-aider's new editing format and refactoring benchmark.
+cecli's new editing format and refactoring benchmark.
 It will highlight some key design decisions,
 and evaluate their significance using ablation experiments.
 
 
 ## Unified diff editing format
 
-The design and implementation of aider's new unified diff editing format
+The design and implementation of cecli's new unified diff editing format
 helped clarify some general principles
 for GPT-4 code editing:
 
@@ -122,7 +122,7 @@ text that conforms to the unified diff syntax.
 
 ### Use a simple editing format
 
-Aider's [previous benchmark results](https://aider.chat/docs/benchmarks.html) made
+cecli's [previous benchmark results](https://cecli.dev/docs/benchmarks.html) made
 it clear that simple editing formats
 work best.
 Even though OpenAI provides extensive support for
@@ -155,7 +155,7 @@ backed up by many quantitative benchmark experiments.
 
 You've probably ignored the line numbers in every diff you've seen,
 because the diffs usually still make sense without them.
-Aider tells GPT not to include line numbers,
+cecli tells GPT not to include line numbers,
 and just interprets each hunk from the unified diffs
 as a search and replace operation:
 
@@ -229,7 +229,7 @@ but it is much easier to see two different coherent versions of the
 +        return number * factorial(number-1)
 ```
 
-Aider's system prompt encourages
+cecli's system prompt encourages
 GPT to produce these high level diffs.
 This makes GPT better at producing correct diffs, which can be successfully
 applied to the original file.
@@ -238,7 +238,7 @@ applied to the original file.
 produce a 30-50% increase in editing errors,**
 where diffs fail to apply or apply incorrectly and
 produce invalid code.
-When a patch fails, aider needs to ask GPT for a corrected version of the diff.
+When a patch fails, cecli needs to ask GPT for a corrected version of the diff.
 This takes time, costs tokens and sometimes fails to produce a successful edit
 even after multiple retries.
 
@@ -289,9 +289,9 @@ because of the missing comment.
 ```
 
 
-Aider tries to be very flexible when applying diffs,
+cecli tries to be very flexible when applying diffs,
 in order to handle defects.
-If a hunk doesn't apply cleanly, aider uses a number of strategies:
+If a hunk doesn't apply cleanly, cecli uses a number of strategies:
 
 - Normalize the hunk, by taking the *minus* `-` and *space* lines as one version of the hunk and the *space* and *plus* `+` lines as a second version and doing an actual unified diff on them.
 - Try and discover new lines that GPT is trying to add but which it forgot to mark with *plus* `+` markers. This is done by diffing the *minus* `-` and *space* lines back against the original file.
@@ -303,12 +303,12 @@ If a hunk doesn't apply cleanly, aider uses a number of strategies:
 These flexible patching strategies are critical, and 
 removing them
 radically increases the number of hunks which fail to apply.
-**Experiments where flexible patching is disabled show a 9X increase in editing errors** on aider's original Exercism benchmark.
+**Experiments where flexible patching is disabled show a 9X increase in editing errors** on cecli's original Exercism benchmark.
 
 ## Refactoring benchmark
 
-Aider has long used a
-[benchmark suite based on 133 Exercism python exercises](https://aider.chat/2023/07/02/benchmarks.html).
+cecli has long used a
+[benchmark suite based on 133 Exercism python exercises](https://cecli.dev/2023/07/02/benchmarks.html).
 But these are mostly small coding problems,
 usually requiring only a few dozen lines of code.
 GPT-4 Turbo is typically only lazy on 2-3 of these exercises:
@@ -317,7 +317,7 @@ the ones with the most code and which involve refactoring.
 Based on this observation, I set out to build a benchmark based on refactoring
 a non-trivial amount of code found in fairly large files.
 To do this, I used python's `ast` module to analyze
-[9 popular open source python repositories](https://github.com/Aider-AI/refactor-benchmark)
+[9 popular open source python repositories](https://github.com/cecli-AI/refactor-benchmark)
 to identify challenging refactoring tasks.
 The goal was to find:
 
@@ -332,7 +332,7 @@ where we ask GPT to do something like:
 > Name the new function `_set_csrf_cookie`, exactly the same name as the existing method.
 > Update any existing `self._set_csrf_cookie` calls to work with the new `_set_csrf_cookie` function.
 
-A [simple python AST scanning script](https://github.com/Aider-AI/aider/blob/main/benchmark/refactor_tools.py)
+A [simple python AST scanning script](https://github.com/dwash96/cecli/blob/main/benchmark/refactor_tools.py)
 found 89 suitable files
 and packaged them up as benchmark tasks.
 Each task has a test
@@ -351,31 +351,31 @@ gathered during benchmarking like the
 introduction of new comments that contain "...".
 
 The result is a pragmatic
-[benchmark suite that provokes, detects and quantifies GPT coding laziness](https://github.com/Aider-AI/refactor-benchmark).
+[benchmark suite that provokes, detects and quantifies GPT coding laziness](https://github.com/cecli-AI/refactor-benchmark).
 
 
 
 ## Conclusions and future work
 
 Based on the refactor benchmark results,
-aider's new unified diff format seems
+cecli's new unified diff format seems
 to dramatically increase GPT-4 Turbo's skill at more complex coding tasks.
 It also seems very effective at reducing the lazy coding
 which has been widely noted as a problem with GPT-4 Turbo.
 
 Unified diffs was one of the very first edit formats I tried
-when originally building aider.
+when originally building cecli.
 I think a lot of other AI coding assistant projects have also
 tried going down this path.
 It seems like any naive or direct use of structured diff formats
 is pretty much doomed to failure.
 But the techniques described here and
-incorporated into aider provide
+incorporated into cecli provide
 a highly effective way to harness GPT's knowledge of unified diffs.
 
 There could be significant benefits to
 fine tuning models on
-aider's simple, high level style of unified diffs.
+cecli's simple, high level style of unified diffs.
 Dropping line numbers from the hunk headers and focusing on diffs of
 semantically coherent chunks of code
 seems to be an important part of successful GPT code editing

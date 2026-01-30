@@ -1,15 +1,15 @@
 ---
 parent: Usage
 nav_order: 901
-description: Use aider to edit configuration files, documentation, and other text-based formats.
+description: Use cecli to edit configuration files, documentation, and other text-based formats.
 ---
 
 
 # Editing config & text files
 
-Aider isn't just for code, it can be very helpful when editing
+cecli isn't just for code, it can be very helpful when editing
 almost any text file.
-You can use aider to make changes to your shell & ssh settings, 
+You can use cecli to make changes to your shell & ssh settings, 
 Dockerfiles
 or pretty much any configuration or documentation file.
 
@@ -18,7 +18,7 @@ Here are some practical examples of modifying common config/text files:
 ## Shell Configuration
 
 <div class="chat-transcript" markdown="1">
-$ aider .bashrc
+$ cecli .bashrc
 
 Added .bashrc to the chat.
 
@@ -34,7 +34,7 @@ Added .bashrc to the chat.
 ## SSH Configurations
 
 <div class="chat-transcript" markdown="1">
-$ aider ~/.ssh/config
+$ cecli ~/.ssh/config
 
 Added config to the chat.
 
@@ -53,7 +53,7 @@ Added config to the chat.
 ## Docker Setup
 
 <div class="chat-transcript" markdown="1">
-$ aider Dockerfile docker-compose.yml
+$ cecli Dockerfile docker-compose.yml
 
 Added Dockerfile and docker-compose.yml to the chat.
 
@@ -81,7 +81,7 @@ Added Dockerfile and docker-compose.yml to the chat.
 ## Git Configuration
 
 <div class="chat-transcript" markdown="1">
-$ aider .gitconfig
+$ cecli .gitconfig
 
 Added .gitconfig to the chat.
 
@@ -97,7 +97,7 @@ Added .gitconfig to the chat.
 
 ## System Configuration
 <div class="chat-transcript" markdown="1">
-$ aider /etc/hosts  # May need sudo
+$ cecli /etc/hosts  # May need sudo
 
 Added hosts to the chat.
 
@@ -112,7 +112,7 @@ Added hosts to the chat.
 
 ## Editor Configs
 <div class="chat-transcript" markdown="1">
-$ aider .vimrc
+$ cecli .vimrc
 
 Added .vimrc to the chat.
 
@@ -126,7 +126,7 @@ Added .vimrc to the chat.
 
 ## VSCode Configuration
 <div class="chat-transcript" markdown="1">
-$ aider settings.json
+$ cecli settings.json
 
 Added settings.json to the chat.
 
@@ -140,7 +140,7 @@ Added settings.json to the chat.
 
 ## Markdown Documentation
 <div class="chat-transcript" markdown="1">
-$ aider README.md
+$ cecli README.md
 
 Added README.md to the chat.
 
@@ -161,7 +161,7 @@ Added README.md to the chat.
 
 ## XML Configuration
 <div class="chat-transcript" markdown="1">
-$ aider pom.xml
+$ cecli pom.xml
 
 Added pom.xml to the chat.
 #### Add JUnit 5 dependency with test scope

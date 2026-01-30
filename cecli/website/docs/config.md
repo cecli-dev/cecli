@@ -1,12 +1,12 @@
 ---
 nav_order: 55
 has_children: true
-description: Information on all of aider's settings and how to use them.
+description: Information on all of cecli's settings and how to use them.
 ---
 
 # Configuration
 
-Aider has many options which can be set with
+cecli has many options which can be set with
 command line switches.
 Most options can also be set in an `.aider.conf.yml` file
 which can be placed in your home directory or at the root of
@@ -19,7 +19,7 @@ Here are 4 equivalent ways of setting an option.
 With a command line switch:
 
 ```
-$ aider --dark-mode
+$ cecli --dark-mode
 ```
 
 Using a `.aider.conf.yml` file:
@@ -43,7 +43,7 @@ CECLI_DARK_MODE=true
 
 ## Retries
 
-Aider can be configured to retry failed API calls.
+cecli can be configured to retry failed API calls.
 This is useful for handling intermittent network issues or other transient errors.
 The `retries` option is a JSON object that can be configured with the following keys:
 
@@ -63,7 +63,7 @@ retries:
 This can also be set with the `--retries` command line switch, passing a JSON string:
 
 ```
-$ aider --retries '{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true}'
+$ cecli --retries '{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true}'
 ```
 
 Or by setting the `CECLI_RETRIES` environment variable:

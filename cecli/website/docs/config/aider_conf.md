@@ -1,13 +1,13 @@
 ---
 parent: Configuration
 nav_order: 15
-description: How to configure aider with a YAML config file.
+description: How to configure cecli with a YAML config file.
 ---
 
 # YAML config file
 
-Most of aider's options can be set in an `.aider.conf.yml` file.
-Aider will look for a this file in these locations:
+Most of cecli's options can be set in an `.aider.conf.yml` file.
+cecli will look for a this file in these locations:
 
 - Your home directory.
 - The root of your git repo.
@@ -40,13 +40,13 @@ read: [CONVENTIONS.md, anotherfile.txt, thirdfile.py]
 
 Below is a sample of the YAML config file, which you
 can also
-[download from GitHub](https://github.com/Aider-AI/aider/blob/main/aider/website/assets/sample.aider.conf.yml).
+[download from GitHub](https://github.com/dwash96/cecli/blob/main/cecli/website/assets/sample.aider.conf.yml).
 
 <!--[[[cog
-from aider.args import get_sample_yaml
+from cecli.args import get_sample_yaml
 from pathlib import Path
 text=get_sample_yaml()
-Path("aider/website/assets/sample.aider.conf.yml").write_text(text)
+Path("cecli/website/assets/sample.aider.conf.yml").write_text(text)
 cog.outl("```")
 cog.out(text)
 cog.outl("```")
@@ -60,7 +60,7 @@ cog.outl("```")
 
 # Note: You can only put OpenAI and Anthropic API keys in the YAML
 # config file. Keys for all APIs can be stored in a .env file
-# https://aider.chat/docs/config/dotenv.html
+# https://cecli.dev/docs/config/dotenv.html
 
 ##########
 # options:
@@ -120,7 +120,7 @@ cog.outl("```")
 ## List known models which match the (partial) MODEL name
 #list-models: xxx
 
-## Specify a file with aider model settings for unknown models
+## Specify a file with cecli model settings for unknown models
 #model-settings-file: .aider.model.settings.yml
 
 ## Specify a file with context window and costs for unknown models
@@ -212,8 +212,8 @@ cog.outl("```")
 ## Specify the chat input history file (default: .aider.input.history)
 #input-history-file: .aider.input.history
 
-## Specify the chat history file (default: .aider.chat.history.md)
-#chat-history-file: .aider.chat.history.md
+## Specify the chat history file (default: .aider.dev.history.md)
+#chat-history-file: .aider.dev.history.md
 
 ## Restore the previous chat history messages (default: False)
 #restore-chat-history: false
@@ -278,11 +278,11 @@ cog.outl("```")
 ## Enable/disable adding .aider* to .gitignore (default: True)
 #gitignore: true
 
-## Enable/disable the addition of files listed in .gitignore to Aider's editing scope.
+## Enable/disable the addition of files listed in .gitignore to cecli's editing scope.
 #add-gitignore-files: false
 
-## Specify the aider ignore file (default: .aiderignore in git root)
-#aiderignore: .aiderignore
+## Specify the cecli ignore file (default: .aiderignore in git root)
+#cecliignore: .aiderignore
 
 ## Only consider files in the current subtree of the git repository
 #subtree-only: false
@@ -293,19 +293,19 @@ cog.outl("```")
 ## Enable/disable commits when repo is found dirty (default: True)
 #dirty-commits: true
 
-## Attribute aider code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.
+## Attribute cecli code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.
 #attribute-author: xxx
 
-## Attribute aider commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for aider edits.
+## Attribute cecli commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for cecli edits.
 #attribute-committer: xxx
 
-## Prefix commit messages with 'aider: ' if aider authored the changes (default: False)
+## Prefix commit messages with 'cecli: ' if cecli authored the changes (default: False)
 #attribute-commit-message-author: false
 
-## Prefix all commit messages with 'aider: ' (default: False)
+## Prefix all commit messages with 'cecli: ' (default: False)
 #attribute-commit-message-committer: false
 
-## Attribute aider edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.
+## Attribute cecli edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.
 #attribute-co-authored-by: true
 
 ## Enable/disable git pre-commit hooks with --no-verify (default: False)
@@ -376,7 +376,7 @@ cog.outl("```")
 ## Check for updates and return status in the exit code
 #just-check-update: false
 
-## Check for new aider versions on launch
+## Check for new cecli versions on launch
 #check-update: true
 
 ## Show release notes on first run of new version (default: None, ask user)
@@ -385,7 +385,7 @@ cog.outl("```")
 ## Install the latest version from the main branch
 #install-main-branch: false
 
-## Upgrade aider to the latest version from PyPI
+## Upgrade cecli to the latest version from PyPI
 #upgrade: false
 
 ## Show the version number and exit
@@ -400,10 +400,10 @@ cog.outl("```")
 ## Specify a file containing the message to send the LLM, process reply, then exit (disables chat mode)
 #message-file: xxx
 
-## Run aider in your browser (default: False)
+## Run cecli in your browser (default: False)
 #gui: false
 
-## Enable automatic copy/paste of chat between aider and web UI (default: False)
+## Enable automatic copy/paste of chat between cecli and web UI (default: False)
 #copy-paste: false
 
 ## Apply the changes from the given file instead of running the chat (debug)
@@ -506,7 +506,7 @@ cog.outl("```")
 ## Specify which editor to use for the /editor command
 #editor: xxx
 
-## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: aider --shell-completions bash
+## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: cecli --shell-completions bash
 #shell-completions: xxx
 
 ############################

@@ -5,9 +5,9 @@ nav_order: 500
 
 # OpenAI compatible APIs
 
-Aider can connect to any LLM which is accessible via an OpenAI compatible API endpoint.
+cecli can connect to any LLM which is accessible via an OpenAI compatible API endpoint.
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -24,16 +24,16 @@ setx OPENAI_API_KEY <key>
 # ... restart shell after setx commands
 ```
 
-Start working with aider and your OpenAI compatible API on your codebase:
+Start working with cecli and your OpenAI compatible API on your codebase:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
 # Prefix the model name with openai/
-aider --model openai/<model-name>
+cecli --model openai/<model-name>
 ```
 
 See the [model warnings](warnings.html)
 section for information on warnings which will occur
-when working with models that aider is not familiar with.
+when working with models that cecli is not familiar with.

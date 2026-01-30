@@ -1,17 +1,17 @@
 ---
 parent: Configuration
 nav_order: 20
-description: Using a .env file to store LLM API keys for aider.
+description: Using a .env file to store LLM API keys for cecli.
 ---
 
 # Config with .env
 
 You can use a `.env` file to store API keys and other settings for the
-models you use with aider.
-You can also set many general aider options
+models you use with cecli.
+You can also set many general cecli options
 in the `.env` file.
 
-Aider will look for a `.env` file in these locations:
+cecli will look for a `.env` file in these locations:
 
 - Your home directory.
 - The root of your git repo.
@@ -26,29 +26,29 @@ If the files above exist, they will be loaded in that order. Files loaded last w
 
 Below is a sample `.env` file, which you
 can also
-[download from GitHub](https://github.com/Aider-AI/aider/blob/main/aider/website/assets/sample.env).
+[download from GitHub](https://github.com/dwash96/cecli/blob/main/cecli/website/assets/sample.env).
 
 <!--[[[cog
-from aider.args import get_sample_dotenv
+from cecli.args import get_sample_dotenv
 from pathlib import Path
 text=get_sample_dotenv()
-Path("aider/website/assets/sample.env").write_text(text)
+Path("cecli/website/assets/sample.env").write_text(text)
 cog.outl("```")
 cog.out(text)
 cog.outl("```")
 ]]]-->
 ```
 ##########################################################
-# Sample aider .env file.
+# Sample cecli .env file.
 # Place at the root of your git repo.
-# Or use `aider --env <fname>` to specify.
+# Or use `cecli --env <fname>` to specify.
 ##########################################################
 
 #################
 # LLM parameters:
 #
 # Include xxx_API_KEY parameters and other params needed for your LLMs.
-# See https://aider.chat/docs/llms.html for details.
+# See https://cecli.dev/docs/llms.html for details.
 
 ## OpenAI
 #OPENAI_API_KEY=
@@ -100,7 +100,7 @@ cog.outl("```")
 ## List known models which match the (partial) MODEL name
 #CECLI_LIST_MODELS=
 
-## Specify a file with aider model settings for unknown models
+## Specify a file with cecli model settings for unknown models
 #CECLI_MODEL_SETTINGS_FILE=.aider.model.settings.yml
 
 ## Specify a file with context window and costs for unknown models
@@ -178,8 +178,8 @@ cog.outl("```")
 ## Specify the chat input history file (default: .aider.input.history)
 #CECLI_INPUT_HISTORY_FILE=.aider.input.history
 
-## Specify the chat history file (default: .aider.chat.history.md)
-#CECLI_CHAT_HISTORY_FILE=.aider.chat.history.md
+## Specify the chat history file (default: .aider.dev.history.md)
+#CECLI_CHAT_HISTORY_FILE=.aider.dev.history.md
 
 ## Restore the previous chat history messages (default: False)
 #CECLI_RESTORE_CHAT_HISTORY=false
@@ -244,11 +244,11 @@ cog.outl("```")
 ## Enable/disable adding .aider* to .gitignore (default: True)
 #CECLI_GITIGNORE=true
 
-## Enable/disable the addition of files listed in .gitignore to Aider's editing scope.
+## Enable/disable the addition of files listed in .gitignore to cecli's editing scope.
 #CECLI_ADD_GITIGNORE_FILES=false
 
-## Specify the aider ignore file (default: .aiderignore in git root)
-#CECLI_AIDERIGNORE=.aiderignore
+## Specify the cecli ignore file (default: .aiderignore in git root)
+#CECLI_cecliIGNORE=.aiderignore
 
 ## Only consider files in the current subtree of the git repository
 #CECLI_SUBTREE_ONLY=false
@@ -259,19 +259,19 @@ cog.outl("```")
 ## Enable/disable commits when repo is found dirty (default: True)
 #CECLI_DIRTY_COMMITS=true
 
-## Attribute aider code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.
+## Attribute cecli code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.
 #CECLI_ATTRIBUTE_AUTHOR=
 
-## Attribute aider commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for aider edits.
+## Attribute cecli commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for cecli edits.
 #CECLI_ATTRIBUTE_COMMITTER=
 
-## Prefix commit messages with 'aider: ' if aider authored the changes (default: False)
+## Prefix commit messages with 'cecli: ' if cecli authored the changes (default: False)
 #CECLI_ATTRIBUTE_COMMIT_MESSAGE_AUTHOR=false
 
-## Prefix all commit messages with 'aider: ' (default: False)
+## Prefix all commit messages with 'cecli: ' (default: False)
 #CECLI_ATTRIBUTE_COMMIT_MESSAGE_COMMITTER=false
 
-## Attribute aider edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.
+## Attribute cecli edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.
 #CECLI_ATTRIBUTE_CO_AUTHORED_BY=true
 
 ## Enable/disable git pre-commit hooks with --no-verify (default: False)
@@ -337,7 +337,7 @@ cog.outl("```")
 ## Check for updates and return status in the exit code
 #CECLI_JUST_CHECK_UPDATE=false
 
-## Check for new aider versions on launch
+## Check for new cecli versions on launch
 #CECLI_CHECK_UPDATE=true
 
 ## Show release notes on first run of new version (default: None, ask user)
@@ -346,7 +346,7 @@ cog.outl("```")
 ## Install the latest version from the main branch
 #CECLI_INSTALL_MAIN_BRANCH=false
 
-## Upgrade aider to the latest version from PyPI
+## Upgrade cecli to the latest version from PyPI
 #CECLI_UPGRADE=false
 
 ########
@@ -358,10 +358,10 @@ cog.outl("```")
 ## Specify a file containing the message to send the LLM, process reply, then exit (disables chat mode)
 #CECLI_MESSAGE_FILE=
 
-## Run aider in your browser (default: False)
+## Run cecli in your browser (default: False)
 #CECLI_GUI=false
 
-## Enable automatic copy/paste of chat between aider and web UI (default: False)
+## Enable automatic copy/paste of chat between cecli and web UI (default: False)
 #CECLI_COPY_PASTE=false
 
 ## Apply the changes from the given file instead of running the chat (debug)
@@ -451,7 +451,7 @@ cog.outl("```")
 ## Specify which editor to use for the /editor command
 #CECLI_EDITOR=
 
-## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: aider --shell-completions bash
+## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: cecli --shell-completions bash
 #CECLI_SHELL_COMPLETIONS=
 
 ############################

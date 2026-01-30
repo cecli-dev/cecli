@@ -1,14 +1,14 @@
 ---
 parent: More info
 nav_order: 490
-description: Aider uses various "edit formats" to let LLMs edit source files.
+description: cecli uses various "edit formats" to let LLMs edit source files.
 ---
 
 # Edit formats
 
-Aider uses various "edit formats" to let LLMs edit source files.
+cecli uses various "edit formats" to let LLMs edit source files.
 Different models work better or worse with different edit formats.
-Aider is configured to use the optimal format for most popular, common models.
+cecli is configured to use the optimal format for most popular, common models.
 You can always force use of a specific edit format with 
 the `--edit-format` switch.
 
@@ -107,7 +107,7 @@ style comments.
 These are streamlined versions of the diff and whole formats, intended to be used
 with `--editor-edit-format` when using
 [architect mode](/docs/usage/modes.html).
-The actual edit format is the same, but aider uses a simpler prompt that
+The actual edit format is the same, but cecli uses a simpler prompt that
 is more narrowly focused on just editing the file as opposed to
 solving the coding task.
 The architect model resolves the coding task and

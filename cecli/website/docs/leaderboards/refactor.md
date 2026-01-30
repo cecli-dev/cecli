@@ -1,5 +1,5 @@
 ---
-parent: Aider LLM Leaderboards
+parent: cecli LLM Leaderboards
 highlight_image: /assets/leaderboard.jpg
 nav_order: 100
 description: Quantitative benchmark of LLM code refactoring skill.
@@ -8,7 +8,7 @@ description: Quantitative benchmark of LLM code refactoring skill.
 
 ## Refactoring leaderboard
 
-[Aider's refactoring benchmark](https://github.com/Aider-AI/refactor-benchmark) asks the LLM to refactor 89 large methods from large python classes. This is a more challenging benchmark, which tests the model's ability to output long chunks of code without skipping sections or making mistakes. It was developed to provoke and measure [GPT-4 Turbo's "lazy coding" habit](/2023/12/21/unified-diffs.html).
+[cecli's refactoring benchmark](https://github.com/cecli-AI/refactor-benchmark) asks the LLM to refactor 89 large methods from large python classes. This is a more challenging benchmark, which tests the model's ability to output long chunks of code without skipping sections or making mistakes. It was developed to provoke and measure [GPT-4 Turbo's "lazy coding" habit](/2023/12/21/unified-diffs.html).
 
 The refactoring benchmark requires a large context window to
 work with large source files.
@@ -58,8 +58,8 @@ import subprocess
 import datetime
 
 files = [
-    'aider/website/docs/leaderboards/refactor.md',
-    'aider/website/_data/refactor_leaderboard.yml',
+    'cecli/website/docs/leaderboards/refactor.md',
+    'cecli/website/_data/refactor_leaderboard.yml',
 ]
 
 def get_last_modified_date(file):

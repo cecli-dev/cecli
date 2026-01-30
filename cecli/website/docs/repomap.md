@@ -2,40 +2,40 @@
 parent: More info
 highlight_image: /assets/robot-ast.png
 nav_order: 300
-description: Aider uses a map of your git repository to provide code context to LLMs.
+description: cecli uses a map of your git repository to provide code context to LLMs.
 ---
 
 # Repository map
 
 ![robot flowchat](/assets/robot-ast.png)
 
-Aider
+cecli
 uses a **concise map of your whole git repository**
 that includes
 the most important classes and functions along with their types and call signatures.
-This helps aider understand the code it's editing
+This helps cecli understand the code it's editing
 and how it relates to the other parts of the codebase.
-The repo map also helps aider write new code
+The repo map also helps cecli write new code
 that respects and utilizes existing libraries, modules and abstractions
 found elsewhere in the codebase.
 
 ## Using a repo map to provide context
 
-Aider sends a **repo map** to the LLM along with
+cecli sends a **repo map** to the LLM along with
 each change request from the user.
 The repo map contains a list of the files in the
 repo, along with the key symbols which are defined in each file.
 It shows how each of these symbols are defined, by including the critical lines of code for each definition.
 
 Here's a part of
-the repo map of aider's repo, for
-[base_coder.py](https://github.com/Aider-AI/aider/blob/main/aider/coders/base_coder.py)
+the repo map of cecli's repo, for
+[base_coder.py](https://github.com/dwash96/cecli/blob/main/cecli/coders/base_coder.py)
 and
-[commands.py](https://github.com/Aider-AI/aider/blob/main/aider/commands.py)
+[commands.py](https://github.com/dwash96/cecli/blob/main/cecli/commands.py)
 :
 
 ```
-aider/coders/base_coder.py:
+cecli/coders/base_coder.py:
 ⋮...
 │class Coder:
 │    abs_fnames = None
@@ -54,7 +54,7 @@ aider/coders/base_coder.py:
 │    def run(self, with_message=None):
 ⋮...
 
-aider/commands.py:
+cecli/commands.py:
 ⋮...
 │class Commands:
 │    voice = None
@@ -71,19 +71,19 @@ aider/commands.py:
 Mapping out the repo like this provides some key benefits:
 
   - The LLM can see classes, methods and function signatures from everywhere in the repo. This alone may give it enough context to solve many tasks. For example, it can probably figure out how to use the API exported from a module just based on the details shown in the map.
-  - If it needs to see more code, the LLM can use the map to figure out which files it needs to look at. The LLM can ask to see these specific files, and aider will offer to add them to the chat context.
+  - If it needs to see more code, the LLM can use the map to figure out which files it needs to look at. The LLM can ask to see these specific files, and cecli will offer to add them to the chat context.
 
 ## Optimizing the map
 
 Of course, for large repositories even just the repo map might be too large
 for the LLM's context window.
-Aider solves this problem by sending just the **most relevant**
+cecli solves this problem by sending just the **most relevant**
 portions of the repo map.
 It does this by analyzing the full repo map using
 a graph ranking algorithm, computed on a graph
 where each source file is a node and edges connect
 files which have dependencies.
-Aider optimizes the repo map by
+cecli optimizes the repo map by
 selecting the most important parts of the codebase
 which will
 fit into the active token budget.
@@ -92,8 +92,8 @@ which are most relevant to the current state of the chat.
 
 The token budget is
 influenced by the `--map-tokens` switch, which defaults to 1k tokens.
-Aider adjusts the size of the repo map dynamically based on the state of the chat. It will usually stay within that setting's value. But it does expand the repo map
-significantly at times, especially when no files have been added to the chat and aider needs to understand the entire repo as best as possible.
+cecli adjusts the size of the repo map dynamically based on the state of the chat. It will usually stay within that setting's value. But it does expand the repo map
+significantly at times, especially when no files have been added to the chat and cecli needs to understand the entire repo as best as possible.
 
 
 The sample map shown above doesn't contain *every* class, method and function from those
@@ -107,6 +107,6 @@ the overall codebase.
 ## More info
 
 Please check the
-[repo map article on aider's blog](https://aider.chat/2023/10/22/repomap.html)
-for more information on aider's repository map
+[repo map article on cecli's blog](https://cecli.dev/2023/10/22/repomap.html)
+for more information on cecli's repository map
 and how it is constructed.

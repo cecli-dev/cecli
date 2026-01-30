@@ -7,12 +7,12 @@ nav_order: 10
 
 Sometimes the LLM will reply with some code changes
 that don't get applied to your local files.
-In these cases, aider might say something like "Failed to apply edit to *filename*"
+In these cases, cecli might say something like "Failed to apply edit to *filename*"
 or other error messages.
 
 This usually happens because the LLM is disobeying the system prompts
-and trying to make edits in a format that aider doesn't expect.
-Aider makes every effort to get the LLM
+and trying to make edits in a format that cecli doesn't expect.
+cecli makes every effort to get the LLM
 to conform, and works hard to deal with
 LLM edits that are "almost" correctly formatted.
 
@@ -28,7 +28,7 @@ Above about 25k tokens of context, most models start to become distracted and be
 to conform to their system prompt.
 
 - Don't add too many files to the chat, *just* add the files you think need to be edited.
-Aider also sends the LLM a [map of your entire git repo](https://aider.chat/docs/repomap.html), so other relevant code will be included automatically.
+cecli also sends the LLM a [map of your entire git repo](https://cecli.dev/docs/repomap.html), so other relevant code will be included automatically.
 - Use `/drop` to remove files from the chat session which aren't needed for the task at hand. This will reduce distractions and may help the LLM produce properly formatted edits.
 - Use `/clear` to remove the conversation history, again to help the LLM focus.
 - Use `/tokens` to see how many tokens you are using for each message.
@@ -41,32 +41,32 @@ They are the strong and capable models.
 Weaker models
 are more prone to
 disobeying the system prompt instructions.
-Most local models are just barely capable of working with aider,
+Most local models are just barely capable of working with cecli,
 so editing errors are probably unavoidable.
 
 ## Local models: context window and quantization
 
 Be especially careful about the
-[Ollama context window](https://aider.chat/docs/llms/ollama.html#setting-the-context-window-size)
+[Ollama context window](https://cecli.dev/docs/llms/ollama.html#setting-the-context-window-size)
 when working with local models.
 It defaults to be very small and silently discards data if you exceed it.
 
 Local models which have been quantized are more likely to have editing problems
-because they are not capable enough to follow aider's system prompts.
+because they are not capable enough to follow cecli's system prompts.
 
 ## Try the whole edit format
 
-Run aider with `--edit-format whole` if were using a different edit format.
+Run cecli with `--edit-format whole` if were using a different edit format.
 You can see which edit format it is using in the announce lines:
 
 ```
-Aider v0.50.2-dev
+cecli v0.50.2-dev
 Models: claude-3-5-sonnet-20240620 with ♾️ diff edit format
 ```
 
 ## Try architect mode
 
-Run aider with `--architect` or `/chat-mode architect` to enable [architect mode](../usage/modes.md#architect-mode-and-the-editor-model).
+Run cecli with `--architect` or `/chat-mode architect` to enable [architect mode](../usage/modes.md#architect-mode-and-the-editor-model).
 This mode first proposes changes, then uses a separate model to handle the file edits.
 This two-step process often produces more reliable edits, especially with models that have trouble
 following edit format instructions.

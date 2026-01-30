@@ -10,35 +10,35 @@ nav_exclude: true
 
 # GPT code editing benchmarks
 
-[![benchmark results](/assets/benchmarks.svg)](https://aider.chat/assets/benchmarks.svg)
+[![benchmark results](/assets/benchmarks.svg)](https://cecli.dev/assets/benchmarks.svg)
 
-Aider is an open source command line chat tool that lets you work with GPT to edit
+cecli is an open source command line chat tool that lets you work with GPT to edit
 code in your local git repo.
-To do this, aider needs to be able to reliably recognize when GPT wants to edit local files,
+To do this, cecli needs to be able to reliably recognize when GPT wants to edit local files,
 determine which files it wants to modify and what changes to save.
 Such automated
 code editing hinges on using the system prompt
 to tell GPT how to structure code edits in its responses.
 
-Aider currently asks GPT to use simple text based "edit formats", but
+cecli currently asks GPT to use simple text based "edit formats", but
 [OpenAI's new function calling
 API](https://openai.com/blog/function-calling-and-other-api-updates)
 looks like a promising way to create more structured edit formats.
 After implementing a couple of function based edit formats,
 I wanted
 to measure the potential benefits
-of switching aider to use them by default.
+of switching cecli to use them by default.
 
 With this in mind, I developed a
 benchmark based on the [Exercism
 python](https://github.com/exercism/python) coding exercises.
 This
-benchmark evaluates how effectively aider and GPT can translate a
+benchmark evaluates how effectively cecli and GPT can translate a
 natural language coding request into executable code saved into
 files that pass unit tests.
 It provides an end-to-end evaluation of not just
 GPT's coding ability, but also its capacity to *edit existing code*
-and *format those code edits* so that aider can save the
+and *format those code edits* so that cecli can save the
 edits to the local source files.
 
 I ran the benchmark
@@ -67,9 +67,9 @@ that contains the text of the new code?
 Using more complex output formats with GPT seems to cause two issues:
 
   - It makes GPT write worse code. Keeping the output format simple seems to allow GPT to devote more attention to the actual coding task.
-  - It reduces GPT's adherence to the output format, making it more challenging for tools like aider to accurately identify and apply the edits GPT is attempting to make.
+  - It reduces GPT's adherence to the output format, making it more challenging for tools like cecli to accurately identify and apply the edits GPT is attempting to make.
 
-I was expecting to start using function call based edits in aider for both GPT-3.5 and GPT-4.
+I was expecting to start using function call based edits in cecli for both GPT-3.5 and GPT-4.
 But given these benchmark results, I won't be adopting the functions API
 at this time.
 I will certainly plan to benchmark functions again with future versions of the models.
@@ -95,7 +95,7 @@ The goal is for GPT to read the instructions, implement the provided function/cl
 and pass all the unit tests. The benchmark measures what percentage of
 the 133 exercises are completed successfully, causing all the associated unit tests to pass.
 
-To start each exercise, aider sends GPT
+To start each exercise, cecli sends GPT
 the initial contents of the implementation file,
 the Exercism instructions
 and a final instruction:
@@ -106,11 +106,11 @@ Keep and implement the existing function or class stubs, they will be called fro
 Only use standard python libraries, don't suggest installing any packages.
 ```
 
-Aider updates the implementation file based on GPT's reply and runs
+cecli updates the implementation file based on GPT's reply and runs
 the unit tests. If all tests pass, the exercise is considered
-complete. If some tests fail, aider sends GPT a second message with
+complete. If some tests fail, cecli sends GPT a second message with
 the test error output. It only sends the first 50 lines of test errors
-to try and avoid exceeding the context window of the smaller models. Aider
+to try and avoid exceeding the context window of the smaller models. cecli
 also includes this final instruction:
 
 ```
@@ -144,7 +144,7 @@ original training data!
 In summary, passing an exercise means GPT was able to:
 
   - Write the required code (possibly after reviewing test error output),
-  - Correctly package all of the code edits into the edit format so that aider can process and save it to the implementation file.
+  - Correctly package all of the code edits into the edit format so that cecli can process and save it to the implementation file.
 
 Conversely, failing an exercise only requires a breakdown in one of
 those steps. In practice, GPT fails at different steps in different
@@ -168,7 +168,7 @@ requests:
 ### whole
 
 The
-[whole](https://github.com/Aider-AI/aider/blob/main/aider/coders/wholefile_prompts.py)
+[whole](https://github.com/dwash96/cecli/blob/main/cecli/coders/wholefile_prompts.py)
 format asks GPT to return an updated copy of the entire file, including any changes.
 The file should be
 formatted with normal markdown triple-backtick fences, inlined with the rest of its response text.
@@ -187,7 +187,7 @@ def main():
 
 ### diff
 
-The [diff](https://github.com/Aider-AI/aider/blob/main/aider/coders/editblock_prompts.py)
+The [diff](https://github.com/dwash96/cecli/blob/main/cecli/coders/editblock_prompts.py)
 format also asks GPT to return edits as part of the normal response text,
 in a simple diff format.
 Each edit is a fenced code block that
@@ -209,7 +209,7 @@ demo.py
 
 ### whole-func
 
-The [whole-func](https://github.com/Aider-AI/aider/blob/main/aider/coders/wholefile_func_coder.py)
+The [whole-func](https://github.com/dwash96/cecli/blob/main/cecli/coders/wholefile_func_coder.py)
 format requests updated copies of whole files to be returned using the function call API.
 
 
@@ -227,7 +227,7 @@ format requests updated copies of whole files to be returned using the function 
 ### diff-func
 
 The
-[diff-func](https://github.com/Aider-AI/aider/blob/main/aider/coders/editblock_func_coder.py)
+[diff-func](https://github.com/dwash96/cecli/blob/main/cecli/coders/editblock_func_coder.py)
 format requests a list of
 original/updated style edits to be returned using the function call API.
 
@@ -350,7 +350,7 @@ cause a large variance in the overall benchmark results.
 
 ## Conclusions
 
-Based on these benchmark results, aider will continue to use
+Based on these benchmark results, cecli will continue to use
 the `whole` edit format for GPT-3.5, and `diff` for GPT-4.
 
 GPT-4 gets comparable results with the `whole` and `diff` edit formats,
@@ -360,7 +360,7 @@ The latency of streaming back the entire updated copy of each edited file
 is a real challenge with the `whole` format.
 The GPT-3.5 models are quite responsive, and can
 stream back entire files at reasonable speed.
-Aider displays a progress bar and
+cecli displays a progress bar and
 live diffs of the files as they stream in,
 which helps pass the time.
 

@@ -1,20 +1,20 @@
 ---
-title: Aider in your browser
+title: cecli in your browser
 highlight_image: /assets/browser.jpg
 parent: Usage
 nav_order: 800
-description: Aider can run in your browser, not just on the command line.
+description: cecli can run in your browser, not just on the command line.
 ---
 {% if page.date %}
 <p class="post-date">{{ page.date | date: "%B %d, %Y" }}</p>
 {% endif %}
 
-# Aider in your browser
+# cecli in your browser
 
 <div class="video-container">
   <video controls loop poster="/assets/browser.jpg">
-    <source src="/assets/aider-browser-social.mp4" type="video/mp4">
-    <a href="/assets/aider-browser-social.mp4">Aider browser UI demo video</a>
+    <source src="/assets/cecli-browser-social.mp4" type="video/mp4">
+    <a href="/assets/cecli-browser-social.mp4">cecli browser UI demo video</a>
   </video>
 </div>
 
@@ -35,23 +35,23 @@ description: Aider can run in your browser, not just on the command line.
 }
 </style>
 
-Use aider's new experimental browser UI to collaborate with LLMs
+Use cecli's new experimental browser UI to collaborate with LLMs
 to edit code in your local git repo.
-Aider will directly edit the code in your local source files,
-and [git commit the changes](https://aider.chat/docs/git.html)
+cecli will directly edit the code in your local source files,
+and [git commit the changes](https://cecli.dev/docs/git.html)
 with sensible commit messages.
 You can start a new project or work with an existing git repo.
-Aider works well with 
+cecli works well with 
 GPT-4o, Sonnet 3.7, and DeepSeek Chat V3 & R1.
-It also supports [connecting to almost any LLM](https://aider.chat/docs/llms.html).
+It also supports [connecting to almost any LLM](https://cecli.dev/docs/llms.html).
 
-Use the `--browser` switch to launch the browser version of aider:
+Use the `--browser` switch to launch the browser version of cecli:
 
 ```
-python -m pip install -U aider-chat
+python -m pip install -U cecli-chat
 
 export OPENAI_API_KEY=<key> # Mac/Linux
 setx   OPENAI_API_KEY <key> # Windows, restart shell after setx
 
-aider --browser
+cecli --browser
 ```

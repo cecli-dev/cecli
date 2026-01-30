@@ -6,7 +6,7 @@ nav_order: 900
 
 # GitHub Codespaces
 
-You can use aider in GitHub Codespaces via the built-in Terminal pane.
+You can use cecli in GitHub Codespaces via the built-in Terminal pane.
 See below for an example,
 but you can just follow the
 [main install instructions](/docs/install.html)
@@ -16,7 +16,7 @@ inside your codespace terminal.
 <div class="video-container">
   <video controls poster="/assets/codespaces.jpg">
     <source src="/assets/codespaces.mp4" type="video/mp4">
-    <a href="/assets/codespaces.mp4">Install aider in GitHub Codespaces</a>
+    <a href="/assets/codespaces.mp4">Install cecli in GitHub Codespaces</a>
   </video>
 </div>
 

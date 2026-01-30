@@ -1,6 +1,6 @@
 # Session Management
 
-Aider provides session management commands that allow you to save, load, and manage your chat sessions. This is particularly useful for:
+cecli provides session management commands that allow you to save, load, and manage your chat sessions. This is particularly useful for:
 
 - Continuing work on complex projects across multiple sessions
 - Recreating specific development environments
@@ -12,16 +12,16 @@ Aider provides session management commands that allow you to save, load, and man
 Save the current chat session to a named file in `.aider/sessions/`.
 
 ### Auto-Save and Auto-Load
-Aider can automatically save and load sessions using command line options:
+cecli can automatically save and load sessions using command line options:
 
 **Auto-save:**
 ```bash
-aider --auto-save
+cecli --auto-save
 ```
 
 **Auto-load:**
 ```bash
-aider --auto-load
+cecli --auto-load
 ```
 
 **In configuration files:**
@@ -30,7 +30,7 @@ auto-save: true
 auto-load: true
 ```
 
-When `--auto-save` is enabled, aider will automatically save your session as 'auto-save' when you exit. When `--auto-load` is enabled, aider will automatically load the 'auto-save' session on startup if it exists.
+When `--auto-save` is enabled, cecli will automatically save your session as 'auto-save' when you exit. When `--auto-load` is enabled, cecli will automatically load the 'auto-save' session on startup if it exists.
 
 **Usage:**
 ```

@@ -7,7 +7,7 @@ nav_order: 300
 
 You'll need a [Gemini API key](https://aistudio.google.com/app/u/2/apikey).
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -18,7 +18,7 @@ export GEMINI_API_KEY=<key> # Mac/Linux
 setx   GEMINI_API_KEY <key> # Windows, restart shell after setx
 ```
 
-Start working with aider and Gemini on your codebase:
+Start working with cecli and Gemini on your codebase:
 
 
 ```bash
@@ -26,23 +26,23 @@ Start working with aider and Gemini on your codebase:
 cd /to/your/project
 
 # You can run the Gemini 2.5 Pro model with this shortcut:
-aider --model gemini
+cecli --model gemini
 
 # You can run the Gemini 2.5 Pro Exp for free, with usage limits:
-aider --model gemini-exp
+cecli --model gemini-exp
 
 # List models available from Gemini
-aider --list-models gemini/
+cecli --list-models gemini/
 ```
 
 You may need to install the `google-generativeai` package. 
 
 ```bash
-# If you installed with aider-install or `uv tool`
-uv tool run --from aider-chat pip install google-generativeai
+# If you installed with cecli-install or `uv tool`
+uv tool run --from cecli-chat pip install google-generativeai
 
 # Or with pipx...
-pipx inject aider-chat google-generativeai
+pipx inject cecli-chat google-generativeai
 
 # Or with pip
 pip install -U google-generativeai

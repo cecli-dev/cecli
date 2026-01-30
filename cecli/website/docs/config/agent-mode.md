@@ -307,7 +307,7 @@ This configuration system allows for fine-grained control over which tools are a
 
 Agent Mode includes a powerful skills system that allows you to extend the AI's capabilities with custom instructions, reference materials, scripts, and assets. Skills are configured through the `agent-config` parameter in the YAML configuration file.
 
-For complete documentation on creating and using skills, including skill directory structure, SKILL.md format, and best practices, see the [Skills documentation](https://github.com/dwash96/cecli/blob/main/aider/website/docs/config/skills.md).
+For complete documentation on creating and using skills, including skill directory structure, SKILL.md format, and best practices, see the [Skills documentation](https://github.com/dwash96/cecli/blob/main/cecli/website/docs/config/skills.md).
 
 ### Benefits
 
@@ -317,4 +317,4 @@ For complete documentation on creating and using skills, including skill directo
 - **Scalable exploration**: Can handle large codebases through strategic context management
 - **Recovery mechanisms**: Built-in undo and safety features
 
-Agent Mode represents a significant evolution in aider's capabilities, enabling more sophisticated and autonomous codebase manipulation while maintaining safety and control through the tool-based architecture.
+Agent Mode represents a significant evolution in cecli's capabilities, enabling more sophisticated and autonomous codebase manipulation while maintaining safety and control through the tool-based architecture.

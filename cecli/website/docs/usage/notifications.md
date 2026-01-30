@@ -3,12 +3,12 @@ title: Notifications
 highlight_image: /assets/notifications.jpg
 parent: Usage
 nav_order: 760
-description: Aider can notify you when it's waiting for your input.
+description: cecli can notify you when it's waiting for your input.
 ---
 
 # Notifications
 
-Aider can notify you when it's done working and is
+cecli can notify you when it's done working and is
 waiting for your input. 
 This is especially useful for long-running operations or when you're multitasking.
 
@@ -17,14 +17,14 @@ This is especially useful for long-running operations or when you're multitaskin
 Enable notifications with the `--notifications` flag:
 
 ```bash
-aider --notifications
+cecli --notifications
 ```
 
-When enabled, aider will notify you when the LLM has finished generating a response and is waiting for your input.
+When enabled, cecli will notify you when the LLM has finished generating a response and is waiting for your input.
 
 ## OS-Specific Notifications
 
-Aider automatically detects your operating system and uses an appropriate notification method:
+cecli automatically detects your operating system and uses an appropriate notification method:
 
 - **macOS**: Uses `terminal-notifier` if available, falling back to AppleScript notifications
 - **Linux**: Uses `notify-send` or `zenity` if available
@@ -35,13 +35,13 @@ Aider automatically detects your operating system and uses an appropriate notifi
 You can specify a custom notification command with `--notifications-command`:
 
 ```bash
-aider --notifications-command "your-custom-command"
+cecli --notifications-command "your-custom-command"
 ```
 
 For example, on macOS you might use:
 
 ```bash
-aider --notifications-command "say 'Aider is ready'"
+cecli --notifications-command "say 'cecli is ready'"
 ```
 
 ### Remote Notifications
@@ -52,17 +52,17 @@ which is a cross-platform Python library for sending notifications to various se
 We can use Apprise to send notifications to Slack
 
 ```bash
-aider --notifications-command "apprise -b 'Aider is ready' 'slack://your-slack-webhook-token'"
+cecli --notifications-command "apprise -b 'cecli is ready' 'slack://your-slack-webhook-token'"
 ```
 
 or Discord
 ```bash
-aider --notifications-command "apprise -b 'Aider is ready' 'discord://your-discord-webhook-token'"
+cecli --notifications-command "apprise -b 'cecli is ready' 'discord://your-discord-webhook-token'"
 ```
 
 or even to your phone via Pushbullet
 ```bash
-aider --notifications-command "apprise -b 'Aider is ready' 'pbul://your-pushbullet-access-token'"
+cecli --notifications-command "apprise -b 'cecli is ready' 'pbul://your-pushbullet-access-token'"
 ```
 
 Check more how to use and configure Apprise on their GitHub page.

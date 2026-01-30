@@ -15,9 +15,9 @@ nav_exclude: true
 
 ## Updated
 
-Aider no longer uses ctags to build a repo map.
+cecli no longer uses ctags to build a repo map.
 Please see the newer article about
-[using tree-sitter to build a better repo map](https://aider.chat/docs/repomap.html).
+[using tree-sitter to build a better repo map](https://cecli.dev/docs/repomap.html).
 
 -------
 
@@ -38,7 +38,7 @@ new code that respects and utilizes existing abstractions.
   - Convey all of this "code context" to GPT in an
 efficient manner that fits within the 8k-token context window.
 
-To address these issues, `aider` now
+To address these issues, `cecli` now
 sends GPT a **concise map of your whole git repository**
 that includes
 all declared variables and functions with call signatures.
@@ -50,7 +50,7 @@ Instead, we're going to use ctags to help GPT better comprehend, navigate
 and edit code in larger repos.
 
 To get a sense of how effective this can be, this
-[chat transcript](https://aider.chat/examples/add-test.html)
+[chat transcript](https://cecli.dev/examples/add-test.html)
 shows GPT-4 creating a black box test case, **without being given
 access to the source code of the function being tested or any of the
 other code in the repo.**
@@ -61,9 +61,9 @@ class objects that are required to prepare for the test.
 To code with GPT-4 using the techniques discussed here:
 
 
-  - Install [aider](https://aider.chat/docs/install.html).
+  - Install [cecli](https://cecli.dev/docs/install.html).
   - Install universal ctags.
-  - Run `aider` inside your repo, and it should say "Repo-map: universal-ctags using 1024 tokens".
+  - Run `cecli` inside your repo, and it should say "Repo-map: universal-ctags using 1024 tokens".
 
 ## The problem: code context
 
@@ -91,7 +91,7 @@ and **hand pick which files to send**.
 For the example above, you could send the file that
 contains the Foo class
 and the file that contains the BarLog logging subsystem.
-This works pretty well, and is supported by `aider` -- you
+This works pretty well, and is supported by `cecli` -- you
 can manually specify which files to "add to the chat" you are having with GPT.
 
 But it's not ideal to have to manually identify the right
@@ -105,20 +105,20 @@ send many files worth of code just to convey context.
 
 ## Using a repo map to provide context
 
-The latest version of `aider` sends a **repo map** to GPT along with
+The latest version of `cecli` sends a **repo map** to GPT along with
 each change request. The map contains a list of all the files in the
 repo, along with the symbols which are defined in each file. Callables
 like functions and methods also include their signatures.
 
 Here's a
-sample of the map of the aider repo, just showing the maps of
-[main.py](https://github.com/Aider-AI/aider/blob/main/aider/main.py)
+sample of the map of the cecli repo, just showing the maps of
+[main.py](https://github.com/dwash96/cecli/blob/main/cecli/main.py)
 and
-[io.py](https://github.com/Aider-AI/aider/blob/main/aider/io.py)
+[io.py](https://github.com/dwash96/cecli/blob/main/cecli/io.py)
 :
 
 ```
-aider/
+cecli/
    ...
    main.py:
       function
@@ -150,7 +150,7 @@ aider/
 Mapping out the repo like this provides some benefits:
 
   - GPT can see variables, classes, methods and function signatures from everywhere in the repo. This alone may give it enough context to solve many tasks. For example, it can probably figure out how to use the API exported from a module just based on the details shown in the map.
-  - If it needs to see more code, GPT can use the map to figure out by itself which files it needs to look at. GPT will then ask to see these specific files, and `aider` will automatically add them to the chat context (with user approval).
+  - If it needs to see more code, GPT can use the map to figure out by itself which files it needs to look at. GPT will then ask to see these specific files, and `cecli` will automatically add them to the chat context (with user approval).
 
 Of course, for large repositories even just the map might be too large
 for the context window.  However, this mapping approach opens up the
@@ -161,7 +161,7 @@ relevant files for the task at hand.
 
 ## Using ctags to make the map
 
-Under the hood, `aider` uses
+Under the hood, `cecli` uses
 [universal ctags](https://github.com/universal-ctags/ctags)
 to build the
 map. Universal ctags can scan source code written in many
@@ -181,7 +181,7 @@ this is the
 {
   "_type": "tag",
   "name": "main",
-  "path": "aider/main.py",
+  "path": "cecli/main.py",
   "pattern": "/^def main(args=None, input=None, output=None):$/",
   "kind": "function",
   "signature": "(args=None, input=None, output=None)"
@@ -189,7 +189,7 @@ this is the
 {
   "_type": "tag",
   "name": "status",
-  "path": "aider/main.py",
+  "path": "cecli/main.py",
   "pattern": "/^    status = main()$/",
   "kind": "variable"
 }
@@ -205,7 +205,7 @@ minimal number of tokens.
 ## Example chat transcript
 
 This
-[chat transcript](https://aider.chat/examples/add-test.html)
+[chat transcript](https://cecli.dev/examples/add-test.html)
 shows GPT-4 creating a black box test case, **without being given
 access to the source code of the function being tested or any of the
 other code in the repo.** Instead, GPT is operating solely off
@@ -222,7 +222,7 @@ Just as "send the whole codebase to GPT with every request"
 is not an efficient solution to this problem,
 there are probably better approaches than
 "send the whole repo map with every request".
-Sending an appropriate subset of the repo map would help `aider` work
+Sending an appropriate subset of the repo map would help `cecli` work
 better with even larger repositories which have large maps.
 
 Some possible approaches to reducing the amount of map data are:
@@ -246,6 +246,6 @@ specific language(s) of interest.
 
 To use this experimental repo map feature:
 
-  - Install [aider](https://aider.chat/docs/install.html).
+  - Install [cecli](https://cecli.dev/docs/install.html).
   - Install ctags.
-  - Run `aider` inside your repo, and it should say "Repo-map: universal-ctags using 1024 tokens".
+  - Run `cecli` inside your repo, and it should say "Repo-map: universal-ctags using 1024 tokens".

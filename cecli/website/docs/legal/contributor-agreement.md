@@ -1,29 +1,29 @@
 
 Individual Contributor License Agreement
 
-Thank you for your interest in Aider AI LLC ("Aider AI").
+Thank you for your interest in cecli AI LLC ("cecli AI").
 To clarify the intellectual property license
-granted with Contributions from any person or entity, Aider AI
+granted with Contributions from any person or entity, cecli AI
 must have on file a signed Contributor License Agreement ("CLA")
 from each Contributor, indicating agreement with the license
 terms below. This agreement is for your protection as a Contributor
-as well as the protection of Aider AI and its users. It does not
+as well as the protection of cecli AI and its users. It does not
 change your rights to use your own Contributions for any other purpose.
 
 Please complete and sign this Agreement. Read this document carefully
 before signing and keep a copy for your records.
 
 You accept and agree to the following terms and conditions for Your
-Contributions (present and future) that you submit to Aider AI.
-Except for the license granted herein to Aider AI and recipients
-of software distributed by Aider AI, You reserve all right, title,
+Contributions (present and future) that you submit to cecli AI.
+Except for the license granted herein to cecli AI and recipients
+of software distributed by cecli AI, You reserve all right, title,
 and interest in and to Your Contributions.
 
 1. Definitions.
 
     "You" (or "Your") shall mean the copyright owner or legal entity
     authorized by the copyright owner that is making this Agreement
-    with Aider AI. For legal entities, the entity making a
+    with cecli AI. For legal entities, the entity making a
     Contribution and all other entities that control, are controlled
     by, or are under common control with that entity are considered to
     be a single Contributor. For the purposes of this definition,
@@ -34,29 +34,29 @@ and interest in and to Your Contributions.
    
     "Contribution" shall mean any original work of authorship,
     including any modifications or additions to an existing work, that
-    is intentionally submitted by You to Aider AI for inclusion
+    is intentionally submitted by You to cecli AI for inclusion
     in, or documentation of, any of the products owned or managed by
-    Aider AI (the "Work"). For the purposes of this definition,
+    cecli AI (the "Work"). For the purposes of this definition,
     "submitted" means any form of electronic, verbal, or written
-    communication sent to Aider AI or its representatives,   
+    communication sent to cecli AI or its representatives,   
     including but not limited to communication on electronic mailing
     lists, source code control systems, and issue tracking systems that
-    are managed by, or on behalf of, Aider AI for the purpose of
+    are managed by, or on behalf of, cecli AI for the purpose of
     discussing and improving the Work, but excluding communication that
     is conspicuously marked or otherwise designated in writing by You
     as "Not a Contribution."
    
 2. Grant of Copyright License. Subject to the terms and conditions of
-   this Agreement, You hereby grant to Aider AI and to
-   recipients of software distributed by Aider AI a perpetual,
+   this Agreement, You hereby grant to cecli AI and to
+   recipients of software distributed by cecli AI a perpetual,
    worldwide, non-exclusive, no-charge, royalty-free, irrevocable
    copyright license to reproduce, prepare derivative works of,
    publicly display, publicly perform, sublicense, and distribute Your
    Contributions and such derivative works.
    
 3. Grant of Patent License. Subject to the terms and conditions of
-   this Agreement, You hereby grant to Aider AI and to
-   recipients of software distributed by Aider AI a perpetual,
+   this Agreement, You hereby grant to cecli AI and to
+   recipients of software distributed by cecli AI a perpetual,
    worldwide, non-exclusive, no-charge, royalty-free, irrevocable
    (except as stated in this section) patent license to make, have
    made, use, offer to sell, sell, import, and otherwise transfer the
@@ -77,8 +77,8 @@ and interest in and to Your Contributions.
    that you create that includes your Contributions, you represent
    that you have received permission to make Contributions on behalf
    of that employer, that your employer has waived such rights for
-   your Contributions to Aider AI, or that your employer has
-   executed a separate Corporate CLA with Aider AI.
+   your Contributions to cecli AI, or that your employer has
+   executed a separate Corporate CLA with cecli AI.
    
 5. You represent that each of Your Contributions is Your original
    creation (see section 7 for submissions on behalf of others).  You
@@ -98,14 +98,14 @@ and interest in and to Your Contributions.
    INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
    
 7. Should You wish to submit work that is not Your original creation,
-   You may submit it to Aider AI separately from any
+   You may submit it to cecli AI separately from any
    Contribution, identifying the complete details of its source and of
    any license or other restriction (including, but not limited to,
    related patents, trademarks, and license agreements) of which you
    are personally aware, and conspicuously marking the work as
    "Submitted on behalf of a third-party: [named here]".
    
-8. You agree to notify Aider AI of any facts or circumstances of
+8. You agree to notify cecli AI of any facts or circumstances of
    which you become aware that would make these representations
    inaccurate in any respect.
    

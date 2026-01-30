@@ -5,14 +5,14 @@ nav_order: 510
 
 # GitHub Copilot
 
-Aider can connect to GitHub Copilot’s LLMs because Copilot exposes a standard **OpenAI-style**
+cecli can connect to GitHub Copilot’s LLMs because Copilot exposes a standard **OpenAI-style**
 endpoint at:
 
 ```
 https://api.githubcopilot.com
 ```
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -67,12 +67,12 @@ curl -s https://api.githubcopilot.com/models \
   -H "Copilot-Integration-Id: vscode-chat" | jq -r '.data[].id'
 ```
 
-Each returned ID can be used with aider by **prefixing it with `openai/`**:
+Each returned ID can be used with cecli by **prefixing it with `openai/`**:
 
 ```bash
-aider --model openai/gpt-4o
+cecli --model openai/gpt-4o
 # or
-aider --model openai/claude-3.7-sonnet-thought
+cecli --model openai/claude-3.7-sonnet-thought
 ```
 
 ---
@@ -84,7 +84,7 @@ aider --model openai/claude-3.7-sonnet-thought
 cd /to/your/project
 
 # talk to Copilot
-aider --model openai/gpt-4o
+cecli --model openai/gpt-4o
 ```
 
 ---
@@ -103,9 +103,9 @@ show-model-warnings: false
 
 ## FAQ
 
-* Calls made through aider are billed through your Copilot subscription  
-  (aider will still print *estimated* costs).
-* The Copilot docs explicitly allow third-party “agents” that hit this API – aider is playing by
+* Calls made through cecli are billed through your Copilot subscription  
+  (cecli will still print *estimated* costs).
+* The Copilot docs explicitly allow third-party “agents” that hit this API – cecli is playing by
   the rules.
-* Aider talks directly to the REST endpoint—no web-UI scraping or browser automation.
+* cecli talks directly to the REST endpoint—no web-UI scraping or browser automation.
 

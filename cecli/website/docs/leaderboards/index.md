@@ -6,15 +6,15 @@ has_children: true
 ---
 
 
-# Aider LLM Leaderboards
+# cecli LLM Leaderboards
 
-Aider excels with LLMs skilled at writing and *editing* code,
+cecli excels with LLMs skilled at writing and *editing* code,
 and uses benchmarks to
 evaluate an LLM's ability to follow instructions and edit code successfully without
 human intervention.
-[Aider's polyglot benchmark](https://aider.chat/2024/12/21/polyglot.html#the-polyglot-benchmark) tests LLMs on 225 challenging Exercism coding exercises across C++, Go, Java, JavaScript, Python, and Rust.
+[cecli's polyglot benchmark](https://cecli.dev/2024/12/21/polyglot.html#the-polyglot-benchmark) tests LLMs on 225 challenging Exercism coding exercises across C++, Go, Java, JavaScript, Python, and Rust.
 
-<h2 id="leaderboard-title">Aider polyglot coding leaderboard</h2>
+<h2 id="leaderboard-title">cecli polyglot coding leaderboard</h2>
 
 <div id="controls-container" style="display: flex; align-items: center; width: 100%; max-width: 800px; margin: 10px auto; gap: 10px; box-sizing: border-box; padding: 0 5px; position: relative;">
   <input type="text" id="editSearchInput" placeholder="Search..." style="flex-grow: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
@@ -270,8 +270,8 @@ import subprocess
 import datetime
 
 files = [
-    'aider/website/docs/leaderboards/index.md',
-    'aider/website/_data/polyglot_leaderboard.yml',
+    'cecli/website/docs/leaderboards/index.md',
+    'cecli/website/_data/polyglot_leaderboard.yml',
 ]
 
 def get_last_modified_date(file):

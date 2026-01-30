@@ -5,8 +5,8 @@ nav_order: 500
 
 # Privacy policy
 
-[Aider AI LLC](/docs/faq.html#what-is-aider-ai-llc)
-(“Aider,” “we,” “our,” and/or “us”) values the privacy of individuals who use our website, programming tools, and related services (collectively, our “Services”). This privacy policy (the “Privacy Policy”) explains how we collect, use, and disclose information from users of our Services. By using our Services, you agree to the collection, use, disclosure, and procedures this Privacy Policy describes. 
+[cecli AI LLC](/docs/faq.html#what-is-cecli-ai-llc)
+(“cecli,” “we,” “our,” and/or “us”) values the privacy of individuals who use our website, programming tools, and related services (collectively, our “Services”). This privacy policy (the “Privacy Policy”) explains how we collect, use, and disclose information from users of our Services. By using our Services, you agree to the collection, use, disclosure, and procedures this Privacy Policy describes. 
 
 ### Information We Collect
 
@@ -69,7 +69,7 @@ We make reasonable efforts to protect your information by using physical and ele
 
 ### Children’s Privacy
 
-We do not knowingly collect, maintain, or use personal information from children under 18 years of age, and no part of our Service(s) is directed to children. If you learn that a child has provided us with personal information in violation of this Privacy Policy, then you may alert us at privacy@aider.chat.
+We do not knowingly collect, maintain, or use personal information from children under 18 years of age, and no part of our Service(s) is directed to children. If you learn that a child has provided us with personal information in violation of this Privacy Policy, then you may alert us at privacy@cecli.dev.
 
 ### International Visitors
 
@@ -82,7 +82,7 @@ We will post any adjustments to the Privacy Policy on this page, and the revised
 
 ### Contact Information
 
-If you have any questions, comments, or concerns about our processing activities, please email us at privacy@aider.chat.
+If you have any questions, comments, or concerns about our processing activities, please email us at privacy@cecli.dev.
 
 ----
 
@@ -92,7 +92,7 @@ Last updated
 import subprocess
 import datetime
 
-result = subprocess.run(['git', 'log', '-1', '--format=%ct', 'aider/website/docs/legal/privacy.md'], capture_output=True, text=True)
+result = subprocess.run(['git', 'log', '-1', '--format=%ct', 'cecli/website/docs/legal/privacy.md'], capture_output=True, text=True)
 if result.returncode == 0:
     timestamp = int(result.stdout.strip())
     date = datetime.datetime.fromtimestamp(timestamp)

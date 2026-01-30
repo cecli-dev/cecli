@@ -5,9 +5,9 @@ nav_order: 400
 
 # LM Studio
 
-Aider can connect to models served by LM Studio.
+cecli can connect to models served by LM Studio.
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -25,15 +25,15 @@ setx   LM_STUDIO_API_BASE http://localhost:1234/v1 # Windows, restart shell afte
 
 **Note:** Even though LM Studio doesn't require an API Key out of the box the `LM_STUDIO_API_KEY` must have a dummy value like `dummy-api-key` set or the client request will fail trying to send an empty `Bearer` token.
 
-Start working with aider and LM Studio on your codebase:
+Start working with cecli and LM Studio on your codebase:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
-aider --model lm_studio/<your-model-name>
+cecli --model lm_studio/<your-model-name>
 ```
 
 See the [model warnings](warnings.html)
 section for information on warnings which will occur
-when working with models that aider is not familiar with.
+when working with models that cecli is not familiar with.

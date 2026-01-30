@@ -1,5 +1,5 @@
 {: .tip }
-In some environments you may get "aider command not found" errors.
-You can try `python -m aider` or 
-[see here for more info](/docs/troubleshooting/aider-not-found.html).
+In some environments you may get "cecli command not found" errors.
+You can try `python -m cecli` or 
+[see here for more info](/docs/troubleshooting/cecli-not-found.html).
 

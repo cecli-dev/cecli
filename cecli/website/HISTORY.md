@@ -6,6 +6,7 @@ description: Release notes and stats on aider writing its own code.
 ---
 
 # Release history
+*Note: This release history is a carry-over from before this project was forked into cecli.*
 
 Aider writes most of its own code, usually about 70-80% of the new code in each release.
 These

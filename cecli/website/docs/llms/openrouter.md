@@ -5,10 +5,10 @@ nav_order: 500
 
 # OpenRouter
 
-Aider can connect to [models provided by OpenRouter](https://openrouter.ai/models?o=top-weekly):
+cecli can connect to [models provided by OpenRouter](https://openrouter.ai/models?o=top-weekly):
 You'll need an [OpenRouter API key](https://openrouter.ai/keys).
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -19,20 +19,20 @@ export OPENROUTER_API_KEY=<key> # Mac/Linux
 setx   OPENROUTER_API_KEY <key> # Windows, restart shell after setx
 ```
 
-Start working with aider and OpenRouter on your codebase:
+Start working with cecli and OpenRouter on your codebase:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
 # Or any other open router model
-aider --model openrouter/<provider>/<model>
+cecli --model openrouter/<provider>/<model>
 
 # List models available from OpenRouter
-aider --list-models openrouter/
+cecli --list-models openrouter/
 ```
 
-In particular, many aider users access Sonnet via OpenRouter:
+In particular, many cecli users access Sonnet via OpenRouter:
 
 {: .tip }
 If you get errors, check your
@@ -71,7 +71,7 @@ entries like this:
 
 See [OpenRouter's provider routing docs](https://openrouter.ai/docs/provider-routing) for full details on these settings.
 
-See [Advanced model settings](https://aider.chat/docs/config/adv-model-settings.html#model-settings)
+See [Advanced model settings](https://cecli.dev/docs/config/adv-model-settings.html#model-settings)
 for more details about model settings files. 
 
 

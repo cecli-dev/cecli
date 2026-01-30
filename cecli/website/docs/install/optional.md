@@ -13,7 +13,7 @@ The steps below are completely optional.
 
 ## Install git
 
-Aider works best if you have git installed.
+cecli works best if you have git installed.
 Here are
 [instructions for installing git in various environments](https://github.com/git-guides/install-git).
 
@@ -27,21 +27,21 @@ You need an key from an API provider to work with most models:
 - [OpenRouter](https://openrouter.ai/keys) allows you to access models from many providers using a single key.
 
 You can [store your api keys in configuration or env files](/docs/config/api-keys.html)
-and they will be loaded automatically whenever you run aider.
+and they will be loaded automatically whenever you run cecli.
 
 ## Enable Playwright 
 
-Aider supports adding web pages to the chat with the `/web <url>` command.
-When you add a url to the chat, aider fetches the page and scrapes its
+cecli supports adding web pages to the chat with the `/web <url>` command.
+When you add a url to the chat, cecli fetches the page and scrapes its
 content.
 
-By default, aider uses the `httpx` library to scrape web pages, but this only
+By default, cecli uses the `httpx` library to scrape web pages, but this only
 works on a subset of web pages.
 Some sites explicitly block requests from tools like httpx.
 Others rely heavily on javascript to render the page content,
 which isn't possible using only httpx.
 
-Aider works best with all web pages if you install
+cecli works best with all web pages if you install
 Playwright's chromium browser and its dependencies:
 
 ```
@@ -55,10 +55,10 @@ for additional information.
 
 ## Enable voice coding 
 
-Aider supports 
-[coding with your voice](https://aider.chat/docs/usage/voice.html)
+cecli supports 
+[coding with your voice](https://cecli.dev/docs/usage/voice.html)
 using the in-chat `/voice` command.
-Aider uses the [PortAudio](http://www.portaudio.com) library to
+cecli uses the [PortAudio](http://www.portaudio.com) library to
 capture audio.
 Installing PortAudio is completely optional, but can usually be accomplished like this:
 
@@ -67,34 +67,34 @@ Installing PortAudio is completely optional, but can usually be accomplished lik
 - For Linux, do `sudo apt-get install libportaudio2`
   - Some linux environments may also need `sudo apt install libasound2-plugins`
 
-## Add aider to your IDE/editor
+## Add cecli to your IDE/editor
 
 You can use 
-[aider's `--watch-files` mode](https://aider.chat/docs/usage/watch.html)
+[cecli's `--watch-files` mode](https://cecli.dev/docs/usage/watch.html)
 to integrate with any IDE or editor.
 
-There are a number of 3rd party aider plugins for various IDE/editors.
+There are a number of 3rd party cecli plugins for various IDE/editors.
 It's not clear how well they are tracking the latest
-versions of aider,
+versions of cecli,
 so it may be best to just run the latest
-aider in a terminal alongside your editor and use `--watch-files`.
+cecli in a terminal alongside your editor and use `--watch-files`.
 
 ### NeoVim
 
-[joshuavial](https://github.com/joshuavial) provided a NeoVim plugin for aider:
+[joshuavial](https://github.com/joshuavial) provided a NeoVim plugin for cecli:
 
-[https://github.com/joshuavial/aider.nvim](https://github.com/joshuavial/aider.nvim)
+[https://github.com/joshuavial/cecli.nvim](https://github.com/joshuavial/cecli.nvim)
 
 ### VS Code
 
-You can run aider inside a VS Code terminal window.
+You can run cecli inside a VS Code terminal window.
 There are a number of 3rd party 
-[aider plugins for VSCode](https://marketplace.visualstudio.com/search?term=aider%20-kodu&target=VSCode&category=All%20categories&sortBy=Relevance).
+[cecli plugins for VSCode](https://marketplace.visualstudio.com/search?term=cecli%20-kodu&target=VSCode&category=All%20categories&sortBy=Relevance).
 
 ### Other editors
 
-If you are interested in creating an aider plugin for your favorite editor,
+If you are interested in creating an cecli plugin for your favorite editor,
 please let us know by opening a
-[GitHub issue](https://github.com/Aider-AI/aider/issues).
+[GitHub issue](https://github.com/dwash96/cecli/issues).
 
 

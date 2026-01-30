@@ -1,13 +1,13 @@
 If you need more help, please check our
-[GitHub issues](https://github.com/Aider-AI/aider/issues)
+[GitHub issues](https://github.com/dwash96/cecli/issues)
 and file a new issue if your problem isn't discussed.
 Or drop into our
-[Discord](https://discord.gg/AX9ZEA7nJn)
+[Discord](https://discord.gg/g4bF53fSWF)
 to chat with us.
 
 When reporting problems, it is very helpful if you can provide:
 
-- Aider version
+- cecli version
 - LLM model you are using
 
 Including the "announcement" lines that

@@ -1,32 +1,32 @@
 ---
 parent: More info
 nav_order: 400
-description: You can script aider via the command line or python.
+description: You can script cecli via the command line or python.
 ---
 
-# Scripting aider
+# Scripting cecli
 
-You can script aider via the command line or python.
+You can script cecli via the command line or python.
 
 ## Command line
 
-Aider takes a `--message` argument, where you can give it a natural language instruction.
+cecli takes a `--message` argument, where you can give it a natural language instruction.
 It will do that one thing, apply the edits to the files and then exit.
 So you could do:
 
 ```bash
-aider --message "make a script that prints hello" hello.js
+cecli --message "make a script that prints hello" hello.js
 ```
 
 Or you can write simple shell scripts to apply the same instruction to many files:
 
 ```bash
 for FILE in *.py ; do
-    aider --message "add descriptive docstrings to all the functions" $FILE
+    cecli --message "add descriptive docstrings to all the functions" $FILE
 done
 ```
 
-Use `aider --help` to see all the 
+Use `cecli --help` to see all the 
 [command line options](/docs/config/options.html),
 but these are useful for scripting:
 
@@ -57,11 +57,11 @@ but these are useful for scripting:
 
 ## Python
 
-You can also script aider from python:
+You can also script cecli from python:
 
 ```python
-from aider.coders import Coder
-from aider.models import Model
+from cecli.coders import Coder
+from cecli.models import Model
 
 # This is a list of files to add to the chat
 fnames = ["greeting.py"]
@@ -83,13 +83,13 @@ coder.run("/tokens")
 ```
 
 See the
-[Coder.create() and Coder.__init__() methods](https://github.com/Aider-AI/aider/blob/main/aider/coders/base_coder.py)
+[Coder.create() and Coder.__init__() methods](https://github.com/dwash96/cecli/blob/main/cecli/coders/base_coder.py)
 for all the supported arguments.
 
 It can also be helpful to set the equivalent of `--yes` by doing this:
 
 ```python
-from aider.io import InputOutput
+from cecli.io import InputOutput
 io = InputOutput(yes=True)
 # ...
 coder = Coder.create(model=model, fnames=fnames, io=io)

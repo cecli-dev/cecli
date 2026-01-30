@@ -6,7 +6,7 @@ layout: none
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aider - AI Pair Programming in Your Terminal</title>
+    <title>cecli - AI Pair Programming in Your Terminal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
@@ -22,7 +22,7 @@ layout: none
     <header>
         <div class="container">
             <nav>
-                <a href="#" class="logo" id="logo-container">aider</a>
+                <a href="#" class="logo" id="logo-container">cecli</a>
                 <div class="nav-links">
                     <a href="#features">Features</a>
                     <a href="#getting-started">Getting Started</a>
@@ -40,7 +40,7 @@ layout: none
                 <div class="hero-content">
                     <h1>AI pair programming in your terminal</h1>
                     <p>
-                        Aider lets you pair program with LLMs to start
+                        cecli lets you pair program with LLMs to start
                         a new project or build on your existing
                         codebase.
                     </p>
@@ -75,10 +75,6 @@ cog.out(text)
     <span class="badge-label">📦 Installs</span>
     <span class="badge-value">3.9M</span>
 </a>
-<div class="github-badge badge-tokens" title="Number of tokens processed weekly by Aider users">
-    <span class="badge-label">📈 Tokens/week</span>
-    <span class="badge-value">15B</span>
-</div>
 <a href="https://openrouter.ai/#options-menu" class="github-badge badge-router" title="Aider's ranking among applications on the OpenRouter platform">
     <span class="badge-label">🏆 OpenRouter</span>
     <span class="badge-value">Top 20</span>
@@ -103,7 +99,7 @@ cog.out(text)
                             Cloud and local LLMs
                         </h3>
                     </div>
-                    <p>Aider works best with Claude 3.7 Sonnet, DeepSeek R1 & Chat V3, OpenAI o1, o3-mini & GPT-4o, but can connect to almost any LLM, including local models.</p>
+                    <p>cecli works best with Claude 3.7 Sonnet, DeepSeek R1 & Chat V3, OpenAI o1, o3-mini & GPT-4o, but can connect to almost any LLM, including local models.</p>
                 </a>
                 <a href="/docs/repomap.html" class="feature-card">
                     <div class="feature-card-header">
@@ -111,7 +107,7 @@ cog.out(text)
                         <h3 class="feature-title">Maps your codebase</h3>
                     </div>
                     <p>
-                        Aider makes a map of your entire codebase,
+                        cecli makes a map of your entire codebase,
                         which helps it work well in larger projects.
                     </p>
                 </a>
@@ -121,7 +117,7 @@ cog.out(text)
                         <h3 class="feature-title">100+ code languages</h3>
                     </div>
                     <p>
-                        Aider works with most popular programming
+                        cecli works with most popular programming
                         languages: python, javascript, rust, ruby, go, cpp,
                         php, html, css, and dozens more.
                     </p>
@@ -132,7 +128,7 @@ cog.out(text)
                         <h3 class="feature-title">Git integration</h3>
                     </div>
                     <p>
-                        Aider automatically commits changes with
+                        cecli automatically commits changes with
                         sensible commit messages.
                         Use familiar git tools to easily
                         diff, manage and undo AI changes.
@@ -144,9 +140,9 @@ cog.out(text)
                         <h3 class="feature-title">In your IDE</h3>
                     </div>
                     <p>
-                        Use aider from within your favorite IDE or editor.
+                        Use cecli from within your favorite IDE or editor.
                         Ask for changes by adding comments to
-                        your code and aider will get to work.
+                        your code and cecli will get to work.
                     </p>
                 </a>
                 <a href="/docs/usage/images-urls.html" class="feature-card">
@@ -166,8 +162,8 @@ cog.out(text)
                         <h3 class="feature-title">Voice-to-code</h3>
                     </div>
                     <p>
-                        Speak with aider about your code! Request new features, 
-                        test cases or bug fixes using your voice and let aider
+                        Speak with cecli about your code! Request new features, 
+                        test cases or bug fixes using your voice and let cecli
                         implement the changes.
                     </p>
                 </a>
@@ -177,8 +173,8 @@ cog.out(text)
                         <h3 class="feature-title">Linting & testing</h3>
                     </div>
                     <p>
-                        Automatically lint and test your code every time aider makes changes.
-                        Aider can fix problems detected by your linters and test suites.
+                        Automatically lint and test your code every time cecli makes changes.
+                        cecli can fix problems detected by your linters and test suites.
                     </p>
                 </a>
                 <a href="/docs/usage/copypaste.html" class="feature-card">
@@ -187,9 +183,9 @@ cog.out(text)
                         <h3 class="feature-title">Copy/paste to web chat</h3>
                     </div>
                     <p>
-                        Aider works best with LLM APIs,
+                        cecli works best with LLM APIs,
                         but it can also work an LLM via its web chat interface.
-                        Aider streamlines copy/pasting code
+                        cecli streamlines copy/pasting code
                         back and forth with a browser.
                     </p>
                 </a>
@@ -202,20 +198,19 @@ cog.out(text)
             <h2 class="section-title">Getting Started</h2>
             <div class="info-content">
                 <div class="code-block">
-                    <pre><code class="language-bash">python -m pip install aider-install
-aider-install
+                    <pre><code class="language-bash">python -m pip install cecli-dev
 
 # Change directory into your codebase
 cd /to/your/project
 
 # DeepSeek
-aider --model deepseek --api-key deepseek=&lt;key&gt;
+cecli --model deepseek --api-key deepseek=&lt;key&gt;
 
 # Claude 3.7 Sonnet
-aider --model sonnet --api-key anthropic=&lt;key&gt;
+cecli --model sonnet --api-key anthropic=&lt;key&gt;
 
 # o3-mini
-aider --model o3-mini --api-key openai=&lt;key&gt;</code></pre>
+cecli --model o3-mini --api-key openai=&lt;key&gt;</code></pre>
                 </div>
                 <div class="cta-container">
                   <p class="cta-text">Want more details?</p>
@@ -230,7 +225,7 @@ aider --model o3-mini --api-key openai=&lt;key&gt;</code></pre>
     
     <section class="testimonials">
         <div class="container">
-            <h2 class="section-title">Kind Words From Users</h2>
+            <h2 class="section-title">Building on Aider's Success</h2>
             <div class="testimonial-grid" id="testimonial-container">
                 <!-- Testimonials will be dynamically inserted here -->
             </div>
@@ -629,7 +624,7 @@ const testimonials = [
             <div class="info-columns">
                 <div class="info-column">
                     <h3 class="info-column-title">Documentation</h3>
-                    <p class="info-column-desc">Everything you need to get started and make the most of Aider</p>
+                    <p class="info-column-desc">Everything you need to get started and make the most of cecli</p>
                     <ul class="info-list">
                         <li><a href="/docs/install.html">Installation Guide</a></li>
                         <li><a href="/docs/install.html">Usage Guide</a></li>
@@ -645,9 +640,9 @@ const testimonials = [
                     <p class="info-column-desc">Connect with other users and find additional resources</p>
                     <ul class="info-list">
                         <li><a href="/docs/leaderboards/">LLM Leaderboards</a></li>
-                        <li><a href="https://github.com/Aider-AI/aider">GitHub Repository</a></li>
+                        <li><a href="https://github.com/dwash96/cecli">GitHub Repository</a></li>
                         <li><a href="https://discord.gg/AX9ZEA7nJn">Discord Community</a></li>
-                        <li><a href="https://aider.chat/HISTORY.html">Release notes</a></li>
+                        <li><a href="https://cecli.dev/HISTORY.html">Release notes</a></li>
                         <li><a href="/blog/">Blog</a></li>
                     </ul>
                 </div>

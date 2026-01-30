@@ -6,15 +6,15 @@ description: Configure Model Control Protocol (MCP) servers for enhanced AI capa
 
 # Model Control Protocol (MCP)
 
-Model Control Protocol (MCP) servers extend aider's capabilities by providing additional tools and functionality to the AI models. MCP servers can add features like git operations, context retrieval, and other specialized tools.
+Model Control Protocol (MCP) servers extend cecli's capabilities by providing additional tools and functionality to the AI models. MCP servers can add features like git operations, context retrieval, and other specialized tools.
 
 ## Configuring MCP Servers
 
-Aider supports configuring MCP servers using the MCP Server Configuration schema. Please
+cecli supports configuring MCP servers using the MCP Server Configuration schema. Please
 see the [Model Context Protocol documentation](https://modelcontextprotocol.io/introduction)
 for more information.
 
-You have two ways of sharing your MCP server configuration with Aider.
+You have two ways of sharing your MCP server configuration with cecli.
 
 {: .note }
 
@@ -57,7 +57,7 @@ Or specify a configuration file:
 mcp-servers-file: /path/to/mcp.json
 ```
 
-These options are configurable in any of Aider's config file formats.
+These options are configurable in any of cecli's config file formats.
 
 Also, you are able to say if you would like an mcp enabled/disabled in the config itself via `"enabled"` key
 By default MCP servers are enabled, so you MUST explicitly disable them in the config if you dont wish
@@ -70,13 +70,13 @@ You can specify MCP servers directly on the command line using the `--mcp-server
 #### Using a JSON String
 
 ```bash
-aider --mcp-servers '{"mcpServers":{"git":{"transport":"http","url":"http://localhost:8000"}}}'
+cecli --mcp-servers '{"mcpServers":{"git":{"transport":"http","url":"http://localhost:8000"}}}'
 ```
 
 #### Using a YAML String
 
 ```bash
-aider --mcp-servers 'mcpServers:
+cecli --mcp-servers 'mcpServers:
   context7:
     transport: http
     url: https://mcp.context7.com/mcp
@@ -90,7 +90,7 @@ aider --mcp-servers 'mcpServers:
 Alternatively, you can store your MCP server configurations in a JSON or YAML file and reference it with the `--mcp-servers-file` option:
 
 ```bash
-aider --mcp-servers-file mcp.json
+cecli --mcp-servers-file mcp.json
 ```
 
 #### Specifying the transport
@@ -98,7 +98,7 @@ aider --mcp-servers-file mcp.json
 You can use the `--mcp-transport` flag to specify the transport for all configured MCP servers that do not have a transport specified.
 
 ```bash
-aider --mcp-transport http
+cecli --mcp-transport http
 ```
 
 ### Environment Variables
@@ -127,7 +127,7 @@ For more information about specific MCP servers and their capabilities, refer to
 
 ## Common MCP Servers
 
-Here are some commonly used MCP servers that can enhance aider's capabilities:
+Here are some commonly used MCP servers that can enhance cecli's capabilities:
 
 ### Context7
 

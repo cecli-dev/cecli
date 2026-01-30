@@ -6,7 +6,7 @@ description: Setting API keys for API providers.
 
 # API Keys
 
-Aider lets you specify API keys in a few ways:
+cecli lets you specify API keys in a few ways:
 
 - On the command line
 - As environment variables
@@ -17,7 +17,7 @@ Aider lets you specify API keys in a few ways:
 
 ## OpenAI and Anthropic
 
-Aider has special support for providing
+cecli has special support for providing
 OpenAI and Anthropic API keys
 via dedicated switches and configuration options.
 Settings keys for other providers works a bit differently, see below.
@@ -42,7 +42,7 @@ ANTHROPIC_API_KEY=<key>
 
 #### YAML config file
 You can also set those API keys via special entries in the
-[YAML config file](/docs/config/aider_conf.html), like this:
+[YAML config file](/docs/config/cecli_conf.html), like this:
 
 ```yaml
 openai-api-key: <key>
@@ -78,7 +78,7 @@ DEEPSEEK_API_KEY=baz
 
 
 You can also set API keys in the 
-[`.aider.conf.yml` file](/docs/config/aider_conf.html)
+[`.aider.conf.yml` file](/docs/config/cecli_conf.html)
 via the `api-key` entry:
 
 ```

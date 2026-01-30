@@ -10,7 +10,7 @@ To work with Anthropic's models, you need to provide your
 either in the `ANTHROPIC_API_KEY` environment variable or
 via the `--anthropic-api-key` command line switch.
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -21,17 +21,17 @@ export ANTHROPIC_API_KEY=<key> # Mac/Linux
 setx   ANTHROPIC_API_KEY <key> # Windows, restart shell after setx
 ```
 
-Start working with aider and Anthropic on your codebase:
+Start working with cecli and Anthropic on your codebase:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
-# Aider uses Claude 3.7 Sonnet by default
-aider
+# cecli uses Claude 3.7 Sonnet by default
+cecli
 
 # List models available from Anthropic
-aider --list-models anthropic/
+cecli --list-models anthropic/
 ```
 
 {: .tip }
@@ -41,13 +41,13 @@ You can access all the Anthropic models via
 or [Google Vertex AI](vertex.md)
 with more generous rate limits.
 
-You can use `aider --model <model-name>` to use any other Anthropic model.
+You can use `cecli --model <model-name>` to use any other Anthropic model.
 For example, if you want to use a specific version of Opus
-you could do `aider --model claude-3-opus-20240229`.
+you could do `cecli --model claude-3-opus-20240229`.
 
 ## Thinking tokens
 
-Aider can work with Sonnet 3.7's new thinking tokens, but does not ask Sonnet to use
+cecli can work with Sonnet 3.7's new thinking tokens, but does not ask Sonnet to use
 thinking tokens by default.
 
 Enabling thinking currently requires manual configuration.

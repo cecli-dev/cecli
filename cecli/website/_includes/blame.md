@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var blameData = {
         labels: labels,
         datasets: [{
-            label: 'Aider\'s percent of new code by release',
+            label: 'cecli\'s percent of new code by release',
             data: [{% for row in site.data.blame %}{ x: '{{ row.end_tag }}', y: {{ row.aider_percentage }}, lines: {{ row.aider_total }}, end_date: '{{ row.end_date }}' },{% endfor %}],
             backgroundColor: 'rgba(54, 162, 235, 0.8)',
             borderColor: 'rgba(54, 162, 235, 1)',
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var linesData = {
         labels: labels,
         datasets: [{
-            label: 'Aider',
+            label: 'cecli',
             data: [{% for row in site.data.blame %}{ x: '{{ row.end_tag }}', y: {{ row.aider_total }} },{% endfor %}],
             backgroundColor: 'rgba(54, 162, 235, 0.8)',
             borderColor: 'rgba(54, 162, 235, 1)',
@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            var label = 'Aider\'s contribution';
+                            var label = 'cecli\'s contribution';
                             var value = context.parsed.y || 0;
                             var lines = context.raw.lines || 0;
                             return `${label}: ${Math.round(value)}% (${lines} lines)`;
@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 title: {
                     display: true,
-                    text: 'Percent of new code written by aider, by release',
+                    text: 'Percent of new code written by cecli, by release',
                     font: {
                         size: 16
                     }

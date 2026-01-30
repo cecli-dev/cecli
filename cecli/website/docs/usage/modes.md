@@ -6,14 +6,14 @@ description: Using the code, architect, ask and help chat modes.
 
 # Chat modes
 
-Aider has a few different chat modes:
+cecli has a few different chat modes:
 
-- `code` - Aider will make changes to your code to satisfy your requests.
-- `ask` - Aider will discuss your code and answer questions about it, but never make changes.
-- `architect` - Like code mode, aider will change your files. An architect model will propose changes and an editor model will translate that proposal into specific file edits.
-- `help` - Aider will answer questions about aider: usage, configuration, troubleshooting, etc.
+- `code` - cecli will make changes to your code to satisfy your requests.
+- `ask` - cecli will discuss your code and answer questions about it, but never make changes.
+- `architect` - Like code mode, cecli will change your files. An architect model will propose changes and an editor model will translate that proposal into specific file edits.
+- `help` - cecli will answer questions about cecli: usage, configuration, troubleshooting, etc.
 
-By default, aider starts in "code" mode. As you are talking, you can
+By default, cecli starts in "code" mode. As you are talking, you can
 send individual messages in a specific mode using 
 `/code`, `/architect`, `/ask`, and `/help` commands:
 Using these `/`-commands applies just to that particular message.
@@ -37,10 +37,10 @@ Or you can switch between coding modes using these commands without arguments:
 /ask
 ```
 
-Or you can launch aider in one of the modes with the `--chat-mode <mode>` switch.
+Or you can launch cecli in one of the modes with the `--chat-mode <mode>` switch.
 There is also a special shortcut `--architect` to launch in `--chat-mode architect`.
 
-The aider prompt will indicate the active mode:
+The cecli prompt will indicate the active mode:
 
 ```
 > This is code mode.
@@ -53,23 +53,23 @@ architect> This is architect mode.
 
 A recommended workflow is to bounce back and forth between `/ask` and `/code` modes.
 
-Use ask mode to discuss what you want to do, get suggestions or options from aider
+Use ask mode to discuss what you want to do, get suggestions or options from cecli
 and provide feedback on the approach.
-Once aider understands the mission, switch to code mode to have it start editing
+Once cecli understands the mission, switch to code mode to have it start editing
 your files.
 All the conversation and decision making from ask mode will
 help ensure that the correct code changes are performed.
 
 You can be very terse when you finally switch from ask to code mode.
 Saying something as simple as "go ahead" in code mode will
-have aider execute on the plan you've been discussing.
+have cecli execute on the plan you've been discussing.
 
 Here's an example with two ask mode messages to agree on the plan, 
 followed by two terse code mode messages to edit the code.
 
 ````
 ─────────────────────────────────────────────────────────────────────────────────────
-Aider v0.79.0
+cecli v0.79.0
 Model: gemini/gemini-2.5-pro-exp-03-25 with diff-fenced edit format
 
 > /ask What's the best thing to print if we're making a quick little demo program?
@@ -110,15 +110,15 @@ architect mode, but working just with one model the whole time.
 
 ## Architect mode and the editor model
 
-When you are in architect mode, aider sends your requests to two models:
+When you are in architect mode, cecli sends your requests to two models:
 
 1. First, it sends your request to the main model which will act as an architect
 to propose how to solve your coding request.
 The main model is configured with `/model` or `--model`.
 
-2. Aider then sends another request to an "editor model",
+2. cecli then sends another request to an "editor model",
 asking it to turn the architect's proposal into specific file editing instructions.
-Aider has built in defaults to select an editor model based on your main model.
+cecli has built in defaults to select an editor model based on your main model.
 Or, you can choose a specific editor model with `--editor-model <model>`.
 
 Certain LLMs aren't able to propose coding solutions *and*
@@ -139,15 +139,15 @@ as both the architect and the editor.
 Allowing the model two requests to solve the problem and edit the files
 can sometimes provide better results.
 
-The editor model uses one of aider's edit formats to let the LLM
+The editor model uses one of cecli's edit formats to let the LLM
 edit source files.
-Aider will pick a suitable edit format by default,
+cecli will pick a suitable edit format by default,
 but you can customize it with `--editor-edit-format <format>`.
 The 
 ["editor-diff" and "editor-whole" edit formats](/docs/more/edit-formats.html#editor-diff-and-editor-whole)
 are the recommended edit formats when using architect mode.
 See this article on 
-[aider's architect/editor mode](/2024/09/26/architect.html)
+[cecli's architect/editor mode](/2024/09/26/architect.html)
 for more details.
 
 
@@ -156,7 +156,7 @@ for more details.
 <div class="chat-transcript" markdown="1">
 
 
-> Aider v0.47.1-dev  
+> cecli v0.47.1-dev  
 > Models: claude-3-5-sonnet-20240620 with diff edit format  
 > Git repo: .git with 298 files  
 > Repo-map: using 1024 tokens  
@@ -166,10 +166,10 @@ for more details.
 
 This is collection of python functions that compute various math functions.
 
-#### /help How do I use aider with ollama?
+#### /help How do I use cecli with ollama?
 
-Run `aider --model ollama/<ollama-model>`.
-See these docs for more info: https://aider.chat/docs/llms/ollama.html
+Run `cecli --model ollama/<ollama-model>`.
+See these docs for more info: https://cecli.dev/docs/llms/ollama.html
 
 #### /code Add a function to calculate the factorial of a number
 

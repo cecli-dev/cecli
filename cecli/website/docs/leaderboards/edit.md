@@ -1,5 +1,5 @@
 ---
-parent: Aider LLM Leaderboards
+parent: cecli LLM Leaderboards
 highlight_image: /assets/leaderboard.jpg
 nav_order: 50
 description: Quantitative benchmark of basic LLM code editing skill.
@@ -10,12 +10,12 @@ description: Quantitative benchmark of basic LLM code editing skill.
 
 {: .note :}
 This old
-[aider code editing leaderboard](edit.html)
+[cecli code editing leaderboard](edit.html)
 has been replaced by the
 new, much more challenging
 [polyglot leaderboard](/docs/leaderboards/).
 
-[Aider's code editing benchmark](/docs/benchmarks.html#the-benchmark) asks the LLM to edit python source files to complete 133 small coding exercises
+[cecli's code editing benchmark](/docs/benchmarks.html#the-benchmark) asks the LLM to edit python source files to complete 133 small coding exercises
 from Exercism. 
 This measures the LLM's coding ability, and whether it can
 write new code that integrates into existing code.
@@ -77,12 +77,12 @@ The model also has to successfully apply all its changes to the source file with
 The key benchmarking results are:
 
 - **Percent completed correctly** - Measures what percentage of the coding tasks that the LLM completed successfully. To complete a task, the LLM must solve the programming assignment *and* edit the code to implement that solution.
-- **Percent using correct edit format** - Measures the percent of coding tasks where the LLM complied with the edit format specified in the system prompt. If the LLM makes edit mistakes, aider will give it feedback and ask for a fixed copy of the edit. The best models can reliably conform to the edit format, without making errors.
+- **Percent using correct edit format** - Measures the percent of coding tasks where the LLM complied with the edit format specified in the system prompt. If the LLM makes edit mistakes, cecli will give it feedback and ask for a fixed copy of the edit. The best models can reliably conform to the edit format, without making errors.
 
 
 ## Notes on the edit format
 
-Aider uses different "edit formats" to collect code edits from different LLMs.
+cecli uses different "edit formats" to collect code edits from different LLMs.
 The "whole" format is the easiest for an LLM to use, but it uses a lot of tokens
 and may limit how large a file can be edited.
 Models which can use one of the diff formats are much more efficient,
@@ -90,19 +90,19 @@ using far fewer tokens.
 Models that use a diff-like format are able to 
 edit larger files with less cost and without hitting token limits.
 
-Aider is configured to use the best edit format for the popular OpenAI and Anthropic models
+cecli is configured to use the best edit format for the popular OpenAI and Anthropic models
 and the [other models recommended on the LLM page](/docs/llms.html).
-For lesser known models aider will default to using the "whole" editing format
+For lesser known models cecli will default to using the "whole" editing format
 since it is the easiest format for an LLM to use.
 
 ## Contributing benchmark results
 
 Contributions of benchmark results are welcome!
 See the
-[benchmark README](https://github.com/Aider-AI/aider/blob/main/benchmark/README.md)
-for information on running aider's code editing benchmarks.
+[benchmark README](https://github.com/dwash96/cecli/blob/main/benchmark/README.md)
+for information on running cecli's code editing benchmarks.
 Submit results by opening a PR with edits to the
-[benchmark results data files](https://github.com/Aider-AI/aider/blob/main/aider/website/_data/).
+[benchmark results data files](https://github.com/dwash96/cecli/blob/main/cecli/website/_data/).
 
 
 <p class="post-date">
@@ -113,8 +113,8 @@ import subprocess
 import datetime
 
 files = [
-    'aider/website/docs/leaderboards/edit.md',
-    'aider/website/_data/edit_leaderboard.yml',
+    'cecli/website/docs/leaderboards/edit.md',
+    'cecli/website/_data/edit_leaderboard.yml',
 ]
 
 def get_last_modified_date(file):

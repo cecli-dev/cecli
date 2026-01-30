@@ -1,7 +1,7 @@
 ---
 parent: Usage
 nav_order: 50
-description: Control aider with in-chat commands like /add, /model, etc.
+description: Control cecli with in-chat commands like /add, /model, etc.
 ---
 
 # In-chat commands
@@ -12,16 +12,16 @@ description: Control aider with in-chat commands like /add, /model, etc.
 
 ## Slash commands
 
-Aider supports commands from within the chat, which all start with `/`.
+cecli supports commands from within the chat, which all start with `/`.
 
 <!--[[[cog
-from aider.commands import get_help_md
+from cecli.commands import get_help_md
 cog.out(get_help_md())
 ]]]-->
 
 |Command|Description|
 |:------|:----------|
-| **/add** | Add files to the chat so aider can edit them or review them in detail |
+| **/add** | Add files to the chat so cecli can edit them or review them in detail |
 | **/architect** | Enter architect/editor mode using 2 different models. If no prompt provided, switches to architect/editor mode. |
 | **/ask** | Ask questions about the code base without editing any files. If no prompt provided, switches to ask mode. |
 | **/chat-mode** | Switch to a new chat mode |
@@ -38,7 +38,7 @@ cog.out(get_help_md())
 | **/editor-model** | Switch the Editor Model to a new LLM |
 | **/exit** | Exit the application |
 | **/git** | Run a git command (output excluded from chat) |
-| **/help** | Ask questions about aider |
+| **/help** | Ask questions about cecli |
 | **/history-search** | Fuzzy search your command history and paste the selected command into the chat. |
 | **/lint** | Lint and fix in-chat files or all dirty files if none in chat |
 | **/load** | Load and execute commands from a file |
@@ -62,7 +62,7 @@ cog.out(get_help_md())
 | **/test** | Run a shell command and add the output to the chat on non-zero exit code |
 | **/think-tokens** | Set the thinking token budget, eg: 8096, 8k, 10.5k, 0.5M, or 0 to disable. |
 | **/tokens** | Report on the number of tokens used by the current chat context |
-| **/undo** | Undo the last git commit if it was done by aider |
+| **/undo** | Undo the last git commit if it was done by cecli |
 | **/voice** | Record and transcribe voice input |
 | **/weak-model** | Switch the Weak Model to a new LLM |
 | **/web** | Scrape a webpage, convert to markdown and send in a message |
@@ -80,7 +80,7 @@ or CONTROL-R to search your message history.
 
 ## Interrupting with CONTROL-C
 
-It's always safe to use Control-C to interrupt aider if it isn't providing a useful response. The partial response remains in the conversation, so you can refer to it when you reply to the LLM with more information or direction.
+It's always safe to use Control-C to interrupt cecli if it isn't providing a useful response. The partial response remains in the conversation, so you can refer to it when you reply to the LLM with more information or direction.
 
 ## Keybindings
 
@@ -108,7 +108,7 @@ The interactive prompt is built with [prompt-toolkit](https://github.com/prompt-
 
 ### Vi
 
-To use vi/vim keybindings, run aider with the `--vim` switch.
+To use vi/vim keybindings, run cecli with the `--vim` switch.
 
 - `Up Arrow` : Move up one line in the current message.
 - `Down Arrow` : Move down one line in the current message.

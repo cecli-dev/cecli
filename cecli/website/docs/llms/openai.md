@@ -10,7 +10,7 @@ To work with OpenAI's models, you need to provide your
 either in the `OPENAI_API_KEY` environment variable or
 via the `--api-key openai=<key>` command line switch.
 
-First, install aider:
+First, install cecli:
 
 {% include install.md %}
 
@@ -21,35 +21,35 @@ export OPENAI_API_KEY=<key> # Mac/Linux
 setx   OPENAI_API_KEY <key> # Windows, restart shell after setx
 ```
 
-Start working with aider and OpenAI on your codebase:
+Start working with cecli and OpenAI on your codebase:
 
 ```bash
 # Change directory into your codebase
 cd /to/your/project
 
 # o3-mini
-aider --model o3-mini
+cecli --model o3-mini
 
 # o1-mini
-aider --model o1-mini
+cecli --model o1-mini
 
 # GPT-4o
-aider --model gpt-4o
+cecli --model gpt-4o
 
 # List models available from OpenAI
-aider --list-models openai/
+cecli --list-models openai/
 ```
 
-You can use `aider --model <model-name>` to use any other OpenAI model.
+You can use `cecli --model <model-name>` to use any other OpenAI model.
 For example, if you want to use a specific version of GPT-4 Turbo
-you could do `aider --model gpt-4-0125-preview`.
+you could do `cecli --model gpt-4-0125-preview`.
 
 ## Reasoning models from other providers
 
 Many of OpenAI's 
 "reasoning" models have restrictions on streaming and setting the temperature parameter.
 Some also support different levels of "reasoning effort".
-Aider is configured to work properly with these models
+cecli is configured to work properly with these models
 when served through major provider APIs and
 has a `--reasoning-effort` setting.
 

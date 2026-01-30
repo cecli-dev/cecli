@@ -1,13 +1,13 @@
 ---
 parent: Configuration
 nav_order: 10
-description: Details about all of aider's settings.
+description: Details about all of cecli's settings.
 ---
 
 # Options reference
 {: .no_toc }
 
-You can use `aider --help` to see all the available options,
+You can use `cecli --help` to see all the available options,
 or review them below.
 
 - TOC
@@ -18,11 +18,11 @@ or review them below.
 ## Usage summary
 
 <!--[[[cog
-from aider.args import get_md_help
+from cecli.args import get_md_help
 cog.out(get_md_help())
 ]]]-->
 ```
-usage: aider [-h] [--model] [--openai-api-key] [--anthropic-api-key]
+usage: cecli [-h] [--model] [--openai-api-key] [--anthropic-api-key]
              [--openai-api-base] [--openai-api-type]
              [--openai-api-version] [--openai-api-deployment-id]
              [--openai-organization-id] [--set-env] [--api-key]
@@ -160,7 +160,7 @@ Aliases:
   - `--models MODEL`
 
 ### `--model-settings-file MODEL_SETTINGS_FILE`
-Specify a file with aider model settings for unknown models  
+Specify a file with cecli model settings for unknown models  
 Default: .aider.model.settings.yml  
 Environment variable: `CECLI_MODEL_SETTINGS_FILE`  
 
@@ -307,8 +307,8 @@ Default: .aider.input.history
 Environment variable: `CECLI_INPUT_HISTORY_FILE`  
 
 ### `--chat-history-file CHAT_HISTORY_FILE`
-Specify the chat history file (default: .aider.chat.history.md)  
-Default: .aider.chat.history.md  
+Specify the chat history file (default: .aider.dev.history.md)  
+Default: .aider.dev.history.md  
 Environment variable: `CECLI_CHAT_HISTORY_FILE`  
 
 ### `--restore-chat-history`
@@ -420,7 +420,7 @@ Aliases:
   - `--no-gitignore`
 
 ### `--add-gitignore-files`
-Enable/disable the addition of files listed in .gitignore to Aider's editing scope.  
+Enable/disable the addition of files listed in .gitignore to cecli's editing scope.  
 Default: False  
 Environment variable: `CECLI_ADD_GITIGNORE_FILES`  
 Aliases:
@@ -428,7 +428,7 @@ Aliases:
   - `--no-add-gitignore-files`
 
 ### `--aiderignore AIDERIGNORE`
-Specify the aider ignore file (default: .aiderignore in git root)  
+Specify the cecli ignore file (default: .aiderignore in git root)  
 Default: .aiderignore  
 Environment variable: `CECLI_AIDERIGNORE`  
 
@@ -454,21 +454,21 @@ Aliases:
   - `--no-dirty-commits`
 
 ### `--attribute-author`
-Attribute aider code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.  
+Attribute cecli code changes in the git author name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence.  
 Environment variable: `CECLI_ATTRIBUTE_AUTHOR`  
 Aliases:
   - `--attribute-author`
   - `--no-attribute-author`
 
 ### `--attribute-committer`
-Attribute aider commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for aider edits.  
+Attribute cecli commits in the git committer name (default: True). If explicitly set to True, overrides --attribute-co-authored-by precedence for cecli edits.  
 Environment variable: `CECLI_ATTRIBUTE_COMMITTER`  
 Aliases:
   - `--attribute-committer`
   - `--no-attribute-committer`
 
 ### `--attribute-commit-message-author`
-Prefix commit messages with 'aider: ' if aider authored the changes (default: False)  
+Prefix commit messages with 'cecli: ' if cecli authored the changes (default: False)  
 Default: False  
 Environment variable: `CECLI_ATTRIBUTE_COMMIT_MESSAGE_AUTHOR`  
 Aliases:
@@ -476,7 +476,7 @@ Aliases:
   - `--no-attribute-commit-message-author`
 
 ### `--attribute-commit-message-committer`
-Prefix all commit messages with 'aider: ' (default: False)  
+Prefix all commit messages with 'cecli: ' (default: False)  
 Default: False  
 Environment variable: `CECLI_ATTRIBUTE_COMMIT_MESSAGE_COMMITTER`  
 Aliases:
@@ -484,7 +484,7 @@ Aliases:
   - `--no-attribute-commit-message-committer`
 
 ### `--attribute-co-authored-by`
-Attribute aider edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.  
+Attribute cecli edits using the Co-authored-by trailer in the commit message (default: True). If True, this takes precedence over default --attribute-author and --attribute-committer behavior unless they are explicitly set to True.  
 Default: True  
 Environment variable: `CECLI_ATTRIBUTE_CO_AUTHORED_BY`  
 Aliases:
@@ -601,7 +601,7 @@ Default: False
 Environment variable: `CECLI_JUST_CHECK_UPDATE`  
 
 ### `--check-update`
-Check for new aider versions on launch  
+Check for new cecli versions on launch  
 Default: True  
 Environment variable: `CECLI_CHECK_UPDATE`  
 Aliases:
@@ -621,7 +621,7 @@ Default: False
 Environment variable: `CECLI_INSTALL_MAIN_BRANCH`  
 
 ### `--upgrade`
-Upgrade aider to the latest version from PyPI  
+Upgrade cecli to the latest version from PyPI  
 Default: False  
 Environment variable: `CECLI_UPGRADE`  
 Aliases:
@@ -649,7 +649,7 @@ Aliases:
   - `-f MESSAGE_FILE`
 
 ### `--gui`
-Run aider in your browser (default: False)  
+Run cecli in your browser (default: False)  
 Default: False  
 Environment variable: `CECLI_GUI`  
 Aliases:
@@ -659,7 +659,7 @@ Aliases:
   - `--no-browser`
 
 ### `--copy-paste`
-Enable automatic copy/paste of chat between aider and web UI (default: False)  
+Enable automatic copy/paste of chat between cecli and web UI (default: False)  
 Default: False  
 Environment variable: `CECLI_COPY_PASTE`  
 Aliases:
@@ -820,7 +820,7 @@ Specify which editor to use for the /editor command
 Environment variable: `CECLI_EDITOR`  
 
 ### `--shell-completions SHELL`
-Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: aider --shell-completions bash  
+Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: cecli --shell-completions bash  
 Environment variable: `CECLI_SHELL_COMPLETIONS`  
 
 ## Deprecated model settings:

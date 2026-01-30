@@ -1,17 +1,17 @@
 ---
-title: Aider in your IDE
+title: cecli in your IDE
 #highlight_image: /assets/browser.jpg
 parent: Usage
 nav_order: 750
-description: Aider can watch your files and respond to AI comments you add in your favorite IDE or text editor.
+description: cecli can watch your files and respond to AI comments you add in your favorite IDE or text editor.
 ---
 
-# Aider in your IDE
+# cecli in your IDE
 
 <div class="video-container">
   <video controls loop poster="/assets/watch.jpg">
     <source src="/assets/watch.mp4" type="video/mp4">
-    <a href="/assets/watch.mp4">Aider browser UI demo video</a>
+    <a href="/assets/watch.mp4">cecli browser UI demo video</a>
   </video>
 </div>
 
@@ -34,10 +34,10 @@ description: Aider can watch your files and respond to AI comments you add in yo
 
 ## AI comments
 
-If you run aider with `--watch-files`, it will watch all files in your repo
+If you run cecli with `--watch-files`, it will watch all files in your repo
 and look for any AI coding instructions you add using your favorite IDE or text editor.
 
-Specifically, aider looks for one-liner comments (# ... or // ...) that either start or end with `AI`, `AI!` or `AI?` like these:
+Specifically, cecli looks for one-liner comments (# ... or // ...) that either start or end with `AI`, `AI!` or `AI?` like these:
 
 ```python
 # Make a snake game. AI!
@@ -50,16 +50,16 @@ Or in `//` comment languages...
 // Write a protein folding prediction engine. AI!
 ```
 
-Aider will take note of all the comments that start or end with `AI`.
+cecli will take note of all the comments that start or end with `AI`.
 Comments that include `AI!` with an exclamation point or `AI?` with a question
 mark are special.
-They trigger aider to take action to collect *all* the AI comments and use them
+They trigger cecli to take action to collect *all* the AI comments and use them
 as your instructions.
 
-- `AI!` triggers aider to make changes to your code.
-- `AI?` triggers aider to answer your question.
+- `AI!` triggers cecli to make changes to your code.
+- `AI?` triggers cecli to answer your question.
 
-See the demo video above that shows aider working with AI comments in VSCode.
+See the demo video above that shows cecli working with AI comments in VSCode.
 
 
 ## Example
@@ -70,7 +70,7 @@ For example, if you included this AI comment in your code:
 function factorial(n) // Implement this. AI!
 ```
 
-Then aider would update the file and implement the function:
+Then cecli would update the file and implement the function:
 
 ```js
 function factorial(n) {
@@ -84,7 +84,7 @@ function factorial(n) {
 
 ## Comment styles
 
-Aider only watches for these types of **one-liner** comments:
+cecli only watches for these types of **one-liner** comments:
 
 ```
 # Python and bash style
@@ -92,7 +92,7 @@ Aider only watches for these types of **one-liner** comments:
 -- SQL style
 ```
 
-Aider will look for those comment types in all files.
+cecli will look for those comment types in all files.
 You can use them into any code file you're editing, even if they aren't the
 correct comment syntax for that language.
 
@@ -119,10 +119,10 @@ app.get('/sqrt/:n', (req, res) => {
 ### Multiple comments
 
 You can add multiple `AI` comments without the `!`,
-before triggering aider with a final `AI!`.
+before triggering cecli with a final `AI!`.
 Also keep in mind that you can spread the AI comments across
 multiple files, if you want to coordinate changes in multiple places.
-Just use `AI!` last, to trigger aider.
+Just use `AI!` last, to trigger cecli.
 
 ```python
 @app.route('/factorial/<int:n>')
@@ -145,7 +145,7 @@ def factorial(n):
 
 You can add a block of comments, with longer instructions.
 Just be sure to start or end one of the lines with `AI` or `AI!` to draw
-aider's attention to the block.
+cecli's attention to the block.
 
 ```python
 # Make these changes: AI!
@@ -158,31 +158,31 @@ if __name__ == "__main__":
     app.run(debug=True)
 ```
 
-### Add a file to the aider chat
+### Add a file to the cecli chat
 
-Rather than using `/add` to add a file inside the aider chat, you can
+Rather than using `/add` to add a file inside the cecli chat, you can
 simply put an `#AI` comment in it and save the file.
 You can undo/remove the comment immediately if you like, the file
-will still be added to the aider chat.
+will still be added to the cecli chat.
 
-## Also use aider chat in the terminal
+## Also use cecli chat in the terminal
 
 It can be really helpful to get a change started with AI comments.
 But sometimes you want to build on or refine those changes.
 You can of course continue to do that with AI comments,
-but it can sometimes be effective to switch over to the aider terminal chat.
+but it can sometimes be effective to switch over to the cecli terminal chat.
 The chat has the history of the AI comments you just made,
 so you can continue on naturally from there.
 
-You can also use the normal aider chat in your terminal to work with
-many of aider's more advanced features:
+You can also use the normal cecli chat in your terminal to work with
+many of cecli's more advanced features:
 
 - Use `/undo` to revert changes you don't like. Although you may also be able to use your IDE's undo function to step back in the file history.
-- Use [chat modes](https://aider.chat/docs/usage/modes.html) to ask questions or get help.
+- Use [chat modes](https://cecli.dev/docs/usage/modes.html) to ask questions or get help.
 - Manage the chat context with `/tokens`, `/clear`, `/drop`, `/reset`.
 Adding an AI comment will add the file to the chat.
 Periodically, you may want remove extra context that is no longer needed.
-- [Fix lint and test errors](https://aider.chat/docs/usage/lint-test.html).
+- [Fix lint and test errors](https://cecli.dev/docs/usage/lint-test.html).
 - Run shell commands.
 - Etc.
 
@@ -216,7 +216,7 @@ Or...
 ```
 
 Rather than a long, explicit comment like "Add error handling for NaN and less than zero,"
-you can let aider infer more about the request.
+you can let cecli infer more about the request.
 This simpler comment may be sufficient:
 
 ```javascript
@@ -249,13 +249,13 @@ def factorial(n):
     return jsonify(result=result)
 ```
 
-As you use aider with your chosen LLM, you can develop a sense for how
+As you use cecli with your chosen LLM, you can develop a sense for how
 explicit you need to make your AI comments.
 
 ## Behind the scenes
 
-Aider sends your AI comments to the LLM with the
-[repo map](https://aider.chat/docs/repomap.html)
+cecli sends your AI comments to the LLM with the
+[repo map](https://cecli.dev/docs/repomap.html)
 and all the other code context you've added to the chat.
 
 It also pulls out and highlights the AI comments with specific context, showing the LLM

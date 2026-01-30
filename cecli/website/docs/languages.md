@@ -1,54 +1,54 @@
 ---
 parent: More info
 nav_order: 200
-description: Aider supports pretty much all popular coding languages.
+description: cecli supports pretty much all popular coding languages.
 ---
 # Supported languages
 
-Aider should work well with most popular coding languages.
+cecli should work well with most popular coding languages.
 This is because top LLMs are fluent in most mainstream languages,
 and familiar with popular libraries, packages and frameworks.
 
-Aider has specific support for linting many languages.
-By default, aider runs the built in linter any time a file is edited.
-If it finds syntax errors, aider will offer to fix them for you.
+cecli has specific support for linting many languages.
+By default, cecli runs the built in linter any time a file is edited.
+If it finds syntax errors, cecli will offer to fix them for you.
 This helps catch small code issues and quickly fix them.
 
-Aider also does code analysis to help
+cecli also does code analysis to help
 the LLM navigate larger code bases by producing
-a [repository map](https://aider.chat/docs/repomap.html).
-Aider can currently produce repository maps for many popular
+a [repository map](https://cecli.dev/docs/repomap.html).
+cecli can currently produce repository maps for many popular
 mainstream languages, listed below.
 
 
 ## How to add support for another language
 
-Aider should work quite well for other languages, even those
+cecli should work quite well for other languages, even those
 without repo map or linter support.
-You should really try coding with aider before
+You should really try coding with cecli before
 assuming it needs better support for your language.
 
-That said, if aider already has support for linting your language,
+That said, if cecli already has support for linting your language,
 then it should be possible to add repo map support.
-To build a repo map, aider needs the `tags.scm` file
+To build a repo map, cecli needs the `tags.scm` file
 from the given language's tree-sitter grammar.
 If you can find and share that file in a 
-[GitHub issue](https://github.com/Aider-AI/aider/issues),
+[GitHub issue](https://github.com/dwash96/cecli/issues),
 then it may be possible to add repo map support.
 
-If aider doesn't already support linting your language, 
+If cecli doesn't already support linting your language, 
 it will be more complicated to add support.
-Aider relies on
+cecli relies on
 [tree-sitter-language-pack](https://github.com/Goldziher/tree-sitter-language-pack)
 to provide pre-packaged versions of tree-sitter
 language parsers.
-This makes it easy for users to install aider in many diverse environments.
+This makes it easy for users to install cecli in many diverse environments.
 You probably need to work with that project to get your language
-supported, which will easily allow aider to lint that language.
+supported, which will easily allow cecli to lint that language.
 For repo-map support, you will also need to find or create a `tags.scm` file.
 
 <!--[[[cog
-from aider.repomap import get_supported_languages_md
+from cecli.repomap import get_supported_languages_md
 cog.out(get_supported_languages_md())
 ]]]-->
 

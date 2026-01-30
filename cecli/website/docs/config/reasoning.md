@@ -10,30 +10,30 @@ description: How to configure reasoning model settings from secondary providers.
 
 ## Basic usage
 
-Aider is configured to work with most popular reasoning models out of the box. 
+cecli is configured to work with most popular reasoning models out of the box. 
 You can use them like this:
 
 ```bash
 # Sonnet uses a thinking token budget
-aider --model sonnet --thinking-tokens 8k
+cecli --model sonnet --thinking-tokens 8k
 
 # o3-mini uses low/medium/high reasoning effort
-aider --model o3-mini --reasoning-effort high
+cecli --model o3-mini --reasoning-effort high
 
 # R1 doesn't have configurable thinking/reasoning
-aider --model r1
+cecli --model r1
 ```
 
-Inside the aider chat, you can use `/thinking-tokens 4k` or `/reasoning-effort low` to change
+Inside the cecli chat, you can use `/thinking-tokens 4k` or `/reasoning-effort low` to change
 the amount of reasoning. Use `/thinking-tokens 0` to disable thinking tokens.
 
 The rest of this document describes more advanced details which are mainly needed
-if you're configuring aider to work with a lesser known reasoning model or one served
+if you're configuring cecli to work with a lesser known reasoning model or one served
 via an unusual provider.
 
 ## Reasoning settings
 
-Different models support different reasoning settings. Aider provides several ways to control reasoning behavior:
+Different models support different reasoning settings. cecli provides several ways to control reasoning behavior:
 
 ### Reasoning effort
 
@@ -51,7 +51,7 @@ Use "0" to disable thinking tokens.
 
 ### Model compatibility and settings
 
-Not all models support these two settings. Aider uses the 
+Not all models support these two settings. cecli uses the 
 [model's metadata](/docs/config/adv-model-settings.html)
 to determine which settings each model accepts:
 
@@ -61,7 +61,7 @@ to determine which settings each model accepts:
   accepts_settings: ["reasoning_effort"]
 ```
 
-If you try to use a setting that a model doesn't explicitly support, Aider will warn you:
+If you try to use a setting that a model doesn't explicitly support, cecli will warn you:
 
 ```
 Warning: o3-mini does not support 'thinking_tokens', ignoring.
@@ -93,13 +93,13 @@ Models define which reasoning settings they accept using the `accepts_settings` 
 ```
 
 This configuration:
-1. Tells Aider that the model accepts the `reasoning_effort` setting
+1. Tells cecli that the model accepts the `reasoning_effort` setting
 2. Indicates the model does NOT accept `thinking_tokens` (since it's not listed)
-3. Causes Aider to ignore any `--thinking-tokens` value passed for this model
+3. Causes cecli to ignore any `--thinking-tokens` value passed for this model
 4. Generates a warning if you try to use `--thinking-tokens` with this model
 
 You can override this behavior with `--no-check-model-accepts-settings`, which will:
-1. Force Aider to apply all settings passed via command line
+1. Force cecli to apply all settings passed via command line
 2. Skip all compatibility checks
 3. Potentially cause API errors if the model truly doesn't support the setting
 
@@ -112,7 +112,7 @@ There is also a `reasoning_tag` setting, which takes the name of an XML tag
 that the model uses to wrap its reasoning/thinking output.
 
 For example when using DeepSeek R1 from Fireworks, the reasoning comes back inside
-`<think>...</think>` tags, so aider's settings
+`<think>...</think>` tags, so cecli's settings
 include `reasoning_tag: think`.
 
 ```
@@ -123,9 +123,9 @@ The user wants me to greet them!
 Hello!
 ```
 
-Aider will display the thinking/reasoning output, 
+cecli will display the thinking/reasoning output, 
 but it won't be used for file editing instructions, added to the chat history, etc.
-Aider will rely on the non-thinking output for instructions on how to make code changes, etc.
+cecli will rely on the non-thinking output for instructions on how to make code changes, etc.
 
 ### Model-specific reasoning tags
 
@@ -149,7 +149,7 @@ When using custom or self-hosted models, you may need to specify the appropriate
 
 Many "reasoning" models have restrictions on how they can be used:
 they sometimes prohibit streaming, use of temperature and/or the system prompt.
-Aider is configured to work properly with popular models
+cecli is configured to work properly with popular models
 when served through major provider APIs.
 
 If you're using a model through a different provider (like Azure or custom deployment),
@@ -170,7 +170,7 @@ Reasoning models often have specific requirements for these settings:
 | `use_system_prompt` | Whether to use system prompt | Some reasoning models don't support system prompts |
 
 It may be helpful to find one of the 
-[existing model setting configuration entries](https://github.com/Aider-AI/aider/blob/main/aider/resources/model-settings.yml)
+[existing model setting configuration entries](https://github.com/dwash96/cecli/blob/main/cecli/resources/model-settings.yml)
 for the model you are interested in, say o3-mini:
 
 ```yaml
@@ -194,7 +194,7 @@ for certain reasoning models:
 ### Custom provider example
 
 Here's an example of the settings to use o3-mini via Azure.
-Note that aider already has these settings pre-configured, but they
+Note that cecli already has these settings pre-configured, but they
 serve as a good example of how to adapt the main model
 settings for a different provider.
 

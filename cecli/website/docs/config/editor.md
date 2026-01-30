@@ -1,22 +1,22 @@
 ---
 parent: Configuration
 nav_order: 100
-description: How to configure a custom editor for aider's /editor command
+description: How to configure a custom editor for cecli's /editor command
 ---
 
 # Editor configuration
 
-Aider allows you to configure your preferred text editor for use with the `/editor` command. The editor must be capable of running in "blocking mode", meaning the command line will wait until you close the editor before proceeding.
+cecli allows you to configure your preferred text editor for use with the `/editor` command. The editor must be capable of running in "blocking mode", meaning the command line will wait until you close the editor before proceeding.
 
 ## Using `--editor`
 
 You can specify the text editor with the `--editor` switch or using
-`editor:` in aider's
-[YAML config file](https://aider.chat/docs/config/aider_conf.html).
+`editor:` in cecli's
+[YAML config file](https://cecli.dev/docs/config/cecli_conf.html).
 
 ## Environment variables
 
-Aider checks the following environment variables in order to determine which editor to use:
+cecli checks the following environment variables in order to determine which editor to use:
 
 1. `CECLI_EDITOR`
 2. `VISUAL`
@@ -24,7 +24,7 @@ Aider checks the following environment variables in order to determine which edi
 
 ## Default behavior
 
-If no editor is configured, aider will use these platform-specific defaults:
+If no editor is configured, cecli will use these platform-specific defaults:
 
 - Windows: `notepad`
 - macOS: `vim`

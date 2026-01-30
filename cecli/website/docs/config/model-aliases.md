@@ -10,10 +10,10 @@ Model aliases allow you to create shorthand names for models you frequently use.
 
 ## Command Line Usage
 
-You can define aliases when launching aider using the `--alias` option:
+You can define aliases when launching cecli using the `--alias` option:
 
 ```bash
-aider --alias "fast:gpt-5-mini" --alias "smart:o3-mini"
+cecli --alias "fast:gpt-5-mini" --alias "smart:o3-mini"
 ```
 
 Multiple aliases can be defined by using the `--alias` option multiple times. Each alias definition should be in the format `alias:model-name`.
@@ -21,7 +21,7 @@ Multiple aliases can be defined by using the `--alias` option multiple times. Ea
 ## Configuration File
 
 Of course,
-you can also define aliases in your [`.aider.conf.yml` file](https://aider.chat/docs/config/aider_conf.html):
+you can also define aliases in your [`.aider.conf.yml` file](https://cecli.dev/docs/config/cecli_conf.html):
 
 ```yaml
 alias:
@@ -35,14 +35,14 @@ alias:
 Once defined, you can use the alias instead of the full model name from the command line:
 
 ```bash
-aider --model fast  # Uses gpt-5-mini
-aider --model smart  # Uses o3-mini
+cecli --model fast  # Uses gpt-5-mini
+cecli --model smart  # Uses o3-mini
 ```
 
 Or with the `/model` command in-chat:
 
 ```
-Aider v0.75.3
+cecli v0.75.3
 Main model: anthropic/claude-3-7-sonnet-20250219 with diff edit format, prompt cache, infinite output
 Weak model: claude-3-5-sonnet-20241022
 Git repo: .git with 406 files
@@ -50,12 +50,12 @@ Repo-map: using 4096 tokens, files refresh
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 > /model fast
 
-Aider v0.75.3
+cecli v0.75.3
 Main model: gpt-5-mini with diff edit format
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 diff> /model smart
 
-Aider v0.75.3
+cecli v0.75.3
 Main model: o3-mini with diff edit format
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 >
@@ -63,11 +63,11 @@ Main model: o3-mini with diff edit format
 
 ## Built-in Aliases
 
-Aider includes some built-in aliases for convenience:
+cecli includes some built-in aliases for convenience:
 
 <!--[[[cog
 import cog
-from aider.models import MODEL_ALIASES
+from cecli.models import MODEL_ALIASES
 
 for alias, model in sorted(MODEL_ALIASES.items()):
     cog.outl(f"- `{alias}`: {model}")
@@ -133,21 +133,21 @@ You can use these suffixes with any model argument:
 
 ```bash
 # Main model with high reasoning effort (using file)
-aider --model gpt-5:high --model-overrides-file .aider.model.overrides.yml
+cecli --model gpt-5:high --model-overrides-file .aider.model.overrides.yml
 
 # Main model with high reasoning effort (using direct JSON/YAML)
-aider --model gpt-5:high --model-overrides '{"gpt-5": {"high": {"temperature": 0.8, "top_p": 0.9, "extra_body": {"reasoning_effort": "high"}}}}'
+cecli --model gpt-5:high --model-overrides '{"gpt-5": {"high": {"temperature": 0.8, "top_p": 0.9, "extra_body": {"reasoning_effort": "high"}}}}'
 
 # Different configurations for main and weak models
-aider --model claude-3-5-sonnet:detailed --weak-model claude-3-5-sonnet:fast
+cecli --model claude-3-5-sonnet:detailed --weak-model claude-3-5-sonnet:fast
 
 # Editor model with creative settings
-aider --model gpt-5 --editor-model gpt-5:creative
+cecli --model gpt-5 --editor-model gpt-5:creative
 ```
 
 ### How It Works
 
-1. When you specify a model with a suffix (e.g., `gpt-5:high`), Aider splits it into the base model name (`gpt-5`) and suffix (`high`).
+1. When you specify a model with a suffix (e.g., `gpt-5:high`), cecli splits it into the base model name (`gpt-5`) and suffix (`high`).
 2. It looks up the suffix in the overrides file for that model.
 3. The corresponding configuration parameters are applied to the model's API calls.
 4. The parameters are deep-merged into the model's existing settings, with overrides taking precedence.
@@ -155,8 +155,8 @@ aider --model gpt-5 --editor-model gpt-5:creative
 ### Priority
 
 Model overrides work alongside aliases. For example, you can use:
-- `aider --model fast:high` (if `fast` is an alias for `gpt-5-mini`)
-- `aider --model sonnet:detailed` (if `sonnet` is an alias for `anthropic/claude-sonnet-4-20250514`)
+- `cecli --model fast:high` (if `fast` is an alias for `gpt-5-mini`)
+- `cecli --model sonnet:detailed` (if `sonnet` is an alias for `anthropic/claude-sonnet-4-20250514`)
 
 The suffix is applied after alias resolution.
 

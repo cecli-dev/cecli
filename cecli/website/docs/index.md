@@ -2,9 +2,9 @@
 nav_exclude: true
 ---
 
-# Aider Documentation
+# cecli Documentation
 
-Aider is AI pair programming in your terminal. This documentation will help you get the most out of aider.
+cecli is AI pair programming in your terminal. This documentation will help you get the most out of cecli.
 
 <div class="toc">
 {% assign pages_list = site.html_pages | sort: "nav_order" %}

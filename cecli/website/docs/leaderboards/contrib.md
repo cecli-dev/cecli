@@ -1,5 +1,5 @@
 ---
-parent: Aider LLM Leaderboards
+parent: cecli LLM Leaderboards
 nav_order: 900
 ---
 
@@ -7,8 +7,8 @@ nav_order: 900
 
 Contributions of benchmark results are welcome!
 See the
-[benchmark README](https://github.com/Aider-AI/aider/blob/main/benchmark/README.md)
-for information on running aider's code editing benchmarks.
+[benchmark README](https://github.com/dwash96/cecli/blob/main/benchmark/README.md)
+for information on running cecli's code editing benchmarks.
 Submit results by opening a PR with edits to the
-[benchmark results data files](https://github.com/Aider-AI/aider/blob/main/aider/website/_data/).
+[benchmark results data files](https://github.com/dwash96/cecli/blob/main/cecli/website/_data/).
 

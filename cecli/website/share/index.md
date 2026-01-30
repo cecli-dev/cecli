@@ -11,7 +11,7 @@ nav_exclude: true
 # Shared aider chat transcript
 
 A user has shared the following transcript of a pair programming chat session
-created using <a href="https://aider.chat">aider</a>.
+created using aider before it was forked into <a href="https://cecli.dev">cecli</a>.
 Aider is a command line tool that lets you pair program with GPT-3.5 or
 GPT-4, to edit code stored in your local git repository.
 

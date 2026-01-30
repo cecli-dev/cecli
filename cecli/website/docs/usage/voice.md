@@ -1,16 +1,16 @@
 ---
 parent: Usage
 nav_order: 100
-description: Speak with aider about your code!
+description: Speak with cecli about your code!
 ---
 
-# Voice-to-code with aider
+# Voice-to-code with cecli
 
-Speak with aider about your code! Request new features, test cases or bug fixes using your voice and let aider do the work of editing the files in your local git repo. As with all of aider's capabilities, you can use voice-to-code with an existing repo or to start a new project.
+Speak with cecli about your code! Request new features, test cases or bug fixes using your voice and let cecli do the work of editing the files in your local git repo. As with all of aider's capabilities, you can use voice-to-code with an existing repo or to start a new project.
 
-Voice support fits quite naturally into aider's AI pair programming
+Voice support fits quite naturally into cecli's AI pair programming
 chat interface. Now you can fluidly switch between voice and text chat
-when you ask aider to edit your code.
+when you ask cecli to edit your code.
 
 ## How to use voice-to-code
 
@@ -18,15 +18,15 @@ Use the in-chat `/voice` command to start recording,
 and press `ENTER` when you're done speaking.
 Your voice coding instructions will be transcribed, 
 as if you had  typed them into
-the aider chat session.
+the cecli chat session.
 
-See the [installation instructions](https://aider.chat/docs/install/optional.html#enable-voice-coding) for
+See the [installation instructions](https://cecli.dev/docs/install/optional.html#enable-voice-coding) for
 information on how to enable the `/voice` command.
 
 <br/>
 <div class="chat-transcript" markdown="1">
 
-> Aider v0.11.2-dev  
+> cecli v0.11.2-dev  
 > Added app.py to the chat.  
 
 #### /voice
@@ -113,7 +113,7 @@ if __name__ == '__main__':
 ```
 
 > Applied edit to app.py  
-> Commit ef9e3e7 aider: Add a factorial endpoint that uses math.factorial.  
+> Commit ef9e3e7 cecli: Add a factorial endpoint that uses math.factorial.  
 
 </div>
 <br/>
