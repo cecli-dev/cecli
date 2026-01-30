@@ -13,12 +13,9 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-TOKENS_PER_WEEK = "15B"
-
 # Badge tooltip texts
 GITHUB_STARS_TOOLTIP = "Total number of GitHub stars the cecli project has received"
 PYPI_DOWNLOADS_TOOLTIP = "Total number of installations via pip from PyPI"
-TOKENS_WEEKLY_TOOLTIP = "Number of tokens processed weekly by cecli users"
 OPENROUTER_TOOLTIP = "cecli's ranking among applications on the OpenRouter platform"
 SINGULARITY_TOOLTIP = "Percentage of the new code in cecli's last release written by cecli itself"
 
@@ -151,7 +148,7 @@ def get_downloads_from_bigquery(credentials_path=None, package_name="cecli-chat"
 
 
 def get_total_downloads(
-    api_key=None, package_name="cecli-chat", use_bigquery=False, credentials_path=None
+    api_key=None, package_name="cecli-dev", use_bigquery=False, credentials_path=None
 ):
     """
     Fetch total downloads for a Python package
@@ -185,7 +182,7 @@ def get_total_downloads(
         sys.exit(1)
 
 
-def get_github_stars(repo="paul-gauthier/cecli"):
+def get_github_stars(repo="dwash96/cecli"):
     """
     Fetch the number of GitHub stars for a repository
     """
@@ -279,19 +276,11 @@ def generate_badges_md(downloads, stars, cecli_percentage):
     # Format downloads to 1 decimal place with M suffix
     downloads_formatted = format_number(downloads)
 
-    # Round cecli percentage to whole number
-    cecli_percent_rounded = round(cecli_percentage)
-
     markdown = f"""  <a href="https://github.com/Aider-AI/cecli/stargazers"><img alt="GitHub Stars" title="{GITHUB_STARS_TOOLTIP}"
 src="https://img.shields.io/github/stars/Aider-AI/cecli?style=flat-square&logo=github&color=f1c40f&labelColor=555555"/></a>
   <a href="https://pypi.org/project/cecli-chat/"><img alt="PyPI Downloads" title="{PYPI_DOWNLOADS_TOOLTIP}"
 src="https://img.shields.io/badge/📦%20Installs-{downloads_formatted}-2ecc71?style=flat-square&labelColor=555555"/></a>
-  <img alt="Tokens per week" title="{TOKENS_WEEKLY_TOOLTIP}"
-src="https://img.shields.io/badge/📈%20Tokens%2Fweek-{TOKENS_PER_WEEK}-3498db?style=flat-square&labelColor=555555"/>
-  <a href="https://openrouter.ai/#options-menu"><img alt="OpenRouter Ranking" title="{OPENROUTER_TOOLTIP}"
-src="https://img.shields.io/badge/🏆%20OpenRouter-Top%2020-9b59b6?style=flat-square&labelColor=555555"/></a>
-  <a href="https://cecli.chat/HISTORY.html"><img alt="Singularity" title="{SINGULARITY_TOOLTIP}"
-src="https://img.shields.io/badge/🔄%20Singularity-{cecli_percent_rounded}%25-e74c3c?style=flat-square&labelColor=555555"/></a>"""  # noqa
+  <a href="https://openrouter.ai/#options-menu">"""  # noqa
 
     return markdown
 
@@ -323,10 +312,10 @@ def get_badges_md():
             sys.exit(1)
 
     # Get PyPI downloads for the default package
-    total_downloads = get_total_downloads(api_key, "cecli-chat", use_bigquery, credentials_path)
+    total_downloads = get_total_downloads(api_key, "cecli-dev", use_bigquery, credentials_path)
 
     # Get GitHub stars for the default repo
-    stars = get_github_stars("paul-gauthier/cecli")
+    stars = get_github_stars("dwash96/cecli")
 
     # Get cecli contribution percentage in latest release
     percentage, _ = get_latest_release_cecli_percentage()
@@ -362,13 +351,10 @@ def get_badges_html():
             sys.exit(1)
 
     # Get PyPI downloads for the default package
-    total_downloads = get_total_downloads(api_key, "cecli-chat", use_bigquery, credentials_path)
+    total_downloads = get_total_downloads(api_key, "cecli-dev", use_bigquery, credentials_path)
 
     # Get GitHub stars for the default repo
-    stars = get_github_stars("paul-gauthier/cecli")
-
-    # Get cecli contribution percentage in latest release
-    percentage, _ = get_latest_release_cecli_percentage()
+    stars = get_github_stars("dwash96/cecli")
 
     # Format values
     downloads_formatted = format_number(total_downloads)
@@ -383,7 +369,6 @@ def get_badges_html():
         stars_formatted = f"{round(stars / 1_000)}K"
     else:
         stars_formatted = str(int(round(stars)))
-    cecli_percent_rounded = round(percentage)
 
     # Generate HTML badges
     html = f"""<a href="https://github.com/Aider-AI/cecli" class="github-badge badge-stars" title="{GITHUB_STARS_TOOLTIP}">
@@ -393,18 +378,6 @@ def get_badges_html():
 <a href="https://pypi.org/project/cecli-chat/" class="github-badge badge-installs" title="{PYPI_DOWNLOADS_TOOLTIP}">
     <span class="badge-label">📦 Installs</span>
     <span class="badge-value">{downloads_formatted}</span>
-</a>
-<div class="github-badge badge-tokens" title="{TOKENS_WEEKLY_TOOLTIP}">
-    <span class="badge-label">📈 Tokens/week</span>
-    <span class="badge-value">{TOKENS_PER_WEEK}</span>
-</div>
-<a href="https://openrouter.ai/#options-menu" class="github-badge badge-router" title="{OPENROUTER_TOOLTIP}">
-    <span class="badge-label">🏆 OpenRouter</span>
-    <span class="badge-value">Top 20</span>
-</a>
-<a href="/HISTORY.html" class="github-badge badge-coded" title="{SINGULARITY_TOOLTIP}">
-    <span class="badge-label">🔄 Singularity</span>
-    <span class="badge-value">{cecli_percent_rounded}%</span>
 </a>"""  # noqa
 
     return html
@@ -542,13 +515,11 @@ def main():
             " variable)"
         ),
     )
-    parser.add_argument(
-        "--package", default="cecli-chat", help="Package name (default: cecli-chat)"
-    )
+    parser.add_argument("--package", default="cecli-dev", help="Package name (default: cecli-dev)")
     parser.add_argument(
         "--github-repo",
-        default="paul-gauthier/cecli",
-        help="GitHub repository (default: paul-gauthier/cecli)",
+        default="dwash96/cecli",
+        help="GitHub repository (default: dwash96/cecli)",
     )
     parser.add_argument("--markdown", action="store_true", help="Generate markdown badges block")
     parser.add_argument(
