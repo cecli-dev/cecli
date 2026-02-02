@@ -262,6 +262,7 @@ class Coder:
 
                 # Transfer TUI app weak reference
                 res.tui = from_coder.tui
+                res.context_management_enabled = from_coder.context_management_enabled
 
             await res.initialize_mcp_tools()
 
@@ -2095,6 +2096,10 @@ class Coder:
         self.io.llm_started()
 
         if inp:
+            # Make sure current coder actually has control of conversation system
+            ConversationChunks.initialize_conversation_system(self)
+            self.format_chat_chunks()
+
             # Always add user message to conversation manager
             ConversationManager.add_message(
                 message_dict=dict(role="user", content=inp),

@@ -373,9 +373,11 @@ class ConversationChunks:
             content = ConversationFiles.get_file_stub(fname)
             if content:
                 # Add user message with file path as hash_key
+                rel_fname = coder.get_rel_fname(fname)
+
                 user_msg = {
                     "role": "user",
-                    "content": f"File Contents {fname}:\n\n{content}",
+                    "content": f"File Contents {rel_fname}:\n\n{content}",
                 }
                 ConversationManager.add_message(
                     message_dict=user_msg,
@@ -423,7 +425,6 @@ class ConversationChunks:
                         message_dict=assistant_msg,
                         tag=MessageTag.READONLY_FILES,
                         hash_key=("image_assistant", fname),
-                        force=True,
                     )
 
         return messages
@@ -469,16 +470,18 @@ class ConversationChunks:
             if not content:
                 continue
 
+            rel_fname = coder.get_rel_fname(fname)
+
             # Create user message
             user_msg = {
                 "role": "user",
-                "content": f"File Contents {fname}:\n\n{content}",
+                "content": f"File Contents {rel_fname}:\n\n{content}",
             }
 
             # Create assistant message
             assistant_msg = {
                 "role": "assistant",
-                "content": "Ok, I will view and/or modify this file as is necessary.",
+                "content": "Ok, I will modify this file as is necessary.",
             }
 
             # Determine tag based on editability
@@ -526,7 +529,6 @@ class ConversationChunks:
                         message_dict=assistant_msg,
                         tag=MessageTag.CHAT_FILES,
                         hash_key=("image_assistant", fname),
-                        force=True,
                     )
 
         return result

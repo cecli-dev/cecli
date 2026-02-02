@@ -41,6 +41,7 @@ class AgentCoder(Coder):
 
     edit_format = "agent"
     prompt_format = "agent"
+    context_management_enabled = True
 
     def __init__(self, *args, **kwargs):
         self.recently_removed = {}
@@ -71,7 +72,6 @@ class AgentCoder(Coder):
         }
         self.max_tool_calls = 10000
         self.large_file_token_threshold = 8192
-        self.context_management_enabled = True
         self.skills_manager = None
         self.change_tracker = ChangeTracker()
         self.args = kwargs.get("args")
