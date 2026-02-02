@@ -373,9 +373,11 @@ class ConversationChunks:
             content = ConversationFiles.get_file_stub(fname)
             if content:
                 # Add user message with file path as hash_key
+                rel_fname = coder.get_rel_fname(fname)
+
                 user_msg = {
                     "role": "user",
-                    "content": f"File Contents {fname}:\n\n{content}",
+                    "content": f"File Contents {rel_fname}:\n\n{content}",
                 }
                 ConversationManager.add_message(
                     message_dict=user_msg,
@@ -468,10 +470,12 @@ class ConversationChunks:
             if not content:
                 continue
 
+            rel_fname = coder.get_rel_fname(fname)
+
             # Create user message
             user_msg = {
                 "role": "user",
-                "content": f"File Contents {fname}:\n\n{content}",
+                "content": f"File Contents {rel_fname}:\n\n{content}",
             }
 
             # Create assistant message

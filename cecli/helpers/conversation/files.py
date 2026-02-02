@@ -180,6 +180,7 @@ class ConversationFiles:
 
         # Read current content using coder.io.read_text()
         coder = cls.get_coder()
+        rel_fname = coder.get_rel_fname(fname)
         try:
             current_content = coder.io.read_text(abs_fname)
         except Exception:
@@ -198,8 +199,8 @@ class ConversationFiles:
         diff_lines = difflib.unified_diff(
             snapshot_content.splitlines(),
             current_content.splitlines(),
-            fromfile=f"{abs_fname} (snapshot)",
-            tofile=f"{abs_fname} (current)",
+            fromfile=f"{rel_fname} (snapshot)",
+            tofile=f"{rel_fname} (current)",
             lineterm="",
             n=3,
         )
@@ -223,20 +224,25 @@ class ConversationFiles:
         Returns:
             Diff string or None if no changes
         """
+        coder = cls.get_coder()
         diff = cls.generate_diff(fname)
+
         if diff:
             # Store diff
             abs_fname = os.path.abspath(fname)
             cls._file_diffs[abs_fname] = diff
 
+            rel_fname = fname
+
+            if coder:
+                rel_fname = coder.get_rel_fname(fname)
+
             # Add diff message to conversation
             diff_message = {
                 "role": "user",
-                "content": f"File {fname} has changed:\n\n{diff}",
+                "content": f"File {rel_fname} has changed:\n\n{diff}",
             }
 
-            # Determine tag based on file type
-            coder = cls.get_coder()
             if coder and hasattr(coder, "abs_fnames"):
                 tag = (
                     MessageTag.EDIT_FILES
