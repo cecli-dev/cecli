@@ -356,6 +356,18 @@ def get_parser(default_config_files, git_root):
     )
 
     ##########
+    group = parser.add_argument_group("Security Settings")
+    group.add_argument(
+        "--security-config",
+        metavar="SECURITY_CONFIG_JSON",
+        help=(
+            'Specify Security configuration as a JSON string (e.g., \'{"allowed-domains":'
+            ' ["github.com"]}\')'
+        ),
+        default=None,
+    )
+
+    ##########
     group = parser.add_argument_group("Context Compaction")
     group.add_argument(
         "--enable-context-compaction",

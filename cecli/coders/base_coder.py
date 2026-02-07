@@ -27,6 +27,7 @@ except ImportError:  # Babel not installed – we will fall back to a small mapp
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from typing import List
+from urllib.parse import urlparse
 
 import httpx
 from litellm import experimental_mcp_client
@@ -330,6 +331,7 @@ class Coder:
         map_cache_dir=".",
         repomap_in_memory=False,
         linear_output=False,
+        security_config=None,
     ):
         # initialize from args.map_cache_dir
         self.map_cache_dir = map_cache_dir
@@ -342,6 +344,7 @@ class Coder:
         self.abs_root_path_cache = {}
 
         self.auto_copy_context = auto_copy_context
+        self.security_config = security_config or {}
         self.auto_accept_architect = auto_accept_architect
 
         self.ignore_mentions = ignore_mentions
@@ -1607,6 +1610,22 @@ class Coder:
 
             await self.auto_save_session(force=True)
 
+    def _is_url_allowed(self, url):
+        allowed_domains = self.security_config.get("allowed-domains")
+        if not allowed_domains:
+            return True
+
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()
+        if not domain:
+            return False
+
+        for allowed in allowed_domains:
+            allowed = allowed.lower()
+            if domain == allowed or domain.endswith("." + allowed):
+                return True
+        return False
+
     async def check_and_open_urls(self, exc, friendly_msg=None):
         """Check exception for URLs, offer to open in a browser, with user-friendly error msgs."""
         text = str(exc)
@@ -1623,7 +1642,8 @@ class Coder:
         urls = list(set(url_pattern.findall(text)))
         for url in urls:
             url = url.rstrip(".',\"}")  # Added } to the characters to strip
-            await self.io.offer_url(url)
+            if self._is_url_allowed(url):
+                await self.io.offer_url(url)
         return urls
 
     async def check_for_urls(self, inp: str) -> List[str]:
@@ -1637,7 +1657,7 @@ class Coder:
         urls = list(set(url_pattern.findall(inp)))
         group = ConfirmGroup(urls)
         for url in urls:
-            if url not in self.rejected_urls:
+            if url not in self.rejected_urls and self._is_url_allowed(url):
                 url = url.rstrip(".',\"")
                 if await self.io.confirm_ask(
                     "Add URL to the chat?",

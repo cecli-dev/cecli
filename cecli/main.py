@@ -563,6 +563,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         args.mcp_servers = convert_yaml_to_json_string(args.mcp_servers)
     if hasattr(args, "custom") and args.custom is not None:
         args.custom = convert_yaml_to_json_string(args.custom)
+    if hasattr(args, "security_config") and args.security_config is not None:
+        args.security_config = convert_yaml_to_json_string(args.security_config)
     if hasattr(args, "retries") and args.retries is not None:
         args.retries = convert_yaml_to_json_string(args.retries)
     if args.debug:
@@ -1042,6 +1044,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             map_cache_dir=args.map_cache_dir,
             repomap_in_memory=args.map_memory_cache,
             linear_output=args.linear_output,
+            security_config=args.security_config,
         )
         if args.show_model_warnings and not suppress_pre_init:
             problem = await models.sanity_check_models(pre_init_io, main_model)
