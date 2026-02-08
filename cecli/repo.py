@@ -529,8 +529,12 @@ class GitRepo:
         if not self.repo:
             return
         try:
-            if self.repo.ignored(path):
-                return True
+            repo_ignored = self.repo.ignored(path)
+
+            if not self.cecli_ignore_file or not self.cecli_ignore_file.is_file():
+                return repo_ignored
+
+            return self.ignored_file(path)
         except ANY_GIT_ERROR:
             return False
 
@@ -568,6 +572,35 @@ class GitRepo:
             return True
 
         return self.cecli_ignore_spec.match_file(fname)
+
+    def get_non_ignored_files_from_root(self):
+        """
+        Return a set of all files in the repository that match the cecli ignore spec.
+
+        Uses pathspec's match_tree_files method to efficiently find all matching files
+        from the project root directory.
+
+        Returns:
+            set: Set of relative file paths that are ignored by the cecli ignore spec.
+        """
+        self.refresh_cecli_ignore()
+
+        if not self.cecli_ignore_file or not self.cecli_ignore_file.is_file():
+            return []
+
+        if not self.cecli_ignore_spec:
+            return []
+
+        try:
+            all_files = self.repo.git.ls_files(
+                "--others", "--cached", f"--exclude-from={str(self.cecli_ignore_file)}"
+            ).splitlines()
+
+            return [f for f in all_files if not self.ignored_file(f)]
+        except Exception as e:
+            # Fall back to empty set if there's an error
+            self.io.tool_warning(f"Error getting ignored files from root: {e}")
+            return []
 
     def path_in_repo(self, path):
         if not self.repo:

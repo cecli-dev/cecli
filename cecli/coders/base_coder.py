@@ -3500,7 +3500,10 @@ class Coder:
                 # Continue to get tracked files normally
 
         if self.repo:
-            files = self.repo.get_tracked_files()
+            if not self.repo.cecli_ignore_file or not self.repo.cecli_ignore_file.is_file():
+                files = self.repo.get_tracked_files()
+            else:
+                files = self.repo.get_non_ignored_files_from_root()
         else:
             files = self.get_inchat_relative_files()
 
