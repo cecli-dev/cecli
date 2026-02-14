@@ -169,6 +169,7 @@ agent-config:
   # Performance and behavior settings
   large_file_token_threshold: 12500  # Token threshold for large file warnings
   skip_cli_confirmations: false  # YOLO mode - be brave and let the LLM cook
+  command_timeout: 30 # Time to wait for commands to finish before automatic backgrounding occurs
   
   # Skills configuration (see Skills documentation for details)
   skills_paths: ["~/my-skills", "./project-skills"]  # Directories to search for skills

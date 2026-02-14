@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from cecli import urls, utils
+from cecli import utils
 from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested
 from cecli.helpers.background_commands import BackgroundCommandManager
@@ -27,12 +27,10 @@ from cecli.helpers.similarity import (
 from cecli.helpers.skills import SkillsManager
 from cecli.llm import litellm
 from cecli.mcp import LocalServer, McpServerManager
-from cecli.repo import ANY_GIT_ERROR
 from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import copy_tool_call, tool_call_to_dict
 
 from .base_coder import Coder
-from .editblock_coder import do_replace, find_original_update_blocks, find_similar_lines
 
 
 class AgentCoder(Coder):
@@ -115,6 +113,7 @@ class AgentCoder(Coder):
         config["skip_cli_confirmations"] = nested.getter(
             config, "skip_cli_confirmations", nested.getter(config, "yolo", [])
         )
+        config["command_timeout"] = nested.getter(config, "command_timeout", 30)
 
         config["tools_paths"] = nested.getter(config, "tools_paths", [])
         config["tools_includelist"] = nested.getter(
@@ -720,47 +719,60 @@ class AgentCoder(Coder):
         content = self.partial_response_content
         tool_calls_found = bool(self.partial_response_tool_calls)
 
-        # If no content and no tools, we might be done or just empty response
-        if (not content or not content.strip()) and not tool_calls_found:
-            if len(self.tool_usage_history) > self.tool_usage_retries:
-                self.tool_usage_history = []
-            return True
-
-        # 1. Handle Edit Blocks (SEARCH/REPLACE)
-        has_search = "<<<<<<< SEARCH" in content
-        has_divider = "=======" in content
-        has_replace = ">>>>>>> REPLACE" in content
-        edit_match = has_search and has_divider and has_replace
-
-        if edit_match:
-            self.io.tool_output("Detected edit blocks, applying changes within Agent...")
-            edited_files = await self._apply_edits_from_response()
-            if self.reflected_message:
-                return False
-            if edited_files and self.num_reflections < self.max_reflections:
-                cur_messages = ConversationManager.get_messages_dict(MessageTag.CUR)
-                original_question = "Please continue your exploration and provide a final answer."
-                if cur_messages:
-                    for msg in reversed(cur_messages):
-                        if msg["role"] == "user":
-                            original_question = msg["content"]
-                            break
-
-                next_prompt = f"""
-I have applied the edits you suggested.
-The following files were modified: {', '.join(edited_files)}. Let me continue working on your request.
-Your original question was: {original_question}"""
-                self.reflected_message = next_prompt
-                self.io.tool_output("Continuing after applying edits...")
-                return False
-
-        # 2. Handle Tool Execution Follow-up (Reflection)
+        # 1. Handle Tool Execution Follow-up (Reflection)
         if self.agent_finished:
             self.tool_usage_history = []
             self.reflected_message = None
             if self.files_edited_by_tools:
                 _ = await self.auto_commit(self.files_edited_by_tools)
             return False
+
+        # 2. Check for unfinished and recently finished background commands
+        background_commands = BackgroundCommandManager.list_background_commands()
+
+        # Get command timeout from agent_config
+        command_timeout = int(self.agent_config.get("command_timeout", 30))
+
+        # Check for unfinished commands
+        unfinished_commands = [
+            cmd_key
+            for cmd_key, cmd_info in background_commands.items()
+            if cmd_info.get("running", False)
+        ]
+
+        # Check for recently finished commands (within last command_timeout seconds)
+        current_time = time.time()
+        recently_finished_commands = [
+            cmd_key
+            for cmd_key, cmd_info in background_commands.items()
+            if not cmd_info.get("running", False)
+            and cmd_info.get("end_time")
+            and (current_time - cmd_info["end_time"]) < command_timeout * 4
+        ]
+
+        if unfinished_commands and not self.agent_finished:
+            waiting_msg = (
+                f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to complete..."
+            )
+            self.reflected_message = (
+                f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to"
+                " complete...\nPlease reply with 'waiting...' if you need the outputs of this"
+                " command for your current task and it has not yet finished or stop the command if"
+                " its outputs are no longer necessary"
+            )
+            self.io.tool_output(waiting_msg)
+            await asyncio.sleep(command_timeout / 2)
+            return True
+
+        # Check for recently finished commands that need reflection
+        if recently_finished_commands and not self.agent_finished:
+            return True  # Retrigger reflection to process recently finished command outputs
+
+        # 3. If no content and no tools, we might be done or just empty response
+        if (not content or not content.strip()) and not tool_calls_found:
+            if len(self.tool_usage_history) > self.tool_usage_retries:
+                self.tool_usage_history = []
+            return True
 
         if tool_calls_found and self.num_reflections < self.max_reflections:
             self.tool_call_count = 0
@@ -978,146 +990,6 @@ You have used the following tool(s) repeatedly:""")
                 ]
                 return "\n".join(context_parts)
         return ""
-
-    async def _apply_edits_from_response(self):
-        """
-        Parses and applies SEARCH/REPLACE edits found in self.partial_response_content.
-        Returns a set of relative file paths that were successfully edited.
-        """
-        edited_files = set()
-        try:
-            edits = list(
-                find_original_update_blocks(
-                    self.partial_response_content, self.fence, self.get_inchat_relative_files()
-                )
-            )
-            self.shell_commands += [edit[1] for edit in edits if edit[0] is None]
-            edits = [edit for edit in edits if edit[0] is not None]
-            prepared_edits = []
-            seen_paths = dict()
-            self.need_commit_before_edits = set()
-            for edit in edits:
-                path = edit[0]
-                if path in seen_paths:
-                    allowed = seen_paths[path]
-                else:
-                    allowed = await self.allowed_to_edit(path)
-                    seen_paths[path] = allowed
-                if allowed:
-                    prepared_edits.append(edit)
-            await self.dirty_commit()
-            self.need_commit_before_edits = set()
-            failed = []
-            passed = []
-            for edit in prepared_edits:
-                path, original, updated = edit
-                full_path = self.abs_root_path(path)
-                new_content = None
-                if Path(full_path).exists():
-                    content = self.io.read_text(full_path)
-                    new_content = do_replace(full_path, content, original, updated, self.fence)
-                if not new_content and original.strip():
-                    for other_full_path in self.abs_fnames:
-                        if other_full_path == full_path:
-                            continue
-                        other_content = self.io.read_text(other_full_path)
-                        other_new_content = do_replace(
-                            other_full_path, other_content, original, updated, self.fence
-                        )
-                        if other_new_content:
-                            path = self.get_rel_fname(other_full_path)
-                            full_path = other_full_path
-                            new_content = other_new_content
-                            self.io.tool_warning(f"Applied edit intended for {edit[0]} to {path}")
-                            break
-                if new_content:
-                    if not self.dry_run:
-                        self.io.write_text(full_path, new_content)
-                        self.io.tool_output(f"Applied edit to {path}")
-                    else:
-                        self.io.tool_output(f"Did not apply edit to {path} (--dry-run)")
-                    passed.append((path, original, updated))
-                else:
-                    failed.append(edit)
-            if failed:
-                blocks = "block" if len(failed) == 1 else "blocks"
-                error_message = f"# {len(failed)} SEARCH/REPLACE {blocks} failed to match!\n"
-                for edit in failed:
-                    path, original, updated = edit
-                    full_path = self.abs_root_path(path)
-                    content = self.io.read_text(full_path)
-                    error_message += f"""
-## SearchReplaceNoExactMatch: This SEARCH block failed to exactly match lines in {path}
-<<<<<<< SEARCH
-{original}=======
-{updated}>>>>>>> REPLACE
-
-"""
-                    did_you_mean = find_similar_lines(original, content)
-                    if did_you_mean:
-                        error_message += f"""Did you mean to match some of these actual lines from {path}?
-
-{self.fence[0]}
-{did_you_mean}
-{self.fence[1]}
-
-"""
-                    if updated in content and updated:
-                        error_message += f"""Are you sure you need this SEARCH/REPLACE block?
-The REPLACE lines are already in {path}!
-
-"""
-                error_message += (
-                    "The SEARCH section must exactly match an existing block of lines including all"
-                    " white space, comments, indentation, docstrings, etc"
-                )
-                if passed:
-                    pblocks = "block" if len(passed) == 1 else "blocks"
-                    error_message += f"""
-# The other {len(passed)} SEARCH/REPLACE {pblocks} were applied successfully.
-Don't re-send them.
-Just reply with fixed versions of the {blocks} above that failed to match.
-"""
-                self.io.tool_error(error_message)
-                self.reflected_message = error_message
-            edited_files = set(edit[0] for edit in passed)
-            if edited_files:
-                self.coder_edited_files.update(edited_files)
-                self.auto_commit(edited_files)
-                if self.auto_lint:
-                    lint_errors = self.lint_edited(edited_files)
-                    self.auto_commit(edited_files, context="Ran the linter")
-                    if lint_errors and not self.reflected_message:
-                        ok = await self.io.confirm_ask("Attempt to fix lint errors?")
-                        if ok:
-                            self.reflected_message = lint_errors
-                shared_output = await self.run_shell_commands()
-                if shared_output:
-                    self.io.tool_output("Shell command output:\n" + shared_output)
-                if self.auto_test and not self.reflected_message:
-                    test_errors = await self.commands.execute("test", self.test_cmd)
-                    if test_errors:
-                        ok = await self.io.confirm_ask("Attempt to fix test errors?")
-                        if ok:
-                            self.reflected_message = test_errors
-            self.show_undo_hint()
-        except ValueError as err:
-            self.num_malformed_responses += 1
-            error_message = err.args[0]
-            self.io.tool_error("The LLM did not conform to the edit format.")
-            self.io.tool_output(urls.edit_errors)
-            self.io.tool_output()
-            self.io.tool_output(str(error_message))
-            self.reflected_message = str(error_message)
-        except ANY_GIT_ERROR as err:
-            self.io.tool_error(f"Git error during edit application: {str(err)}")
-            self.reflected_message = f"Git error during edit application: {str(err)}"
-        except Exception as err:
-            self.io.tool_error("Exception while applying edits:")
-            self.io.tool_error(str(err), strip=False)
-            self.io.tool_error(traceback.format_exc())
-            self.reflected_message = f"Exception while applying edits: {str(err)}"
-        return edited_files
 
     def _add_file_to_context(self, file_path, explicit=False):
         """
