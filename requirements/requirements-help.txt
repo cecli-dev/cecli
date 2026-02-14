@@ -382,9 +382,7 @@ triton==3.5.1
 typing-extensions==4.15.0
     # via
     #   -c requirements/common-constraints.txt
-    #   aiosignal
     #   aiosqlite
-    #   anyio
     #   huggingface-hub
     #   llama-index-core
     #   llama-index-workflows

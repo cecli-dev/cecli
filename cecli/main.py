@@ -1314,6 +1314,78 @@ def load_slow_imports(swallow=True):
             raise e
 
 
+async def task(message, setting=None, env=None, force_git_root=None, return_coder=True):
+    """
+    Programmatically run cecli with a message and optional settings.
+
+    Args:
+        message: The message/command to send to cecli (e.g., "Add a function to process data")
+        setting: Optional YAML string of settings to override configuration
+        env: Optional dict of environment variables to set
+        force_git_root: Optional path to force as git root
+        return_coder: Whether to return the coder object (default: True)
+
+    Returns:
+        The coder object if return_coder=True, otherwise exit code
+    """
+    import json
+    import os
+    import tempfile
+
+    import yaml
+
+    # Set environment variables if provided
+    if env:
+        for key, value in env.items():
+            os.environ[key] = str(value)
+
+    # Build argv with message as --message flag
+    argv = ["--message", message]
+
+    # Handle settings via temporary config file
+    if setting:
+        # Parse YAML to validate
+        settings_dict = yaml.safe_load(setting)
+
+        # Add yes-always: True to ensure automatic confirmation
+        settings_dict["pretty"] = False
+        settings_dict["tui"] = False
+        settings_dict["yes-always"] = True
+
+        # Add agent-config with skip_cli_confirmations: true as JSON string
+        # Merge with existing agent-config if present
+        agent_config = {"skip_cli_confirmations": True}
+        if "agent-config" in settings_dict:
+            try:
+                existing_config = json.loads(settings_dict["agent-config"])
+                agent_config.update(existing_config)
+            except (json.JSONDecodeError, TypeError):
+                # If existing agent-config is not valid JSON, overwrite it
+                pass
+        settings_dict["agent-config"] = json.dumps(agent_config)
+
+        # Create temporary config file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+            yaml.dump(settings_dict, f)
+            config_file = f.name
+
+        # Add config file argument
+        argv = ["--config", config_file] + argv
+    else:
+        config_file = None
+
+    try:
+        # Run main_async with constructed arguments
+        result = await main_async(
+            argv=argv, force_git_root=force_git_root, return_coder=return_coder
+        )
+        return result
+    finally:
+        # Clean up temporary config file
+        if config_file and os.path.exists(config_file):
+            os.unlink(config_file)
+
+
 async def graceful_exit(coder=None, exit_code=0):
     sys.settrace(None)
     if coder:

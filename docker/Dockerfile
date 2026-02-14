@@ -46,12 +46,12 @@ FROM base AS aider-ce
 ENV CECLI_DOCKER_IMAGE=dustinwashington/aider-ce
 
 # Copy requirements files
-COPY requirements.txt /tmp/aider/
-COPY requirements/ /tmp/aider/requirements/
+COPY requirements.txt /tmp/cecli/
+COPY requirements/ /tmp/cecli/requirements/
 
 # Install dependencies as root
-RUN uv pip install --no-cache-dir -r /tmp/aider/requirements.txt && \
-    rm -rf /tmp/aider
+RUN uv pip install --no-cache-dir -r /tmp/cecli/requirements.txt && \
+    rm -rf /tmp/cecli
 
 # Install playwright browsers
 RUN uv pip install --no-cache-dir playwright && \

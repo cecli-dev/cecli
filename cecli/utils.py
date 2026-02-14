@@ -442,68 +442,118 @@ def printable_shell_command(cmd_list):
 
 def split_concatenated_json(s: str) -> list[str]:
     """
-    Splits a string containing one or more concatenated JSON objects.
+    Splits a string containing one or more concatenated JSON objects
+    and returns them as a list of raw strings.
     """
-    try:
-        json.loads(s)
-        return [s]
-    except json.JSONDecodeError:
-        pass
-
     res = []
-    i = 0
+    decoder = json.JSONDecoder()
+    idx = 0
     s_len = len(s)
-    while i < s_len:
-        # skip leading whitespace
-        while i < s_len and s[i].isspace():
-            i += 1
-        if i >= s_len:
+
+    while idx < s_len:
+        # 1. Use Regex-free "find" to jump to the next potential JSON start
+        # This replaces your manual 'while s[i].isspace()' loop
+        brace_idx = s.find("{", idx)
+        bracket_idx = s.find("[", idx)
+
+        # Determine the earliest starting point
+        if brace_idx == -1 and bracket_idx == -1:
+            # No more JSON documents found, but check for trailing text
+            remainder = s[idx:].strip()
+            if remainder:
+                res.append(s[idx:])
             break
 
-        start_char = s[i]
-        if start_char == "{":
-            end_char = "}"
-        elif start_char == "[":
-            end_char = "]"
-        else:
-            # Doesn't start with a JSON object/array, so we can't parse it as a stream.
-            # Return the rest of the string as a single chunk.
-            res.append(s[i:])
-            break
+        # Set idx to the first '{' or '[' found
+        start_index = (
+            min(brace_idx, bracket_idx)
+            if (brace_idx != -1 and bracket_idx != -1)
+            else max(brace_idx, bracket_idx)
+        )
 
-        start_index = i
-        stack_depth = 0
-        in_string = False
-        escape = False
+        try:
+            # 2. Let the C-optimized parser find the end of the object
+            _, end_idx = decoder.raw_decode(s, start_index)
 
-        for j in range(start_index, s_len):
-            char = s[j]
+            # 3. Slice the original string and add to results
+            res.append(s[start_index:end_idx])
 
-            if escape:
-                escape = False
-                continue
+            # Move our pointer to the end of the last document
+            idx = end_idx
 
-            if char == "\\":
-                escape = True
-                continue
-
-            if char == '"':
-                in_string = not in_string
-
-            if in_string:
-                continue
-
-            if char == start_char:
-                stack_depth += 1
-            elif char == end_char:
-                stack_depth -= 1
-                if stack_depth == 0:
-                    res.append(s[start_index : j + 1])
-                    i = j + 1
-                    break
-        else:
-            # Unclosed object, add the remainder as the last chunk
-            res.append(s[start_index:])
-            break
+        except json.JSONDecodeError:
+            # If it looks like JSON but fails (e.g. malformed),
+            # we skip this character and try to find the next valid start
+            idx = start_index + 1
 
     return res
+
+
+def parse_concatenated_json(s: str) -> list:
+    objs = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    s_len = len(s)
+
+    while idx < s_len:
+        # Jump to the next potential start of a JSON object or array
+        # This skips whitespace, commas, or "noise" between documents instantly
+        brace_idx = s.find("{", idx)
+        bracket_idx = s.find("[", idx)
+
+        # Determine which one comes first
+        if brace_idx == -1 and bracket_idx == -1:
+            break
+        elif brace_idx == -1:
+            idx = bracket_idx
+        elif bracket_idx == -1:
+            idx = brace_idx
+        else:
+            idx = min(brace_idx, bracket_idx)
+
+        try:
+            # raw_decode attempts to parse starting exactly at idx
+            obj, end_idx = decoder.raw_decode(s, idx)
+            objs.append(obj)
+            idx = end_idx
+        except json.JSONDecodeError:
+            # If it's a false start (like a { inside a non-JSON string),
+            # skip it and keep looking
+            idx += 1
+
+    return objs
+
+
+def copy_tool_call(tool_call):
+    """
+    Copies a tool call whether it's a Pydantic model, SimpleNamespace, or dict.
+    """
+    from types import SimpleNamespace
+
+    if hasattr(tool_call, "model_copy"):
+        return tool_call.model_copy(deep=True)
+    if isinstance(tool_call, SimpleNamespace):
+        import copy
+
+        return copy.deepcopy(tool_call)
+    if isinstance(tool_call, dict):
+        import copy
+
+        return copy.deepcopy(tool_call)
+    return tool_call
+
+
+def tool_call_to_dict(tool_call):
+    """
+    Converts any tool-call representation to a dict.
+    """
+    if hasattr(tool_call, "model_dump"):
+        return tool_call.model_dump()
+    if hasattr(tool_call, "__dict__"):
+        res = dict(tool_call.__dict__)
+        if "function" in res and hasattr(res["function"], "__dict__"):
+            res["function"] = dict(res["function"].__dict__)
+        return res
+    if isinstance(tool_call, dict):
+        return tool_call
+    return {}

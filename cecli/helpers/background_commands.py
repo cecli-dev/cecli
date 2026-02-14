@@ -94,7 +94,9 @@ class BackgroundProcess:
     Represents a background process with output capture.
     """
 
-    def __init__(self, command: str, process: subprocess.Popen, buffer: CircularBuffer):
+    def __init__(
+        self, command: str, process: subprocess.Popen, buffer: CircularBuffer, persist: bool = False
+    ):
         """
         Initialize background process wrapper.
 
@@ -102,12 +104,18 @@ class BackgroundProcess:
             command: Original command string
             process: Subprocess.Popen object
             buffer: CircularBuffer for output storage
+            persist: If True, output buffer won't be cleared when read
         """
+        import time
+
         self.command = command
         self.process = process
         self.buffer = buffer
         self.reader_thread = None
         self.last_read_position = 0
+        self.start_time = time.time()
+        self.end_time = None
+        self.persist = persist
         self._start_output_reader()
 
     def _start_output_reader(self) -> None:
@@ -173,6 +181,8 @@ class BackgroundProcess:
         Returns:
             Tuple of (success, output, exit_code)
         """
+        import time
+
         try:
             # Try SIGTERM first
             self.process.terminate()
@@ -181,6 +191,7 @@ class BackgroundProcess:
             # Get final output
             output = self.get_output(clear=True)
             exit_code = self.process.returncode
+            self.end_time = time.time()
 
             return True, output, exit_code
 
@@ -191,6 +202,7 @@ class BackgroundProcess:
 
             output = self.get_output(clear=True)
             exit_code = self.process.returncode
+            self.end_time = time.time()
 
             return True, output, exit_code
 
@@ -247,6 +259,9 @@ class BackgroundCommandManager:
         verbose: bool = False,
         cwd: Optional[str] = None,
         max_buffer_size: int = 4096,
+        existing_process: Optional[subprocess.Popen] = None,
+        existing_buffer: Optional[CircularBuffer] = None,
+        persist: bool = False,
     ) -> str:
         """
         Start a command in background.
@@ -256,29 +271,35 @@ class BackgroundCommandManager:
             verbose: Whether to print verbose output
             cwd: Working directory for command
             max_buffer_size: Maximum buffer size for output
+            existing_process: Optional existing subprocess.Popen to register
+            existing_buffer: Optional existing CircularBuffer to use
+            persist: If True, output buffer won't be cleared when read
 
         Returns:
             Command key for future reference
         """
         try:
-            # Create output buffer
-            buffer = CircularBuffer(max_size=max_buffer_size)
+            # Use existing buffer or create new one
+            buffer = existing_buffer or CircularBuffer(max_size=max_buffer_size)
 
-            # Start process with pipes for output capture
-            process = subprocess.Popen(
-                command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,  # No stdin for background commands
-                cwd=cwd,
-                text=True,  # Use text mode for easier handling
-                bufsize=1,  # Line buffered
-                universal_newlines=True,
-            )
+            # Use existing process or start new one
+            if existing_process:
+                process = existing_process
+            else:
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,  # No stdin for background commands
+                    cwd=cwd,
+                    text=True,  # Use text mode for easier handling
+                    bufsize=1,  # Line buffered
+                    universal_newlines=True,
+                )
 
             # Create background process wrapper
-            bg_process = BackgroundProcess(command, process, buffer)
+            bg_process = BackgroundProcess(command, process, buffer, persist=persist)
 
             # Generate unique key and store
             command_key = cls._generate_command_key(command)
@@ -352,7 +373,7 @@ class BackgroundCommandManager:
         Get output from all background commands (running or recently finished).
 
         Args:
-            clear: If True, clear buffers after reading
+            clear: If True, clear buffers after reading (unless persist=True)
 
         Returns:
             Dictionary mapping command keys to their output
@@ -360,8 +381,10 @@ class BackgroundCommandManager:
         with cls._lock:
             outputs = {}
             for command_key, bg_process in cls._background_commands.items():
+                # Don't clear if persist flag is set
+                should_clear = clear and not getattr(bg_process, "persist", False)
                 if clear:
-                    output = bg_process.get_output(clear=True)
+                    output = bg_process.get_output(clear=should_clear)
                 else:
                     output = bg_process.get_new_output()
                 if output.strip():
@@ -417,8 +440,10 @@ class BackgroundCommandManager:
         List all background commands with their status.
 
         Returns:
-            Dictionary with command information
+            Dictionary with command information including timestamps
         """
+        import time
+
         with cls._lock:
             result = {}
             for command_key, bg_process in cls._background_commands.items():
@@ -426,5 +451,16 @@ class BackgroundCommandManager:
                     "command": bg_process.command,
                     "running": bg_process.is_alive(),
                     "buffer_size": bg_process.buffer.size(),
+                    "start_time": bg_process.start_time,
+                    "end_time": bg_process.end_time,
+                    "duration": (
+                        time.time() - bg_process.start_time
+                        if bg_process.is_alive()
+                        else (
+                            bg_process.end_time - bg_process.start_time
+                            if bg_process.end_time
+                            else None
+                        )
+                    ),
                 }
             return result

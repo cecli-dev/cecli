@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 
 import httpx
 from litellm import experimental_mcp_client
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import ChatCompletionMessageToolCall, Function, ModelResponse
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
@@ -64,7 +64,7 @@ from cecli.run_cmd import run_cmd
 from cecli.sessions import SessionManager
 from cecli.tools.utils.output import print_tool_response
 from cecli.tools.utils.registry import ToolRegistry
-from cecli.utils import format_tokens, is_image_file
+from cecli.utils import copy_tool_call, format_tokens, is_image_file
 
 from ..dump import dump  # noqa: F401
 from ..prompts.utils.registry import PromptObject, PromptRegistry
@@ -2357,23 +2357,19 @@ class Coder:
                     return
 
     async def process_tool_calls(self, tool_call_response):
-        if tool_call_response is None:
-            return False
-
-        # Handle different response structures
-        try:
-            # Try to get tool calls from the standard OpenAI response format
-            if hasattr(tool_call_response, "choices") and tool_call_response.choices:
-                message = tool_call_response.choices[0].message
-                if hasattr(message, "tool_calls") and message.tool_calls:
-                    original_tool_calls = message.tool_calls
-                else:
-                    return False
-            else:
-                # Handle other response formats
-                return False
-        except (AttributeError, IndexError):
-            return False
+        # Use partial_response_tool_calls if available (populated by consolidate_chunks)
+        # otherwise try to extract from tool_call_response
+        original_tool_calls = []
+        if self.partial_response_tool_calls:
+            original_tool_calls = self.partial_response_tool_calls
+        elif tool_call_response is not None:
+            try:
+                if hasattr(tool_call_response, "choices") and tool_call_response.choices:
+                    message = tool_call_response.choices[0].message
+                    if hasattr(message, "tool_calls") and message.tool_calls:
+                        original_tool_calls = message.tool_calls
+            except (AttributeError, IndexError):
+                pass
 
         if not original_tool_calls:
             return False
@@ -2404,10 +2400,13 @@ class Coder:
                     continue
 
                 # Create a new tool call for each JSON chunk, with a unique ID.
-                new_function = tool_call.function.model_copy(update={"arguments": chunk})
-                new_tool_call = tool_call.model_copy(
-                    update={"id": f"{tool_call.id}-{i}", "function": new_function}
-                )
+                new_tool_call = copy_tool_call(tool_call)
+                if hasattr(new_tool_call, "model_copy"):
+                    new_tool_call.function.arguments = chunk
+                    new_tool_call.id = f"{tool_call.id}-{i}"
+                else:
+                    new_tool_call.function.arguments = chunk
+                    new_tool_call.id = f"{getattr(tool_call, 'id', 'call')}-{i}"
                 expanded_tool_calls.append(new_tool_call)
 
         # Collect all tool calls grouped by server
@@ -2551,7 +2550,7 @@ class Coder:
 
                         all_results_content = []
                         for args in parsed_args_list:
-                            new_tool_call = tool_call.model_copy(deep=True)
+                            new_tool_call = copy_tool_call(tool_call)
                             new_tool_call.function.arguments = json.dumps(args)
 
                             call_result = await experimental_mcp_client.call_openai_tool(
@@ -2806,6 +2805,7 @@ class Coder:
             ConversationManager.add_message(
                 message_dict=msg,
                 tag=MessageTag.CUR,
+                hash_key=("assistant_message", str(msg), str(time.monotonic_ns())),
             )
 
     def get_file_mentions(self, content, ignore_current=False):
@@ -3202,22 +3202,9 @@ class Coder:
                         # Add provider-specific fields directly to the tool call object
                         tool_call.provider_specific_fields = provider_specific_fields_by_index[i]
 
-                    # Create dictionary version with provider-specific fields
-                    tool_call_dict = tool_call.model_dump()
-
-                    # Add provider-specific fields to the dictionary too (in case model_dump() doesn't include them)
-                    if tool_id in provider_specific_fields_by_id:
-                        tool_call_dict["provider_specific_fields"] = provider_specific_fields_by_id[
-                            tool_id
-                        ]
-                    elif i in provider_specific_fields_by_index:
-                        tool_call_dict["provider_specific_fields"] = (
-                            provider_specific_fields_by_index[i]
-                        )
-
                     # Only append to partial_response_tool_calls if it's empty
                     if len(self.partial_response_tool_calls) == 0:
-                        self.partial_response_tool_calls.append(tool_call_dict)
+                        self.partial_response_tool_calls.append(tool_call)
 
                 self.partial_response_function_call = (
                     response.choices[0].message.tool_calls[0].function
@@ -3252,6 +3239,70 @@ class Coder:
             self.partial_response_content = content or ""
         except AttributeError as e:
             content_err = e
+
+        # If no native tool calls, check if the content contains JSON tool calls
+        # This handles models that write JSON in text instead of using native calling
+        if not self.partial_response_tool_calls and self.partial_response_content:
+            try:
+                # Simple extraction of JSON-like structures that look like tool calls
+                # Only look for tool calls if it looks like JSON
+                if "{" in self.partial_response_content or "[" in self.partial_response_content:
+                    json_chunks = utils.split_concatenated_json(self.partial_response_content)
+                    extracted_calls = []
+                    chunk_index = 0
+
+                    for chunk in json_chunks:
+                        chunk_index += 1
+                        try:
+                            json_obj = json.loads(chunk)
+                            if (
+                                isinstance(json_obj, dict)
+                                and "name" in json_obj
+                                and "arguments" in json_obj
+                            ):
+                                # Create a Pydantic model for the tool call
+                                function_obj = Function(
+                                    name=json_obj["name"],
+                                    arguments=(
+                                        json.dumps(json_obj["arguments"])
+                                        if isinstance(json_obj["arguments"], (dict, list))
+                                        else str(json_obj["arguments"])
+                                    ),
+                                )
+                                tool_call_obj = ChatCompletionMessageToolCall(
+                                    type="function",
+                                    function=function_obj,
+                                    id=f"call_{len(extracted_calls)}_{int(time.time())}_{chunk_index}",
+                                )
+                                extracted_calls.append(tool_call_obj)
+                            elif isinstance(json_obj, list):
+                                for item in json_obj:
+                                    if (
+                                        isinstance(item, dict)
+                                        and "name" in item
+                                        and "arguments" in item
+                                    ):
+                                        function_obj = Function(
+                                            name=item["name"],
+                                            arguments=(
+                                                json.dumps(item["arguments"])
+                                                if isinstance(item["arguments"], (dict, list))
+                                                else str(item["arguments"])
+                                            ),
+                                        )
+                                        tool_call_obj = ChatCompletionMessageToolCall(
+                                            type="function",
+                                            function=function_obj,
+                                            id=f"call_{len(extracted_calls)}_{int(time.time())}_{chunk_index}",
+                                        )
+                                        extracted_calls.append(tool_call_obj)
+                        except json.JSONDecodeError:
+                            continue
+
+                    if extracted_calls:
+                        self.partial_response_tool_calls = extracted_calls
+            except Exception:
+                pass
 
         return response, func_err, content_err
 
@@ -3298,13 +3349,19 @@ class Coder:
             tool_list = []
             tool_id_set = set()
 
-            for tool_call_dict in self.partial_response_tool_calls:
+            for tool_call in self.partial_response_tool_calls:
+                # Handle both dictionary and object tool calls
+                if isinstance(tool_call, dict):
+                    tool_id = tool_call.get("id")
+                else:
+                    tool_id = getattr(tool_call, "id", None)
+
                 # LLM APIs sometimes return duplicates and that's annoying part 2
-                if tool_call_dict.get("id") in tool_id_set:
+                if tool_id in tool_id_set:
                     continue
 
-                tool_id_set.add(tool_call_dict.get("id"))
-                tool_list.append(tool_call_dict)
+                tool_id_set.add(tool_id)
+                tool_list.append(tool_call)
 
             self.partial_response_tool_calls = tool_list
 

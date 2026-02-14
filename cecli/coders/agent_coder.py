@@ -1,18 +1,16 @@
-import ast
 import asyncio
 import base64
 import json
 import locale
 import os
 import platform
-import re
 import time
 import traceback
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from cecli import urls, utils
+from cecli import utils
 from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested
 from cecli.helpers.background_commands import BackgroundCommandManager
@@ -29,11 +27,10 @@ from cecli.helpers.similarity import (
 from cecli.helpers.skills import SkillsManager
 from cecli.llm import litellm
 from cecli.mcp import LocalServer, McpServerManager
-from cecli.repo import ANY_GIT_ERROR
 from cecli.tools.utils.registry import ToolRegistry
+from cecli.utils import copy_tool_call, tool_call_to_dict
 
 from .base_coder import Coder
-from .editblock_coder import do_replace, find_original_update_blocks, find_similar_lines
 
 
 class AgentCoder(Coder):
@@ -116,6 +113,7 @@ class AgentCoder(Coder):
         config["skip_cli_confirmations"] = nested.getter(
             config, "skip_cli_confirmations", nested.getter(config, "yolo", [])
         )
+        config["command_timeout"] = nested.getter(config, "command_timeout", 30)
 
         config["tools_paths"] = nested.getter(config, "tools_paths", [])
         config["tools_includelist"] = nested.getter(
@@ -686,12 +684,13 @@ class AgentCoder(Coder):
         self.last_round_tools = []
         if self.partial_response_tool_calls:
             for tool_call in self.partial_response_tool_calls:
-                tool_name = tool_call.get("function", {}).get("name")
+                tool_name = getattr(tool_call.function, "name", None)
+                tool_call_copy = tool_call_to_dict(copy_tool_call(tool_call))
+                if "id" in tool_call_copy:
+                    del tool_call_copy["id"]
+
                 if tool_name:
                     self.last_round_tools.append(tool_name)
-                    tool_call_copy = tool_call.copy()
-                    if "id" in tool_call_copy:
-                        del tool_call_copy["id"]
                     tool_call_str = str(tool_call_copy)
                     tool_vector = create_bigram_vector((tool_call_str,))
                     tool_vector_norm = normalize_vector(tool_vector)
@@ -703,111 +702,107 @@ class AgentCoder(Coder):
             self.tool_usage_history.pop(0)
         if len(self.tool_call_vectors) > self.max_tool_vector_history:
             self.tool_call_vectors.pop(0)
+
+        # Ensure we call base implementation to trigger execution of all tools (native + extracted)
         return await super().process_tool_calls(tool_call_response)
 
     async def reply_completed(self):
         """Process the completed response from the LLM.
 
-        This is a key method that:
-        1. Processes any tool commands in the response (only after a '---' line)
-        2. Processes any SEARCH/REPLACE blocks in the response (only before the '---' line if one exists)
-        3. If tool commands were found, sets up for another automatic round
+        This handles:
+        1. SEARCH/REPLACE blocks (Edit format)
+        2. Tool execution follow-up (Reflections)
 
-        This enables the "auto-exploration" workflow where the LLM can
-        iteratively discover and analyze relevant files before providing
-        a final answer to the user's question.
+        Tool extraction and execution is now handled in BaseCoder.consolidate_chunks
+        and BaseCoder.process_tool_calls respectively.
         """
         content = self.partial_response_content
-        if not content or not content.strip():
-            if len(self.tool_usage_history) > self.tool_usage_retries:
-                self.tool_usage_history = []
-            return True
-        original_content = content
-        (
-            processed_content,
-            result_messages,
-            tool_calls_found,
-            content_before_last_separator,
-            tool_names_this_turn,
-        ) = await self._process_tool_commands(content)
+        tool_calls_found = bool(self.partial_response_tool_calls)
+
+        # 1. Handle Tool Execution Follow-up (Reflection)
         if self.agent_finished:
             self.tool_usage_history = []
             self.reflected_message = None
             if self.files_edited_by_tools:
                 _ = await self.auto_commit(self.files_edited_by_tools)
             return False
-        self.partial_response_content = processed_content.strip()
-        has_search = "<<<<<<< SEARCH" in self.partial_response_content
-        has_divider = "=======" in self.partial_response_content
-        has_replace = ">>>>>>> REPLACE" in self.partial_response_content
-        edit_match = has_search and has_divider and has_replace
-        separator_marker = "\n---\n"
-        if separator_marker in original_content and edit_match:
-            has_search_before = "<<<<<<< SEARCH" in content_before_last_separator
-            has_divider_before = "=======" in content_before_last_separator
-            has_replace_before = ">>>>>>> REPLACE" in content_before_last_separator
-            edit_match = has_search_before and has_divider_before and has_replace_before
-        if edit_match:
-            self.io.tool_output("Detected edit blocks, applying changes within Agent...")
-            edited_files = await self._apply_edits_from_response()
-            if self.reflected_message:
-                return False
-            if edited_files and self.num_reflections < self.max_reflections:
-                cur_messages = ConversationManager.get_messages_dict(MessageTag.CUR)
-                if cur_messages and len(cur_messages) >= 1:
-                    for msg in reversed(cur_messages):
-                        if msg["role"] == "user":
-                            original_question = msg["content"]
-                            break
-                    else:
-                        original_question = (
-                            "Please continue your exploration and provide a final answer."
-                        )
-                    next_prompt = f"""
-I have applied the edits you suggested.
-The following files were modified: {', '.join(edited_files)}. Let me continue working on your request.
-Your original question was: {original_question}"""
-                    self.reflected_message = next_prompt
-                    self.io.tool_output("Continuing after applying edits...")
-                    return False
+
+        # 2. Check for unfinished and recently finished background commands
+        background_commands = BackgroundCommandManager.list_background_commands()
+
+        # Get command timeout from agent_config
+        command_timeout = int(self.agent_config.get("command_timeout", 30))
+
+        # Check for unfinished commands
+        unfinished_commands = [
+            cmd_key
+            for cmd_key, cmd_info in background_commands.items()
+            if cmd_info.get("running", False)
+        ]
+
+        # Check for recently finished commands (within last command_timeout seconds)
+        current_time = time.time()
+        recently_finished_commands = [
+            cmd_key
+            for cmd_key, cmd_info in background_commands.items()
+            if not cmd_info.get("running", False)
+            and cmd_info.get("end_time")
+            and (current_time - cmd_info["end_time"]) < command_timeout * 4
+        ]
+
+        if unfinished_commands and not self.agent_finished:
+            waiting_msg = (
+                f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to complete..."
+            )
+            self.reflected_message = (
+                f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to"
+                " complete...\nPlease reply with 'waiting...' if you need the outputs of this"
+                " command for your current task and it has not yet finished or stop the command if"
+                " its outputs are no longer necessary"
+            )
+            self.io.tool_output(waiting_msg)
+            await asyncio.sleep(command_timeout / 2)
+            return True
+
+        # Check for recently finished commands that need reflection
+        if recently_finished_commands and not self.agent_finished:
+            return True  # Retrigger reflection to process recently finished command outputs
+
+        # 3. If no content and no tools, we might be done or just empty response
+        if (not content or not content.strip()) and not tool_calls_found:
+            if len(self.tool_usage_history) > self.tool_usage_retries:
+                self.tool_usage_history = []
+            return True
+
         if tool_calls_found and self.num_reflections < self.max_reflections:
             self.tool_call_count = 0
             self.files_added_in_exploration = set()
             cur_messages = ConversationManager.get_messages_dict(MessageTag.CUR)
-            if cur_messages and len(cur_messages) >= 1:
+            original_question = "Please continue your exploration and provide a final answer."
+            if cur_messages:
                 for msg in reversed(cur_messages):
                     if msg["role"] == "user":
                         original_question = msg["content"]
                         break
-                else:
-                    original_question = (
-                        "Please continue your exploration and provide a final answer."
-                    )
-                next_prompt_parts = []
-                next_prompt_parts.append(
-                    "I have processed the results of the previous tool calls. Let me analyze them"
-                    " and continue working towards your request."
-                )
-                if result_messages:
-                    next_prompt_parts.append("\nResults from previous tool calls:")
-                    next_prompt_parts.extend(result_messages)
-                    next_prompt_parts.append("""
-Based on these results and the updated file context, I will proceed.""")
-                else:
-                    next_prompt_parts.append("""
-No specific results were returned from the previous tool calls, but the file context may have been updated.
-I will proceed based on the current context.""")
-                next_prompt_parts.append(f"\nYour original question was: {original_question}")
-                self.reflected_message = "\n".join(next_prompt_parts)
-                self.io.tool_output("Continuing exploration...")
-                return False
-        elif result_messages:
-            results_block = "\n\n" + "\n".join(result_messages)
-            self.partial_response_content += results_block
+
+            # Construct reflection prompt
+            next_prompt_parts = []
+            next_prompt_parts.append(
+                "I have processed the results of the previous tool calls. Let me analyze them"
+                " and continue working towards your request."
+            )
+            next_prompt_parts.append("""
+I will proceed based on the tool results and updated context.""")
+            next_prompt_parts.append(f"\nYour original question was: {original_question}")
+            self.reflected_message = "\n".join(next_prompt_parts)
+            self.io.tool_output("Continuing exploration...")
+            return False
+
         if self.files_edited_by_tools:
             saved_message = await self.auto_commit(self.files_edited_by_tools)
             if not saved_message and hasattr(self.gpt_prompts, "files_content_gpt_edits_no_repo"):
                 saved_message = self.gpt_prompts.files_content_gpt_edits_no_repo
+
         self.tool_call_count = 0
         self.files_added_in_exploration = set()
         self.files_edited_by_tools = set()
@@ -844,293 +839,6 @@ I will proceed based on the current context.""")
                     else:
                         return f"Error: Could not find server instance for {server_name}"
         return f"Error: Unknown tool name '{norm_tool_name}'"
-
-    def _convert_concatenated_json_to_tool_calls(self, content):
-        """
-        Check if content contains concatenated JSON objects and convert them to tool call format.
-
-        Args:
-            content (str): Content to check for concatenated JSON
-
-        Returns:
-            str: Content with concatenated JSON converted to tool call format, or original content if no JSON found
-        """
-        try:
-            json_chunks = utils.split_concatenated_json(content)
-            if len(json_chunks) >= 1:
-                tool_calls = []
-                for chunk in json_chunks:
-                    try:
-                        json_obj = json.loads(chunk)
-                        if (
-                            isinstance(json_obj, dict)
-                            and "name" in json_obj
-                            and "arguments" in json_obj
-                        ):
-                            tool_name = json_obj["name"]
-                            arguments = json_obj["arguments"]
-                            kw_args = []
-                            for key, value in arguments.items():
-                                if isinstance(value, str):
-                                    escaped_value = value.replace('"', '\\"')
-                                    kw_args.append(f'{key}="{escaped_value}"')
-                                elif isinstance(value, bool):
-                                    kw_args.append(f"{key}={str(value).lower()}")
-                                elif value is None:
-                                    kw_args.append(f"{key}=None")
-                                else:
-                                    kw_args.append(f"{key}={repr(value)}")
-                            kw_args_str = ", ".join(kw_args)
-                            tool_call = f"[tool_call({tool_name}, {kw_args_str})]"
-                            tool_calls.append(tool_call)
-                        else:
-                            tool_calls.append(chunk)
-                    except json.JSONDecodeError:
-                        tool_calls.append(chunk)
-                if any(call.startswith("[tool_") for call in tool_calls):
-                    return "".join(tool_calls)
-        except Exception as e:
-            self.io.tool_warning(f"Error converting concatenated JSON to tool calls: {str(e)}")
-        return content
-
-    async def _process_tool_commands(self, content):
-        """
-        Process tool commands in the `[tool_call(name, param=value)]` format within the content.
-
-        Rules:
-        1. Tool calls must appear after the LAST '---' line separator in the content
-        2. Any tool calls before this last separator are treated as text (not executed)
-        3. SEARCH/REPLACE blocks can only appear before this last separator
-
-        Returns processed content, result messages, and a flag indicating if any tool calls were found.
-        Also returns the content before the last separator for SEARCH/REPLACE block validation.
-        """
-        result_messages = []
-        modified_content = content
-        tool_calls_found = False
-        call_count = 0
-        max_calls = self.max_tool_calls
-        tool_names = []
-        content = self._convert_concatenated_json_to_tool_calls(content)
-        separator_marker = "---"
-        content_parts = content.split(separator_marker)
-        if len(content_parts) == 1:
-            tool_call_pattern = "\\[tool_call\\([^\\]]+\\)\\]"
-            if re.search(tool_call_pattern, content):
-                content_before_separator = ""
-                content_after_separator = content
-            else:
-                return content, result_messages, False, content, tool_names
-        content_before_separator = separator_marker.join(content_parts[:-1])
-        content_after_separator = content_parts[-1]
-        processed_content = content_before_separator + separator_marker
-        last_index = 0
-        tool_call_pattern = re.compile("\\[tool_.*?\\(", re.DOTALL)
-        end_marker = "]"
-        while True:
-            match = tool_call_pattern.search(content_after_separator, last_index)
-            if not match:
-                processed_content += content_after_separator[last_index:]
-                break
-            start_pos = match.start()
-            start_marker = match.group(0)
-            backslashes = 0
-            p = start_pos - 1
-            while p >= 0 and content_after_separator[p] == "\\":
-                backslashes += 1
-                p -= 1
-            if backslashes % 2 == 1:
-                processed_content += content_after_separator[
-                    last_index : start_pos + len(start_marker)
-                ]
-                last_index = start_pos + len(start_marker)
-                continue
-            processed_content += content_after_separator[last_index:start_pos]
-            scan_start_pos = start_pos + len(start_marker)
-            paren_level = 1
-            in_single_quotes = False
-            in_double_quotes = False
-            escaped = False
-            end_paren_pos = -1
-            for i in range(scan_start_pos, len(content_after_separator)):
-                char = content_after_separator[i]
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == "'" and not in_double_quotes:
-                    in_single_quotes = not in_single_quotes
-                elif char == '"' and not in_single_quotes:
-                    in_double_quotes = not in_double_quotes
-                elif char == "(" and not in_single_quotes and not in_double_quotes:
-                    paren_level += 1
-                elif char == ")" and not in_single_quotes and not in_double_quotes:
-                    paren_level -= 1
-                    if paren_level == 0:
-                        end_paren_pos = i
-                        break
-            expected_end_marker_start = end_paren_pos + 1
-            actual_end_marker_start = -1
-            end_marker_found = False
-            if end_paren_pos != -1:
-                for j in range(expected_end_marker_start, len(content_after_separator)):
-                    if not content_after_separator[j].isspace():
-                        actual_end_marker_start = j
-                        if content_after_separator[actual_end_marker_start] == end_marker:
-                            end_marker_found = True
-                        break
-            if not end_marker_found:
-                tool_name = "unknown"
-                try:
-                    partial_content = content_after_separator[scan_start_pos : scan_start_pos + 100]
-                    comma_pos = partial_content.find(",")
-                    if comma_pos > 0:
-                        tool_name = partial_content[:comma_pos].strip()
-                    else:
-                        space_pos = partial_content.find(" ")
-                        paren_pos = partial_content.find("(")
-                        if space_pos > 0 and (paren_pos < 0 or space_pos < paren_pos):
-                            tool_name = partial_content[:space_pos].strip()
-                        elif paren_pos > 0:
-                            tool_name = partial_content[:paren_pos].strip()
-                except Exception:
-                    pass
-                self.io.tool_warning(
-                    f"Malformed tool call for '{tool_name}'. Missing closing parenthesis or"
-                    " bracket. Skipping."
-                )
-                processed_content += start_marker
-                last_index = scan_start_pos
-                continue
-            full_match_str = content_after_separator[start_pos : actual_end_marker_start + 1]
-            inner_content = content_after_separator[scan_start_pos:end_paren_pos].strip()
-            last_index = actual_end_marker_start + 1
-            call_count += 1
-            if call_count > max_calls:
-                self.io.tool_warning(
-                    f"Exceeded maximum tool calls ({max_calls}). Skipping remaining calls."
-                )
-                continue
-            tool_calls_found = True
-            tool_name = None
-            params = {}
-            result_message = None
-            tool_calls_found = True
-            try:
-                if inner_content:
-                    parts = inner_content.split(",", 1)
-                    potential_tool_name = parts[0].strip()
-                    is_string = (
-                        potential_tool_name.startswith("'")
-                        and potential_tool_name.endswith("'")
-                        or potential_tool_name.startswith('"')
-                        and potential_tool_name.endswith('"')
-                    )
-                    if not potential_tool_name.isidentifier() and not is_string:
-                        quoted_tool_name = json.dumps(potential_tool_name)
-                        if len(parts) > 1:
-                            inner_content = quoted_tool_name + ", " + parts[1]
-                        else:
-                            inner_content = quoted_tool_name
-                parse_str = f"f({inner_content})"
-                parsed_ast = ast.parse(parse_str)
-                if (
-                    not isinstance(parsed_ast, ast.Module)
-                    or not parsed_ast.body
-                    or not isinstance(parsed_ast.body[0], ast.Expr)
-                ):
-                    raise ValueError("Unexpected AST structure")
-                call_node = parsed_ast.body[0].value
-                if not isinstance(call_node, ast.Call):
-                    raise ValueError("Expected a Call node")
-                if not call_node.args:
-                    raise ValueError("Tool name not found or invalid")
-                tool_name_node = call_node.args[0]
-                if isinstance(tool_name_node, ast.Name):
-                    tool_name = tool_name_node.id
-                elif isinstance(tool_name_node, ast.Constant) and isinstance(
-                    tool_name_node.value, str
-                ):
-                    tool_name = tool_name_node.value
-                else:
-                    raise ValueError("Tool name must be an identifier or a string literal")
-                tool_names.append(tool_name)
-                for keyword in call_node.keywords:
-                    key = keyword.arg
-                    value_node = keyword.value
-                    if isinstance(value_node, ast.Constant):
-                        value = value_node.value
-                        if isinstance(value, str) and "\n" in value:
-                            lineno = value_node.lineno if hasattr(value_node, "lineno") else 0
-                            end_lineno = (
-                                value_node.end_lineno
-                                if hasattr(value_node, "end_lineno")
-                                else lineno
-                            )
-                            if end_lineno > lineno:
-                                if value.startswith("\n"):
-                                    value = value[1:]
-                                if value.endswith("\n"):
-                                    value = value[:-1]
-                    elif isinstance(value_node, ast.Name):
-                        id_val = value_node.id.lower()
-                        if id_val == "true":
-                            value = True
-                        elif id_val == "false":
-                            value = False
-                        elif id_val == "none":
-                            value = None
-                        else:
-                            value = value_node.id
-                    else:
-                        try:
-                            value = ast.unparse(value_node)
-                        except AttributeError:
-                            raise ValueError(
-                                f"Unsupported argument type for key '{key}': {type(value_node)}"
-                            )
-                        except Exception as unparse_e:
-                            raise ValueError(
-                                f"Could not unparse value for key '{key}': {unparse_e}"
-                            )
-                    suppressed_arg_values = ["..."]
-                    if isinstance(value, str) and value in suppressed_arg_values:
-                        self.io.tool_warning(
-                            f"Skipping suppressed argument value '{value}' for key '{key}' in tool"
-                            f" '{tool_name}'"
-                        )
-                        continue
-                    params[key] = value
-            except (SyntaxError, ValueError) as e:
-                result_message = f"Error parsing tool call '{inner_content}': {e}"
-                self.io.tool_error(f"Failed to parse tool call: {full_match_str}\nError: {e}")
-                result_messages.append(f"[Result (Parse Error): {result_message}]")
-                continue
-            except Exception as e:
-                result_message = f"Unexpected error parsing tool call '{inner_content}': {e}"
-                self.io.tool_error(f"""Unexpected error during parsing: {full_match_str}
-Error: {e}
-{traceback.format_exc()}""")
-                result_messages.append(f"[Result (Parse Error): {result_message}]")
-                continue
-            try:
-                norm_tool_name = tool_name.lower()
-                result_message = await self._execute_tool_with_registry(norm_tool_name, params)
-            except Exception as e:
-                result_message = f"Error executing {tool_name}: {str(e)}"
-                self.io.tool_error(f"""Error during {tool_name} execution: {e}
-{traceback.format_exc()}""")
-            if result_message:
-                result_messages.append(f"[Result ({tool_name}): {result_message}]")
-        self.tool_call_count += call_count
-        modified_content = processed_content
-        return (
-            modified_content,
-            result_messages,
-            tool_calls_found,
-            content_before_separator,
-            tool_names,
-        )
 
     def _get_repetitive_tools(self):
         """
@@ -1282,146 +990,6 @@ You have used the following tool(s) repeatedly:""")
                 ]
                 return "\n".join(context_parts)
         return ""
-
-    async def _apply_edits_from_response(self):
-        """
-        Parses and applies SEARCH/REPLACE edits found in self.partial_response_content.
-        Returns a set of relative file paths that were successfully edited.
-        """
-        edited_files = set()
-        try:
-            edits = list(
-                find_original_update_blocks(
-                    self.partial_response_content, self.fence, self.get_inchat_relative_files()
-                )
-            )
-            self.shell_commands += [edit[1] for edit in edits if edit[0] is None]
-            edits = [edit for edit in edits if edit[0] is not None]
-            prepared_edits = []
-            seen_paths = dict()
-            self.need_commit_before_edits = set()
-            for edit in edits:
-                path = edit[0]
-                if path in seen_paths:
-                    allowed = seen_paths[path]
-                else:
-                    allowed = await self.allowed_to_edit(path)
-                    seen_paths[path] = allowed
-                if allowed:
-                    prepared_edits.append(edit)
-            await self.dirty_commit()
-            self.need_commit_before_edits = set()
-            failed = []
-            passed = []
-            for edit in prepared_edits:
-                path, original, updated = edit
-                full_path = self.abs_root_path(path)
-                new_content = None
-                if Path(full_path).exists():
-                    content = self.io.read_text(full_path)
-                    new_content = do_replace(full_path, content, original, updated, self.fence)
-                if not new_content and original.strip():
-                    for other_full_path in self.abs_fnames:
-                        if other_full_path == full_path:
-                            continue
-                        other_content = self.io.read_text(other_full_path)
-                        other_new_content = do_replace(
-                            other_full_path, other_content, original, updated, self.fence
-                        )
-                        if other_new_content:
-                            path = self.get_rel_fname(other_full_path)
-                            full_path = other_full_path
-                            new_content = other_new_content
-                            self.io.tool_warning(f"Applied edit intended for {edit[0]} to {path}")
-                            break
-                if new_content:
-                    if not self.dry_run:
-                        self.io.write_text(full_path, new_content)
-                        self.io.tool_output(f"Applied edit to {path}")
-                    else:
-                        self.io.tool_output(f"Did not apply edit to {path} (--dry-run)")
-                    passed.append((path, original, updated))
-                else:
-                    failed.append(edit)
-            if failed:
-                blocks = "block" if len(failed) == 1 else "blocks"
-                error_message = f"# {len(failed)} SEARCH/REPLACE {blocks} failed to match!\n"
-                for edit in failed:
-                    path, original, updated = edit
-                    full_path = self.abs_root_path(path)
-                    content = self.io.read_text(full_path)
-                    error_message += f"""
-## SearchReplaceNoExactMatch: This SEARCH block failed to exactly match lines in {path}
-<<<<<<< SEARCH
-{original}=======
-{updated}>>>>>>> REPLACE
-
-"""
-                    did_you_mean = find_similar_lines(original, content)
-                    if did_you_mean:
-                        error_message += f"""Did you mean to match some of these actual lines from {path}?
-
-{self.fence[0]}
-{did_you_mean}
-{self.fence[1]}
-
-"""
-                    if updated in content and updated:
-                        error_message += f"""Are you sure you need this SEARCH/REPLACE block?
-The REPLACE lines are already in {path}!
-
-"""
-                error_message += (
-                    "The SEARCH section must exactly match an existing block of lines including all"
-                    " white space, comments, indentation, docstrings, etc"
-                )
-                if passed:
-                    pblocks = "block" if len(passed) == 1 else "blocks"
-                    error_message += f"""
-# The other {len(passed)} SEARCH/REPLACE {pblocks} were applied successfully.
-Don't re-send them.
-Just reply with fixed versions of the {blocks} above that failed to match.
-"""
-                self.io.tool_error(error_message)
-                self.reflected_message = error_message
-            edited_files = set(edit[0] for edit in passed)
-            if edited_files:
-                self.coder_edited_files.update(edited_files)
-                self.auto_commit(edited_files)
-                if self.auto_lint:
-                    lint_errors = self.lint_edited(edited_files)
-                    self.auto_commit(edited_files, context="Ran the linter")
-                    if lint_errors and not self.reflected_message:
-                        ok = await self.io.confirm_ask("Attempt to fix lint errors?")
-                        if ok:
-                            self.reflected_message = lint_errors
-                shared_output = await self.run_shell_commands()
-                if shared_output:
-                    self.io.tool_output("Shell command output:\n" + shared_output)
-                if self.auto_test and not self.reflected_message:
-                    test_errors = await self.commands.execute("test", self.test_cmd)
-                    if test_errors:
-                        ok = await self.io.confirm_ask("Attempt to fix test errors?")
-                        if ok:
-                            self.reflected_message = test_errors
-            self.show_undo_hint()
-        except ValueError as err:
-            self.num_malformed_responses += 1
-            error_message = err.args[0]
-            self.io.tool_error("The LLM did not conform to the edit format.")
-            self.io.tool_output(urls.edit_errors)
-            self.io.tool_output()
-            self.io.tool_output(str(error_message))
-            self.reflected_message = str(error_message)
-        except ANY_GIT_ERROR as err:
-            self.io.tool_error(f"Git error during edit application: {str(err)}")
-            self.reflected_message = f"Git error during edit application: {str(err)}"
-        except Exception as err:
-            self.io.tool_error("Exception while applying edits:")
-            self.io.tool_error(str(err), strip=False)
-            self.io.tool_error(traceback.format_exc())
-            self.reflected_message = f"Exception while applying edits: {str(err)}"
-        return edited_files
 
     def _add_file_to_context(self, file_path, explicit=False):
         """

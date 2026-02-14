@@ -203,6 +203,10 @@ class TUI(App):
             "stop": "escape",
             "cycle_forward": "tab",
             "cycle_backward": "shift+tab",
+            "input_start": "ctrl+home",
+            "input_end": "ctrl+end",
+            "output_up": "shift+pageup",
+            "output_down": "shift+pagedown",
             "editor": "ctrl+o",
             "history": "ctrl+r",
             "focus": "ctrl+f",
@@ -572,6 +576,10 @@ class TUI(App):
         status_bar = self.query_one("#status-bar", StatusBar)
         status_bar.show_notification(f"Error: {message}", severity="error", timeout=10)
 
+    def on_resize(self) -> None:
+        file_list = self.query_one("#file-list", FileList)
+        file_list.update_files(file_list.chat_files)
+
     def on_input_area_text_changed(self, message: InputArea.TextChanged):
         """Handle text changes in input area."""
         self._update_key_hints_for_commands(message.text, is_completion=False)
@@ -648,6 +656,16 @@ class TUI(App):
             )
 
         self.worker.coder.show_announcements()
+
+    def action_output_up(self):
+        """Scroll the output area up one page."""
+        output_container = self.query_one("#output", OutputContainer)
+        output_container.action_page_up()
+
+    def action_output_down(self):
+        """Scroll the output area down one page."""
+        output_container = self.query_one("#output", OutputContainer)
+        output_container.action_page_down()
 
     def action_interrupt(self):
         """Interrupt the current task."""

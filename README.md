@@ -145,7 +145,7 @@ The current priorities are to improve core capabilities and user experience of t
 
 4. **Context Delivery** - [Discussion](https://github.com/dwash96/cecli/issues/47)
   * [ ] Use workflow for internal discovery to better target file snippets needed for specific tasks
-  * [ ] Add support for partial files and code snippets in model completion messages
+  * [x] Add support for partial files and code snippets in model completion messages
   * [x] Update message request structure for optimal caching
 
 5. **TUI Experience** - [Discussion](https://github.com/dwash96/cecli/issues/48)
@@ -161,6 +161,38 @@ The current priorities are to improve core capabilities and user experience of t
   * [x] Make the system prompts more aggressive about removing unneeded files/content from the context
   * [x] Add a plugin-like system for allowing agent mode to use user-defined tools in simple python files
   * [x] Add a dynamic tool discovery tool to allow the system to have only the tools it needs in context
+
+7. **Sub Agents**
+  * [ ] Add `/fork` and `/rejoin` commands to manually manage parts of the conversation history
+  * [ ] Add an instance-able view of the conversation system so sub agents get their own context and workspaces
+  * [ ] Modify coder classes to have discrete identifiers for themselves/management utilities for them to have their own slices of the world
+  * [ ] Refactor global files like todo lists to live inside instance folders to avoid state conflicts
+  * [ ] Add a `spawn` tool that launches a sub agent as a background command that the parent model waits for to finish
+  * [ ] Add visibility into active sub agent calls in TUI
+
+8. **Hooks**
+  * [ ] Add hooks base class for user defined python hooks with an execute method with type and priority settings
+  * [ ] Add hook manager that can accept user defined files and command line commands
+  * [ ] Integrate hook manager with coder classes with hooks for `start`, `on_message`, `end_message`, `pre_tool`, and `post_tool` 
+
+9. **Efficient File Editing**
+  * [ ] Explore use of hashline file representation for more targeted file editing
+  * [ ] Assuming viability, update SEARCH part of SEARCH/REPLACE with hashline identification
+  * [ ] Update agent mode edit tools to work with hashline identification
+  * [ ] Update internal file diff representation to support hashline propagation
+
+10. **Dynamic Context Management** 
+  * [ ] Update compaction to use observational memory sub agent calls to generate decision records that are used as the compaction basis
+  * [ ] Persist decision records to disk for sessions with some settings for managing lifetimes of such persistence
+  * [ ] Integrate RLM to extract information from decision records on disk and other definable notes
+  * [ ] Add a "describe" tool that launches a sub agent workflow that populates an RLM call's context with:
+    * Current Conversation History
+    * Past Decision Records
+    * Repo Map Found Files
+
+11. **Quality of Life**
+  * [ ] Add hot keys support for running repeatable commands like switching between preferred models
+  * [ ] Unified error message logging inside of `.cecli` directory
 
 ### All Contributors (Both Cecli and Aider main)
 

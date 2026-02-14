@@ -113,10 +113,6 @@ grep-ast==0.9.0
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
-grpcio==1.67.1
-    # via
-    #   -c requirements/common-constraints.txt
-    #   litellm
 h11==0.16.0
     # via
     #   -c requirements/common-constraints.txt
@@ -186,7 +182,7 @@ linkify-it-py==2.0.3
     # via
     #   -c requirements/common-constraints.txt
     #   markdown-it-py
-litellm==1.80.11
+litellm==1.81.11
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
@@ -421,6 +417,10 @@ tokenizers==0.22.1
     # via
     #   -c requirements/common-constraints.txt
     #   litellm
+tomlkit==0.14.0
+    # via
+    #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements.in
 tqdm==4.67.1
     # via
     #   -c requirements/common-constraints.txt
@@ -453,16 +453,12 @@ truststore==0.10.4
 typing-extensions==4.15.0
     # via
     #   -c requirements/common-constraints.txt
-    #   aiosignal
-    #   anyio
     #   beautifulsoup4
     #   huggingface-hub
     #   mcp
     #   openai
     #   pydantic
     #   pydantic-core
-    #   referencing
-    #   starlette
     #   textual
     #   typing-inspection
 typing-inspection==0.4.2

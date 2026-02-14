@@ -36,6 +36,7 @@ EXCEPTIONS = [
     ExInfo("JSONSchemaValidationError", True, None),
     ExInfo("NotFoundError", False, None),
     ExInfo("OpenAIError", True, None),
+    ExInfo("PermissionDeniedError", False, None),
     ExInfo(
         "RateLimitError",
         True,

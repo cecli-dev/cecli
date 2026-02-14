@@ -158,12 +158,28 @@ class TerminalSetupCommand(BaseCommand):
     @classmethod
     def _update_alacritty(cls, path, io, dry_run=False):
         """Updates Alacritty TOML configuration with shift+enter binding."""
-        if os.environ.get("TERM") != "alacritty":
-            return False
+        import tomlkit
+
+        # Create directory if it doesn't exist
+        path.parent.mkdir(parents=True, exist_ok=True)
 
         if not path.exists():
-            io.tool_output(f"Skipping Alacritty: File not found at {path}")
-            return False
+            if dry_run:
+                io.tool_output(f"DRY-RUN: Would create Alacritty config at {path}")
+                io.tool_output(
+                    'DRY-RUN: Would add binding: {"key": "Return", "mods": "Shift", "chars": "\\n"}'
+                )
+                return True
+            else:
+                io.tool_output(f"Creating Alacritty config at {path}")
+                # Create minimal Alacritty config with shift+enter binding
+                data = {
+                    "keyboard": {"bindings": [{"key": "Return", "mods": "Shift", "chars": "\n"}]}
+                }
+                with open(path, "w", encoding="utf-8") as f:
+                    tomlkit.dump(data, f)
+                io.tool_output("Created Alacritty config with shift+enter binding.")
+                return True
 
         # Define the binding to add
         new_binding = {"key": "Return", "mods": "Shift", "chars": "\n"}
@@ -173,7 +189,7 @@ class TerminalSetupCommand(BaseCommand):
             io.tool_output(f"DRY-RUN: Would add binding: {new_binding}")
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    data = toml.load(f)
+                    data = tomlkit.load(f)
 
                 # Check if binding already exists
                 keyboard_section = data.get("keyboard", {})
@@ -195,7 +211,7 @@ class TerminalSetupCommand(BaseCommand):
                 else:
                     io.tool_output("DRY-RUN: Would update Alacritty config.")
                     return True
-            except toml.TomlDecodeError:
+            except toml.TOMLDecodeError:
                 io.tool_output("DRY-RUN: Error: Could not parse Alacritty TOML file.")
                 return False
             except Exception as e:
@@ -206,7 +222,7 @@ class TerminalSetupCommand(BaseCommand):
 
         try:
             with open(path, "r", encoding="utf-8") as f:
-                data = toml.load(f)
+                data = tomlkit.load(f)
 
             # Ensure keyboard section exists
             if "keyboard" not in data:
@@ -237,12 +253,12 @@ class TerminalSetupCommand(BaseCommand):
 
             # Write back to file
             with open(path, "w", encoding="utf-8") as f:
-                toml.dump(data, f)
+                tomlkit.dump(data, f)
 
             io.tool_output("Updated Alacritty config.")
             return True
 
-        except toml.TomlDecodeError:
+        except toml.TOMLDecodeError:
             io.tool_output("Error: Could not parse Alacritty TOML file. Is it valid TOML?")
             return False
         except Exception as e:
@@ -252,9 +268,21 @@ class TerminalSetupCommand(BaseCommand):
     @classmethod
     def _update_kitty(cls, path, io, dry_run=False):
         """Appends the Kitty mapping if not present."""
+        # Create directory if it doesn't exist
+        path.parent.mkdir(parents=True, exist_ok=True)
+
         if not path.exists():
-            io.tool_output(f"Skipping Kitty: File not found at {path}")
-            return False
+            if dry_run:
+                io.tool_output(f"DRY-RUN: Would create Kitty config at {path}")
+                io.tool_output(f"DRY-RUN: Would add binding:\n{cls.KITTY_BINDING.strip()}")
+                return True
+            else:
+                io.tool_output(f"Creating Kitty config at {path}")
+                # Create Kitty config with shift+enter binding
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(cls.KITTY_BINDING)
+                io.tool_output("Created Kitty config with shift+enter binding.")
+                return True
 
         if dry_run:
             io.tool_output(f"DRY-RUN: Would check Kitty config at {path}")
@@ -290,9 +318,6 @@ class TerminalSetupCommand(BaseCommand):
     @classmethod
     def _update_konsole(cls, path, io, dry_run=False):
         """Updates Konsole keytab configuration with shift+enter binding."""
-        if not os.environ.get("KONSOLE_VERSION"):
-            return False
-
         default_keytab_path = Path(__file__).parent / "terminal_data" / "linux.keytab"
 
         if not path.exists():
@@ -354,9 +379,29 @@ class TerminalSetupCommand(BaseCommand):
     @classmethod
     def _update_windows_terminal(cls, path, io, dry_run=False):
         """Parses JSON, adds action to 'actions' list and keybinding to 'keybindings' list."""
-        if not path or not path.exists():
-            io.tool_output("Skipping Windows Terminal: File not found.")
+        if not path:
+            io.tool_output("Skipping Windows Terminal: No path available.")
             return False
+
+        # Create directory if it doesn't exist
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not path.exists():
+            if dry_run:
+                io.tool_output(f"DRY-RUN: Would create Windows Terminal config at {path}")
+                io.tool_output(f"DRY-RUN: Would add action: {json.dumps(cls.WT_ACTION, indent=2)}")
+                io.tool_output(
+                    f"DRY-RUN: Would add keybinding: {json.dumps(cls.WT_KEYBINDING, indent=2)}"
+                )
+                return True
+            else:
+                io.tool_output(f"Creating Windows Terminal config at {path}")
+                # Create minimal Windows Terminal config with shift+enter binding
+                data = {"actions": [cls.WT_ACTION], "keybindings": [cls.WT_KEYBINDING]}
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
+                io.tool_output("Created Windows Terminal config with shift+enter binding.")
+                return True
 
         if dry_run:
             io.tool_output(f"DRY-RUN: Would check Windows Terminal config at {path}")
@@ -744,42 +789,118 @@ class TerminalSetupCommand(BaseCommand):
         paths = cls._get_config_paths()
 
         # Check for dry-run mode
-        dry_run = args == "dry_run"
+        dry_run = args == "dry_run" or (hasattr(args, "dry_run") and args.dry_run)
         if dry_run:
             io.tool_output("DRY-RUN MODE: Showing what would be changed without modifying files\n")
+
+        # Explicit yes required should always be true for terminal setup
+        explicit_yes_required = True
 
         updated = False
 
         if "alacritty" in paths:
-            if cls._update_alacritty(paths["alacritty"], io, dry_run=dry_run):
-                updated = True
+            path = paths["alacritty"]
+            if path.exists():
+                question = f"Update Alacritty config at {path} to add shift+enter binding?"
+            else:
+                question = f"Create new Alacritty config at {path} with shift+enter binding?"
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_alacritty(path, io, dry_run=dry_run):
+                    updated = True
 
         if "kitty" in paths:
-            if cls._update_kitty(paths["kitty"], io, dry_run=dry_run):
-                updated = True
+            path = paths["kitty"]
+            if path.exists():
+                question = f"Update Kitty config at {path} to add shift+enter binding?"
+            else:
+                question = f"Create new Kitty config at {path} with shift+enter binding?"
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_kitty(path, io, dry_run=dry_run):
+                    updated = True
 
         if "konsole" in paths:
-            if cls._update_konsole(paths["konsole"], io, dry_run=dry_run):
-                updated = True
+            path = paths["konsole"]
+            if path.exists():
+                question = f"Update Konsole keytab at {path} to add shift+enter binding?"
+            else:
+                question = f"Create new Konsole keytab at {path} with shift+enter binding?"
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_konsole(path, io, dry_run=dry_run):
+                    updated = True
 
         if "windows_terminal" in paths:
-            if cls._update_windows_terminal(paths["windows_terminal"], io, dry_run=dry_run):
-                updated = True
+            path = paths["windows_terminal"]
+            if path.exists():
+                question = f"Update Windows Terminal config at {path} to add shift+enter binding?"
+            else:
+                question = f"Create new Windows Terminal config at {path} with shift+enter binding?"
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_windows_terminal(path, io, dry_run=dry_run):
+                    updated = True
 
         if "vscode" in paths:
-            if cls._update_vscode(paths["vscode"], io, dry_run=dry_run):
-                updated = True
-            # Also update VS Code settings.json for proper shift+enter support
-            if cls._update_vscode_settings(paths["vscode"], io, dry_run=dry_run):
-                updated = True
+            path = paths["vscode"]
+            if path.exists():
+                question = f"Update VS Code keybindings at {path} to add shift+enter binding?"
+            else:
+                question = f"Create new VS Code keybindings at {path} with shift+enter binding?"
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_vscode(path, io, dry_run=dry_run):
+                    updated = True
+                # Also update VS Code settings.json for proper shift+enter support
+                settings_question = (
+                    f"Update VS Code settings at {path.parent}/settings.json for proper shift+enter"
+                    " support?"
+                )
+                if dry_run or await coder.io.confirm_ask(
+                    settings_question, default="y", explicit_yes_required=explicit_yes_required
+                ):
+                    if cls._update_vscode_settings(path, io, dry_run=dry_run):
+                        updated = True
 
         if "vscode_windows" in paths:
+            path = paths["vscode_windows"]
             io.tool_output("Found Windows host VS Code configuration (running in WSL)")
-            if cls._update_vscode(paths["vscode_windows"], io, dry_run=dry_run):
-                updated = True
-            # Also update Windows host VS Code settings.json
-            if cls._update_vscode_settings(paths["vscode_windows"], io, dry_run=dry_run):
-                updated = True
+            if path.exists():
+                question = (
+                    f"Update Windows host VS Code keybindings at {path} to add shift+enter binding?"
+                )
+            else:
+                question = (
+                    f"Create new Windows host VS Code keybindings at {path} with shift+enter"
+                    " binding?"
+                )
+
+            if dry_run or await coder.io.confirm_ask(
+                question, default="y", explicit_yes_required=explicit_yes_required
+            ):
+                if cls._update_vscode(path, io, dry_run=dry_run):
+                    updated = True
+                # Also update Windows host VS Code settings.json
+                settings_question = (
+                    f"Update Windows host VS Code settings at {path.parent}/settings.json for"
+                    " proper shift+enter support?"
+                )
+                if dry_run or await coder.io.confirm_ask(
+                    settings_question, default="y", explicit_yes_required=explicit_yes_required
+                ):
+                    if cls._update_vscode_settings(path, io, dry_run=dry_run):
+                        updated = True
 
         if dry_run:
             if updated:
