@@ -1046,8 +1046,9 @@ class InputOutput:
             input_task = self.input_task
             self.input_task = None
             try:
-                input_task.cancel()
-                await input_task
+                if input_task:
+                    input_task.cancel()
+                    await input_task
             except (
                 asyncio.CancelledError,
                 Exception,
@@ -1064,8 +1065,9 @@ class InputOutput:
             output_task = self.output_task
             self.output_task = None
             try:
-                output_task.cancel()
-                await output_task
+                if output_task:
+                    output_task.cancel()
+                    await output_task
             except (
                 asyncio.CancelledError,
                 EOFError,
