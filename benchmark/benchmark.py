@@ -873,6 +873,7 @@ async def run_test_real(
 
     from cecli import models
     from cecli.coders import Coder
+    from cecli.helpers.conversation import ConversationFiles, ConversationManager
     from cecli.io import InputOutput
 
     if not os.path.isdir(testdir):
@@ -1053,6 +1054,7 @@ async def run_test_real(
         use_git=True,
         auto_commits=False,
         dirty_commits=False,
+        auto_lint=False,
         stream=False,
         verbose=verbose,
         # auto_lint=False,  # disabled for code-in-json experiments
@@ -1088,6 +1090,15 @@ async def run_test_real(
 
     dur = 0
     test_outcomes = []
+
+    ConversationManager.initialize(
+        coder,
+        reset=True,
+        reformat=True,
+    )
+
+    ConversationFiles.reset()
+
     for i in range(tries):
         start = time.time()
 

@@ -5,12 +5,13 @@
 set -e  # Exit on error
 
 # Default values
-BASE_NAME="primary-variation"
-EDIT_FORMAT="diff"
+BASE_NAME="hashline-fix-2"
+EDIT_FORMAT="hashline"
 MAP_TOKENS="512"
 THREADS="1"
-HASH_RE="^4"
-NUM_TESTS="16"
+LANGUAGES="javascript,python,rust,go,java"
+HASH_RE="^[7f]"
+NUM_TESTS="40"
 EXERCISES_DIR="polyglot-benchmark"
 OUTPUT_DIR="tmp.benchmarks"
 SLEEP_BETWEEN=30  # Seconds to sleep between runs
@@ -20,17 +21,14 @@ SLEEP_BETWEEN=30  # Seconds to sleep between runs
 #    "openrouter/minimax/minimax-m2.1"
 #    "openrouter/qwen/qwen3-vl-235b-a22b-thinking"
 MODELS=(
-#    "openrouter/deepseek/deepseek-v3.2"
-#    "openrouter/moonshotai/kimi-k2.5"
-#    "openrouter/minimax/minimax-m2.1"
-#    "openrouter/minimax/minimax-m2.1"
-#    "openrouter/qwen/qwen3-vl-235b-a22b-thinking"
-#    "openrouter/openai/gpt-oss-120b"
+    "openrouter/deepseek/deepseek-v3.2-exp"
+    "openrouter/moonshotai/kimi-k2.5"
+    "openrouter/openai/gpt-oss-120b"
     "openrouter/openai/gpt-5.2"   
-#    "openrouter/google/gemini-3-flash-preview"
-#    "openrouter/google/gemini-3-pro-preview"
-#    "openrouter/anthropic/claude-haiku-4.5"
-#    "openrouter/anthropic/claude-sonnet-4.5" 
+    "openrouter/google/gemini-3-flash-preview"
+    "openrouter/google/gemini-3-pro-preview"
+    "openrouter/anthropic/claude-haiku-4.5"
+    "openrouter/anthropic/claude-sonnet-4.5" 
 )
 
 # Parse command line arguments
@@ -118,6 +116,7 @@ run_benchmark() {
         --threads "$THREADS" \
         --hash-re "$HASH_RE" \
         --num-tests "$NUM_TESTS" \
+        --languages "$LANGUAGES" \
         --exercises-dir "$EXERCISES_DIR"
 
     echo "Benchmark completed: $run_name"
