@@ -11,10 +11,17 @@ class ClearCommand(BaseCommand):
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         # Clear chat history using ConversationManager
-        from cecli.helpers.conversation import ConversationManager, MessageTag
+        from cecli.helpers.conversation import (
+            ConversationFiles,
+            ConversationManager,
+            MessageTag,
+        )
 
         ConversationManager.clear_tag(MessageTag.CUR)
         ConversationManager.clear_tag(MessageTag.DONE)
+        ConversationManager.clear_tag(MessageTag.DIFFS)
+
+        ConversationFiles.reset()
 
         # Clear TUI output if available
         if coder.tui and coder.tui():
