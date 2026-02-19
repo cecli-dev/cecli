@@ -738,6 +738,28 @@ class TUI(App):
         else:
             input_area.focus()
 
+        return edited_text
+
+    def get_response_from_editor(self, initial_content=""):
+        """Open an external editor with proper TUI suspension.
+
+        Args:
+            initial_content: Initial text to populate the editor with
+
+        Returns:
+            Edited text
+        """
+        # Get editor from coder's commands or default
+        editor = getattr(self.worker.coder.commands, "editor", None)
+
+        # Suspend TUI and open editor
+        input_area = self.query_one("#input", InputArea)
+        edited_text = ""
+        edited_text = self.run_obstructive(pipe_editor, initial_content, suffix="md", editor=editor)
+        input_area.focus()
+
+        return edited_text.rstrip()
+
     def _encode_keys(self, key):
         key = key.replace("shift+enter", "ctrl+j")
 

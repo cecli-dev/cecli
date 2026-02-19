@@ -24,7 +24,10 @@ class ArchitectCoder(AskCoder):
             return
 
         if confirmation == "tweak":
-            content = self.io.edit_in_editor(content)
+            if self.tui and self.tui():
+                content = self.tui().get_response_from_editor(content)
+            else:
+                content = self.io.edit_in_editor(content)
 
         await asyncio.sleep(0.1)
 

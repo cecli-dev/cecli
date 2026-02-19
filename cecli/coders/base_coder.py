@@ -3718,9 +3718,14 @@ class Coder:
                 confirmation = await self.io.confirm_ask("Tweak Response?", allow_tweak=True)
 
                 if confirmation or confirmation == "tweak":
-                    self.partial_response_content = self.io.edit_in_editor(
-                        self.partial_response_content
-                    )
+                    if self.tui and self.tui():
+                        self.partial_response_content = self.tui().get_response_from_editor(
+                            self.partial_response_content
+                        )
+                    else:
+                        self.partial_response_content = self.io.edit_in_editor(
+                            self.partial_response_content
+                        )
 
             await asyncio.sleep(0.1)
 
