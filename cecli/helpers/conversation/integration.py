@@ -54,6 +54,7 @@ class ConversationChunks:
         if hasattr(coder.gpt_prompts, "example_messages"):
             example_messages = coder.gpt_prompts.example_messages
             for i, msg in enumerate(example_messages):
+                msg["content"] = coder.fmt_system_prompt(msg["content"])
                 ConversationManager.add_message(
                     message_dict=msg,
                     tag=MessageTag.EXAMPLES,
