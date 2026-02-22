@@ -112,11 +112,11 @@ On first run to configure keybindings for the program (notably `shift+enter`). S
 If you want additional sandboxing, we publish a docker container that can be ran as follows:
 
 ```bash
-docker pull dustinwashington/aider-ce
+docker pull dustinwashington/cecli
 docker run \
   -it \
   --user $(id -u):$(id -g) \
-  --volume $(pwd):/app dustinwashington/aider-ce \
+  --volume $(pwd):/app dustinwashington/cecli \
   --volume $(pwd)/.aider.conf.yml:/.aider.conf.yml \
   --volume $(pwd)/.aider.env:/.aider/.env \
   --config /app/.aider.conf.yml

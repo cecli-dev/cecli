@@ -37,6 +37,8 @@ jobs:
         tags: |
           ${{ secrets.DOCKERHUB_USERNAME }}/cecli:${{ github.ref_name }}
           ${{ secrets.DOCKERHUB_USERNAME }}/cecli:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/aider-ce:${{ github.ref_name }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/aider-ce:latest
         target: cecli
         cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/cecli:latest-bc
         cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/cecli:latest-bc,mode=max        

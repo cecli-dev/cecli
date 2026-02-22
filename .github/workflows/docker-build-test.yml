@@ -61,6 +61,8 @@ jobs:
         file: ./docker/Dockerfile
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/cecli:dev
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/cecli:dev
+          ${{ secrets.DOCKERHUB_USERNAME }}/aider-ce:dev
         target: cecli
         cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/cecli:latest-bc     
