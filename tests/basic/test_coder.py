@@ -1387,7 +1387,7 @@ This command will print 'Hello, World!' to the console."""
     async def test_architect_coder_auto_accept_true(self):
         with GitTemporaryDirectory():
             io = InputOutput(yes=True)
-            io.confirm_ask = AsyncMock(return_value=False)
+            io.confirm_ask = AsyncMock(return_value=True)
 
             coder = await Coder.create(self.GPT35, edit_format="architect", io=io)
             coder.auto_accept_architect = True
@@ -1405,8 +1405,9 @@ This command will print 'Hello, World!' to the console."""
             ):
                 with pytest.raises(SwitchCoderSignal):
                     await coder.reply_completed()
-
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False, explicit_yes_required=False
+                )
                 mock_editor.generate.assert_called_once()
 
     async def test_architect_coder_auto_accept_false_confirmed(self):
@@ -1431,7 +1432,9 @@ This command will print 'Hello, World!' to the console."""
                 with pytest.raises(SwitchCoderSignal):
                     await coder.reply_completed()
 
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False, explicit_yes_required=True
+                )
                 mock_editor.generate.assert_called_once()
 
     async def test_architect_coder_auto_accept_false_rejected(self):
@@ -1451,7 +1454,9 @@ This command will print 'Hello, World!' to the console."""
                 result = await coder.reply_completed()
 
                 assert result is None
-                io.confirm_ask.assert_called_once_with("Edit the files?", allow_tweak=False)
+                io.confirm_ask.assert_called_once_with(
+                    "Edit the files?", allow_tweak=False, explicit_yes_required=True
+                )
                 mock_create.assert_not_called()
 
     async def test_process_tool_calls_none_response(self):
