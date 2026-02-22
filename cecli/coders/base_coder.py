@@ -1676,7 +1676,7 @@ class Coder:
                     subject=url,
                     group=group,
                     allow_never=True,
-                    explicit_yes_required=self.args.yes_always_commands,
+                    explicit_yes_required=not self.args.yes_always_commands,
                 ):
                     inp += "\n\n"
                     inp += await self.commands.execute("web", url, return_content=True)
@@ -3954,6 +3954,11 @@ class Coder:
 
     async def handle_shell_commands(self, commands_str, group):
         commands = command_parser.split_shell_commands(commands_str)
+
+        # Early return if none of the command strings have length after stripping whitespace
+        if not any(cmd.strip() for cmd in commands):
+            return
+
         command_count = sum(
             1 for cmd in commands if cmd.strip() and not cmd.strip().startswith("#")
         )
@@ -3961,7 +3966,7 @@ class Coder:
         if not await self.io.confirm_ask(
             prompt,
             subject="\n".join(commands),
-            explicit_yes_required=self.args.yes_always_commands,
+            explicit_yes_required=not self.args.yes_always_commands,
             group=group,
             allow_never=True,
         ):
@@ -3978,7 +3983,7 @@ class Coder:
             self.io.tool_output()
             self.io.tool_output(f"Running {command}")
             # Add the command to input history
-            self.io.add_to_input_history(f"/run {command.strip()}")
+            # self.io.add_to_input_history(f"/run {command.strip()}")
             exit_status, output = await asyncio.to_thread(
                 run_cmd, command, error_print=self.io.tool_error, cwd=self.root
             )
