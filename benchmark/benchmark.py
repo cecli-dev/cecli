@@ -875,6 +875,7 @@ async def run_test_real(
     from cecli.coders import Coder
     from cecli.helpers.conversation import ConversationFiles, ConversationManager
     from cecli.io import InputOutput
+    from cecli.main import SwitchCoderSignal
 
     if not os.path.isdir(testdir):
         if dry:
@@ -1114,7 +1115,10 @@ async def run_test_real(
 
             await coder.apply_updates()
         else:
-            response = await coder.run(with_message=instructions, preproc=False)
+            try:
+                response = await coder.run(with_message=instructions, preproc=False)
+            except SwitchCoderSignal:
+                pass
 
         dur += time.time() - start
 

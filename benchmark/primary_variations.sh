@@ -5,13 +5,13 @@
 set -e  # Exit on error
 
 # Default values
-BASE_NAME="hashline-fix-2"
+BASE_NAME="cecli-base-hashline-9"
 EDIT_FORMAT="hashline"
 MAP_TOKENS="512"
 THREADS="1"
 LANGUAGES="javascript,python,rust,go,java"
-HASH_RE="^[7f]"
-NUM_TESTS="40"
+HASH_RE="^[15]"
+NUM_TESTS="32"
 EXERCISES_DIR="polyglot-benchmark"
 OUTPUT_DIR="tmp.benchmarks"
 SLEEP_BETWEEN=30  # Seconds to sleep between runs
@@ -21,14 +21,15 @@ SLEEP_BETWEEN=30  # Seconds to sleep between runs
 #    "openrouter/minimax/minimax-m2.1"
 #    "openrouter/qwen/qwen3-vl-235b-a22b-thinking"
 MODELS=(
-    "openrouter/deepseek/deepseek-v3.2-exp"
-    "openrouter/moonshotai/kimi-k2.5"
-    "openrouter/openai/gpt-oss-120b"
-    "openrouter/openai/gpt-5.2"   
     "openrouter/google/gemini-3-flash-preview"
-    "openrouter/google/gemini-3-pro-preview"
-    "openrouter/anthropic/claude-haiku-4.5"
-    "openrouter/anthropic/claude-sonnet-4.5" 
+    "openrouter/deepseek/deepseek-v3.2-exp"
+#    "openrouter/moonshotai/kimi-k2.5"
+#    "openrouter/openai/gpt-oss-120b"
+#    "openrouter/openai/gpt-5.2"   
+#    "openrouter/google/gemini-3-flash-preview"
+#    "openrouter/google/gemini-3-pro-preview"
+#    "openrouter/anthropic/claude-haiku-4.5"
+#    "openrouter/anthropic/claude-sonnet-4.5" 
 )
 
 # Parse command line arguments
