@@ -18,7 +18,10 @@ class Tool(BaseTool):
                         "items": {
                             "type": "object",
                             "properties": {
-                                "task": {"type": "string", "description": "The task description."},
+                                "task": {
+                                    "type": "string",
+                                    "description": "The task description.",
+                                },
                                 "done": {
                                     "type": "boolean",
                                     "description": "Whether the task is completed.",
@@ -62,94 +65,60 @@ class Tool(BaseTool):
     @classmethod
     def execute(cls, coder, tasks, append=False, change_id=None, dry_run=False, **kwargs):
         """
-        Update the todo list file (todo.txt) with formatted task items.
-        Can either replace the entire content or append to it.
+        Update the todo list.
+
+        Always writes to a board task's subtasks. If no active task exists,
+        one is transparently created via ``get_or_create_session_task()``.
         """
         tool_name = "UpdateTodoList"
         try:
-            # Define the todo file path
-            todo_file_path = coder.local_agent_folder("todo.txt")
-            abs_path = coder.abs_root_path(todo_file_path)
+            from cecli.brainfile import CecliTaskStore
 
-            # Format tasks into string
-            done_tasks = []
-            remaining_tasks = []
+            store = CecliTaskStore(coder.root)
 
-            for task_item in tasks:
-                if task_item.get("done", False):
-                    done_tasks.append(f"✓ {task_item['task']}")
-                else:
-                    # Check if this is the current task
-                    if task_item.get("current", False):
-                        remaining_tasks.append(f"→ {task_item['task']}")
-                    else:
-                        remaining_tasks.append(f"○ {task_item['task']}")
+            # Ensure an active board task exists
+            active_task_id = getattr(coder, "active_task_id", None)
+            just_created = False
+            if not active_task_id:
+                opened = store.get_or_create_session_task(coder)
+                active_task_id = opened["id"]
+                just_created = opened.get("subtasks_total", 0) == 0
 
-            # Build formatted content
-            content_lines = []
-            if done_tasks:
-                content_lines.append("Done:")
-                content_lines.extend(done_tasks)
-                content_lines.append("")
+            task_path = store.get_task_file_path(active_task_id)
+            if not task_path or not task_path.is_file():
+                raise ToolError(f"Active task file not found: {active_task_id}")
 
-            if remaining_tasks:
-                content_lines.append("Remaining:")
-                content_lines.extend(remaining_tasks)
+            existing_content = coder.io.read_text(str(task_path)) or ""
 
-            # Remove trailing empty line if present
-            if content_lines and content_lines[-1] == "":
-                content_lines.pop()
-
-            content = "\n".join(content_lines)
-
-            # Get existing content if appending
-            existing_content = ""
-            import os
-
-            if os.path.isfile(abs_path):
-                existing_content = coder.io.read_text(abs_path) or ""
-
-            # Prepare new content
-            if append:
-                if existing_content and not existing_content.endswith("\n"):
-                    existing_content += "\n"
-                new_content = existing_content + content
-            else:
-                new_content = content
-
-            # Check if content exceeds 4096 characters and warn
-            if len(new_content) > 4096:
-                coder.io.tool_warning(
-                    "⚠️ Todo list content exceeds 4096 characters. Consider summarizing the plan"
-                    " before proceeding."
-                )
-
-            # Check if content actually changed
-            if existing_content == new_content:
-                coder.io.tool_warning("No changes made: new content is identical to existing")
-                return "Warning: No changes made (content identical to existing)"
-
-            # Handle dry run
             if dry_run:
                 action = "append to" if append else "replace"
-                dry_run_message = f"Dry run: Would {action} todo list in {todo_file_path}."
+                dry_run_message = f"Dry run: Would {action} subtasks for task '{active_task_id}'."
                 return format_tool_result(
                     coder, tool_name, "", dry_run=True, dry_run_message=dry_run_message
                 )
 
-            # Apply change
+            store.update_task_subtasks(active_task_id, tasks, append=append)
+
+            # Auto-title: if the task was just created, derive title from first item
+            if just_created:
+                title = store.auto_title(tasks)
+                store.update_task(active_task_id, title=title)
+
+            new_content = coder.io.read_text(str(task_path)) or ""
+
+            if existing_content == new_content:
+                coder.io.tool_warning("No changes made: new content is identical to existing")
+                return "Warning: No changes made (content identical to existing)"
+
             metadata = {
                 "append": append,
                 "existing_length": len(existing_content),
                 "new_length": len(new_content),
             }
+            task_rel_path = store.relpath(task_path)
 
-            # Write the file directly since it's a special file
-            coder.io.write_text(abs_path, new_content)
-
-            # Track the change
             final_change_id = coder.change_tracker.track_change(
-                file_path=todo_file_path,
+                file_path=task_rel_path,
                 change_type="updatetodolist",
                 original_content=existing_content,
                 new_content=new_content,
@@ -157,11 +126,10 @@ class Tool(BaseTool):
                 change_id=change_id,
             )
 
-            coder.coder_edited_files.add(todo_file_path)
+            coder.coder_edited_files.add(task_rel_path)
 
-            # Format and return result
             action = "appended to" if append else "updated"
-            success_message = f"Successfully {action} todo list"
+            success_message = f"Successfully {action} subtasks for {active_task_id}"
             return format_tool_result(
                 coder,
                 tool_name,
@@ -184,12 +152,10 @@ class Tool(BaseTool):
 
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
 
-        # Parse the parameters to display formatted todo list
         params = json.loads(tool_response.function.arguments)
         tasks = params.get("tasks", [])
 
         if tasks:
-            # Format tasks for display
             done_tasks = []
             remaining_tasks = []
 
@@ -197,13 +163,11 @@ class Tool(BaseTool):
                 if task_item.get("done", False):
                     done_tasks.append(f"✓ {task_item['task']}")
                 else:
-                    # Check if this is the current task
                     if task_item.get("current", False):
                         remaining_tasks.append(f"→ {task_item['task']}")
                     else:
                         remaining_tasks.append(f"○ {task_item['task']}")
 
-            # Display formatted todo list
             coder.io.tool_output("")
             coder.io.tool_output(f"{color_start}Todo List:{color_end}")
 

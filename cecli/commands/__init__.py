@@ -55,6 +55,7 @@ from .run import RunCommand
 from .save import SaveCommand
 from .save_session import SaveSessionCommand
 from .settings import SettingsCommand
+from .task import TaskCommand
 from .terminal_setup import TerminalSetupCommand
 from .test import TestCommand
 from .think_tokens import ThinkTokensCommand
@@ -128,6 +129,7 @@ CommandRegistry.register(SaveCommand)
 CommandRegistry.register(SaveSessionCommand)
 CommandRegistry.register(SettingsCommand)
 CommandRegistry.register(TerminalSetupCommand)
+CommandRegistry.register(TaskCommand)
 CommandRegistry.register(TestCommand)
 CommandRegistry.register(ThinkTokensCommand)
 CommandRegistry.register(TokensCommand)
@@ -200,6 +202,7 @@ __all__ = [
     "SettingsCommand",
     "SwitchCoderSignal",
     "TerminalSetupCommand",
+    "TaskCommand",
     "TestCommand",
     "ThinkTokensCommand",
     "TokensCommand",

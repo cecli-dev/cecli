@@ -15,6 +15,7 @@ from cecli.editor import pipe_editor
 from cecli.io import CommandCompletionException
 
 from .widgets import (
+    ActiveTaskBar,
     CompletionBar,
     FileList,
     InputArea,
@@ -280,6 +281,7 @@ class TUI(App):
             coder_mode=coder_mode,
         )
         yield KeyHints(id="key-hints")
+        yield ActiveTaskBar(id="active-task-bar")
         yield MainFooter(
             model_name=model_name,
             project_name=project_name,
@@ -487,6 +489,17 @@ class TUI(App):
 
             footer = self.query_one(MainFooter)
             footer.update_mode(msg.get("mode", "code"))
+        elif msg_type == "active_task":
+            active_task_bar = self.query_one(ActiveTaskBar)
+            active_task_bar.update_task(
+                task_id=msg.get("task_id", ""),
+                title=msg.get("title", ""),
+                column=msg.get("column", ""),
+                subtasks_done=msg.get("subtasks_done", 0),
+                subtasks_total=msg.get("subtasks_total", 0),
+                mode=msg.get("mode", ""),
+                location=msg.get("location", ""),
+            )
 
     def add_output(self, text, task_id=None):
         """Add output to the output container."""
@@ -980,8 +993,13 @@ class TUI(App):
                             pass
                 else:
                     # Use standard command completions (no file fallback)
+                    # Pass the full args string so multi-token commands
+                    # (like /task show <id>) can complete contextually.
+                    cmd_args = parts[1] if len(parts) > 1 else ""
+                    if text.endswith(" "):
+                        cmd_args = cmd_args + " " if cmd_args else " "
                     try:
-                        cmd_completions = commands.get_completions(cmd_name)
+                        cmd_completions = commands.get_completions(cmd_name, cmd_args)
                         if cmd_completions:
                             if arg_prefix:
                                 suggestions = [
@@ -1036,8 +1054,12 @@ class TUI(App):
                 else:
                     return completion
             else:
-                # Replace argument
-                return parts[0] + " " + completion
+                # Replace last argument word, preserving earlier tokens
+                if current_text.endswith(" "):
+                    return current_text + completion
+                else:
+                    prefix = current_text.rsplit(maxsplit=1)[0]
+                    return prefix + " " + completion
         elif "@" in current_text:
             # Replace from @ onwards with the symbol
             at_index = current_text.rfind("@")

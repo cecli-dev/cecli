@@ -47,8 +47,6 @@ class TestSessionCommands(TestCase):
                 {"role": "assistant", "content": "Hi there!"},
             ]
             coder.cur_messages = [{"role": "user", "content": "Can you help me?"}]
-            todo_content = "Task 1\nTask 2"
-            Path(".cecli.todo.txt").write_text(todo_content, encoding="utf-8")
             session_name = "test_session"
             commands.execute("save_session", session_name)
             session_file = Path(handle_core_files(".cecli")) / "sessions" / f"{session_name}.json"
@@ -70,7 +68,7 @@ class TestSessionCommands(TestCase):
             self.assertEqual(settings["auto_commits"], coder.auto_commits)
             self.assertEqual(settings["auto_lint"], coder.auto_lint)
             self.assertEqual(settings["auto_test"], coder.auto_test)
-            self.assertEqual(session_data["todo_list"], todo_content)
+            self.assertNotIn("todo_list", session_data)
 
     async def test_cmd_load_session_basic(self):
         """Test basic session load functionality"""
@@ -105,9 +103,11 @@ class TestSessionCommands(TestCase):
                     "read_only": ["subdir/file3.md"],
                     "read_only_stubs": [],
                 },
-                "settings": {"auto_commits": True, "auto_lint": False, "auto_test": False},
-                "todo_list": """Restored tasks
-- item""",
+                "settings": {
+                    "auto_commits": True,
+                    "auto_lint": False,
+                    "auto_test": False,
+                },
             }
             session_file = Path(handle_core_files(".cecli")) / "sessions" / "test_session.json"
             session_file.parent.mkdir(parents=True, exist_ok=True)
@@ -124,9 +124,6 @@ class TestSessionCommands(TestCase):
             self.assertEqual(coder.auto_commits, True)
             self.assertEqual(coder.auto_lint, False)
             self.assertEqual(coder.auto_test, False)
-            todo_file = Path(".cecli.todo.txt")
-            self.assertTrue(todo_file.exists())
-            self.assertEqual(todo_file.read_text(encoding="utf-8"), session_data["todo_list"])
 
     async def test_cmd_list_sessions_basic(self):
         """Test basic session list functionality"""
@@ -182,15 +179,86 @@ class TestSessionCommands(TestCase):
                 self.assertIn("gpt-3.5-turbo", output_text)
                 self.assertIn("gpt-4", output_text)
 
-    async def test_preserve_todo_list_deprecated(self):
-        """Ensure preserve-todo-list flag is deprecated and todo is cleared on startup"""
+    async def test_session_saves_and_restores_active_task_id(self):
+        """Session save/load round-trips active_task_id."""
         with GitTemporaryDirectory():
-            todo_path = Path(".cecli.todo.txt")
-            todo_path.write_text("keep me", encoding="utf-8")
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            with mock.patch.object(io, "tool_warning") as mock_tool_warning:
-                await Coder.create(self.GPT35, None, io)
-            self.assertFalse(todo_path.exists())
-            self.assertTrue(
-                any("deprecated" in call[0][0] for call in mock_tool_warning.call_args_list)
+            coder = await Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Create a task and set as active
+            from cecli.brainfile import CecliTaskStore
+
+            store = CecliTaskStore(Path(coder.root))
+            store.create_task("Persist me", column="in-progress")
+            store.open_task_in_context(coder, "task-1", mode="auto", explicit=False)
+            self.assertEqual(getattr(coder, "active_task_id", None), "task-1")
+
+            # Save session
+            commands.execute("save_session", "task_session")
+            session_file = Path(coder.root) / ".cecli" / "sessions" / "task_session.json"
+            self.assertTrue(session_file.exists())
+
+            with open(session_file, "r") as f:
+                data = json.load(f)
+            self.assertEqual(data["active_task_id"], "task-1")
+
+            # Clear active task, then restore
+            setattr(coder, "active_task_id", None)
+            commands.execute("load_session", "task_session")
+            self.assertEqual(getattr(coder, "active_task_id", None), "task-1")
+
+    async def test_session_restore_clears_missing_active_task(self):
+        """Session restore clears active_task_id if task file is gone."""
+        with GitTemporaryDirectory():
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            coder = await Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+
+            # Write a session file that references a task that doesn't exist
+            session_data = {
+                "version": 1,
+                "session_name": "stale_task",
+                "model": self.GPT35.name,
+                "edit_format": "diff",
+                "chat_history": {"done_messages": [], "cur_messages": []},
+                "files": {"editable": [], "read_only": [], "read_only_stubs": []},
+                "settings": {
+                    "auto_commits": True,
+                    "auto_lint": False,
+                    "auto_test": False,
+                },
+                "active_task_id": "task-99",
+            }
+            session_dir = Path(coder.root) / ".cecli" / "sessions"
+            session_dir.mkdir(parents=True, exist_ok=True)
+            session_file = session_dir / "stale_task.json"
+            with open(session_file, "w") as f:
+                json.dump(session_data, f)
+
+            commands.execute("load_session", "stale_task")
+            self.assertIsNone(getattr(coder, "active_task_id", None))
+
+    async def test_tasks_board_persists_on_startup(self):
+        """Ensure `.cecli/tasks` data is not cleared on startup."""
+        with GitTemporaryDirectory():
+            task_path = Path(".cecli/tasks/board/task-1.md")
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_text(
+                """---
+id: task-1
+title: Keep me
+column: in-progress
+subtasks:
+  - id: task-1-1
+    title: item
+    completed: false
+---
+## Description
+Persist this file.
+""",
+                encoding="utf-8",
             )
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            await Coder.create(self.GPT35, None, io)
+            self.assertTrue(task_path.exists())

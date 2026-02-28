@@ -131,17 +131,6 @@ class SessionManager:
             for abs_fname in self.coder.abs_read_only_stubs_fnames
         ]
 
-        # Capture todo list content so it can be restored with the session
-        todo_content = None
-        try:
-            todo_path = self.coder.abs_root_path(self.coder.local_agent_folder("todo.txt"))
-            if os.path.isfile(todo_path):
-                todo_content = self.io.read_text(todo_path)
-                if todo_content is None:
-                    todo_content = ""
-        except Exception as e:
-            self.io.tool_warning(f"Could not read todo list file: {e}")
-
         # Get CUR and DONE messages from ConversationManager
         cur_messages = ConversationManager.get_messages_dict(MessageTag.CUR)
         done_messages = ConversationManager.get_messages_dict(MessageTag.DONE)
@@ -169,7 +158,7 @@ class SessionManager:
                 "auto_lint": self.coder.auto_lint,
                 "auto_test": self.coder.auto_test,
             },
-            "todo_list": todo_content,
+            "active_task_id": getattr(self.coder, "active_task_id", None),
         }
 
     def _find_session_file(self, session_identifier: str) -> Optional[Path]:
@@ -247,18 +236,29 @@ class SessionManager:
             if "auto_test" in settings:
                 self.coder.auto_test = settings["auto_test"]
 
-            # Restore todo list content if present in the session
+            # Restore active_task_id if the task file still exists
+            saved_task_id = session_data.get("active_task_id")
+            if saved_task_id:
+                from cecli.brainfile import CecliTaskStore
+
+                store = CecliTaskStore(self.coder.root)
+                found = store.find_task(saved_task_id)
+                if found and found["location"] == "board":
+                    store.open_task_in_context(
+                        self.coder, saved_task_id, mode="auto", explicit=False
+                    )
+                else:
+                    # Task file no longer exists or was completed — clear it
+                    store.clear_active_task(self.coder)
+
+            # Legacy field handling:
+            # session_data["todo_list"] was used for deprecated todo.txt snapshots.
+            # Task state now lives persistently under `.cecli/tasks` and is not restored here.
             if "todo_list" in session_data:
-                todo_path = self.coder.abs_root_path(self.coder.local_agent_folder("todo.txt"))
-                todo_content = session_data.get("todo_list")
-                try:
-                    if todo_content is None:
-                        if os.path.exists(todo_path):
-                            os.remove(todo_path)
-                    else:
-                        self.io.write_text(todo_path, todo_content)
-                except Exception as e:
-                    self.io.tool_warning(f"Could not restore todo list: {e}")
+                self.io.tool_warning(
+                    "Session contains legacy 'todo_list' data; ignored. "
+                    "Tasks are persisted in .cecli/tasks."
+                )
 
             # Clear CUR and DONE messages from ConversationManager
             ConversationManager.reset()

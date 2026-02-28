@@ -42,7 +42,7 @@ When `--auto-save` is enabled, cecli will automatically save your session as 'au
 - All files in the chat (editable, read-only, and read-only stubs)
 - Current model and edit format settings
 - Auto-commit, auto-lint, and auto-test settings
-- Todo list content from `.cecli/run/{date}/{agent id}/todo.txt`
+- The persistent task board in `.cecli/tasks/` (Brainfile-style `board/` + `logs/`, managed separately from session files)
 - Session metadata (timestamp, version)
 
 ### `/load-session <name>`
@@ -57,7 +57,7 @@ Load a previously saved session by name or file path.
 - Restores chat history and file configurations
 - Recreates the exact session state
 - Preserves all settings and model configurations
-- Restores the todo list content saved in the session
+- Uses the existing `.cecli/tasks/` board (session files do not overwrite task state)
 
 ### `/list-sessions`
 List all available saved sessions in `.cecli/sessions/`.
@@ -72,6 +72,15 @@ List all available saved sessions in `.cecli/sessions/`.
 - Model used
 - Edit format
 - Creation timestamp
+
+## Task Board Schema Defaults
+
+The persistent board in `.cecli/tasks/` is initialized with Brainfile v2 schema URLs:
+
+- Board: `https://brainfile.md/v2/board.json`
+- Task: `https://brainfile.md/v2/task.json`
+
+Tasks are the only item type used in the initial version.
 
 ## How Sessions Work
 
@@ -101,8 +110,7 @@ Sessions are stored as JSON files in the `.cecli/sessions/` directory within you
     "auto_commits": true,
     "auto_lint": false,
     "auto_test": false
-  },
-  "todo_list": "- plan feature A\n- write tests\n"
+  }
 }
 ```
 
@@ -173,7 +181,7 @@ If a session fails to load:
 - Try creating a new session and compare file structures
 
 ### Deprecated Options
-- `--preserve-todo-list` is deprecated. The todo list is cleared on startup and restored only when you load a session that contains it.
+- `--preserve-todo-list` is deprecated. Tasks are now persisted in `.cecli/tasks/` and are not cleared on startup.
 
 ## Related Commands
 - `/reset` - Clear chat history and drop files (useful before loading a session)

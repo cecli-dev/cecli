@@ -37,7 +37,7 @@ class ToolRegistry:
         return list(cls._tools.keys())
 
     @classmethod
-    def build_registry(cls, agent_config: Optional[Dict] = None) -> Dict[str, Type]:
+    def build_registry(cls, agent_config: Optional[Dict] = None, **kwargs) -> Dict[str, Type]:
         """
         Build a filtered registry of tools based on agent configuration.
 
@@ -51,25 +51,22 @@ class ToolRegistry:
         if agent_config is None:
             agent_config = {}
 
+        cls.initialize_registry()
+
         # Load tools from tool_paths if specified
         tool_paths = agent_config.get("tool_paths", [])
 
         for tool_path in tool_paths:
             path = Path(tool_path)
             if path.is_dir():
-                # Find all Python files in the directory
                 for py_file in path.glob("*.py"):
                     try:
-                        # Load the module using plugin_manager
                         module = plugin_manager.load_module(str(py_file))
-                        # Check if module has a Tool class
                         if hasattr(module, "Tool"):
                             cls.register(module.Tool)
                     except Exception as e:
-                        # Log error but continue with other files
                         print(f"Error loading tool from {py_file}: {e}")
             else:
-                # If it's a file, try to load it directly
                 if path.exists() and path.suffix == ".py":
                     try:
                         module = plugin_manager.load_module(str(path))
@@ -91,22 +88,18 @@ class ToolRegistry:
         for tool_name, tool_class in cls._tools.items():
             should_include = True
 
-            # Apply include list if specified
             if tools_includelist:
                 should_include = tool_name in tools_includelist
 
-            # Essential tools are always included
             if tool_name in cls._essential_tools:
                 should_include = True
 
-            # Apply exclude list (unless essential)
             if tool_name in tools_excludelist and tool_name not in cls._essential_tools:
                 should_include = False
 
             if should_include:
                 registry[tool_name] = tool_class
 
-        # Store the built registry in the class attribute
         cls._registry = registry
         return registry
 
@@ -131,14 +124,11 @@ class ToolRegistry:
     @classmethod
     def initialize_registry(cls):
         """Initialize the registry by importing and registering all tools."""
-        # Clear existing registry
         cls._tools.clear()
 
-        # Register all tools from TOOL_MODULES
         for module in TOOL_MODULES:
             if hasattr(module, "Tool"):
-                tool_class = module.Tool
-                cls.register(tool_class)
+                cls.register(module.Tool)
 
 
 # Initialize the registry when module is imported

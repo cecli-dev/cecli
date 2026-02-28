@@ -250,6 +250,30 @@ class TextualInputOutput(InputOutput):
 
         return False
 
+    def set_active_task(
+        self,
+        task_id: str,
+        title: str,
+        column: str = "",
+        subtasks_done: int = 0,
+        subtasks_total: int = 0,
+        mode: str = "",
+        location: str = "",
+    ):
+        """Publish active task metadata to the TUI."""
+        self.output_queue.put(
+            {
+                "type": "active_task",
+                "task_id": task_id,
+                "title": title,
+                "column": column,
+                "subtasks_done": subtasks_done,
+                "subtasks_total": subtasks_total,
+                "mode": mode,
+                "location": location,
+            }
+        )
+
     def start_spinner(self, text, update_last_text=True):
         """Override start_spinner to send spinner state to TUI.
 

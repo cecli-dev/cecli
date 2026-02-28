@@ -88,8 +88,8 @@ class AgentCoder(Coder):
         self.skip_cli_confirmations = False
         self.agent_finished = False
         self.agent_config = self._get_agent_config()
-        ToolRegistry.build_registry(agent_config=self.agent_config)
         super().__init__(*args, **kwargs)
+        ToolRegistry.build_registry(agent_config=self.agent_config)
 
     def _get_agent_config(self):
         """
@@ -1186,26 +1186,36 @@ Prioritize editing or verification over further exploration.
 
     def get_todo_list(self):
         """
-        Generate a todo list context block from the todo.txt file.
-        Returns formatted string with the current todo list or None if empty/not present.
+        Generate a todo list context block from the active board task's subtasks.
+
+        If no active task is set, attempts to resume an incomplete task from
+        ``board/`` via ``get_or_create_session_task()`` — but only if a board
+        already exists (to avoid creating one before the agent has done anything).
         """
         try:
-            todo_file_path = self.local_agent_folder("todo.txt")
-            abs_path = self.abs_root_path(todo_file_path)
-            import os
+            from cecli.brainfile import CecliTaskStore
 
-            if not os.path.isfile(abs_path):
-                return """<context name="todo_list" from="agent">
-Todo list does not exist. Please update it with the `UpdateTodoList` tool.</context>"""
-            content = self.io.read_text(abs_path)
-            if content is None or not content.strip():
-                return None
-            result = '<context name="todo_list" from="agent">\n'
-            result += "## Current Todo List\n\n"
-            result += "Below is the current todo list managed via the `UpdateTodoList` tool:\n\n"
-            result += f"```\n{content}\n```\n"
-            result += "</context>"
-            return result
+            store = CecliTaskStore(self.root)
+            active_task_id = getattr(self, "active_task_id", None)
+
+            # Auto-resume: pick up an incomplete board task if one exists
+            if not active_task_id and store.board_exists():
+                try:
+                    opened = store.get_or_create_session_task(self)
+                    active_task_id = opened["id"]
+                except Exception:
+                    pass
+
+            if active_task_id:
+                block = store.render_task_todo_block(active_task_id)
+                if block:
+                    return block
+
+            return (
+                '<context name="todo_list" from="agent">\n'
+                "Todo list does not exist. Please update it with the"
+                " `UpdateTodoList` tool.</context>"
+            )
         except Exception as e:
             self.io.tool_error(f"Error generating todo list context: {str(e)}")
             return None

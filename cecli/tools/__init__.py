@@ -1,7 +1,6 @@
 # flake8: noqa: F401
 # Import tool modules into the cecli.tools namespace
 
-# Import all tool modules
 from . import (
     command,
     command_interactive,
@@ -30,7 +29,6 @@ from . import (
     view_files_with_symbol,
 )
 
-# List of all available tool modules for dynamic discovery
 TOOL_MODULES = [
     command,
     command_interactive,

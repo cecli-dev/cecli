@@ -580,16 +580,7 @@ class Coder:
         self.auto_test = auto_test
         self.test_cmd = test_cmd
 
-        # Clean up todo list file on startup; sessions will restore it when needed
-        todo_file_path = self.local_agent_folder("todo.txt")
-        abs_path = self.abs_root_path(todo_file_path)
-        if os.path.isfile(abs_path):
-            try:
-                os.remove(abs_path)
-                if self.verbose:
-                    self.io.tool_output(f"Removed existing todo list file: {todo_file_path}")
-            except Exception as e:
-                self.io.tool_warning(f"Could not remove todo list file {todo_file_path}: {e}")
+        # Task board is persisted in `.cecli/tasks`; no startup cleanup.
 
         customizations = dict()
         try:

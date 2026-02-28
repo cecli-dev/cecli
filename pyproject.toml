@@ -50,6 +50,9 @@ build-backend = "setuptools.build_meta"
 write_to = "cecli/_version.py"
 local_scheme = "no-local-version"
 
+[tool.uv.sources]
+brainfile = { path = "/home/george/Projects/core/brainfile/brainfile-py" }
+
 [tool.codespell]
 skip = "*.svg,*.scss,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*"
 write-changes = true
