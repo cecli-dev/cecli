@@ -5,7 +5,7 @@ import xxhash
 
 # Regex patterns for hashline parsing
 # Format: |{line_number}{hash_fragment}|
-HASHLINE_PREFIX_RE = re.compile(r"^\|(-?\d+)([a-zA-Z]{2})\|")
+HASHLINE_PREFIX_RE = re.compile(r"^\|?(-?\d+)([a-zA-Z]{2})\|")
 # Format: |{line_number}{hash_fragment}|
 PARSE_NEW_FORMAT_RE = re.compile(r"^\|?(-?\d+)([a-zA-Z]{2})\|?$")
 # Format: {hash_fragment}|{line_number}
@@ -201,7 +201,7 @@ def normalize_hashline(hashline_str: str) -> str:
     # If neither pattern matches, raise error
     raise HashlineError(
         f"Invalid hashline format '{hashline_str}'. "
-        "Expected either '|{line_num}{hash_fragment}|' "
+        "Expected '{line_num}{hash_fragment}' "
         "where line_num is an integer and hash_fragment is exactly 2 letters. "
     )
 
