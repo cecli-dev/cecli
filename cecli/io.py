@@ -46,9 +46,9 @@ from cecli.report import update_error_prefix
 
 from .dump import dump  # noqa: F401
 from .editor import pipe_editor
+from .interruptible_input import InterruptibleInput
 from .utils import is_image_file, run_fzf
 from .waiting import Spinner
-from .interruptible_input import InterruptibleInput
 
 # Constants
 NOTIFICATION_MESSAGE = "cecli is waiting for your input"
@@ -977,7 +977,9 @@ class InputOutput:
 
                     if self.interruptible_input:
                         try:
-                            line = await asyncio.get_event_loop().run_in_executor(None, self.interruptible_input.input, show)
+                            line = await asyncio.get_event_loop().run_in_executor(
+                                None, self.interruptible_input.input, show
+                            )
                         except InterruptedError:
                             self.interrupted = True
                             line = ""

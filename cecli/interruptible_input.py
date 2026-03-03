@@ -1,7 +1,8 @@
 import os
-import sys
 import selectors
+import sys
 import threading
+
 
 class InterruptibleInput:
     """
