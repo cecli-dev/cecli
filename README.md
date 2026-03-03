@@ -172,9 +172,9 @@ The current priorities are to improve core capabilities and user experience of t
   * [ ] Add visibility into active sub agent calls in TUI
 
 8. **Hooks**
-  * [ ] Add hooks base class for user defined python hooks with an execute method with type and priority settings
-  * [ ] Add hook manager that can accept user defined files and command line commands
-  * [ ] Integrate hook manager with coder classes with hooks for `start`, `on_message`, `end_message`, `pre_tool`, and `post_tool` 
+  * [x] Add hooks base class for user defined python hooks with an execute method with type and priority settings
+  * [x] Add hook manager that can accept user defined files and command line commands
+  * [x] Integrate hook manager with coder classes with hooks for `start`, `end`, `on_message`, `end_message`, `pre_tool`, and `post_tool` 
 
 9. **Efficient File Editing**
   * [x] Explore use of hashline file representation for more targeted file editing

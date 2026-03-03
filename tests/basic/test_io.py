@@ -169,7 +169,8 @@ class TestInputOutput:
             assert autocompleter.words == set(rel_fnames)
 
     @patch("builtins.input", return_value="test input")
-    def test_get_input_is_a_directory_error(self, mock_input):
+    @patch("cecli.io.InterruptibleInput", side_effect=RuntimeError)
+    def test_get_input_is_a_directory_error(self, mock_interruptible_input, mock_input):
         io = InputOutput(pretty=False, fancy_input=False)  # Windows tests throw UnicodeDecodeError
         root = "/"
         rel_fnames = ["existing_file.txt"]
