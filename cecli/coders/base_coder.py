@@ -4018,7 +4018,11 @@ class Coder:
             self.commands.cmd_running_event.set()  # Command finished
 
     async def handle_shell_commands(self, commands_str, group):
-        commands = command_parser.split_shell_commands(commands_str)
+        commands = [
+            cmd
+            for cmd in command_parser.split_shell_commands(commands_str)
+            if cmd and not (isinstance(cmd, str) and cmd.startswith("#"))
+        ]
 
         # Early return if none of the command strings have length after stripping whitespace
         if not any(cmd.strip() for cmd in commands):
