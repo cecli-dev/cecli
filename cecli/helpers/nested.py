@@ -81,3 +81,18 @@ def getter(
             return current
 
     return default
+
+
+def deep_merge(dict1, dict2):
+    """
+    Recursively merges dict2 into dict1.
+    If a key exists in both and both values are dicts, it merges the sub-dicts.
+    Otherwise, the value from dict2 overwrites the value from dict1.
+    """
+    merged = dict1.copy()  # Create a copy to avoid modifying original dict1 in place
+    for key, value in dict2.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged

@@ -156,6 +156,7 @@ class Coder:
     tool_reflection = False
     last_user_message = ""
     uuid = ""
+    model_kwargs = {}
 
     # Task coordination state variables
     input_running = False
@@ -380,6 +381,9 @@ class Coder:
 
         self.context_compaction_max_tokens = context_compaction_max_tokens
         self.context_compaction_summary_tokens = context_compaction_summary_tokens
+        self.max_reflections = (
+            3 if self.edit_format == "agent" else nested.getter(self.args, "max_reflections", 3)
+        )
 
         if not fnames:
             fnames = []
@@ -1615,6 +1619,8 @@ class Coder:
             async for _ in self.send_message(message):
                 pass
 
+            await self.hot_reload()
+
             if not self.reflected_message:
                 await self.auto_save_session(force=True)
                 break
@@ -2750,6 +2756,9 @@ class Coder:
     async def reply_completed(self):
         pass
 
+    async def hot_reload(self):
+        pass
+
     async def show_exhausted_error(self):
         output_tokens = 0
         if self.partial_response_content:
@@ -2995,6 +3004,7 @@ class Coder:
                 self.temperature,
                 # This could include any tools, but for now it is just MCP tools
                 tools=tools,
+                override_kwargs=self.model_kwargs,
             )
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
@@ -3166,7 +3176,7 @@ class Coder:
                         reasoning_content = None
 
                 if reasoning_content:
-                    if nested.getter(self, "args.show_thinking"):
+                    if nested.getter(self.args, "show_thinking"):
                         if not self.got_reasoning_content:
                             text += f"<{REASONING_TAG}>\n\n"
                         text += reasoning_content
@@ -3202,7 +3212,7 @@ class Coder:
                 self.stream_wrapper(content_to_show, final=False)
             elif text:
                 # Apply reasoning tag formatting for non-pretty output
-                if nested.getter(self, "args.show_thinking"):
+                if nested.getter(self.args, "show_thinking"):
                     text = replace_reasoning_tags(text, self.reasoning_tag_name)
                 try:
                     self.stream_wrapper(text, final=False)
@@ -3405,7 +3415,7 @@ class Coder:
     def live_incremental_response(self, final):
         show_resp = self.render_incremental_response(final)
         # Apply any reasoning tag formatting
-        if nested.getter(self, "args.show_thinking"):
+        if nested.getter(self.args, "show_thinking"):
             show_resp = replace_reasoning_tags(show_resp, self.reasoning_tag_name)
 
         # Track streaming state to avoid repetitive output

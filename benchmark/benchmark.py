@@ -1155,6 +1155,7 @@ async def run_test_real(
             use_enhanced_map=True,
             verbose=verbose,
             yes_always_commands=True,
+            max_reflections=0,
         ),
         map_mul_no_files=4,
         mcp_manager=None,

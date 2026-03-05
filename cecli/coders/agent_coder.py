@@ -7,7 +7,7 @@ import platform
 import random
 import time
 import traceback
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -85,6 +85,7 @@ class AgentCoder(Coder):
         self.allowed_context_blocks = set()
         self.context_block_tokens = {}
         self.context_blocks_cache = {}
+        self.hot_reload_enabled = False
         self.tokens_calculated = False
         self.skip_cli_confirmations = False
         self.agent_finished = False
@@ -119,6 +120,7 @@ class AgentCoder(Coder):
             config, "skip_cli_confirmations", nested.getter(config, "yolo", [])
         )
         config["command_timeout"] = nested.getter(config, "command_timeout", 30)
+        config["hot_reload"] = nested.getter(config, "hot_reload", False)
 
         config["tools_paths"] = nested.getter(config, "tools_paths", [])
         config["tools_includelist"] = nested.getter(
@@ -147,7 +149,7 @@ class AgentCoder(Coder):
 
         self.large_file_token_threshold = config["large_file_token_threshold"]
         self.skip_cli_confirmations = config["skip_cli_confirmations"]
-
+        self.hot_reload_enabled = config["hot_reload"]
         self.allowed_context_blocks = config["include_context_blocks"]
 
         for context_block in config["exclude_context_blocks"]:
@@ -259,6 +261,7 @@ class AgentCoder(Coder):
                         try:
                             parsed_args_list.append(json.loads(chunk))
                         except json.JSONDecodeError as e:
+                            self.model_kwargs = {}
                             self.io.tool_warning(
                                 f"Could not parse JSON chunk for tool {tool_name}: {chunk}"
                             )
@@ -320,6 +323,7 @@ class AgentCoder(Coder):
 
                 result_message = "\n\n".join(all_results_content)
             except Exception as e:
+                self.model_kwargs = {}
                 result_message = f"Error executing {tool_name}: {e}"
                 self.io.tool_error(f"""Error during {tool_name} execution: {e}
 {traceback.format_exc()}""")
@@ -843,6 +847,10 @@ I will proceed based on the tool results and updated context.""")
         self.files_edited_by_tools = set()
         return False
 
+    async def hot_reload(self):
+        if self.hot_reload_enabled:
+            self.skills_manager.hot_reload()
+
     async def _execute_tool_with_registry(self, norm_tool_name, params):
         """
         Execute a tool using the tool registry.
@@ -879,12 +887,9 @@ I will proceed based on the tool results and updated context.""")
         """
         Identifies repetitive tool usage patterns from rounds of tool calls.
 
-        This method combines count-based and similarity-based detection:
+        This method uses similarity-based detection:
         1. If the last round contained a write tool, it assumes progress and returns no repetitive tools.
-        2. It checks for any read tool that has been used 2 or more times across rounds.
-        3. If no tools are repeated, but all tools in the history are read tools,
-           it flags all of them as potentially repetitive.
-        4. It checks for similarity-based repetition using cosine similarity on tool call strings.
+        2. It checks for similarity-based repetition using cosine similarity on tool call strings.
 
         It avoids flagging repetition if a "write" tool was used recently,
         as that suggests progress is being made.
@@ -893,9 +898,6 @@ I will proceed based on the tool results and updated context.""")
         if history_len < 5:
             return set()
         similarity_repetitive_tools = self._get_repetitive_tools_by_similarity()
-        all_tools = []
-        for round_tools in self.tool_usage_history:
-            all_tools.extend(round_tools)
         if self.last_round_tools:
             last_round_has_write = any(
                 tool.lower() in self.write_tools for tool in self.last_round_tools
@@ -909,24 +911,14 @@ I will proceed based on the tool results and updated context.""")
                     if tool.lower() in self.read_tools or tool.lower() in self.write_tools
                 }
                 return filtered_similarity_tools if len(filtered_similarity_tools) else set()
-        if all(tool.lower() in self.read_tools for tool in all_tools):
-            # Only return tools that are in read_tools
-            return {tool for tool in all_tools if tool.lower() in self.read_tools}
-        tool_counts = Counter(all_tools)
-        count_repetitive_tools = {
-            tool
-            for tool, count in tool_counts.items()
-            if count >= 5 and tool.lower() in self.read_tools
-        }
         # Filter similarity_repetitive_tools to only include tools in read_tools or write_tools
         filtered_similarity_tools = {
             tool
             for tool in similarity_repetitive_tools
             if tool.lower() in self.read_tools or tool.lower() in self.write_tools
         }
-        repetitive_tools = count_repetitive_tools.union(filtered_similarity_tools)
-        if repetitive_tools:
-            return repetitive_tools
+        if filtered_similarity_tools:
+            return filtered_similarity_tools
         return set()
 
     def _get_repetitive_tools_by_similarity(self):
@@ -983,6 +975,27 @@ I will proceed based on the tool results and updated context.""")
 
         context_parts.append("\n\n")
         if repetitive_tools:
+            if not self.model_kwargs:
+                self.model_kwargs = {
+                    "temperature": (self.main_model.use_temperature or 1) + 0.1,
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.1,
+                }
+            else:
+                temperature = nested.getter(self.model_kwargs, "temperature")
+                freq_penalty = nested.getter(self.model_kwargs, "frequency_penalty")
+                if temperature and freq_penalty:
+                    self.model_kwargs["temperature"] = min(temperature + 0.1, 2)
+                    self.model_kwargs["frequency_penalty"] = min(freq_penalty + 0.1, 1)
+
+                if random.random() < 0.25:
+                    self.model_kwargs["temperature"] = max(temperature - 0.2, 1)
+                    self.model_kwargs["frequency_penalty"] = max(freq_penalty - 0.2, 0)
+
+            # One tenth of the time, just straight reset the randomness
+            if random.random() < 0.1:
+                self.model_kwargs = {}
+
             if self.turn_count - self._last_repetitive_warning_turn > 2:
                 self._last_repetitive_warning_turn = self.turn_count
                 self._last_repetitive_warning_severity += 1
@@ -1040,7 +1053,7 @@ I have detected repetitive usage of the following tools: {', '.join([f'`{t}`' fo
 
                 repetition_warning += f"""
 ### CRITICAL: Execution Loop Detected
-You are currently "spinning." To break the logic trap, you must:
+You are currently "spinning gears". To break the exploration loop, you must:
 1. **Analyze**: Use the `Thinking` tool to summarize exactly what you have found so far and why you were stuck.
 2. **Pivot**: Abandon or modify your current exploration strategy. Try focusing on different files or running tests.
 3. **Reframe**: To ensure your logic reset, include a 2-sentence story about {animal} {verb} {fruit} in your thoughts.
@@ -1049,6 +1062,9 @@ Prioritize editing or verification over further exploration.
                 """
 
             context_parts.append(repetition_warning)
+        else:
+            self.model_kwargs = {}
+
         context_parts.append("</context>")
         return "\n".join(context_parts)
 

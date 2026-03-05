@@ -167,6 +167,7 @@ agent-config:
   exclude_context_blocks: ["symbol_outline", "directory_structure"]  # Optional: Context blocks to exclude
   
   # Performance and behavior settings
+  hot_reload: false # automatically reload skills folders and definitions between turns
   large_file_token_threshold: 12500  # Token threshold for large file warnings
   skip_cli_confirmations: false  # YOLO mode - be brave and let the LLM cook
   command_timeout: 30 # Time to wait for commands to finish before automatic backgrounding occurs

@@ -204,9 +204,6 @@ class Tool(BaseTool):
                         remaining_tasks.append(f"○ {task_item['task']}")
 
             # Display formatted todo list
-            coder.io.tool_output("")
-            coder.io.tool_output(f"{color_start}Todo List:{color_end}")
-
             if done_tasks:
                 coder.io.tool_output("Done:")
                 for task in done_tasks:

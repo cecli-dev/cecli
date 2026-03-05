@@ -119,6 +119,11 @@ class SkillsManager:
         self._skills_find_cache = skills
         return skills
 
+    def hot_reload(self):
+        self._skills_cache = {}
+        self._skill_metadata_cache = {}
+        self.find_skills(reload=True)
+
     def _parse_skill_metadata(self, skill_md_path: Path) -> SkillMetadata:
         """
         Parse the metadata from a SKILL.md file.

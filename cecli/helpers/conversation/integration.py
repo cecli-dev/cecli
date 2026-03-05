@@ -750,6 +750,7 @@ class ConversationChunks:
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,
                 hash_key=("static", block_type),
+                force=True,
             )
 
     @classmethod
@@ -793,6 +794,7 @@ class ConversationChunks:
                 tag=MessageTag.STATIC,  # Use STATIC tag but with different priority
                 priority=125,  # Between REPO (100) and READONLY_FILES (200)
                 hash_key=("pre_message", block_type),
+                force=True,
             )
 
     @classmethod

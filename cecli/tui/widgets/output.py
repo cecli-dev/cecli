@@ -4,6 +4,7 @@ import re
 import textwrap
 
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.padding import Padding
 from rich.style import Style as RichStyle
 from rich.text import Text
@@ -90,7 +91,6 @@ class OutputContainer(RichLog):
 
         # Check for cost updates in the text
         self._check_cost(text)
-
         # Add text to line buffer
         self._line_buffer += text
 
@@ -111,7 +111,7 @@ class OutputContainer(RichLog):
                 # Output each wrapped line
                 for wrapped in wrapped_line.split("\n"):
                     if wrapped.strip():
-                        self.output(wrapped, render_markdown=True)
+                        self.output(escape(wrapped), render_markdown=True)
 
     async def end_response(self):
         """End the current LLM response."""
@@ -156,7 +156,8 @@ class OutputContainer(RichLog):
                 for wrapped in wrapped_line.split("\n"):
                     if wrapped.strip():
                         self.output(
-                            f"[bold medium_spring_green]{wrapped}[/bold medium_spring_green]"
+                            f"[bold medium_spring_green]{escape(wrapped)}[/bold"
+                            " medium_spring_green]"
                         )
 
         self.scroll_end(animate=False)

@@ -22,6 +22,7 @@ from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import nested
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.helpers.model_providers import ModelProviderManager
+from cecli.helpers.nested import deep_merge
 from cecli.helpers.requests import model_request_parser
 from cecli.llm import litellm
 from cecli.sendchat import sanity_check_messages
@@ -955,6 +956,7 @@ class Model(ModelSettings):
         max_tokens=None,
         min_wait=0,
         max_wait=2,
+        override_kwargs={},
     ):
         if os.environ.get("CECLI_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
@@ -1053,6 +1055,8 @@ class Model(ModelSettings):
                     if random.random() < 0.25:
                         await asyncio.sleep(random.uniform(min_wait, max_wait))
 
+                if override_kwargs:
+                    kwargs = deep_merge(kwargs, override_kwargs)
                 res = await litellm.acompletion(**kwargs)
                 return hash_object, res
             except litellm.ContextWindowExceededError as err:

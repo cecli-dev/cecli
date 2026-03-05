@@ -255,6 +255,12 @@ def get_parser(default_config_files, git_root):
         ),
     )
     group.add_argument(
+        "--max-reflections",
+        type=int,
+        default=3,
+        help="Maximum number of retries a model gets on malformed outputs (default: 3)",
+    )
+    group.add_argument(
         "--file-diffs",
         action=argparse.BooleanOptionalAction,
         default=True,

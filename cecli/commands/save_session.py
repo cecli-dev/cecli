@@ -25,9 +25,12 @@ class SaveSessionCommand(BaseCommand):
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
         """Get completion options for save-session command."""
-        # For save-session, we could return existing session names for completion
-        # For now, return empty list
-        return []
+        # Return existing session names for completion to prevent accidental overwrites
+        from cecli import sessions
+
+        session_manager = sessions.SessionManager(coder, io)
+        sessions_list = session_manager.list_sessions()
+        return [session_info["name"] for session_info in sessions_list]
 
     @classmethod
     def get_help(cls) -> str:
@@ -40,4 +43,8 @@ class SaveSessionCommand(BaseCommand):
         help_text += "  /save-session bug-fix         # Save session as 'bug-fix'\n"
         help_text += "\nSessions are saved in the .cecli/sessions/ directory as JSON files.\n"
         help_text += "Use /list-sessions to see saved sessions and /load-session to load them.\n"
+        help_text += (
+            "\nNote: Existing session names will be shown for tab completion to help prevent"
+            " accidental overwrites.\n"
+        )
         return help_text
