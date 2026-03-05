@@ -645,7 +645,9 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     input_queue = None
     pre_init_io = get_io(args.pretty)
     # Check if we're in "send message and exit" mode to skip non-essential initialization
-    suppress_pre_init = args.message or args.message_file or args.apply_clipboard_edits
+    suppress_pre_init = (
+        args.message or args.message_file or args.apply_clipboard_edits or args.terminal_setup
+    )
     supress_tui = True
 
     if not suppress_pre_init:
@@ -1158,6 +1160,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             await coder.commands.execute("terminal-setup", "dry_run")
         else:
             await coder.commands.execute("terminal-setup", "")
+        return await graceful_exit(coder)
+
     if args.lint or args.test or args.commit:
         return await graceful_exit(coder)
     if args.show_repo_map:
