@@ -17,17 +17,42 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Sort object keys alphabetically (top-level only)
+ * @param {object} obj - The object to sort
+ * @returns {object} - New object with sorted keys
+ */
+function sortObjectKeysTopLevel(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        return obj;
+    }
+    
+    const sortedObj = {};
+    Object.keys(obj).sort().forEach(key => {
+        sortedObj[key] = obj[key];
+    });
+    return sortedObj;
+}
+
 function filterChatMode(data) {
     if (Array.isArray(data)) {
-        // If input is an array, filter objects with mode: "chat"
+        // If input is an array, filter objects with mode: "chat" or with /v1/chat/completions in supported_endpoints
         return data.filter(item => 
-            item && typeof item === 'object' && item.mode === 'chat'
+            item && typeof item === 'object' && 
+            (item.mode === 'chat' || 
+             (item.supported_endpoints && 
+              Array.isArray(item.supported_endpoints) && 
+              item.supported_endpoints.includes('/v1/chat/completions')))
         );
     } else if (data && typeof data === 'object') {
-        // If input is an object, filter properties with mode: "chat"
+        // If input is an object, filter properties with mode: "chat" or with /v1/chat/completions in supported_endpoints
         const result = {};
         for (const [key, value] of Object.entries(data)) {
-            if (value && typeof value === 'object' && value.mode === 'chat') {
+            if (value && typeof value === 'object' && 
+                (value.mode === 'chat' || 
+                 (value.supported_endpoints && 
+                  Array.isArray(value.supported_endpoints) && 
+                  value.supported_endpoints.includes('/v1/chat/completions')))) {
                 result[key] = value;
             }
         }
@@ -80,7 +105,12 @@ function main() {
     try {
         const filteredData = filterChatMode(inputData);
         
-        const outputJson = JSON.stringify(filteredData, null, 2);
+        // Sort top-level keys alphabetically if result is an object
+        const sortedData = typeof filteredData === 'object' && !Array.isArray(filteredData) 
+            ? sortObjectKeysTopLevel(filteredData) 
+            : filteredData;
+        
+        const outputJson = JSON.stringify(sortedData, null, 2);
         
         if (outputPath) {
             fs.writeFileSync(outputPath, outputJson, 'utf8');
