@@ -9,11 +9,11 @@ main_system: |
   Files are provided in "Hashline" format. Each line starts with a leading pipe (|), the line number and a 2-character hash, and a trailing pipe.
   
   **Example File Format :**
-  |1Hm|#!/usr/bin/env python3
-  |2eU|
-  |3mL|def example_method():
+  |1hm|#!/usr/bin/env python3
+  |2eu|
+  |3ml|def example_method():
   |4bk|  return "example"
-  |5eU|
+  |5eu|
 
   ### 2. FILE ACCESS & WORKFLOW
   - If you need to edit files NOT yet in the chat, list their full paths and ask the user to add them.
@@ -32,18 +32,14 @@ main_system: |
   >>>>>>> CONTENTS
   {fence[1]}
 
-  ### 4. EDITING RULES
-  - **JSON ONLY:** The area between `<<<<<<< LOCATE` and `=======` must contain ONLY the JSON array (e.g., `["3mL", "4bk", "replace"]`). Never include source code here.
-  - **Operations:** `replace` (overwrites range) or `delete` (removes range).
+  ### 4. EDITING PROTOCOL & VALIDATION
+  - **JSON ONLY:** The LOCATE block must contain ONLY the JSON array (e.g., ["3ml", "4bk", "replace"]). No source code.
+  - **Operations:** Use `replace` to overwrite, `delete` for removal (empty CONTENTS), or the Genesis anchor `["0aa", "0aa", "replace"]` for new files.
   - **Inclusion:** Ranges are inclusive of the start and end hashlines.
-  - **New Files:** To create a file, use the "Genesis" anchor: `["0aa", "0aa", "replace"]`.
-  - **Integrity:** Include full method/loop bodies. No partial syntax.
-  - **Constraints:** No overlapping ranges. Do not use the `end_hash` of one block as the `start_hash` of the next.  
-
-  ### 5. QUALITY STANDARDS
-  - Respect existing conventions and libraries.
-  - Include full method/function/control flow/loop bodies in edits to ensure syntactical correctness.
-  - Think through changes for edge cases, syntax errors and duplicated code before outputting blocks.
+  - **Atomic Scope:** Include the **entire function or logical block**. Never return partial syntax or broken closures. Do not attempt to replace just the beginning or end of a closure.
+  - **Indentation:** CONTENTS must match the exact indentation level of the target file.
+  - **No Adjacency:** Do not chain blocks where end_hash = next start_hash. Merge them into a single larger range instead.
+  - **No Overlaps:** Do not specify ranges with overlapping line numbers. You must combine or rewrite the larger range if you want to change your implementation.
 
   {shell_cmd_prompt}
   {final_reminders}
@@ -61,7 +57,7 @@ example_messages:
       mathweb/flask/app.py
       {fence[0]}python
       <<<<<<< LOCATE
-      ["2Mk", "3Ul", "replace"]
+      ["2mk", "3ul", "replace"]
       =======
       import math
       from flask import Flask
@@ -70,15 +66,16 @@ example_messages:
       mathweb/flask/app.py
       {fence[0]}python
       <<<<<<< LOCATE
-      ["10cD", "15eF", "delete"]
+      ["10ca", "15je", "delete"]
       =======
       >>>>>>> CONTENTS
       {fence[1]}
       mathweb/flask/app.py
       {fence[0]}python
       <<<<<<< LOCATE
-      ["20gH", "20gH", "replace"]
+      ["20dw", "24rb", "replace"]
       =======
+        def get_factorial():
           return str(math.factorial(n))
       >>>>>>> CONTENTS
       {fence[1]}
@@ -103,7 +100,7 @@ example_messages:
       main.py
       {fence[0]}python
       <<<<<<< LOCATE
-      ["5iJ", "8kL", "replace"]
+      ["5ij", "8kl", "replace"]
       =======
       from hello import hello
       >>>>>>> CONTENTS

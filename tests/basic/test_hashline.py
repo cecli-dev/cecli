@@ -8,7 +8,6 @@ from cecli.helpers.hashline import (
     extract_hashline_range,
     find_hashline_by_exact_match,
     find_hashline_by_fragment,
-    find_hashline_range,
     get_hashline_content_diff,
     get_hashline_diff,
     hashline,
@@ -24,10 +23,11 @@ def test_int_to_2digit_52_basic():
     assert int_to_2digit_52(0) == "aa"
     assert int_to_2digit_52(1) == "ab"
     assert int_to_2digit_52(25) == "az"
-    assert int_to_2digit_52(26) == "aA"
-    assert int_to_2digit_52(51) == "aZ"
+    # Note: We now lower case all output, so values >= 26 are lowercase too
+    assert int_to_2digit_52(26) == "aa"  # Was "aA", now lowercase
+    assert int_to_2digit_52(51) == "az"  # Was "aZ", now lowercase
     assert int_to_2digit_52(52) == "ba"
-    assert int_to_2digit_52(2703) == "ZZ"  # 52^2 - 1
+    assert int_to_2digit_52(2703) == "zz"  # Was "ZZ", now lowercase
 
 
 def test_int_to_2digit_52_wraparound():
@@ -287,81 +287,6 @@ def test_find_hashline_by_fragment():
     # Test fragment not found
     index = find_hashline_by_fragment(hashed_lines, "zz")
     assert index is None
-
-
-def test_find_hashline_range():
-    """Test find_hashline_range function."""
-    # Create hashed content
-    original = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
-    hashed = hashline(original)
-    hashed_lines = hashed.splitlines(keepends=True)
-
-    # Get hash fragments for testing
-    # Format is |line_numhash|content, so split by "|" gives ["", "line_numhash", "content"]
-    # The hash fragment is part of the second element
-    line1_hash = hashed_lines[0].split("|")[1]
-    line3_hash = hashed_lines[2].split("|")[1]
-    line5_hash = hashed_lines[4].split("|")[1]
-
-    # Test exact match
-    # Extract just the hash fragments (last 2 characters)
-    hash_fragment1 = line1_hash[-2:]  # This gives "vm"
-    hash_fragment3 = line3_hash[-2:]  # This gives "Cx"
-    start_idx, end_idx = find_hashline_range(
-        hashed_lines,
-        f"|1{hash_fragment1}|",
-        f"|3{hash_fragment3}|",
-        allow_exact_match=True,
-    )
-    assert start_idx == 0
-    assert end_idx == 2
-
-    # Test fragment match (no exact match)
-    # Extract just the hash fragments (last 2 characters)
-    hash_fragment1 = line1_hash[-2:]  # This gives "vm"
-    hash_fragment3 = line3_hash[-2:]  # This gives "Cx"
-    start_idx, end_idx = find_hashline_range(
-        hashed_lines,
-        f"|99{hash_fragment1}|",  # Wrong line number
-        f"|101{hash_fragment3}|",  # Wrong line number
-        allow_exact_match=True,
-    )
-    assert start_idx == 0  # Should find by fragment
-    assert end_idx == 2  # Should calculate distance
-
-    # Test with allow_exact_match=False
-    # Use parse_hashline to extract hash fragments from the hashline strings
-    # line1_hash is "1vm" (line number + hash fragment), we need to parse it
-    hash_fragment1, line_num_str1, line_num1 = parse_hashline(f"|{line1_hash}|")
-    hash_fragment5, line_num_str5, line_num5 = parse_hashline(f"|{line5_hash}|")
-    start_idx, end_idx = find_hashline_range(
-        hashed_lines,
-        f"|1{hash_fragment1}|",
-        f"|5{hash_fragment5}|",
-        allow_exact_match=False,
-    )
-    assert start_idx == 0
-    assert end_idx == 4
-
-    # Test error cases
-    with pytest.raises(HashlineError, match="Start line hash fragment 'zz' not found in file"):
-        find_hashline_range(hashed_lines, "|1zz|", "|3zz|")
-    # Test with allow_exact_match=False
-    # Extract just the hash fragments (last 2 characters)
-    hash_fragment1 = line1_hash[-2:]  # This gives "vm"
-    hash_fragment5 = line5_hash[-2:]  # This gives "BG"
-    start_idx, end_idx = find_hashline_range(
-        hashed_lines,
-        f"|1{hash_fragment1}|",
-        f"|5{hash_fragment5}|",
-        allow_exact_match=False,
-    )
-    assert start_idx == 0
-    assert end_idx == 4
-
-    # Test error cases
-    with pytest.raises(HashlineError, match="Start line hash fragment 'zz' not found in file"):
-        find_hashline_range(hashed_lines, "|1zz|", "|3zz|")
 
 
 def test_apply_hashline_operation_insert():

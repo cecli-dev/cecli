@@ -1,13 +1,12 @@
 import difflib
 import re
+from difflib import SequenceMatcher
 
 import xxhash
 
-# Regex patterns for hashline parsing
-# Format: |{line_number}{hash_fragment}|
-HASHLINE_PREFIX_RE = re.compile(r"^\|?(-?\d+)([a-zA-Z]{2})\|")
 # Format: |{line_number}{hash_fragment}|
 PARSE_NEW_FORMAT_RE = re.compile(r"^\|?(-?\d+)([a-zA-Z]{2})\|?$")
+HASHLINE_PREFIX_RE = re.compile(r"^\|?(-?\d+)([a-zA-Z]{2})\|")
 # Format: {hash_fragment}|{line_number}
 PARSE_OLD_FORMAT_RE = re.compile(r"^([a-zA-Z]{2})\|(-?\d+)$")
 
@@ -52,6 +51,21 @@ def hashline(text: str, start_line: int = 1) -> str:
     return "".join(result_lines)
 
 
+def longest_common_substring(str1, str2):
+    """
+    Finds the longest common substring between two strings.
+    """
+    seq_match = SequenceMatcher(None, str1, str2)
+    # Find the longest matching block
+    match = seq_match.find_longest_match(0, len(str1), 0, len(str2))
+
+    if match.size != 0:
+        # Extract the substring using the indices from the match object
+        return str1[match.a : match.a + match.size]
+    else:
+        return ""
+
+
 def int_to_2digit_52(n: int) -> str:
     """
     Convert integer to 2-digit base52 with 'a' padding.
@@ -86,7 +100,7 @@ def int_to_2digit_52(n: int) -> str:
         digits.append("a")
 
     # Return in correct order (most significant first)
-    return "".join(reversed(digits))
+    return "".join(reversed(digits)).lower()
 
 
 def strip_hashline(text: str) -> str:
@@ -212,6 +226,29 @@ def normalize_hashline(hashline_str: str) -> str:
     )
 
 
+def find_hashline_by_content_match(hashed_lines, hash_str, expected_content):
+    """
+    Extract the line number from the passed hash and return the hashline
+    if there is an exact content match.
+    """
+    try:
+        _, _, line_num = parse_hashline(hash_str)
+        # Check the exact line and adjacent lines
+        for offset in [0, -1, 1, -2, 2]:  # Check exact line, lines before, lines after
+            idx = line_num - 1 + offset
+            if 0 <= idx < len(hashed_lines):
+                line = hashed_lines[idx]
+                new_content = strip_hashline(line)
+                if new_content == expected_content:
+                    # Return the hashline part: |{line_num}{frag}|
+                    parts = line.split("|")
+                    if len(parts) >= 2:
+                        return parts[1]
+    except Exception:
+        pass
+    return None
+
+
 def find_hashline_by_exact_match(hashed_lines, hash_fragment, line_num_str):
     """
     Find a hashline by |{exact line_num}{hash_fragment match}|.
@@ -275,11 +312,164 @@ def find_hashline_by_fragment(hashed_lines, hash_fragment, target_line_num=None)
     return matches[0][1]
 
 
+def find_hashline_by_line_number(hashed_lines, line_number):
+    """
+    Find the line index for a specific line number.
+
+    Args:
+        hashed_lines: List of hashed lines
+        line_number: Line number to look up (1-indexed)
+
+    Returns:
+        int: Index of the specified line (0-indexed), or None if not found
+    """
+    # Convert to 0-indexed for list access
+    idx = line_number - 1
+
+    # Check bounds
+    if idx < 0 or idx >= len(hashed_lines):
+        return None
+
+    # Return the index
+    return idx
+
+
+def get_adjacent_lines(hashed_lines, idx, is_start=True):
+    """
+    Get adjacent lines for a given index, considering whether it's for start or end of a range.
+
+    Args:
+        hashed_lines: List of hashed lines
+        idx: Index to get adjacent lines for (0-indexed)
+        is_start: Whether this is for start (True) or end (False) of a range
+
+    Returns:
+        list: List of adjacent line contents (without hashline prefixes)
+    """
+    adjacent = []
+
+    if is_start:
+        # For start: get lines after the index
+        # Get line at index (the start line itself)
+        if 0 <= idx < len(hashed_lines):
+            line_at_idx = hashed_lines[idx]
+            match = HASHLINE_PREFIX_RE.match(line_at_idx)
+            if match:
+                content = line_at_idx[match.end() :]
+                adjacent.append(content)
+
+        # Get line after (if exists)
+        if idx < len(hashed_lines) - 1:
+            line_after = hashed_lines[idx + 1]
+            match = HASHLINE_PREFIX_RE.match(line_after)
+            if match:
+                content = line_after[match.end() :]
+                adjacent.append(content)
+    else:
+        # For end: get lines before the index
+        # Get line before (if exists)
+        if idx > 0:
+            line_before = hashed_lines[idx - 1]
+            match = HASHLINE_PREFIX_RE.match(line_before)
+            if match:
+                content = line_before[match.end() :]
+                adjacent.append(content)
+
+        # Get line at index (the end line itself)
+        if 0 <= idx < len(hashed_lines):
+            line_at_idx = hashed_lines[idx]
+            match = HASHLINE_PREFIX_RE.match(line_at_idx)
+            if match:
+                content = line_at_idx[match.end() :]
+                adjacent.append(content)
+
+    return adjacent
+
+
+def _line_or_fragment(hashed_lines, hash_fragment, line_number, replacement_lines, is_start=True):
+    """
+    Decide between hash-based or line-based lookup using cosine similarity.
+
+    When exact matching fails, this function determines whether to use
+    find_hashline_by_fragment() or find_hashline_by_line_number() by comparing
+    adjacent lines with replacement text using cosine similarity of bigram vectors.
+
+    Args:
+        hashed_lines: List of hashed lines
+        hash_fragment: Hash fragment to search for
+        line_number: Line number to search for (1-indexed)
+        replacement_lines: List of lines in replacement text
+        is_start: Whether this is for start (True) or end (False) fragment
+
+    Returns:
+        int: Index to use (from either fragment-based or line-based lookup)
+    """
+    # Get indices from both methods
+    idx_fragment = find_hashline_by_fragment(hashed_lines, hash_fragment, line_number)
+    idx_line = find_hashline_by_line_number(hashed_lines, line_number)
+
+    # If one method fails, use the other
+    if idx_fragment is None:
+        return idx_line
+    if idx_line is None:
+        return idx_fragment
+
+    # If both methods return the same index, it doesn't matter which we use
+    if idx_fragment == idx_line:
+        return idx_fragment
+
+    # Get replacement lines to compare
+    if is_start:
+        # For start: compare with first 3 lines of replacement
+        compare_replacement_lines = replacement_lines[:3]
+    else:
+        # For end: compare with last 3 lines of replacement
+        compare_replacement_lines = replacement_lines[-3:]
+
+    # Skip if no replacement lines to compare
+    if not compare_replacement_lines:
+        return idx_fragment  # Default to fragment-based
+
+    # Get adjacent lines for both indices using the new get_adjacent_lines function
+    # For start fragments, we want lines after the index (including the line itself)
+    # For end fragments, we want lines before the index (including the line itself)
+    adjacent_fragment = get_adjacent_lines(hashed_lines, idx_fragment, is_start)
+    adjacent_line = get_adjacent_lines(hashed_lines, idx_line, is_start)
+
+    # Skip if no adjacent lines to compare
+    if not adjacent_fragment and not adjacent_line:
+        return idx_fragment  # Default to fragment-based
+
+    # Calculate longest common substring for fragment-based method
+    score_fragment = 0
+    if adjacent_fragment:
+        adjacent_text = "".join(adjacent_fragment)
+        replacement_text = "".join(compare_replacement_lines)
+        match_fragment = longest_common_substring(adjacent_text, replacement_text)
+        score_fragment = len(match_fragment)
+
+    # Calculate longest common substring for line-based method
+    score_line = 0
+    if adjacent_line:
+        adjacent_text = "".join(adjacent_line)
+        replacement_text = "".join(compare_replacement_lines)
+        match_line = longest_common_substring(adjacent_text, replacement_text)
+        score_line = len(match_line)
+
+    # Choose method with higher score
+    # If scores are equal, default to line-based matching
+    if score_line >= score_fragment:
+        return idx_line
+    else:
+        return idx_fragment
+
+
 def find_hashline_range(
     hashed_lines,
     start_line_hash,
     end_line_hash,
     allow_exact_match=True,
+    replacement_text=None,
 ):
     """
     Find start and end line indices in hashed content.
@@ -296,6 +486,11 @@ def find_hashline_range(
     Raises:
         HashlineError: If range cannot be found or is invalid
     """
+    # Convert replacement_text to lines if provided
+    replacement_lines = []
+    if replacement_text:
+        replacement_lines = replacement_text.split("\n")
+
     # Parse start_line_hash
     start_hash_fragment, start_line_num_str, start_line_num = parse_hashline(start_line_hash)
     found_start_line = None
@@ -316,9 +511,12 @@ def find_hashline_range(
         )
 
     if found_start_line is None:
-        found_start_line = find_hashline_by_fragment(
-            hashed_lines, start_hash_fragment, start_line_num
-        )
+        if replacement_text:
+            found_start_line = _line_or_fragment(
+                hashed_lines, start_hash_fragment, start_line_num, replacement_lines, is_start=True
+            )
+        else:
+            found_start_line = find_hashline_by_line_number(hashed_lines, start_line_num)
 
     if found_start_line is None:
         raise HashlineError(f"Start line hash fragment '{start_hash_fragment}' not found in file")
@@ -334,40 +532,15 @@ def find_hashline_range(
         )
 
     if found_end_line is None:
-        # Calculate line distance
-        line_distance = end_line_num - start_line_num
-        if line_distance < 0:
-            raise HashlineError(
-                f"End line {end_line_num} must be equal to or after start line {start_line_num}"
+        if replacement_text:
+            found_end_line = _line_or_fragment(
+                hashed_lines, end_hash_fragment, end_line_num, replacement_lines, is_start=False
             )
-
-        # Check if end hash fragment exists at the expected distance
-        expected_found_end_line = found_start_line + line_distance
-        if expected_found_end_line >= len(hashed_lines):
-            raise HashlineError(
-                f"Start hash fragment found at line {found_start_line + 1}, but "
-                f"end line {expected_found_end_line + 1} is out of range."
-            )
-
-        # Check if end hash fragment matches at the expected position
-        # If not, use find_hashline_by_fragment() to find the closest match
-        actual_end_hashed_line = hashed_lines[expected_found_end_line]
-        match = HASHLINE_PREFIX_RE.match(actual_end_hashed_line)
-        actual_end_hash_fragment = match.group(2) if match else None
-
-        if actual_end_hash_fragment != end_hash_fragment:
-            # Instead of raising an error, try to find the closest matching hash fragment
-            # near where the end line would be based on distance from start line
-            found_end_line = find_hashline_by_fragment(
-                hashed_lines, end_hash_fragment, expected_found_end_line
-            )
-            if found_end_line is None:
-                raise HashlineError(
-                    f"End line hash fragment '{end_hash_fragment}' not found near "
-                    f"expected position {expected_found_end_line + 1}."
-                )
         else:
-            found_end_line = expected_found_end_line
+            found_end_line = find_hashline_by_line_number(hashed_lines, end_line_num)
+
+    if found_end_line is None:
+        raise HashlineError(f"End line hash fragment '{end_hash_fragment}' not found in file")
 
     # Verify end line is not before start line
     if found_end_line < found_start_line:
@@ -377,86 +550,6 @@ def find_hashline_range(
         )
 
     return found_start_line, found_end_line
-
-
-def apply_hashline_operation(
-    original_content,
-    start_line_hash,
-    end_line_hash=None,
-    operation="replace",
-    text=None,
-):
-    """
-    Apply an operation (replace, insert, delete) using hashline ranges.
-
-    Uses regex/find to locate hashline ranges in the content and applies
-    the specified operation directly.
-
-    Note: Ranges are inclusive of both start and end boundaries.
-    For example, a range from line 3 to line 6 includes lines 3, 4, 5, and 6.
-
-    Args:
-        original_content: Original file content
-        start_line_hash: Hashline format for start line: "{hash_fragment}:{line_num}"
-        end_line_hash: Hashline format for end line: "{hash_fragment}:{line_num}" (optional for insert operations)
-        operation: One of "replace", "insert", or "delete"
-        text: Text to insert or replace with (required for replace/insert operations)
-
-    Returns:
-        Modified content after applying the operation
-
-    Raises:
-        HashlineError: If hashline verification fails or operation is invalid
-    """
-    # Handle empty content as a special case
-    if original_content == "" or original_content is None:
-        if operation == "insert" or operation == "replace":
-            if text is None:
-                raise HashlineError(
-                    f"Text parameter is required for '{operation}' operation on empty file"
-                )
-            # For empty files, just return the text to insert/replace with
-            return text if text.endswith("\n") else text + "\n"
-        elif operation == "delete":
-            # Deleting from empty file returns empty
-            return ""
-        else:
-            # Should not happen due to validation above, but handle anyway
-            raise HashlineError(f"Invalid operation '{operation}' for empty file")
-
-    # Validate operation
-    valid_operations = {"replace", "insert", "delete"}
-    if operation not in valid_operations:
-        raise HashlineError(
-            f"Invalid operation '{operation}'. Must be one of: {', '.join(valid_operations)}"
-        )
-
-    # Validate text parameter for replace/insert operations
-    if operation in {"replace", "insert"} and text is None:
-        raise HashlineError(f"Text parameter is required for '{operation}' operation")
-
-    # Build operation dictionary for apply_hashline_operations
-    op_dict = {
-        "start_line_hash": start_line_hash,
-        "operation": operation,
-    }
-
-    if end_line_hash is not None:
-        op_dict["end_line_hash"] = end_line_hash
-
-    if text is not None:
-        op_dict["text"] = text
-
-    # Call apply_hashline_operations with single operation
-    modified_content, successful_ops, failed_ops = apply_hashline_operations(
-        original_content, [op_dict]
-    )
-
-    # Check if operation failed
-    if failed_ops:
-        raise HashlineError(failed_ops[0]["error"])
-
-    return modified_content
 
 
 def extract_hashline_range(
@@ -469,8 +562,8 @@ def extract_hashline_range(
 
     Args:
         original_content: Original file content
-        start_line_hash: Hashline format for start line: "{hash_fragment}:{line_num}"
-        end_line_hash: Hashline format for end line: "{hash_fragment}:{line_num}"
+        start_line_hash: Hashline format for start line: "{line_num}{hash_fragment}"
+        end_line_hash: Hashline format for end line: "{line_num}{hash_fragment}"
 
     Returns:
         str: The extracted content between the hashline markers (with hashline prefixes preserved)
@@ -551,8 +644,8 @@ def get_hashline_diff(
 
     Args:
         original_content: Original file content
-        start_line_hash: Hashline format for start line: "{hash_fragment}:{line_num}"
-        end_line_hash: Hashline format for end line: "{hash_fragment}:{line_num}"
+        start_line_hash: Hashline format for start line: "{line_num}{hash_fragment}"
+        end_line_hash: Hashline format for end line: "{line_num}{hash_fragment}"
         operation: One of "replace", "insert", or "delete"
         text: Text to insert or replace with (required for replace/insert operations)
 
@@ -1141,88 +1234,105 @@ def _apply_range_shifting(hashed_lines, resolved_ops):
     return resolved_ops
 
 
+# Regex configuration
+RE_CODE_NOISE = r'(#.*|//.*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')'
+
+
+def get_brace_balance(lines_to_check: list[str]) -> int:
+    """
+    Calculates the net curly brace debt of a list of lines.
+    Automatically strips hashlines, comments, and string literals.
+    """
+    text = "".join(lines_to_check)
+    clean_code = strip_hashline(text)
+    clean_code = re.sub(RE_CODE_NOISE, "", clean_code)
+    return clean_code.count("{") - clean_code.count("}")
+
+
 def _apply_closure_safeguard(hashed_lines, resolved_ops):
     """
-    Apply closure safeguard for replace operations ending with braces/brackets.
-
-    Detects when replacement text ends in a brace or bracket and if the end line
-    of the replacement range is also a brace or bracket but with fewer spaces/tabs
-    preceding it (less indented), moves the resolved end range up one line.
-
-    This prevents including outer closing braces/brackets in the replacement range
-    when the model includes them in the replacement text.
-
-    Args:
-        hashed_lines: List of hashed lines from the file
-        resolved_ops: List of resolved operation dictionaries
-
-    Returns:
-        Updated resolved_ops with adjusted ranges for closure safeguard
+    Enhanced closure safeguard with dynamic bidirectional search.
     """
+    # Tune these to adjust how far the 'healing' logic searches
+    MAX_LOOK_DOWN = 5
+    # Note: We'll calculate the actual MAX_LOOK_UP per operation
+    # to ensure we don't scan past the start_idx.
+
     for i, resolved in enumerate(resolved_ops):
         op = resolved["op"]
-        if op["operation"] == "replace" and op.get("text"):
-            replacement_lines = op["text"].splitlines(keepends=True)
-            if not replacement_lines:
-                continue
+        if op["operation"] not in {"replace", "delete"}:
+            continue
 
-            # Check if replacement text ends with a brace or bracket
-            last_replacement_line = strip_hashline(replacement_lines[-1])
-            last_replacement_line_stripped = last_replacement_line.strip()
+        replacement_text = op.get("text", "") or ""
+        replacement_lines = replacement_text.splitlines(keepends=True)
 
-            # Check if it ends with a closing brace/bracket (ignoring trailing punctuation)
-            check_text = last_replacement_line_stripped.rstrip(";,")
-            if check_text and check_text[-1] in "})]":
-                # Get the indentation of the last replacement line
-                # Count leading spaces/tabs
-                replacement_indent = 0
-                for char in last_replacement_line:
-                    if char in " \t":
-                        replacement_indent += 1
-                    else:
+        # --- PHASE 1: BIDIRECTIONAL STRUCTURAL HEALING ---
+        if get_brace_balance([replacement_text]) == 0:
+            start_idx = resolved["start_idx"]
+            orig_end_idx = resolved["end_idx"]
+
+            if get_brace_balance(hashed_lines[start_idx : orig_end_idx + 1]) != 0:
+                # Dynamic Search List Generation
+                # We limit look-up so we don't scan before the start_idx
+                actual_max_up = orig_end_idx - start_idx
+                actual_max_down = max(MAX_LOOK_DOWN, orig_end_idx - start_idx)
+                search_offsets = []
+
+                # Generate alternating offsets: [1, -1, 2, -2, ... N]
+                for dist in range(1, max(actual_max_down, actual_max_up) + 1):
+                    if dist <= actual_max_down:
+                        search_offsets.append(dist)
+                    if dist <= actual_max_up:
+                        search_offsets.append(-dist)
+
+                for offset in search_offsets:
+                    candidate_end = orig_end_idx + offset
+
+                    # Safety: check bounds and avoid overlapping other ops
+                    if candidate_end < start_idx or candidate_end >= len(hashed_lines):
+                        continue
+
+                    if any(
+                        j != i and (other["start_idx"] <= candidate_end <= other["end_idx"])
+                        for j, other in enumerate(resolved_ops)
+                    ):
+                        continue
+
+                    if get_brace_balance(hashed_lines[start_idx : candidate_end + 1]) == 0:
+                        resolved["end_idx"] = candidate_end
                         break
 
-                # Check if the end line of the range is also a brace/bracket
-                if resolved["end_idx"] < len(hashed_lines):
-                    end_line = strip_hashline(hashed_lines[resolved["end_idx"]])
-                    end_line_stripped = end_line.strip()
+        # --- PHASE 2: CONTRACTION (Indentation Guard) ---
+        # Prevents replacing an outer-scope brace if the replacement text already
+        # includes its own correctly indented closer.
+        if not replacement_lines:
+            continue
 
-                    # Check if it ends with a closing brace/bracket (ignoring trailing punctuation)
-                    check_end = end_line_stripped.rstrip(";,")
-                    if check_end and check_end[-1] in "})]":
-                        # Get indentation of the end line
-                        end_line_indent = 0
-                        for char in end_line:
-                            if char in " \t":
-                                end_line_indent += 1
-                            else:
-                                break
+        last_repl_line = strip_hashline(replacement_lines[-1])
+        last_repl_stripped = last_repl_line.strip().rstrip(";,")
 
-                        # If end line has less indentation (fewer spaces/tabs)
-                        # and we're not at the start of the range
-                        if (
-                            end_line_indent < replacement_indent
-                            and resolved["end_idx"] > resolved["start_idx"]
+        if last_repl_stripped and last_repl_stripped[-1] in "})]":
+            # Calculate replacement indent
+            repl_indent = len(last_repl_line) - len(last_repl_line.lstrip(" \t"))
+
+            if resolved["end_idx"] < len(hashed_lines):
+                end_line = strip_hashline(hashed_lines[resolved["end_idx"]])
+                check_end = end_line.strip().rstrip(";,")
+
+                if check_end and check_end[-1] in "})]":
+                    # Calculate indent of the existing brace in the file
+                    file_indent = len(end_line) - len(end_line.lstrip(" \t"))
+
+                    # If the file's brace is less indented, it belongs to an outer scope
+                    if file_indent < repl_indent and resolved["end_idx"] > resolved["start_idx"]:
+                        new_end_idx = resolved["end_idx"] - 1
+
+                        # Safety: don't contract into another operation's territory
+                        if not any(
+                            j != i and (other["start_idx"] <= new_end_idx <= other["end_idx"])
+                            for j, other in enumerate(resolved_ops)
                         ):
-                            # Check if moving up one line would still be valid
-                            new_end_idx = resolved["end_idx"] - 1
-
-                            # Safety check: ensure new range doesn't overlap with another operation
-                            overlap = False
-                            for j, other in enumerate(resolved_ops):
-                                if i != j and (
-                                    (
-                                        other["start_idx"]
-                                        <= resolved["start_idx"]
-                                        <= other["end_idx"]
-                                    )
-                                    or (other["start_idx"] <= new_end_idx <= other["end_idx"])
-                                ):
-                                    overlap = True
-                                    break
-
-                            if not overlap:
-                                resolved["end_idx"] = new_end_idx
+                            resolved["end_idx"] = new_end_idx
 
     return resolved_ops
 
@@ -1313,11 +1423,14 @@ def apply_hashline_operations(
     # Normalize hashline inputs in operations
     normalized_operations = []
     failed_ops = []
+    # Loop through each operation to normalize hashline strings
     for i, op in enumerate(operations):
         try:
             normalized_op = op.copy()
+            # Normalize start line hash to ensure consistent format
             normalized_op["start_line_hash"] = normalize_hashline(op["start_line_hash"])
             if "end_line_hash" in op:
+                # Normalize end line hash if present
                 normalized_op["end_line_hash"] = normalize_hashline(op["end_line_hash"])
             normalized_operations.append(normalized_op)
         except Exception as e:
@@ -1327,11 +1440,13 @@ def apply_hashline_operations(
         return original_content, [], failed_ops
 
     # Apply hashline to original content once
+    # This converts content to hashed lines for line tracking
     hashed_content = hashline(original_content)
     hashed_lines = hashed_content.splitlines(keepends=True)
 
     # Resolve all operations to indices first
     resolved_ops = []
+    # Loop to convert hashline references to line indices
     for i, op in enumerate(normalized_operations):
         try:
             if op["operation"] == "insert":
@@ -1351,6 +1466,7 @@ def apply_hashline_operations(
                     )
 
                     if found_start is None:
+                        # Fall back to fragment matching if exact match fails
                         found_start = find_hashline_by_fragment(
                             hashed_lines, start_hash_fragment, start_line_num
                         )
@@ -1366,13 +1482,47 @@ def apply_hashline_operations(
             else:
                 # Use find_hashline_range for replace/delete to leverage its robust logic
                 # which handles exact matches (including line numbers) and relative offsets
-                found_start, found_end = find_hashline_range(
-                    hashed_lines, op["start_line_hash"], op["end_line_hash"], allow_exact_match=True
-                )
 
-                resolved_ops.append(
-                    {"index": i, "start_idx": found_start, "end_idx": found_end, "op": op}
-                )
+                start_hash = op["start_line_hash"]
+                end_hash = op.get("end_line_hash")
+
+                if "text" in op and op["text"]:
+                    replacement_lines = op["text"].splitlines(keepends=True)
+                    if replacement_lines:
+                        # Try content match for start line
+                        match = find_hashline_by_content_match(
+                            hashed_lines, start_hash, replacement_lines[0]
+                        )
+                        if match:
+                            start_hash = match
+
+                        # Try content match for end line
+                        if end_hash:
+                            match = find_hashline_by_content_match(
+                                hashed_lines, end_hash, replacement_lines[-1]
+                            )
+                            if match:
+                                end_hash = match
+
+                # Fall back to original find_hashline_range
+                try:
+                    # Get replacement text for replace operations, None for delete operations
+                    replacement_text = op.get("text")
+                    found_start, found_end = find_hashline_range(
+                        hashed_lines,
+                        start_hash,
+                        end_hash,
+                        allow_exact_match=True,
+                        replacement_text=replacement_text,
+                    )
+                    resolved_ops.append(
+                        {"index": i, "start_idx": found_start, "end_idx": found_end, "op": op}
+                    )
+                except Exception as e:
+                    raise HashlineError(
+                        f"Could not resolve hash range {start_hash}-{end_hash}: {str(e)}"
+                    )
+
         except Exception as e:
             failed_ops.append({"index": i, "error": str(e), "operation": op})
 
@@ -1381,6 +1531,7 @@ def apply_hashline_operations(
     deduplicated_ops = []
     # Group operations by start_idx
     start_idx_to_ops = {}
+    # Loop to group operations by their start index
     for op in resolved_ops:
         start_idx = op["start_idx"]
         if start_idx not in start_idx_to_ops:
@@ -1388,6 +1539,7 @@ def apply_hashline_operations(
         start_idx_to_ops[start_idx].append(op)
 
     # For each start_idx, keep only the operation with the highest original index (latest in the list)
+    # Loop to select only the latest operation per start index
     for start_idx, ops in start_idx_to_ops.items():
         # Sort by original index descending and take the first one
         ops.sort(key=lambda x: x["index"], reverse=True)
@@ -1399,6 +1551,7 @@ def apply_hashline_operations(
     # Optimize: discard inner ranges that are completely contained within outer ranges
     # This prevents redundant operations and potential errors
     optimized_ops = []
+    # Loop to remove operations that are completely contained within other operations
     for i, op_a in enumerate(resolved_ops):
         keep_op = True
 
@@ -1457,6 +1610,7 @@ def apply_hashline_operations(
     resolved_ops.sort(key=sort_key)
 
     successful_ops = []
+    # Loop to apply operations in sorted order (bottom-to-top)
     for resolved in resolved_ops:
         try:
             op = resolved["op"]
@@ -1524,6 +1678,7 @@ def apply_hashline_operations(
 
     # Join and strip hashlines
     result_with_hashes = "".join(hashed_lines)
+    # Remove hashline markers from final result
     result = strip_hashline(result_with_hashes)
 
     # Respect original trailing newline
@@ -1531,3 +1686,83 @@ def apply_hashline_operations(
         result = result[:-1]
 
     return result, successful_ops, failed_ops
+
+
+def apply_hashline_operation(
+    original_content,
+    start_line_hash,
+    end_line_hash=None,
+    operation="replace",
+    text=None,
+):
+    """
+    Apply an operation (replace, insert, delete) using hashline ranges.
+
+    Uses regex/find to locate hashline ranges in the content and applies
+    the specified operation directly.
+
+    Note: Ranges are inclusive of both start and end boundaries.
+    For example, a range from line 3 to line 6 includes lines 3, 4, 5, and 6.
+
+    Args:
+        original_content: Original file content
+        start_line_hash: Hashline format for start line: "{line_num}{hash_fragment}"
+        end_line_hash: Hashline format for end line: "{line_num}{hash_fragment}" (optional for insert operations)
+        operation: One of "replace", "insert", or "delete"
+        text: Text to insert or replace with (required for replace/insert operations)
+
+    Returns:
+        Modified content after applying the operation
+
+    Raises:
+        HashlineError: If hashline verification fails or operation is invalid
+    """
+    # Handle empty content as a special case
+    if original_content == "" or original_content is None:
+        if operation == "insert" or operation == "replace":
+            if text is None:
+                raise HashlineError(
+                    f"Text parameter is required for '{operation}' operation on empty file"
+                )
+            # For empty files, just return the text to insert/replace with
+            return text if text.endswith("\n") else text + "\n"
+        elif operation == "delete":
+            # Deleting from empty file returns empty
+            return ""
+        else:
+            # Should not happen due to validation above, but handle anyway
+            raise HashlineError(f"Invalid operation '{operation}' for empty file")
+
+    # Validate operation
+    valid_operations = {"replace", "insert", "delete"}
+    if operation not in valid_operations:
+        raise HashlineError(
+            f"Invalid operation '{operation}'. Must be one of: {', '.join(valid_operations)}"
+        )
+
+    # Validate text parameter for replace/insert operations
+    if operation in {"replace", "insert"} and text is None:
+        raise HashlineError(f"Text parameter is required for '{operation}' operation")
+
+    # Build operation dictionary for apply_hashline_operations
+    op_dict = {
+        "start_line_hash": start_line_hash,
+        "operation": operation,
+    }
+
+    if end_line_hash is not None:
+        op_dict["end_line_hash"] = end_line_hash
+
+    if text is not None:
+        op_dict["text"] = text
+
+    # Call apply_hashline_operations with single operation
+    modified_content, successful_ops, failed_ops = apply_hashline_operations(
+        original_content, [op_dict]
+    )
+
+    # Check if operation failed
+    if failed_ops:
+        raise HashlineError(failed_ops[0]["error"])
+
+    return modified_content
