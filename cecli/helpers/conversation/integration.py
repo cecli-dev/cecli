@@ -646,12 +646,14 @@ class ConversationChunks:
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_user", file_path),
+                force=True,
             )
 
             ConversationManager.add_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_assistant", file_path),
+                force=True,
             )
 
     @classmethod

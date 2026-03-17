@@ -993,8 +993,10 @@ I will proceed based on the tool results and updated context.""")
                     self.model_kwargs["frequency_penalty"] = min(freq_penalty + 0.1, 1)
 
                 if random.random() < 0.25:
-                    self.model_kwargs["temperature"] = max(temperature - 0.2, 1)
-                    self.model_kwargs["frequency_penalty"] = max(freq_penalty - 0.2, 0)
+                    self.model_kwargs["temperature"] = min(
+                        (self.main_model.use_temperature or 1), max(temperature - 0.15, 1)
+                    )
+                    self.model_kwargs["frequency_penalty"] = min(0, max(freq_penalty - 0.15, 0))
 
             # One tenth of the time, just straight reset the randomness
             if random.random() < 0.1:

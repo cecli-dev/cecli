@@ -27,12 +27,14 @@ class Tool(BaseTool):
                     "start_line": {
                         "type": "string",
                         "description": (
-                            'Hashline format for start line: "{line_num}{hash_fragment}"'
+                            'Hashline format for start line: "{4 char hash}" (without the braces)'
                         ),
                     },
                     "end_line": {
                         "type": "string",
-                        "description": 'Hashline format for end line: "{line_num}{hash_fragment}"',
+                        "description": (
+                            'Hashline format for end line: "{4 char hash}" (without the braces)'
+                        ),
                     },
                     "indent_levels": {"type": "integer", "default": 1},
                     "change_id": {"type": "string"},
@@ -61,8 +63,8 @@ class Tool(BaseTool):
         Parameters:
         - coder: The Coder instance
         - file_path: Path to the file to modify
-        - start_line: Hashline format for start line: "{line_num}{hash_fragment}"
-        - end_line: Hashline format for end line: "{line_num}{hash_fragment}"
+        - start_line: Hashline format for start line: "{4 char hash}" (without the braces)
+        - end_line: Hashline format for end line: "{4 char hash}" (without the braces)
         - indent_levels: Number of levels to indent (positive) or unindent (negative)
         - change_id: Optional ID for tracking the change
         - dry_run: If True, simulate the change without modifying the file

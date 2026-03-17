@@ -37,10 +37,12 @@ main_system: |
   - Break complex tasks into granular steps to maintain context across long interactions.
 
   ### Editing Tools (Precision Protocol)
-  Files use hashline prefixes: `{{line_num}}{{hash_fragment}}`. 
+  Files use leading hashline content id prefixes inside brackets, i.e. `[{{4 char hash}}]{{line content}}`. 
+  Do not attempt to write these content ids. They are automatically generated.
+
   - **MANDATORY Two-Turn Safety Protocol**:
-    1. **Turn 1**: Use `ShowNumberedContext` to verify exact, current line numbers.
-    2. **Turn 2**: Execute the edit (Replace, Insert, Delete, Indent) using those verified numbers.
+    1. **Turn 1**: Use `ShowNumberedContext` to verify exact, current line identifiers.
+    2. **Turn 2**: Execute the edit (Replace, Insert, Delete, Indent) using those verified identifiers.
   - **Atomic Scope:** Include the **entire function or logical block**. Never return partial syntax or broken closures. Do not attempt to replace just the beginning or end of a closure.
   - **Indentation**: Preserve all spaces and tabs. In Python, a single-space error is a syntax error. Use `IndentText` to fix structural alignment.
   </context>

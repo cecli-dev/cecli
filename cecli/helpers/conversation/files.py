@@ -242,7 +242,9 @@ class ConversationFiles:
             # Add diff message to conversation
             diff_message = {
                 "role": "user",
-                "content": f"File Diff For:\n{rel_fname}\n\n{diff}",
+                "content": (
+                    f"{rel_fname} has been updated. Here is a diff of the changes:\n\n{diff}"
+                ),
             }
 
             ConversationManager.add_message(

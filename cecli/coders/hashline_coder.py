@@ -65,7 +65,7 @@ class HashLineCoder(Coder):
                     start_hash, end_hash, operation = original
 
                     # Validate operation
-                    if operation in ["replace", "insert", "delete"]:
+                    if operation in ["replace", "insert", "delete", "cancel"]:
                         # Validate hashline format
                         if isinstance(start_hash, str) and (
                             operation == "insert" or isinstance(end_hash, str)
@@ -225,7 +225,7 @@ The CONTENTS lines are already in {path}!
         res += (
             "The LOCATE section must be a valid JSON array in the format:\n"
             '["{start hashline}", "{end hashline}", "{operation}"]\n'
-            "Hashline prefixes must have the structure `{line_num}{hash_fragment}` (e.g., `20Bv`)"
+            "Hashline prefixes must have the structure `{4 char hash}` (e.g., `20Bv`)"
             " and match one found directly in the file"
         )
         if passed:
@@ -650,14 +650,15 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
                 # Check if original_text is a hashline JSON block
                 try:
                     # Try to parse as JSON
-                    parsed = json.loads(original_text_str.strip())
+                    # parsed = json.loads(original_text_str.strip())
+                    parsed = extract_base64url_parts(original_text_str.strip())
                     # Check if it's a list with 3 elements (start_hash, end_hash, operation)
                     if isinstance(parsed, list) and len(parsed) == 3:
                         # Validate the format: all strings
                         if all(isinstance(item, str) for item in parsed):
                             # Check if first two items look like hashline format (e.g., "1ab")
 
-                            if parsed[2] in ["replace", "insert", "delete"]:
+                            if parsed[2] in ["replace", "insert", "delete", "cancel"]:
                                 # This is a hashline JSON block
                                 yield filename, parsed, updated_text_str
                                 continue
@@ -673,6 +674,17 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
                 raise ValueError(f"{processed}\n^^^ {err}")
 
         i += 1
+
+
+def extract_base64url_parts(input_string):
+    # Remove any character that is NOT a-z, A-Z, 0-9, -, or _
+    clean_str = re.sub(r"[^a-zA-Z0-9\-_]", "", input_string)
+
+    return [
+        clean_str[:4],  # First 4 chars
+        clean_str[4:8],  # Second 4 chars
+        clean_str[8:],  # The rest
+    ]
 
 
 def find_filename(lines, fence, valid_fnames):
