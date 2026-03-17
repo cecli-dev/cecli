@@ -957,7 +957,11 @@ I will proceed based on the tool results and updated context.""")
         if repetitive_tools:
             if not self.model_kwargs:
                 self.model_kwargs = {
-                    "temperature": (self.main_model.use_temperature or 1) + 0.1,
+                    "temperature": (
+                        1
+                        if isinstance(self.main_model.use_temperature, bool)
+                        else float(self.main_model.use_temperature)
+                    ) + 0.1,
                     "frequency_penalty": 0.2,
                     "presence_penalty": 0.1,
                 }
@@ -970,7 +974,12 @@ I will proceed based on the tool results and updated context.""")
 
                 if random.random() < 0.25:
                     self.model_kwargs["temperature"] = min(
-                        (self.main_model.use_temperature or 1), max(temperature - 0.15, 1)
+                        (
+                            1
+                            if isinstance(self.main_model.use_temperature, bool)
+                            else float(self.main_model.use_temperature)
+                        ),
+                        max(temperature - 0.15, 1),
                     )
                     self.model_kwargs["frequency_penalty"] = min(0, max(freq_penalty - 0.15, 0))
 
