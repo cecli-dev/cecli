@@ -343,6 +343,7 @@ class Coder:
 
         self.auto_copy_context = auto_copy_context
         self.security_config = security_config or {}
+        self.workspace_paths = workspace_paths
         self.auto_accept_architect = auto_accept_architect
 
         self.ignore_mentions = ignore_mentions
