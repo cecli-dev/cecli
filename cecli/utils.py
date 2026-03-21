@@ -179,6 +179,47 @@ def safe_abs_path(res):
     return str(res)
 
 
+def resolve_workspace_paths(workspace_paths, git_root=None, default_workspace=".cecli/workspace"):
+    """
+    Resolve workspace paths, including default and additional paths.
+    Args:
+        workspace_paths: List of additional workspace paths
+        git_root: Git root directory for relative path resolution
+        default_workspace: Default workspace directory name
+    Returns:
+        List of resolved workspace paths
+    """
+    from pathlib import Path
+
+    resolved_paths = []
+
+    # Always include the default workspace path
+    if git_root:
+        default_path = Path(git_root) / default_workspace
+    else:
+        default_path = Path(default_workspace)
+    resolved_paths.append(default_path.resolve())
+
+    # Add additional workspace paths
+    for path in workspace_paths or []:
+        if not path:
+            continue
+        try:
+            if Path(path).is_absolute():
+                resolved_path = Path(path).expanduser().resolve()
+            elif git_root:
+                resolved_path = (Path(git_root) / path).expanduser().resolve()
+            else:
+                resolved_path = Path(path).expanduser().resolve()
+
+            if resolved_path not in resolved_paths:
+                resolved_paths.append(resolved_path)
+        except Exception:
+            continue
+
+    return resolved_paths
+
+
 def format_content(role, content):
     formatted_lines = []
     for line in content.splitlines():

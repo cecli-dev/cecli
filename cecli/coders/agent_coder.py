@@ -44,6 +44,7 @@ class AgentCoder(Coder):
     hashlines = True
 
     def __init__(self, *args, **kwargs):
+        self.workspace_paths = kwargs.pop("workspace_paths", [])
         self.recently_removed = {}
         self.tool_usage_history = []
         self.tool_usage_retries = 20
@@ -91,12 +92,57 @@ class AgentCoder(Coder):
         self.skip_cli_confirmations = False
         self.agent_finished = False
         self.agent_config = self._get_agent_config()
-        self._setup_agent()
         ToolRegistry.build_registry(agent_config=self.agent_config)
         super().__init__(*args, **kwargs)
 
-    def _setup_agent(self):
-        os.makedirs(".cecli/workspace", exist_ok=True)
+        from cecli.utils import resolve_workspace_paths
+
+        self.resolved_workspace_paths = resolve_workspace_paths(
+            self.workspace_paths, self.repo.root if self.repo else None
+        )
+
+    def get_workspace_directory(self, preferred_name=None):
+        """Get an appropriate workspace directory for temporary files.
+        Args:
+            preferred_name: Preferred name for the workspace subdirectory
+        Returns:
+            Path to a workspace directory
+        """
+        from pathlib import Path
+
+        # If we have resolved workspace paths, try to use the first available one
+        if hasattr(self, "resolved_workspace_paths") and self.resolved_workspace_paths:
+            for workspace_path in self.resolved_workspace_paths:
+                try:
+                    # Use this workspace path if it exists or its parent exists
+                    if workspace_path.exists() or workspace_path.parent.exists():
+                        if preferred_name:
+                            workspace_dir = workspace_path / preferred_name
+                        else:
+                            workspace_dir = workspace_path
+                        workspace_dir.mkdir(parents=True, exist_ok=True)
+                        return workspace_dir
+                except Exception:
+                    continue
+
+        # Fall back to default behavior
+        git_root = self.repo.root if self.repo else None
+        if git_root:
+            default_workspace = Path(git_root) / ".cecli" / "workspace"
+        else:
+            default_workspace = Path(".cecli") / "workspace"
+
+        if preferred_name:
+            res = default_workspace / preferred_name
+        else:
+            res = default_workspace
+
+        res.mkdir(parents=True, exist_ok=True)
+        return res
+
+    def local_agent_folder(self, path):
+        workspace_dir = self.get_workspace_directory()
+        return os.path.join(workspace_dir, path)
 
     def _get_agent_config(self):
         """
