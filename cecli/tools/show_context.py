@@ -1,6 +1,6 @@
 import os
 
-from cecli.helpers.hashline import hashline
+from cecli.helpers.hashline import hashline, strip_hashline
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
     ToolError,
@@ -11,15 +11,18 @@ from cecli.tools.utils.helpers import (
 
 
 class Tool(BaseTool):
-    NORM_NAME = "shownumberedcontext"
+    NORM_NAME = "showcontext"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ShowNumberedContext",
+            "name": "ShowContext",
             "description": (
-                "Show numbered lines of context around patterns or line numbers in multiple files."
-                " Accepts an array of show objects, each with file_path, pattern/line_number, and"
-                " context_lines."
+                "Get hashline prefixes of context between start and end patterns in multiple files."
+                " Accepts an array of show objects, each with file_path, start_pattern,"
+                " end_pattern, and optional padding. Special markers '<@000>' and '<000@>' can be"
+                " used for start_pattern and end_pattern to represent the first and last lines of"
+                " the file respectively. Never use hashlines as the start_pattern and end_pattern"
+                " values. These values must be lines from the content of the file."
             ),
             "parameters": {
                 "type": "object",
@@ -33,29 +36,30 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "description": "File path to search in.",
                                 },
-                                "pattern": {
+                                "start_pattern": {
                                     "type": "string",
                                     "description": (
-                                        "Pattern to search for (mutually exclusive with"
-                                        " line_number)."
+                                        "The content marking the beginning of the context range."
+                                        " Use '<@000>' for the first line."
                                     ),
                                 },
-                                "line_number": {
-                                    "type": "integer",
+                                "end_pattern": {
+                                    "type": "string",
                                     "description": (
-                                        "Line number to show context around (mutually exclusive"
-                                        " with pattern)."
+                                        "The contentmarking the end of the context range. Use"
+                                        " '<000@>' for the last line."
                                     ),
                                 },
-                                "context_lines": {
+                                "padding": {
                                     "type": "integer",
-                                    "default": 3,
+                                    "default": 5,
                                     "description": (
-                                        "Number of context lines to show around the target."
+                                        "Number of lines of padding to add before start_pattern and"
+                                        " after end_pattern."
                                     ),
                                 },
                             },
-                            "required": ["file_path"],
+                            "required": ["file_path", "start_pattern", "end_pattern"],
                         },
                         "description": "Array of show operations to perform.",
                     },
@@ -73,7 +77,7 @@ class Tool(BaseTool):
         Accepts an array of show operations to perform.
         Uses utility functions for path resolution and error handling.
         """
-        tool_name = "ShowNumberedContext"
+        tool_name = "showcontext"
         try:
             # 1. Validate show parameter
             if not isinstance(show, list):
@@ -87,9 +91,9 @@ class Tool(BaseTool):
             for show_index, show_op in enumerate(show):
                 # Extract parameters for this show operation
                 file_path = show_op.get("file_path")
-                pattern = show_op.get("pattern")
-                line_number = show_op.get("line_number")
-                context_lines = show_op.get("context_lines", 3)
+                start_pattern = show_op.get("start_pattern")
+                end_pattern = show_op.get("end_pattern")
+                padding = show_op.get("padding", 5)
 
                 if file_path is None:
                     raise ToolError(
@@ -97,19 +101,14 @@ class Tool(BaseTool):
                     )
 
                 # Validate arguments for this operation
-                pattern_provided = is_provided(pattern)
-                line_number_provided = is_provided(line_number, treat_zero_as_missing=True)
-
-                if sum([pattern_provided, line_number_provided]) != 1:
+                if not is_provided(start_pattern) or not is_provided(end_pattern):
                     raise ToolError(
-                        f"Show operation {show_index + 1}: Provide exactly one of 'pattern' or"
-                        " 'line_number'."
+                        f"Show operation {show_index + 1}: Provide both 'start_pattern' and"
+                        " 'end_pattern'."
                     )
 
-                if not pattern_provided:
-                    pattern = None
-                if not line_number_provided:
-                    line_number = None
+                start_pattern = strip_hashline(start_pattern)
+                end_pattern = strip_hashline(end_pattern)
 
                 # 2. Resolve path
                 abs_path, rel_path = resolve_paths(coder, file_path)
@@ -124,56 +123,67 @@ class Tool(BaseTool):
                 lines = content.splitlines()
                 num_lines = len(lines)
 
-                # 4. Determine center line index
-                center_line_idx = -1
+                if num_lines == 0:
+                    # Handle empty file case
+                    output_lines = [f"File {rel_path} is empty."]
+                    if show_index > 0:
+                        all_outputs.append("")
+                    all_outputs.extend(output_lines)
+                    continue
+                # 4. Determine line range
+                start_line_idx = -1
+                end_line_idx = -1
                 found_by = ""
 
-                if line_number is not None:
-                    try:
-                        line_number_int = int(line_number)
-                        if 1 <= line_number_int <= num_lines:
-                            center_line_idx = line_number_int - 1  # Convert to 0-based index
-                            found_by = f"line {line_number_int}"
-                        else:
-                            raise ToolError(
-                                f"Line number {line_number_int} is out of range (1-{num_lines}) for"
-                                f" {file_path}."
-                            )
-                    except ValueError:
-                        raise ToolError(f"Invalid line number '{line_number}'. Must be an integer.")
-
-                elif pattern is not None:
-                    # TODO: Update this section for multiline pattern support later
-                    first_match_line_idx = -1
-                    for i, line in enumerate(lines):
-                        if pattern in line:
-                            first_match_line_idx = i
-                            break
-
-                    if first_match_line_idx != -1:
-                        center_line_idx = first_match_line_idx
-                        found_by = f"pattern '{pattern}' on line {center_line_idx + 1}"
+                if start_pattern is not None and end_pattern is not None:
+                    if start_pattern == "<@000>":
+                        start_indices = [0]
                     else:
-                        raise ToolError(f"Pattern '{pattern}' not found in {file_path}.")
+                        start_indices = [i for i, line in enumerate(lines) if start_pattern in line]
 
-                if center_line_idx == -1:
-                    # Should not happen if logic above is correct, but as a safeguard
-                    raise ToolError("Internal error: Could not determine center line.")
+                    if end_pattern == "<000@>":
+                        end_indices = [num_lines - 1]
+                    else:
+                        end_indices = [i for i, line in enumerate(lines) if end_pattern in line]
 
-                # 5. Calculate context window
-                try:
-                    context_lines_int = int(context_lines)
-                    if context_lines_int < 0:
-                        raise ValueError("Context lines must be non-negative")
-                except ValueError:
-                    coder.io.tool_warning(
-                        f"Invalid context_lines value '{context_lines}', using default 3."
-                    )
-                    context_lines_int = 3
+                    best_pair = None
+                    min_dist = float("inf")
 
-                start_line_idx = max(0, center_line_idx - context_lines_int)
-                end_line_idx = min(num_lines - 1, center_line_idx + context_lines_int)
+                    for s in start_indices:
+                        for e in [idx for idx in end_indices if idx >= s]:
+                            dist = e - s
+                            if dist < min_dist:
+                                min_dist = dist
+                                best_pair = (s, e)
 
+                    if not start_indices:
+                        raise ToolError(
+                            f"Start pattern '{start_pattern}' not found in {file_path}."
+                        )
+                    if not end_indices:
+                        raise ToolError(f"End pattern '{end_pattern}' not found in {file_path}.")
+                    if best_pair is None:
+                        raise ToolError(
+                            f"End pattern '{end_pattern}' not found after start pattern in"
+                            f" {file_path}."
+                        )
+                    s_idx, e_idx = best_pair
+
+                    found_by = f"range '{start_pattern}' to '{end_pattern}'"
+
+                    try:
+                        padding_int = int(padding)
+                        if padding_int < 0:
+                            raise ValueError()
+                    except ValueError:
+                        coder.io.tool_warning(f"Invalid padding '{padding}', using default 5.")
+                        padding_int = 5
+
+                    start_line_idx = max(0, s_idx - padding_int)
+                    end_line_idx = min(num_lines - 1, e_idx + padding_int)
+
+                if start_line_idx == -1 or end_line_idx == -1:
+                    raise ToolError("Internal error: Could not determine line range.")
                 # 6. Format output for this operation
                 # Use rel_path for user-facing messages
                 output_lines = [f"Displaying context around {found_by} in {rel_path}:"]
@@ -206,8 +216,9 @@ class Tool(BaseTool):
                 ConversationChunks.add_file_context_messages(coder)
 
             # Log success and return the formatted context directly
+            coder.edit_allowed = True
             coder.io.tool_output(f"Successfully retrieved context for {len(show)} file(s)")
-            return f"Successfully retrieved context for {len(show)} file(s)"
+            return f"Successfully retrieved most recent context for {len(show)} file(s)"
 
         except ToolError as e:
             # Handle expected errors raised by utility functions or validation

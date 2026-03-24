@@ -243,13 +243,28 @@ class ConversationFiles:
             diff_message = {
                 "role": "user",
                 "content": (
-                    f"{rel_fname} has been updated. Here is a diff of the changes:\n\n{diff}"
+                    f"{rel_fname} has been updated. Here is a diff of the changes to"
+                    f" review:\n\n{diff}"
                 ),
+            }
+
+            assistant_msg = {
+                "role": "assistant",
+                "content": "I understand, I will review the diff contents.",
             }
 
             ConversationManager.add_message(
                 message_dict=diff_message,
                 tag=MessageTag.DIFFS,
+                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                mark_for_demotion=1,
+            )
+
+            ConversationManager.add_message(
+                message_dict=assistant_msg,
+                tag=MessageTag.DIFFS,
+                hash_key=("diff_message", diff),
+                force=True,
                 promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
                 mark_for_demotion=1,
             )

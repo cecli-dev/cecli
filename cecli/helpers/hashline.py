@@ -1308,11 +1308,11 @@ def apply_hashline_operations(
                         hashed_lines, start_hash_fragment, start_line_num_str
                     )
 
-                    if found_start is None:
-                        # Fall back to fragment matching if exact match fails
-                        found_start = find_hashline_by_fragment(
-                            hashed_lines, start_hash_fragment, start_line_num
-                        )
+                    # if found_start is None:
+                    #    # Fall back to fragment matching if exact match fails
+                    #    found_start = find_hashline_by_fragment(
+                    #        hashed_lines, start_hash_fragment, start_line_num
+                    #    )
 
                     if found_start is None:
                         raise HashlineError(
@@ -1363,7 +1363,7 @@ def apply_hashline_operations(
                     )
                 except Exception as e:
                     raise HashlineError(
-                        f"Could not resolve hash range {start_hash}-{end_hash}: {str(e)}"
+                        f"Could not resolve hash range {start_hash}...{end_hash}: {str(e)}"
                     )
 
         except Exception as e:

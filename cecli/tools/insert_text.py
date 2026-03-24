@@ -67,6 +67,14 @@ class Tool(BaseTool):
             change_id: Optional ID for tracking changes
             dry_run: If True, only simulate the change
         """
+
+        if not coder.edit_allowed:
+            raise ToolError(
+                "Please call `ShowContext` first to make sure edits are appropriately scoped"
+            )
+        else:
+            coder.edit_allowed = False
+
         tool_name = "InsertText"
         try:
             # 1. Validate file and get content
@@ -81,7 +89,7 @@ class Tool(BaseTool):
                     operation="insert",
                     text=content,
                 )
-            except (ToolError, HashlineError) as e:
+            except (ToolError, HashlineError, ValueError) as e:
                 raise ToolError(f"Hashline insertion failed: {str(e)}")
 
             # Check if any changes were made

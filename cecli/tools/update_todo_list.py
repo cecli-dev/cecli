@@ -127,7 +127,10 @@ class Tool(BaseTool):
             # Check if content actually changed
             if existing_content == new_content:
                 coder.io.tool_warning("No changes made: new content is identical to existing")
-                return "Warning: No changes made (content identical to existing)"
+                return (
+                    "Error: No changes made (content identical to existing)."
+                    "Please make progress implementing the plan instead of updating it."
+                )
 
             # Handle dry run
             if dry_run:

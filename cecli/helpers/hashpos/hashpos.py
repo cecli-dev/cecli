@@ -33,7 +33,9 @@ class HashPos:
     def generate_public_id(self, text: str, line_idx: int) -> str:
         content_bits = self._get_content_bits(text)
         anchor_bits = self._get_anchor_bits(line_idx)
-        packed = (content_bits << 12) | (anchor_bits ^ content_bits)
+        # Apply modular offset to content bits using anchor bits
+        offset_content = (content_bits + anchor_bits) & 0xFFF
+        packed = (offset_content << 12) | anchor_bits
 
         res = ""
         for _ in range(4):
@@ -46,8 +48,10 @@ class HashPos:
         for i, char in enumerate(public_id):
             packed |= self.B64.index(char) << (6 * i)
 
-        content_bits = (packed >> 12) & 0xFFF
-        anchor_bits = (packed & 0xFFF) ^ content_bits
+        offset_content = (packed >> 12) & 0xFFF
+        anchor_bits = packed & 0xFFF
+        # Reverse the modular offset to recover original content bits
+        content_bits = (offset_content - anchor_bits) & 0xFFF
         return content_bits, anchor_bits
 
     def format_content(self, use_private_ids: bool = False, start_line: int = 1) -> str:
@@ -62,12 +66,12 @@ class HashPos:
         return "\n".join(formatted_lines)
 
     def resolve_to_lines(self, public_id: str, start_line: int = 1) -> list[int]:
-        target_dna, target_anchor = self.unpack_public_id(public_id)
+        target_content, target_anchor = self.unpack_public_id(public_id)
         content_matches = []
         perfect_matches = []
 
         for i, line in enumerate(self.lines):
-            if self._get_content_bits(line) == target_dna:
+            if self._get_content_bits(line) == target_content:
                 current_anchor = self._get_anchor_bits(i + start_line)
                 if current_anchor == target_anchor:
                     perfect_matches.append(i)
@@ -75,7 +79,9 @@ class HashPos:
                     dist = abs(current_anchor - target_anchor)
                     # Use the actual coprime period for the circular logic
                     dist = min(dist, self.PERIOD - dist)
-                    content_matches.append((dist, i))
+
+                    if dist <= 30:
+                        content_matches.append((dist, i))
 
         if perfect_matches:
             return perfect_matches
@@ -109,7 +115,8 @@ class HashPos:
                     return s, e
 
         raise ValueError(
-            f"Found matches for {start_id} and {end_id}, but no logically ordered range."
+            f"Found matches for {start_id} and {end_id}, but no logically ordered range or unique"
+            " matches."
         )
 
     @staticmethod

@@ -58,6 +58,14 @@ class Tool(BaseTool):
         """
         Delete a block of text using hashline markers.
         """
+
+        if not coder.edit_allowed:
+            raise ToolError(
+                "Please call `ShowContext` first to make sure edits are appropriately scoped"
+            )
+        else:
+            coder.edit_allowed = False
+
         tool_name = "DeleteText"
         try:
             # 1. Validate file and get content
@@ -72,7 +80,7 @@ class Tool(BaseTool):
                     operation="delete",
                     text=None,
                 )
-            except (ToolError, HashlineError) as e:
+            except (ToolError, HashlineError, ToolError) as e:
                 raise ToolError(f"Hashline deletion failed: {str(e)}")
 
             # Check if any changes were made

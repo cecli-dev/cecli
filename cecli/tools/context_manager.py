@@ -90,6 +90,7 @@ class Tool(BaseTool):
             coder.tui().refresh()
 
         coder.context_blocks_cache = {}
+        coder.edit_allowed = True
 
         return "\n".join(messages)
 

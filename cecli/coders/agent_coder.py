@@ -60,7 +60,7 @@ class AgentCoder(Coder):
             "viewfileswithsymbol",
             "grep",
             "listchanges",
-            "shownumberedcontext",
+            "showcontext",
             "thinking",
             "updatetodolist",
         }
@@ -71,6 +71,7 @@ class AgentCoder(Coder):
             "replacetext",
             "undochange",
         }
+        self.edit_allowed = False
         self.max_tool_calls = 10000
         self.large_file_token_threshold = 8192
         self.skills_manager = None
@@ -243,10 +244,15 @@ class AgentCoder(Coder):
 
     async def _execute_local_tool_calls(self, tool_calls_list):
         tool_responses = []
+        has_write_tool = False
+
         for tool_call in tool_calls_list:
             tool_name = tool_call.function.name
             result_message = ""
             try:
+                if tool_name.lower() in self.write_tools:
+                    has_write_tool = True
+
                 args_string = tool_call.function.arguments.strip()
                 parsed_args_list = []
 
@@ -335,6 +341,29 @@ class AgentCoder(Coder):
             tool_responses.append(
                 {"role": "tool", "tool_call_id": tool_call.id, "content": result_message}
             )
+
+        if self.auto_lint and has_write_tool:
+            edited = list(self.files_edited_by_tools)
+            lint_errors = self.lint_edited(edited)
+            self.lint_outcome = not lint_errors
+
+            if lint_errors:
+                lint_errors = lint_errors.replace(
+                    "# Fix any linting errors below, if possible.",
+                    "# Fix any linting errors below, if possible and then continue with your task.",
+                    1,
+                )
+                ConversationManager.add_message(
+                    message_dict=dict(role="user", content=lint_errors),
+                    tag=MessageTag.CUR,
+                    hash_key=("lint_errors", "agent"),
+                    promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                    mark_for_demotion=1,
+                    force=True,
+                )
+            else:
+                ConversationManager.remove_message_by_hash_key(("lint_errors", "agent"))
+
         return tool_responses
 
     async def _execute_mcp_tool(self, server, tool_name, params):
@@ -829,38 +858,6 @@ I will proceed based on the tool results and updated context.""")
         if self.hot_reload_enabled:
             self.skills_manager.hot_reload()
 
-    async def _execute_tool_with_registry(self, norm_tool_name, params):
-        """
-        Execute a tool using the tool registry.
-
-        Args:
-            norm_tool_name: Normalized tool name (lowercase)
-            params: Dictionary of parameters
-
-        Returns:
-            str: Result message
-        """
-        if norm_tool_name in ToolRegistry.get_registered_tools():
-            tool_module = ToolRegistry.get_tool(norm_tool_name)
-            try:
-                result = tool_module.process_response(self, params)
-                if asyncio.iscoroutine(result):
-                    result = await result
-                return result
-            except Exception as e:
-                self.io.tool_error(f"""Error during {norm_tool_name} execution: {e}
-{traceback.format_exc()}""")
-                return f"Error executing {norm_tool_name}: {str(e)}"
-        if self.mcp_tools:
-            for server_name, server_tools in self.mcp_tools:
-                if any(t.get("function", {}).get("name") == norm_tool_name for t in server_tools):
-                    server = self.mcp_manager.get_server(server_name)
-                    if server:
-                        return await self._execute_mcp_tool(server, norm_tool_name, params)
-                    else:
-                        return f"Error: Could not find server instance for {server_name}"
-        return f"Error: Unknown tool name '{norm_tool_name}'"
-
     def _get_repetitive_tools(self):
         """
         Identifies repetitive tool usage patterns from rounds of tool calls.
@@ -975,6 +972,15 @@ I will proceed based on the tool results and updated context.""")
             recent_history = self.tool_usage_history
         for i, tool in enumerate(recent_history, 1):
             context_parts.append(f"{i}. {tool}")
+
+        if not self.edit_allowed:
+            context_parts.append("\n\n")
+            context_parts.append("## File Editing Tools Disabled")
+            context_parts.append(
+                "File editing tools are currently disabled.Use `ShowContext` to determine the"
+                " current hashline prefixes needed to perform an edit and activate them when you"
+                " are ready to edit a file."
+            )
 
         context_parts.append("\n\n")
         if repetitive_tools:
@@ -1095,8 +1101,8 @@ Prioritize editing or verification over further exploration.
                 context_parts = [
                     '<context name="tool_usage_history" from="agent">',
                     "A file was just edited.",
-                    "Make sure that something of value was done.",
-                    "Do not just leave placeholder or sub content.",
+                    "Review the diff to make sure that something of value was done.",
+                    "Do not just leave placeholder content or partial implementations.",
                     "</context>",
                 ]
                 return "\n".join(context_parts)

@@ -637,12 +637,12 @@ class ConversationChunks:
 
             user_msg = {
                 "role": "user",
-                "content": f"Numbered Context For:\n{rel_fname}\n\n{context_content}",
+                "content": f"Hashline-Prefixed Context For:\n{rel_fname}\n\n{context_content}",
             }
 
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the file contents.",
+                "content": "I understand, thank you for sharing the prefixed file contents.",
             }
 
             # Add to conversation manager

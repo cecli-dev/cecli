@@ -83,6 +83,14 @@ class Tool(BaseTool):
         Replace text in one or more files. Can handle single edit or array of edits across multiple files.
         Each edit object must include its own file_path.
         """
+
+        if not coder.edit_allowed:
+            raise ToolError(
+                "Please call `ShowContext` first to make sure edits are appropriately scoped"
+            )
+        else:
+            coder.edit_allowed = False
+
         tool_name = "ReplaceText"
         try:
             # 1. Validate edits parameter
@@ -168,7 +176,7 @@ class Tool(BaseTool):
                             original_content=original_content,
                             operations=operations,
                         )
-                    except (ToolError, HashlineError) as e:
+                    except (ToolError, HashlineError, ValueError) as e:
                         # If batch operation fails, mark all operations as failed
                         for edit_index, _ in file_edits:
                             all_failed_edits.append(f"Edit {edit_index + 1}: {str(e)}")
