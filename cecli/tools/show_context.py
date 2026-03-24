@@ -18,16 +18,16 @@ class Tool(BaseTool):
             "name": "ShowContext",
             "description": (
                 "Get hashline prefixes of context between start and end patterns in multiple files."
-                " Accepts an array of show objects, each with file_path, start_pattern,"
-                " end_pattern, and optional padding. Special markers '<@000>' and '<000@>' can be"
-                " used for start_pattern and end_pattern to represent the first and last lines of"
-                " the file respectively. Never use hashlines as the start_pattern and end_pattern"
+                " Accepts an array of show objects, each with file_path, start_text,"
+                " end_text, and optional padding. Special markers '@000' and '000@' can be"
+                " used for start_text and end_text to represent the first and last lines of"
+                " the file respectively. Never use hashlines as the start_text and end_text"
                 " values. These values must be lines from the content of the file."
                 " They should not contain newlines."
                 " Avoid using generic keywords."
-                " Do not use the same pattern for the start_pattern and end_pattern."
+                " Do not use the same pattern for the start_text and end_text."
                 " It is usually best to use function names and other block identifiers as "
-                " start_patterns and end_patterns."
+                " start_texts and end_texts."
             ),
             "parameters": {
                 "type": "object",
@@ -41,30 +41,30 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "description": "File path to search in.",
                                 },
-                                "start_pattern": {
+                                "start_text": {
                                     "type": "string",
                                     "description": (
                                         "The content marking the beginning of the context range."
-                                        " Use '<@000>' for the first line."
+                                        " Use '@000' for the first line."
                                     ),
                                 },
-                                "end_pattern": {
+                                "end_text": {
                                     "type": "string",
                                     "description": (
-                                        "The contentmarking the end of the context range. Use"
-                                        " '<000@>' for the last line."
+                                        "The content marking the end of the context range. Use"
+                                        " '000@' for the last line."
                                     ),
                                 },
                                 "padding": {
                                     "type": "integer",
                                     "default": 5,
                                     "description": (
-                                        "Number of lines of padding to add before start_pattern and"
-                                        " after end_pattern."
+                                        "Number of lines of padding to add before start_text and"
+                                        " after end_text."
                                     ),
                                 },
                             },
-                            "required": ["file_path", "start_pattern", "end_pattern"],
+                            "required": ["file_path", "start_text", "end_text"],
                         },
                         "description": "Array of show operations to perform.",
                     },
@@ -96,8 +96,8 @@ class Tool(BaseTool):
             for show_index, show_op in enumerate(show):
                 # Extract parameters for this show operation
                 file_path = show_op.get("file_path")
-                start_pattern = show_op.get("start_pattern")
-                end_pattern = show_op.get("end_pattern")
+                start_text = show_op.get("start_text")
+                end_text = show_op.get("end_text")
                 padding = max(int(show_op.get("padding", 5)), 5)
 
                 if file_path is None:
@@ -106,14 +106,14 @@ class Tool(BaseTool):
                     )
 
                 # Validate arguments for this operation
-                if not is_provided(start_pattern) or not is_provided(end_pattern):
+                if not is_provided(start_text) or not is_provided(end_text):
                     raise ToolError(
-                        f"Show operation {show_index + 1}: Provide both 'start_pattern' and"
-                        " 'end_pattern'."
+                        f"Show operation {show_index + 1}: Provide both 'start_text' and"
+                        " 'end_text'."
                     )
 
-                start_pattern = strip_hashline(start_pattern).strip()
-                end_pattern = strip_hashline(end_pattern).strip()
+                start_text = strip_hashline(start_text).strip()
+                end_text = strip_hashline(end_text).strip()
 
                 # 2. Resolve path
                 abs_path, rel_path = resolve_paths(coder, file_path)
@@ -140,26 +140,27 @@ class Tool(BaseTool):
                 end_line_idx = -1
                 found_by = ""
 
-                if start_pattern is not None and end_pattern is not None:
-                    if start_pattern == "<@000>":
+                if start_text is not None and end_text is not None:
+                    if start_text == "@000":
                         start_indices = [0]
                     else:
-                        start_indices = [i for i, line in enumerate(lines) if start_pattern in line]
+                        start_indices = [i for i, line in enumerate(lines) if start_text in line]
 
-                    if end_pattern == "<000@>":
+                    if end_text == "000@":
                         end_indices = [num_lines - 1]
                     else:
-                        end_indices = [i for i, line in enumerate(lines) if end_pattern in line]
+                        end_indices = [i for i, line in enumerate(lines) if end_text in line]
 
                     if len(start_indices) > 5:
                         raise ToolError(
-                            f"Start pattern search term '{start_pattern}' too broad. Be more"
-                            " specific."
+                            f"Start pattern search term '{start_text}' too broad. Do not search for"
+                            " it again. Be more specific."
                         )
 
                     if len(end_indices) > 5:
                         raise ToolError(
-                            f"End pattern search term'{end_pattern}' too broad. Be more specific."
+                            f"End pattern search term'{end_text}' too broad. Do not search for it"
+                            " again. Be more specific."
                         )
 
                     best_pair = None
@@ -174,20 +175,24 @@ class Tool(BaseTool):
 
                     if not start_indices:
                         raise ToolError(
-                            f"Start pattern '{start_pattern}' not found in {file_path}."
+                            f"Start pattern '{start_text}' not found in {file_path}. Do not search"
+                            " for it again."
                         )
 
                     if not end_indices:
-                        raise ToolError(f"End pattern '{end_pattern}' not found in {file_path}.")
+                        raise ToolError(
+                            f"End pattern '{end_text}' not found in {file_path}. Do not search for"
+                            " it again."
+                        )
 
                     if best_pair is None:
                         raise ToolError(
-                            f"End pattern '{end_pattern}' not found after start pattern in"
+                            f"End pattern '{end_text}' not found after start pattern in"
                             f" {file_path}."
                         )
                     s_idx, e_idx = best_pair
 
-                    found_by = f"range '{start_pattern}' to '{end_pattern}'"
+                    found_by = f"range '{start_text}' to '{end_text}'"
 
                     try:
                         padding_int = int(padding)
