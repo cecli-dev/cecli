@@ -2826,7 +2826,7 @@ class Coder:
         self.io.tool_error(res)
         await self.io.offer_url(urls.token_limits)
 
-    def lint_edited(self, fnames):
+    def lint_edited(self, fnames, show_output=True):
         res = ""
         for fname in fnames:
             if not fname:
@@ -2838,7 +2838,7 @@ class Coder:
                 res += errors
                 res += "\n"
 
-        if res:
+        if res and show_output:
             self.io.tool_warning(res)
 
         return res

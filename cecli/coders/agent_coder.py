@@ -343,7 +343,7 @@ class AgentCoder(Coder):
 
         if self.auto_lint and used_write_tool and not self.edit_allowed:
             edited = list(self.files_edited_by_tools)
-            lint_errors = self.lint_edited(edited)
+            lint_errors = self.lint_edited(edited, show_output=False)
             self.lint_outcome = not lint_errors
 
             if lint_errors:
