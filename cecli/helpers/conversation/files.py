@@ -256,7 +256,7 @@ class ConversationFiles:
             ConversationManager.add_message(
                 message_dict=diff_message,
                 tag=MessageTag.DIFFS,
-                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE + 1,
                 mark_for_demotion=1,
             )
 
@@ -265,7 +265,7 @@ class ConversationFiles:
                 tag=MessageTag.DIFFS,
                 hash_key=("diff_message", diff),
                 force=True,
-                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE + 1,
                 mark_for_demotion=1,
             )
 

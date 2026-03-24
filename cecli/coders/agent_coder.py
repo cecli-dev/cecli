@@ -49,7 +49,7 @@ class AgentCoder(Coder):
         self.tool_usage_retries = 20
         self.last_round_tools = []
         self.tool_call_vectors = []
-        self.tool_similarity_threshold = 0.90
+        self.tool_similarity_threshold = 0.95
         self.max_tool_vector_history = 20
         self.read_tools = {
             "command",
@@ -1026,7 +1026,7 @@ I will proceed based on the tool results and updated context.""")
             repetition_warning = f"""
 ## Repetition Detected: Strategy Adjustment Required
 You have been using the following tools repetitively: {', '.join([f'`{t}`' for t in repetitive_tools])}.
-**Constraint:** Do not repeat the same parameters for these tools in your next turns. Try something different.
+**Constraint:** Do not repeat the same parameters for these tools in your next turns. Prioritize editing.
             """
 
             if self._last_repetitive_warning_severity > 5:
@@ -1078,7 +1078,7 @@ You have been using the following tools repetitively: {', '.join([f'`{t}`' for t
 ### CRITICAL: Execution Loop Detected
 You are currently "spinning gears". To break the exploration loop, you must:
 1. **Analyze**: Use the `Thinking` tool exactly once to summarize what you have found so far and why you were stuck.
-2. **Pivot**: Abandon or modify your current exploration strategy. Try focusing on different files or running tests.
+2. **Pivot**: Modify your current exploration strategy. Try alternative methods. Prioritize editing.
 3. **Reframe**: To ensure your logic reset, include a 2-sentence story about {animal} {verb} {fruit} in your thoughts.
 
 Prioritize editing or verification over further exploration.
