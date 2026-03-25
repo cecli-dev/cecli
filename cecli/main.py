@@ -1081,7 +1081,11 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
                 )
 
         # Initialize workspace paths configuration
-        workspace_paths = args.workspace_paths if hasattr(args, "workspace_paths") and args.workspace_paths else []
+        workspace_paths = (
+            args.workspace_paths
+            if hasattr(args, "workspace_paths") and args.workspace_paths
+            else []
+        )
         if args.verbose and workspace_paths:
             io.tool_output(f"Additional workspace paths configured: {workspace_paths}")
 
