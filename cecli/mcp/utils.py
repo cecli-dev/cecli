@@ -149,7 +149,7 @@ def _parse_mcp_servers_from_file(file_path, io, verbose=False, mcp_transport="st
 
 
 def load_mcp_servers(
-    mcp_servers, mcp_servers_file, io, verbose=False, mcp_transport="stdio"
+    mcp_servers, mcp_servers_files, io, verbose=False, mcp_transport="stdio"
 ) -> list["McpServer"]:
     """Load MCP servers from a JSON string or file."""
     servers = []
@@ -160,9 +160,14 @@ def load_mcp_servers(
         if servers:
             return servers
 
-    # If JSON string failed or wasn't provided, try the file
-    if mcp_servers_file:
-        servers = _parse_mcp_servers_from_file(mcp_servers_file, io, verbose, mcp_transport)
+    # If JSON string failed or wasn't provided, try the files
+    if mcp_servers_files:
+        servers = []
+        for mcp_servers_file in mcp_servers_files:
+            file_servers = _parse_mcp_servers_from_file(
+                mcp_servers_file, io, verbose, mcp_transport
+            )
+            servers.extend(file_servers)
 
     if not servers:
         # A default MCP server is actually now necessary for the overall agentic loop
