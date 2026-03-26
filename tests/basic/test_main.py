@@ -1377,11 +1377,11 @@ def test_mcp_servers_file_multiple(dummy_io, git_temp_dir, mocker):
     mock_coder_create.return_value = mock_coder_instance
 
     mcp_file1 = Path("mcp_servers1.json")
-    mcp_content1 = {"mcpServers": {"server1": {"notes": "notes for server1"}}}
+    mcp_content1 = {"mcpServers": {"server1": {}}}
     mcp_file1.write_text(json.dumps(mcp_content1))
 
     mcp_file2 = Path("mcp_servers2.json")
-    mcp_content2 = {"mcpServers": {"server2": {"notes": "notes for server2"}}}
+    mcp_content2 = {"mcpServers": {"server2": {}}}
     mcp_file2.write_text(json.dumps(mcp_content2))
 
     main(
