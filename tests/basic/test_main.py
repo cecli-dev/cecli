@@ -1370,6 +1370,7 @@ def test_mcp_servers_parsing(dummy_io, git_temp_dir, mocker):
 
 
 def test_mcp_servers_file_multiple(dummy_io, git_temp_dir, mocker):
+    mocker.patch("cecli.mcp.server.McpServer.start", new_callable=AsyncMock)
     mock_coder_create = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
     mock_coder_instance.mcp_manager = False
@@ -1377,11 +1378,11 @@ def test_mcp_servers_file_multiple(dummy_io, git_temp_dir, mocker):
     mock_coder_create.return_value = mock_coder_instance
 
     mcp_file1 = Path("mcp_servers1.json")
-    mcp_content1 = {"mcpServers": {"server1": {}}}
+    mcp_content1 = {"mcpServers": {"server1": {"command": "cmd1"}}}
     mcp_file1.write_text(json.dumps(mcp_content1))
 
     mcp_file2 = Path("mcp_servers2.json")
-    mcp_content2 = {"mcpServers": {"server2": {}}}
+    mcp_content2 = {"mcpServers": {"server2": {"command": "cmd2"}}}
     mcp_file2.write_text(json.dumps(mcp_content2))
 
     main(
