@@ -2,7 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers.conversation import ConversationManager, MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.scrape import Scraper, install_playwright
 
 
@@ -58,9 +58,13 @@ class WebCommand(BaseCommand):
         io.tool_output("... added to chat.")
 
         # Add user message with CUR tag
-        ConversationManager.add_message(dict(role="user", content=content), MessageTag.CUR)
+        ConversationService.get_manager(coder).add_message(
+            dict(role="user", content=content), MessageTag.CUR
+        )
         # Add assistant acknowledgment with CUR tag
-        ConversationManager.add_message(dict(role="assistant", content="Ok."), MessageTag.CUR)
+        ConversationService.get_manager(coder).add_message(
+            dict(role="assistant", content="Ok."), MessageTag.CUR
+        )
 
         return format_command_result(io, "web", f"Scraped and added content from {url} to chat")
 

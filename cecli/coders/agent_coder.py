@@ -15,11 +15,7 @@ from cecli import utils
 from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested
 from cecli.helpers.background_commands import BackgroundCommandManager
-from cecli.helpers.conversation import ConversationChunks
-
-# All conversation functions are now available via ConversationChunks class
-from cecli.helpers.conversation.manager import ConversationManager
-from cecli.helpers.conversation.tags import MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -352,16 +348,18 @@ class AgentCoder(Coder):
                     "# Fix any linting errors below, if possible and then continue with your task.",
                     1,
                 )
-                ConversationManager.add_message(
+                ConversationService.get_manager(self).add_message(
                     message_dict=dict(role="user", content=lint_errors),
                     tag=MessageTag.CUR,
                     hash_key=("lint_errors", "agent"),
-                    promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                    promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
                     mark_for_demotion=1,
                     force=True,
                 )
             else:
-                ConversationManager.remove_message_by_hash_key(("lint_errors", "agent"))
+                ConversationService.get_manager(self).remove_message_by_hash_key(
+                    ("lint_errors", "agent")
+                )
 
         return tool_responses
 
@@ -566,37 +564,37 @@ class AgentCoder(Coder):
         # Choose appropriate fence based on file content
         self.choose_fence()
 
-        ConversationChunks.initialize_conversation_system(self)
+        ConversationService.get_chunks(self).initialize_conversation_system()
 
         # Clean up ConversationFiles and remove corresponding messages
-        ConversationChunks.cleanup_files(self)
+        ConversationService.get_chunks(self).cleanup_files()
 
         # Add reminder message with list of readonly and editable files
-        ConversationChunks.add_file_list_reminder(self)
+        ConversationService.get_chunks(self).add_file_list_reminder()
 
         # Add system messages (including examples and reminder)
-        ConversationChunks.add_system_messages(self)
+        ConversationService.get_chunks(self).add_system_messages()
 
         # Add static context blocks (priority 50 - between SYSTEM and EXAMPLES)
-        ConversationChunks.add_static_context_blocks(self)
+        ConversationService.get_chunks(self).add_static_context_blocks()
 
         # Add rules messages
-        ConversationChunks.add_rules_messages(self)
+        ConversationService.get_chunks(self).add_rules_messages()
 
         # Handle file messages using conversation module helper methods
         # These methods will add messages to ConversationManager
-        ConversationChunks.add_repo_map_messages(self)
+        ConversationService.get_chunks(self).add_repo_map_messages()
 
         # Add pre-message context blocks (priority 125 - between REPO and READONLY_FILES)
-        ConversationChunks.add_pre_message_context_blocks(self)
+        ConversationService.get_chunks(self).add_pre_message_context_blocks()
 
-        ConversationChunks.add_readonly_files_messages(self)
-        ConversationChunks.add_chat_files_messages(self)
+        ConversationService.get_chunks(self).add_readonly_files_messages()
+        ConversationService.get_chunks(self).add_chat_files_messages()
 
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
-        ConversationChunks.add_post_message_context_blocks(self)
+        ConversationService.get_chunks(self).add_post_message_context_blocks()
 
-        return ConversationManager.get_messages_dict()
+        return ConversationService.get_manager(self).get_messages_dict()
 
     def get_context_summary(self):
         """
@@ -825,7 +823,7 @@ class AgentCoder(Coder):
         if tool_calls_found and self.num_reflections < self.max_reflections:
             self.tool_call_count = 0
             self.files_added_in_exploration = set()
-            cur_messages = ConversationManager.get_messages_dict(MessageTag.CUR)
+            cur_messages = ConversationService.get_manager(self).get_messages_dict(MessageTag.CUR)
             original_question = "Please continue your exploration and provide a final answer."
             if cur_messages:
                 for msg in reversed(cur_messages):

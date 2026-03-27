@@ -1,6 +1,7 @@
 import base64
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,8 +12,7 @@ from cecli.coders import Coder
 from cecli.coders.base_coder import FinishReasonLength, UnknownEditFormat
 from cecli.commands import SwitchCoderSignal
 from cecli.dump import dump  # noqa: F401
-from cecli.helpers.conversation import ConversationChunks
-from cecli.helpers.conversation.manager import ConversationManager
+from cecli.helpers.conversation import ConversationService
 from cecli.helpers.conversation.tags import MessageTag
 from cecli.io import InputOutput
 from cecli.mcp import McpServerManager
@@ -22,21 +22,28 @@ from cecli.sendchat import sanity_check_messages
 from cecli.utils import GitTemporaryDirectory
 
 
+class MockCoder:
+    """Simple mock coder class for tests."""
+
+    def __init__(self):
+        self.uuid = uuid.uuid4()
+
+
 class TestCoder:
     @pytest.fixture(autouse=True)
     def setup(self, gpt35_model):
+        self.uuid = uuid.uuid4()
         self.GPT35 = gpt35_model
         self.webbrowser_patcher = patch("cecli.io.webbrowser.open")
         self.mock_webbrowser = self.webbrowser_patcher.start()
         # Reset conversation system before each test
-        ConversationChunks.reset()
-
+        ConversationService.get_chunks(self).reset()
         yield
 
         # Cleanup after each test
         self.webbrowser_patcher.stop()
         # Reset conversation system after each test as well
-        ConversationChunks.reset()
+        ConversationService.get_chunks(self).reset()
 
     async def test_allowed_to_edit(self):
         with GitTemporaryDirectory():
@@ -1164,10 +1171,10 @@ This command will print 'Hello, World!' to the console."""
 
             # Add messages to ConversationManager
             for msg in done_messages:
-                ConversationManager.add_message(msg, MessageTag.DONE)
+                ConversationService.get_manager(coder).add_message(msg, MessageTag.DONE)
 
             for msg in cur_messages:
-                ConversationManager.add_message(msg, MessageTag.CUR)
+                ConversationService.get_manager(coder).add_message(msg, MessageTag.CUR)
 
             # Set up real values for the main model
             coder.main_model.info = {
@@ -1698,7 +1705,7 @@ This command will print 'Hello, World!' to the console."""
 
             # Add messages to ConversationManager
             for msg in cur_messages:
-                ConversationManager.add_message(msg, MessageTag.CUR)
+                ConversationService.get_manager(coder).add_message(msg, MessageTag.CUR)
 
             # The context for commit message will be generated from cur_messages.
             # This call should not raise an exception due to `content: None`.

@@ -2,7 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers.conversation import ConversationFiles, ConversationManager
+from cecli.helpers.conversation import ConversationService
 
 
 class ResetCommand(BaseCommand):
@@ -16,12 +16,12 @@ class ResetCommand(BaseCommand):
             cls._drop_all_files(io, coder, kwargs.get("original_read_only_fnames"))
 
             # Clear everything in ConversationManager and ConversationFiles
-            ConversationManager.reset()  # Clear all messages and reset manager
-            ConversationFiles.reset()  # Clear all file caches
+            ConversationService.get_manager(coder).reset()  # Clear all messages and reset manager
+            ConversationService.get_files(coder).reset()  # Clear all file caches
 
-            # Re-initialize ConversationManager with current coder
-            ConversationManager.initialize(coder, reformat=True)
-            ConversationFiles.initialize(coder)
+            # Re-initialize Conversation components with current coder
+            ConversationService.get_manager(coder).initialize(reformat=True)
+            ConversationService.get_files(coder)  # Ensure instance exists/initialized
 
             # Clear TUI output if available
             if coder.tui and coder.tui():

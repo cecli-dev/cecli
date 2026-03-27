@@ -2,7 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers.conversation import ConversationManager, MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag
 
 
 class MapRefreshCommand(BaseCommand):
@@ -13,7 +13,7 @@ class MapRefreshCommand(BaseCommand):
     async def execute(cls, io, coder, args, **kwargs):
         """Execute the map-refresh command with given parameters."""
         # Clear any existing REPO tagged messages before refreshing
-        ConversationManager.clear_tag(MessageTag.REPO)
+        ConversationService.get_manager(coder).clear_tag(MessageTag.REPO)
 
         # Parse the argument
         arg_str = args.strip() if args else ""

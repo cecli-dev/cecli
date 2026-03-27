@@ -112,6 +112,11 @@ class Tool(BaseTool):
                         " 'end_text'."
                     )
 
+                if "\n" in start_text or "\n" in end_text:
+                    raise ToolError(
+                        "Patterns must not contain newlines characters. They must match a single"
+                        " line."
+                    )
                 start_text = strip_hashline(start_text).strip()
                 end_text = strip_hashline(end_text).strip()
 
@@ -228,16 +233,16 @@ class Tool(BaseTool):
                 all_outputs.extend(output_lines)
 
                 # Update the conversation cache with the displayed range
-                from cecli.helpers.conversation.files import ConversationFiles
-                from cecli.helpers.conversation.integration import ConversationChunks
+                from cecli.helpers.conversation import ConversationService
 
                 # Update the conversation cache with the displayed range
                 # Note: start_line_idx and end_line_idx are 0-based, convert to 1-based for hashline
                 start_line = start_line_idx + 1  # Convert to 1-based
                 end_line = end_line_idx + 1  # Convert to 1-based
-                ConversationFiles.update_file_context(abs_path, start_line, end_line)
-                ConversationChunks.add_file_context_messages(coder)
-
+                ConversationService.get_files(coder).update_file_context(
+                    abs_path, start_line, end_line
+                )
+                ConversationService.get_chunks(coder).add_file_context_messages()
             # Log success and return the formatted context directly
             coder.edit_allowed = True
             coder.io.tool_output(f"Successfully retrieved context for {len(show)} file(s)")

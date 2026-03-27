@@ -3,6 +3,7 @@ import json
 import time
 import weakref
 from typing import Any, Dict, List, Optional, Tuple, Union
+from uuid import UUID
 
 from cecli.helpers import nested
 
@@ -11,51 +12,54 @@ from .tags import MessageTag, get_default_priority, get_default_timestamp_offset
 
 
 class ConversationManager:
-    """
-    Singleton class that manages the collection of BaseMessage instances.
-    Provides utility methods for ordering, filtering, and lifecycle management.
+    _instances: Dict[UUID, "ConversationManager"] = {}
 
-    Design: Singleton class with static methods, not requiring initialization.
-    """
-
-    # Class-level storage for singleton pattern
-    _messages: List[BaseMessage] = []
-    _message_index: Dict[str, BaseMessage] = {}
-    _coder_ref = None
-    _initialized = False
-
-    # Debugging
-    _debug_enabled: bool = False
-    _previous_messages_dict: List[Dict[str, Any]] = []
-
-    # Caching for tagged message dict queries
-    _tag_cache: Dict[str, List[Dict[str, Any]]] = {}
-    _ALL_MESSAGES_CACHE_KEY = "__all__"  # Special key for caching all messages (tag=None)
-
-    DEFAULT_TAG_PROMOTION_VALUE: int = 999
+    def __init__(self, coder):
+        self.coder = weakref.ref(coder)
+        self.uuid = coder.uuid
+        self._messages: List[BaseMessage] = []
+        self._message_index: Dict[str, BaseMessage] = {}
+        self._initialized = False
+        self._debug_enabled = False
+        self._previous_messages_dict: List[Dict[str, Any]] = []
+        self._tag_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._ALL_MESSAGES_CACHE_KEY = "__all__"
+        self.DEFAULT_TAG_PROMOTION_VALUE: int = 999
 
     @classmethod
+    def get_instance(cls, coder) -> "ConversationManager":
+        """Get or create manager for coder."""
+        if coder.uuid not in cls._instances:
+            cls._instances[coder.uuid] = cls(coder)
+
+        # Update weakref for SwitchCoderSignal
+        if coder is not cls._instances[coder.uuid].get_coder():
+            cls._instances[coder.uuid].coder = weakref.ref(coder)
+
+        return cls._instances[coder.uuid]
+
+    @classmethod
+    def destroy_instance(cls, coder_uuid: UUID):
+        """Explicit cleanup for sub-agents."""
+        if coder_uuid in cls._instances:
+            del cls._instances[coder_uuid]
+
+    def get_coder(self):
+        """Get strong reference to coder (or None if destroyed)."""
+        return self.coder()
+
     def initialize(
-        cls,
-        coder,
+        self,
         reset: bool = False,
         reformat: bool = False,
         preserve_tags: Optional[Union[List[str], bool]] = None,
     ) -> None:
-        """
-        Set up singleton with weak reference to coder.
+        """Set up manager with weak reference to coder."""
+        coder = self.get_coder()
+        if not coder:
+            return
 
-        Args:
-            coder: The coder instance to reference
-            reset: Whether to re-initialize the conversation history itself
-            reformat: Whether to format chat history
-                      (useful for initialization outside of coder class)
-            preserve_tags: Optional list of tag strings to preserve during reset.
-                          If provided, messages with these tags will be preserved
-                          when reset=True and re-added AFTER the reformat block.
-        """
-        cls._coder_ref = weakref.ref(coder)
-        cls._initialized = True
+        self._initialized = True
 
         preserved_messages = []
         if preserve_tags is True:
@@ -67,53 +71,42 @@ class ConversationManager:
             ]
 
         if reset and preserve_tags:
-            # New approach: loop over every single tag type and only clear tags NOT in preserve_tags
-            # Get all MessageTag values
             all_tag_types = list(MessageTag)
-
-            # Clear tags that are NOT in preserve_tags
             for tag_type in all_tag_types:
                 if tag_type.value not in preserve_tags:
-                    cls.clear_tag(tag_type)
-
-            # Get all remaining messages left over after preservation
-            preserved_messages = cls.get_messages()
+                    self.clear_tag(tag_type)
+            preserved_messages = self.get_messages()
         elif reset:
-            # Original behavior: clear everything
-            cls.reset()
+            self.reset()
 
         if reformat:
             if hasattr(coder, "format_chat_chunks"):
                 coder.format_chat_chunks()
 
-        # If preserve_tags is truthy, re-add preserved messages with updated timestamps after reformat block
         if preserve_tags and preserved_messages:
             offset = 0
             for msg in preserved_messages:
                 offset += 1
                 msg.timestamp = time.monotonic_ns() + offset
 
-        # Enable debug mode if coder has verbose attribute and it's True
         if hasattr(coder, "verbose") and coder.verbose:
-            cls._debug_enabled = True
+            self._debug_enabled = True
 
-    @classmethod
-    def set_debug_enabled(cls, enabled: bool) -> None:
+    def set_debug_enabled(self, enabled: bool) -> None:
         """
         Enable or disable debug mode.
 
         Args:
             enabled: True to enable debug mode, False to disable
         """
-        cls._debug_enabled = enabled
+        self._debug_enabled = enabled
         if enabled:
-            print("[DEBUG] ConversationManager debug mode enabled")
+            print(f"[DEBUG] ConversationManager debug mode enabled for coder {self.uuid}")
         else:
-            print("[DEBUG] ConversationManager debug mode disabled")
+            print(f"[DEBUG] ConversationManager debug mode disabled for coder {self.uuid}")
 
-    @classmethod
     def add_message(
-        cls,
+        self,
         message_dict: Dict[str, Any],
         tag: str,
         priority: Optional[int] = None,
@@ -137,31 +130,29 @@ class ConversationManager:
             priority: Priority value (lower = earlier)
             timestamp: Creation timestamp in nanoseconds
             mark_for_delete: Countdown for deletion (None = permanent)
-            hash_key: Custom hash key for message identification
-            force: If True, update existing message with same hash
-            update_timestamp: If True, update timestamp when force=True (default True)
-
-        Returns:
-            The created or updated BaseMessage instance
+            mark_for_demotion: Countdown for demotion (None = permanent)
+            promotion: Promotion priority value
+            hash_key: Optional tuple for pattern-based removal
+            force: Whether to update existing message
+            update_timestamp: Whether to update timestamp on force update
+            update_promotion: Whether to update promotion on force update
+            message_id: Optional explicit message ID
         """
-        # Validate tag
         if not isinstance(tag, MessageTag):
             try:
                 tag = MessageTag(tag)
             except ValueError:
                 raise ValueError(f"Invalid tag: {tag}")
 
-        # Set defaults if not provided
         if priority is None:
             priority = get_default_priority(tag)
 
         if timestamp is None:
             timestamp = time.monotonic_ns() + get_default_timestamp_offset(tag)
 
-        # Create message instance
         message = BaseMessage(
             message_dict=message_dict,
-            tag=tag.value,  # Store as string for serialization
+            tag=tag.value,
             priority=priority,
             timestamp=timestamp,
             mark_for_delete=mark_for_delete,
@@ -172,7 +163,7 @@ class ConversationManager:
         )
 
         # Check if message already exists
-        existing_message = cls._message_index.get(message.message_id)
+        existing_message = self._message_index.get(message.message_id)
 
         if existing_message:
             if force:
@@ -187,23 +178,22 @@ class ConversationManager:
                     existing_message.promotion = promotion
                 existing_message.mark_for_delete = mark_for_delete
                 # Clear cache for this tag and all messages cache since message was updated
-                cls._tag_cache.pop(tag.value, None)
-                cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+                self._tag_cache.pop(tag.value, None)
+                self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
                 return existing_message
             else:
                 # Return existing message without updating
                 return existing_message
         else:
             # Add new message
-            cls._messages.append(message)
-            cls._message_index[message.message_id] = message
+            self._messages.append(message)
+            self._message_index[message.message_id] = message
             # Clear cache for this tag and all messages cache since new message was added
-            cls._tag_cache.pop(tag.value, None)
-            cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+            self._tag_cache.pop(tag.value, None)
+            self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
             return message
 
-    @classmethod
-    def base_sort(cls, messages: List[BaseMessage]) -> List[BaseMessage]:
+    def base_sort(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """
         Sorts messages by effective priority (promotion if mark_for_demotion has not elapsed yet), then timestamp.
 
@@ -229,8 +219,7 @@ class ConversationManager:
             )
         ]
 
-    @classmethod
-    def get_messages(cls) -> List[BaseMessage]:
+    def get_messages(self) -> List[BaseMessage]:
         """
         Returns messages sorted by priority (lowest first), then raw order in list.
 
@@ -238,13 +227,12 @@ class ConversationManager:
             List of BaseMessage instances in sorted order
         """
         # Filter out expired messages first
-        cls._remove_expired_messages()
+        self._remove_expired_messages()
 
-        return cls.base_sort(cls._messages)
+        return self.base_sort(self._messages)
 
-    @classmethod
     def get_messages_dict(
-        cls, tag: Optional[str] = None, reload: bool = False
+        self, tag: Optional[str] = None, reload: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Returns sorted list of message_dict for LLM consumption.
@@ -256,7 +244,7 @@ class ConversationManager:
         Returns:
             List of message dictionaries in sorted order
         """
-        coder = cls.get_coder()
+        coder = self.get_coder()
 
         # Check cache for all queries (including tag=None)
         if not reload:
@@ -268,13 +256,13 @@ class ConversationManager:
                         raise ValueError(f"Invalid tag: {tag}")
                 cache_key = tag.value
             else:
-                cache_key = cls._ALL_MESSAGES_CACHE_KEY
+                cache_key = self._ALL_MESSAGES_CACHE_KEY
 
             # Return cached result if available
-            if cache_key in cls._tag_cache:
-                return cls._tag_cache[cache_key]
+            if cache_key in self._tag_cache:
+                return self._tag_cache[cache_key]
 
-        messages = cls.get_messages()
+        messages = self.get_messages()
 
         # Filter by tag if specified
         if tag is not None:
@@ -297,24 +285,24 @@ class ConversationManager:
                     raise ValueError(f"Invalid tag: {tag}")
             cache_key = tag.value
         else:
-            cache_key = cls._ALL_MESSAGES_CACHE_KEY
+            cache_key = self._ALL_MESSAGES_CACHE_KEY
 
-        cls._tag_cache[cache_key] = messages_dict
+        self._tag_cache[cache_key] = messages_dict
 
         # Debug: Compare with previous messages if debug is enabled
         # We need to compare the full unfiltered message stream, not just filtered views
-        if cls._debug_enabled and tag is None:
+        if self._debug_enabled and tag is None:
             # Get the full unfiltered messages for comparison
-            all_messages = cls.get_messages()
+            all_messages = self.get_messages()
             all_messages_dict = [msg.to_dict() for msg in all_messages]
 
             # Compare with previous full message dict
-            cls._debug_compare_messages(cls._previous_messages_dict, all_messages_dict)
+            self._debug_compare_messages(self._previous_messages_dict, all_messages_dict)
 
             # Store current full message dict for next comparison
-            cls._previous_messages_dict = all_messages_dict
+            self._previous_messages_dict = all_messages_dict
 
-        if (cls._debug_enabled and tag is None) or (
+        if (self._debug_enabled and tag is None) or (
             nested.getter(coder, "args.debug") and tag is None
         ):
             import os
@@ -330,14 +318,13 @@ class ConversationManager:
                 coder
                 and hasattr(coder, "add_cache_headers")
                 and coder.add_cache_headers
+                and hasattr(coder, "main_model")
                 and not coder.main_model.caches_by_default
             ):
-                messages_dict = cls._add_cache_control(messages_dict)
-
+                messages_dict = self._add_cache_control(messages_dict)
         return messages_dict
 
-    @classmethod
-    def clear_tag(cls, tag: str) -> None:
+    def clear_tag(self, tag: str) -> None:
         """Remove all messages with given tag."""
         if not isinstance(tag, MessageTag):
             try:
@@ -348,21 +335,20 @@ class ConversationManager:
         tag_str = tag.value
         messages_to_remove = []
 
-        for message in cls._messages:
+        for message in self._messages:
             if message.tag == tag_str:
                 messages_to_remove.append(message)
 
         for message in messages_to_remove:
-            cls._messages.remove(message)
-            del cls._message_index[message.message_id]
+            self._messages.remove(message)
+            del self._message_index[message.message_id]
 
         # Clear cache for this tag and all messages cache since messages were removed
         if messages_to_remove:
-            cls._tag_cache.pop(tag_str, None)
-            cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+            self._tag_cache.pop(tag_str, None)
+            self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
 
-    @classmethod
-    def remove_messages_by_hash_key_pattern(cls, pattern_checker) -> None:
+    def remove_messages_by_hash_key_pattern(self, pattern_checker) -> None:
         """
         Remove messages whose hash_key matches a pattern.
 
@@ -372,25 +358,24 @@ class ConversationManager:
         """
         messages_to_remove = []
 
-        for message in cls._messages:
+        for message in self._messages:
             if message.hash_key and pattern_checker(message.hash_key):
                 messages_to_remove.append(message)
 
         # Remove messages and track affected tags
         tags_to_clear = set()
         for message in messages_to_remove:
-            cls._messages.remove(message)
-            del cls._message_index[message.message_id]
+            self._messages.remove(message)
+            del self._message_index[message.message_id]
             tags_to_clear.add(message.tag)
 
         # Clear cache for affected tags and all messages cache if any messages were removed
         if messages_to_remove:
             for tag in tags_to_clear:
-                cls._tag_cache.pop(tag, None)
-            cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+                self._tag_cache.pop(tag, None)
+            self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
 
-    @classmethod
-    def remove_message_by_hash_key(cls, hash_key: Tuple[str, ...]) -> bool:
+    def remove_message_by_hash_key(self, hash_key: Tuple[str, ...]) -> bool:
         """
         Remove a message by its exact hash key.
 
@@ -400,25 +385,24 @@ class ConversationManager:
         Returns:
             True if a message was removed, False otherwise
         """
-        messages_to_remove = [m for m in cls._messages if m.hash_key == hash_key]
+        messages_to_remove = [m for m in self._messages if m.hash_key == hash_key]
         if not messages_to_remove:
             return False
 
         tags_to_clear = set()
         for message in messages_to_remove:
-            cls._messages.remove(message)
-            if message.message_id in cls._message_index:
-                del cls._message_index[message.message_id]
+            self._messages.remove(message)
+            if message.message_id in self._message_index:
+                del self._message_index[message.message_id]
             tags_to_clear.add(message.tag)
 
         for tag in tags_to_clear:
-            cls._tag_cache.pop(tag, None)
-        cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+            self._tag_cache.pop(tag, None)
+        self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
 
         return True
 
-    @classmethod
-    def get_tag_messages(cls, tag: str) -> List[BaseMessage]:
+    def get_tag_messages(self, tag: str) -> List[BaseMessage]:
         """Get all messages of given tag in sorted order."""
         if not isinstance(tag, MessageTag):
             try:
@@ -427,15 +411,14 @@ class ConversationManager:
                 raise ValueError(f"Invalid tag: {tag}")
 
         tag_str = tag.value
-        messages = [msg for msg in cls._messages if msg.tag == tag_str]
-        return cls.base_sort(messages)
+        messages = [msg for msg in self._messages if msg.tag == tag_str]
+        return self.base_sort(messages)
 
-    @classmethod
-    def decrement_message_markers(cls) -> None:
+    def decrement_message_markers(self) -> None:
         """Decrement all mark_for_delete values, remove expired messages."""
         messages_to_remove = []
 
-        for message in cls._messages:
+        for message in self._messages:
             if message.mark_for_delete is not None:
                 message.mark_for_delete -= 1
                 if message.is_expired():
@@ -447,55 +430,44 @@ class ConversationManager:
         # Remove expired messages and clear cache for each tag
         tags_to_clear = set()
         for message in messages_to_remove:
-            cls._messages.remove(message)
-            del cls._message_index[message.message_id]
+            self._messages.remove(message)
+            del self._message_index[message.message_id]
             tags_to_clear.add(message.tag)
 
         # Clear cache for affected tags and all messages cache if any messages were removed
         if messages_to_remove:
             for tag in tags_to_clear:
-                cls._tag_cache.pop(tag, None)
-            cls._tag_cache.pop(cls._ALL_MESSAGES_CACHE_KEY, None)
+                self._tag_cache.pop(tag, None)
+            self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
 
-    @classmethod
-    def get_coder(cls):
-        """Get current coder instance via weak reference."""
-        if cls._coder_ref:
-            return cls._coder_ref()
-        return None
-
-    @classmethod
-    def reset(cls) -> None:
+    def reset(self) -> None:
         """Clear all messages and reset to initial state."""
-        cls._messages.clear()
-        cls._message_index.clear()
-        cls._coder_ref = None
-        cls._initialized = False
-        cls._tag_cache.clear()
+        self._messages.clear()
+        self._message_index.clear()
+        self._initialized = False
+        self._tag_cache.clear()
+        self._previous_messages_dict.clear()
 
-    @classmethod
-    def clear_cache(cls) -> None:
+    def clear_cache(self) -> None:
         """Clear the tag cache."""
-        cls._tag_cache.clear()
+        self._tag_cache.clear()
 
-    @classmethod
-    def _remove_expired_messages(cls) -> None:
+    def _remove_expired_messages(self) -> None:
         """Internal method to remove expired messages."""
         messages_to_remove = []
 
-        for message in cls._messages:
+        for message in self._messages:
             if message.is_expired():
                 messages_to_remove.append(message)
 
         for message in messages_to_remove:
-            cls._messages.remove(message)
-            del cls._message_index[message.message_id]
+            self._messages.remove(message)
+            del self._message_index[message.message_id]
 
     # Debug methods
-    @classmethod
-    def debug_print_stream(cls) -> None:
+    def debug_print_stream(self) -> None:
         """Print the conversation stream with hashes, priorities, timestamps, and tags."""
-        messages = cls.get_messages()
+        messages = self.get_messages()
         print(f"Conversation Stream ({len(messages)} messages):")
         for i, msg in enumerate(messages):
             role = msg.message_dict.get("role", "unknown")
@@ -506,44 +478,43 @@ class ConversationManager:
                 f"'{content_preview}...'"
             )
 
-    @classmethod
-    def debug_get_stream_info(cls) -> Dict[str, Any]:
+    def debug_get_stream_info(self) -> Dict[str, Any]:
         """Return dict with stream length, hash list, and modification count."""
-        messages = cls.get_messages()
+        messages = self.get_messages()
         return {
             "stream_length": len(messages),
+            "message_count": len(self._messages),
             "hashes": [msg.message_id[:8] for msg in messages],
             "tags": [msg.tag for msg in messages],
             "priorities": [msg.priority for msg in messages],
+            "debug_enabled": self._debug_enabled,
         }
 
-    @classmethod
-    def debug_validate_state(cls) -> bool:
+    def debug_validate_state(self) -> bool:
         """Validate internal consistency of message list and index."""
         # Check that all messages in list are in index
-        for msg in cls._messages:
-            if msg.message_id not in cls._message_index:
+        for msg in self._messages:
+            if msg.message_id not in self._message_index:
                 return False
-            if cls._message_index[msg.message_id] is not msg:
+            if self._message_index[msg.message_id] is not msg:
                 return False
 
         # Check that all messages in index are in list
-        for msg_id, msg in cls._message_index.items():
-            if msg not in cls._messages:
+        for msg_id, msg in self._message_index.items():
+            if msg not in self._messages:
                 return False
             if msg.message_id != msg_id:
                 return False
 
         # Check for duplicate message IDs
-        message_ids = [msg.message_id for msg in cls._messages]
+        message_ids = [msg.message_id for msg in self._messages]
         if len(message_ids) != len(set(message_ids)):
             return False
 
         return True
 
-    @classmethod
     def _debug_compare_messages(
-        cls, messages_before: List[Dict[str, Any]], messages_after: List[Dict[str, Any]]
+        self, messages_before: List[Dict[str, Any]], messages_after: List[Dict[str, Any]]
     ) -> None:
         """
         Debug helper to compare messages before and after adding new chunk ones calculation.
@@ -617,8 +588,7 @@ class ConversationManager:
         )
         print(f"[DEBUG] Is Proper Superset: {after_joined.startswith(before_unsuffixed_joined)}")
 
-    @classmethod
-    def _add_cache_control(cls, messages_dict: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _add_cache_control(self, messages_dict: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Add cache control headers to messages dict for LLM consumption.
         Uses 3 cache blocks based on message roles:
@@ -699,22 +669,21 @@ class ConversationManager:
 
         # Add cache control to system message if found
         if system_message_idx >= 0:
-            messages_dict = cls._add_cache_control_to_message(messages_dict, system_message_idx)
+            messages_dict = self._add_cache_control_to_message(messages_dict, system_message_idx)
 
         # Add cache control to last message
         if last_message_idx >= 0:
-            messages_dict = cls._add_cache_control_to_message(messages_dict, last_message_idx)
+            messages_dict = self._add_cache_control_to_message(messages_dict, last_message_idx)
 
         # Add cache control to second-to-last message if it exists
         if second_last_message_idx >= 0:
-            messages_dict = cls._add_cache_control_to_message(
+            messages_dict = self._add_cache_control_to_message(
                 messages_dict, second_last_message_idx, penultimate=True
             )
 
         return messages_dict
 
-    @classmethod
-    def _strip_cache_control(cls, messages_dict: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _strip_cache_control(self, messages_dict: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Strip cache control entries from messages dict.
 
@@ -750,9 +719,8 @@ class ConversationManager:
 
         return result
 
-    @classmethod
     def _add_cache_control_to_message(
-        cls, messages_dict: List[Dict[str, Any]], idx: int, penultimate: bool = False
+        self, messages_dict: List[Dict[str, Any]], idx: int, penultimate: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Add cache control to a specific message in the messages dict.

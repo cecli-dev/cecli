@@ -1,74 +1,96 @@
 import json
+import weakref
 from typing import Any, Dict, List
+from uuid import UUID
 
 import xxhash
 
 from cecli.utils import is_image_file
 
-from .files import ConversationFiles
-from .manager import ConversationManager
+from .service import ConversationService
 from .tags import MessageTag
 
 
 class ConversationChunks:
-    """
-    Collection of conversation management functions as class methods.
+    _instances: Dict[UUID, "ConversationChunks"] = {}
 
-    This class provides a namespace for conversation-related functions
-    to reduce module exports and improve organization.
-    """
+    def __init__(self, coder):
+        self.coder = weakref.ref(coder)
+        self.uuid = coder.uuid
 
     @classmethod
-    def initialize_conversation_system(cls, coder) -> None:
+    def get_instance(cls, coder) -> "ConversationChunks":
+        """Get or create chunks instance for coder."""
+        if coder.uuid not in cls._instances:
+            cls._instances[coder.uuid] = cls(coder)
+
+        # Update weakref for SwitchCoderSignal
+        if coder is not cls._instances[coder.uuid].get_coder():
+            cls._instances[coder.uuid].coder = weakref.ref(coder)
+
+        return cls._instances[coder.uuid]
+
+    @classmethod
+    def destroy_instance(cls, coder_uuid: UUID):
+        """Explicit cleanup for sub-agents."""
+        if coder_uuid in cls._instances:
+            del cls._instances[coder_uuid]
+
+    def get_coder(self):
+        """Get strong reference to coder (or None if destroyed)."""
+        return self.coder()
+
+    def initialize_conversation_system(self) -> None:
         """
         Initialize the conversation system with a coder instance.
-
-        Args:
-            coder: The coder instance to reference
         """
-        ConversationManager.initialize(coder)
-        ConversationFiles.initialize(coder)
+        coder = self.get_coder()
+        if not coder:
+            return
 
-    @classmethod
-    def add_system_messages(cls, coder) -> None:
+        ConversationService.get_manager(coder).initialize()
+        ConversationService.get_files(coder).initialize()
+
+    def add_system_messages(self) -> None:
         """
         Add system messages to conversation.
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         system_prompt = coder.gpt_prompts.main_system
         if system_prompt:
             # Apply system_prompt_prefix if set on the model
             if coder.main_model.system_prompt_prefix:
                 system_prompt = coder.main_model.system_prompt_prefix + "\n" + system_prompt
 
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "system", "content": coder.fmt_system_prompt(system_prompt)},
                 tag=MessageTag.SYSTEM,
                 hash_key=("main", "system_prompt"),
                 force=True,
             )
 
-        # Add examples if available
-        if hasattr(coder.gpt_prompts, "example_messages"):
-            example_messages = coder.gpt_prompts.example_messages
+        # Add example messages if any
+        example_messages = coder.gpt_prompts.example_messages
+        if example_messages:
             for i, msg in enumerate(example_messages):
                 msg_copy = msg.copy()
                 msg_copy["content"] = coder.fmt_system_prompt(msg_copy["content"])
-                ConversationManager.add_message(
+                ConversationService.get_manager(coder).add_message(
                     message_dict=msg_copy,
                     tag=MessageTag.EXAMPLES,
                     priority=75 + i,  # Slight offset for ordering within examples
                 )
 
-        # Add reminder if available
-        if coder.gpt_prompts.system_reminder:
+        # Add system reminder as a pre-prompt context block
+        if hasattr(coder.gpt_prompts, "system_reminder") and coder.gpt_prompts.system_reminder:
             msg = dict(
                 role="user",
                 content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder),
             )
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=msg,
                 tag=MessageTag.REMINDER,
                 hash_key=("main", "system_reminder"),
@@ -76,21 +98,26 @@ class ConversationChunks:
                 mark_for_delete=0,
             )
 
-    @classmethod
-    def cleanup_files(cls, coder) -> None:
+    def cleanup_files(self) -> None:
         """
         Clean up ConversationFiles and remove corresponding messages from ConversationManager
         for files that are no longer in the coder's read-only or chat file sets.
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
 
         # Check diff message ratio and clear if too many diffs
-        diff_messages = ConversationManager.get_messages_dict(MessageTag.DIFFS)
-        read_only_messages = ConversationManager.get_messages_dict(MessageTag.READONLY_FILES)
-        chat_messages = ConversationManager.get_messages_dict(MessageTag.CHAT_FILES)
-        edit_messages = ConversationManager.get_messages_dict(MessageTag.EDIT_FILES)
+        diff_messages = ConversationService.get_manager(coder).get_messages_dict(MessageTag.DIFFS)
+        read_only_messages = ConversationService.get_manager(coder).get_messages_dict(
+            MessageTag.READONLY_FILES
+        )
+        chat_messages = ConversationService.get_manager(coder).get_messages_dict(
+            MessageTag.CHAT_FILES
+        )
+        edit_messages = ConversationService.get_manager(coder).get_messages_dict(
+            MessageTag.EDIT_FILES
+        )
 
         # Calculate token counts for token-based ratio check
         diff_tokens = coder.main_model.token_count(diff_messages) if diff_messages else 0
@@ -123,13 +150,13 @@ class ConversationChunks:
 
         if should_clear:
             # Clear all diff messages
-            ConversationManager.clear_tag(MessageTag.DIFFS)
-            ConversationManager.clear_tag(MessageTag.FILE_CONTEXTS)
+            ConversationService.get_manager(coder).clear_tag(MessageTag.DIFFS)
+            ConversationService.get_manager(coder).clear_tag(MessageTag.FILE_CONTEXTS)
             # Clear ConversationFiles caches to force regeneration
-            ConversationFiles.clear_file_cache()
+            ConversationService.get_files(coder).clear_file_cache()
 
         # Get all tracked files (both regular and image files)
-        tracked_files = ConversationFiles.get_all_tracked_files()
+        tracked_files = ConversationService.get_files(coder).get_all_tracked_files()
 
         # Get joint set of files that should be tracked
         # Read-only files (absolute paths) - include both regular and stub files
@@ -151,32 +178,38 @@ class ConversationChunks:
         for tracked_file in tracked_files:
             if tracked_file not in should_be_tracked:
                 # Remove file from ConversationFiles cache
-                ConversationFiles.clear_file_cache(tracked_file)
+                ConversationService.get_files(coder).clear_file_cache(tracked_file)
 
                 # Remove corresponding messages from ConversationManager
                 # Try to remove regular file messages
                 user_hash_key = ("file_user", tracked_file)
                 assistant_hash_key = ("file_assistant", tracked_file)
-                ConversationManager.remove_message_by_hash_key(user_hash_key)
-                ConversationManager.remove_message_by_hash_key(assistant_hash_key)
+                ConversationService.get_manager(coder).remove_message_by_hash_key(user_hash_key)
+                ConversationService.get_manager(coder).remove_message_by_hash_key(
+                    assistant_hash_key
+                )
 
                 # Try to remove image file messages
                 image_user_hash_key = ("image_user", tracked_file)
                 image_assistant_hash_key = ("image_assistant", tracked_file)
-                ConversationManager.remove_message_by_hash_key(image_user_hash_key)
-                ConversationManager.remove_message_by_hash_key(image_assistant_hash_key)
+                ConversationService.get_manager(coder).remove_message_by_hash_key(
+                    image_user_hash_key
+                )
+                ConversationService.get_manager(coder).remove_message_by_hash_key(
+                    image_assistant_hash_key
+                )
 
-        ConversationManager.clear_tag(MessageTag.RULES)
+        ConversationService.get_manager(coder).clear_tag(MessageTag.RULES)
 
-    @classmethod
-    def add_file_list_reminder(cls, coder) -> None:
+    def add_file_list_reminder(self) -> None:
         """
         Add a reminder message with list of readonly and editable files.
         The reminder lasts for exactly one turn (mark_for_delete=0).
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         # Get relative paths for display
         readonly_rel_files = []
         if hasattr(coder, "abs_read_only_fnames"):
@@ -196,16 +229,16 @@ class ConversationChunks:
                 reminder_lines.append(f"  - {f}")
 
         if editable_rel_files:
-            if reminder_lines:  # Add separator if we already have readonly files
+            if len(reminder_lines) > 1:  # Add separator if we already have readonly files
                 reminder_lines.append("")
             reminder_lines.append("Editable files:")
             for f in editable_rel_files:
                 reminder_lines.append(f"  - {f}")
 
-        if reminder_lines:  # Only add reminder if there are files
+        if len(reminder_lines) > 1:  # Only add reminder if there are files
             reminder_lines.append("</context>\n")
             reminder_content = "\n".join(reminder_lines)
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict={
                     "role": "user",
                     "content": reminder_content,
@@ -216,18 +249,10 @@ class ConversationChunks:
                 mark_for_delete=0,  # Lasts for exactly one turn
             )
 
-    @classmethod
-    def get_repo_map_string(cls, repo_data: Dict[str, Any]) -> str:
+    def get_repo_map_string(self, repo_data: Dict[str, Any]) -> str:
         """
         Convert repository map data dict to formatted string representation.
-
-        Args:
-            repo_data: Repository map data dict from get_repo_map()
-
-        Returns:
-            Formatted string representation of repository map
         """
-
         # Get the combined and new dicts
         combined_dict = repo_data.get("combined_dict", {})
         new_dict = repo_data.get("new_dict", {})
@@ -293,27 +318,19 @@ class ConversationChunks:
         else:
             return ""
 
-    @classmethod
-    def add_repo_map_messages(cls, coder) -> List[Dict[str, Any]]:
+    def add_repo_map_messages(self) -> List[Dict[str, Any]]:
         """
         Get repository map messages using new system.
-
-        Args:
-            coder: The coder instance
-
-        Returns:
-            List of repository map messages
         """
-        from .manager import ConversationManager
-        from .tags import MessageTag
-
-        ConversationManager.initialize(coder)
+        coder = self.get_coder()
+        if not coder:
+            return []
 
         # Check if we have too many REPO tagged messages (20 or more)
-        repo_messages = ConversationManager.get_messages_dict(MessageTag.REPO)
+        repo_messages = ConversationService.get_manager(coder).get_messages_dict(MessageTag.REPO)
         if len(repo_messages) >= 20:
             # Clear all REPO tagged messages
-            ConversationManager.clear_tag(MessageTag.REPO)
+            ConversationService.get_manager(coder).clear_tag(MessageTag.REPO)
             # Clear the combined repomap dict to force fresh regeneration
             if (
                 hasattr(coder, "repo_map")
@@ -355,8 +372,8 @@ class ConversationChunks:
         new_json = xxhash.xxh3_128_hexdigest(json.dumps(new_dict, sort_keys=True).encode("utf-8"))
         dicts_are_same = combined_json == new_json
 
-        # Get formatted repository content using the new helper function
-        repo_content = cls.get_repo_map_string(repo_data)
+        # Get formatted repository content using the helper function
+        repo_content = self.get_repo_map_string(repo_data)
 
         if repo_content:  # Only add messages if there's content
             # Create repository map messages
@@ -373,7 +390,7 @@ class ConversationChunks:
                 priority = None if dicts_are_same else 200
                 content_hash = xxhash.xxh3_128_hexdigest(repo_content.encode("utf-8"))
 
-                ConversationManager.add_message(
+                ConversationService.get_manager(coder).add_message(
                     message_dict=msg,
                     tag=MessageTag.REPO,
                     priority=priority,
@@ -384,18 +401,15 @@ class ConversationChunks:
 
         return repo_messages
 
-    @classmethod
-    def add_rules_messages(cls, coder) -> List[Dict[str, Any]]:
+    def add_rules_messages(self) -> List[Dict[str, Any]]:
         """
         Get rules file messages for reference.
         These are always reloaded from disk and use the RULES tag.
-
-        Args:
-            coder: The coder instance
-
-        Returns:
-            List of rules file messages
         """
+        coder = self.get_coder()
+        if not coder:
+            return []
+
         messages = []
         if not hasattr(coder, "abs_rules_fnames") or not coder.abs_rules_fnames:
             return messages
@@ -423,8 +437,8 @@ class ConversationChunks:
                 "content": f"I understand the rules in {rel_fname} and will follow them.",
             }
 
-            # Add to ConversationManager with STATIC tag
-            ConversationManager.add_message(
+            # Add to ConversationManager with RULES tag
+            ConversationService.get_manager(coder).add_message(
                 message_dict=user_msg,
                 tag=MessageTag.RULES,
                 hash_key=("rules_user", fname),
@@ -432,7 +446,7 @@ class ConversationChunks:
                 update_timestamp=False,
             )
 
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.RULES,
                 hash_key=("rules_assistant", fname),
@@ -444,17 +458,14 @@ class ConversationChunks:
 
         return messages
 
-    @classmethod
-    def add_readonly_files_messages(cls, coder) -> List[Dict[str, Any]]:
+    def add_readonly_files_messages(self) -> List[Dict[str, Any]]:
         """
         Get read-only file messages using new system.
-
-        Args:
-            coder: The coder instance
-
-        Returns:
-            List of read-only file messages
         """
+        coder = self.get_coder()
+        if not coder:
+            return []
+
         messages = []
         refresh = not coder.file_diffs
 
@@ -478,10 +489,10 @@ class ConversationChunks:
         # Process regular files
         for fname in regular_files:
             # First, add file to cache and check for changes
-            ConversationFiles.add_file(fname, force_refresh=refresh)
+            ConversationService.get_files(coder).add_file(fname, force_refresh=refresh)
 
             # Get file content (with proper caching and stub generation)
-            content = ConversationFiles.get_file_stub(fname)
+            content = ConversationService.get_files(coder).get_file_stub(fname)
             if content:
                 # Add user message with file path as hash_key
                 rel_fname = coder.get_rel_fname(fname)
@@ -499,7 +510,7 @@ class ConversationChunks:
                     "content": f"{file_preamble}\n{rel_fname}\n\n{content}\n\n{file_postamble}",
                 }
 
-                ConversationManager.add_message(
+                ConversationService.get_manager(coder).add_message(
                     message_dict=user_msg,
                     tag=MessageTag.READONLY_FILES,
                     hash_key=("file_user", fname),  # Use file path as part of hash_key
@@ -513,7 +524,7 @@ class ConversationChunks:
                     "role": "assistant",
                     "content": "I understand, thank you for sharing the file contents.",
                 }
-                ConversationManager.add_message(
+                ConversationService.get_manager(coder).add_message(
                     message_dict=assistant_msg,
                     tag=MessageTag.READONLY_FILES,
                     hash_key=("file_assistant", fname),  # Use file path as part of hash_key
@@ -523,8 +534,8 @@ class ConversationChunks:
                 messages.append(assistant_msg)
 
             # Check if file has changed and add diff message if needed
-            if ConversationFiles.has_file_changed(fname):
-                ConversationFiles.update_file_diff(fname)
+            if ConversationService.get_files(coder).has_file_changed(fname):
+                ConversationService.get_files(coder).update_file_diff(fname)
 
         # Handle image files using coder.get_images_message()
         if image_files:
@@ -544,12 +555,12 @@ class ConversationChunks:
                 fname = img_msg.get("image_file")
                 if fname:
                     # Add to ConversationManager with individual file hash key
-                    ConversationManager.add_message(
+                    ConversationService.get_manager(coder).add_message(
                         message_dict=img_msg,
                         tag=MessageTag.READONLY_FILES,
                         hash_key=("image_user", fname),
                     )
-                    ConversationManager.add_message(
+                    ConversationService.get_manager(coder).add_message(
                         message_dict=assistant_msg,
                         tag=MessageTag.READONLY_FILES,
                         hash_key=("image_assistant", fname),
@@ -557,17 +568,14 @@ class ConversationChunks:
 
         return messages
 
-    @classmethod
-    def add_chat_files_messages(cls, coder) -> Dict[str, Any]:
+    def add_chat_files_messages(self) -> Dict[str, Any]:
         """
         Get chat file messages using new system.
-
-        Args:
-            coder: The coder instance
-
-        Returns:
-            Dictionary with chat_files and edit_files lists
         """
+        coder = self.get_coder()
+        if not coder:
+            return {"chat_files": [], "edit_files": []}
+
         result = {"chat_files": [], "edit_files": []}
         refresh = not coder.file_diffs
 
@@ -588,12 +596,12 @@ class ConversationChunks:
         # Process regular files
         for fname in regular_files:
             # First, add file to cache and check for changes
-            ConversationFiles.add_file(fname, force_refresh=refresh)
+            ConversationService.get_files(coder).add_file(fname, force_refresh=refresh)
 
             # Get file content (with proper caching and stub generation)
-            content = ConversationFiles.get_file_stub(fname)
+            content = ConversationService.get_files(coder).get_file_stub(fname)
             if not content:
-                ConversationFiles.clear_file_cache(fname)
+                ConversationService.get_files(coder).clear_file_cache(fname)
                 continue
 
             rel_fname = coder.get_rel_fname(fname)
@@ -622,7 +630,7 @@ class ConversationChunks:
             result["chat_files"].extend([user_msg, assistant_msg])
 
             # Add user message to ConversationManager with file path as hash_key
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=user_msg,
                 tag=tag,
                 hash_key=("file_user", fname),  # Use file path as part of hash_key
@@ -631,7 +639,7 @@ class ConversationChunks:
             )
 
             # Add assistant message to ConversationManager with file path as hash_key
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=assistant_msg,
                 tag=tag,
                 hash_key=("file_assistant", fname),  # Use file path as part of hash_key
@@ -640,8 +648,8 @@ class ConversationChunks:
             )
 
             # Check if file has changed and add diff message if needed
-            if ConversationFiles.has_file_changed(fname):
-                ConversationFiles.update_file_diff(fname)
+            if ConversationService.get_files(coder).has_file_changed(fname):
+                ConversationService.get_files(coder).update_file_diff(fname)
 
         # Handle image files using coder.get_images_message()
         if image_files:
@@ -661,12 +669,12 @@ class ConversationChunks:
                 fname = img_msg.get("image_file")
                 if fname:
                     # Add to ConversationManager with individual file hash key
-                    ConversationManager.add_message(
+                    ConversationService.get_manager(coder).add_message(
                         message_dict=img_msg,
                         tag=MessageTag.CHAT_FILES,
                         hash_key=("image_user", fname),
                     )
-                    ConversationManager.add_message(
+                    ConversationService.get_manager(coder).add_message(
                         message_dict=assistant_msg,
                         tag=MessageTag.CHAT_FILES,
                         hash_key=("image_assistant", fname),
@@ -674,23 +682,23 @@ class ConversationChunks:
 
         return result
 
-    @classmethod
-    def add_file_context_messages(cls, coder) -> None:
+    def add_file_context_messages(self) -> None:
         """
         Create and insert FILE_CONTEXTS messages based on cached contexts.
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         # Get numbered contexts
-        numbered_contexts = ConversationFiles._get_numbered_contexts()
+        numbered_contexts = ConversationService.get_files(coder)._get_numbered_contexts()
 
         for file_path, ranges in numbered_contexts.items():
             if not ranges:
                 continue
 
             # Generate context content
-            context_content = ConversationFiles.get_file_context(file_path)
+            context_content = ConversationService.get_files(coder).get_file_context(file_path)
             if not context_content:
                 continue
 
@@ -708,91 +716,43 @@ class ConversationChunks:
             }
 
             # Add to conversation manager
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_user", file_path),
                 force=True,
-                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
                 mark_for_demotion=1,
             )
 
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_assistant", file_path),
                 force=True,
-                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
                 mark_for_demotion=1,
             )
 
-    @classmethod
-    def add_assistant_reply(cls, coder, partial_response_chunks) -> None:
-        """
-        Add assistant's reply to current conversation messages.
-
-        Args:
-            coder: The coder instance
-            partial_response_chunks: Response chunks from LLM
-        """
-        # Extract response from chunks
-        # This is a simplified version - actual extraction would be more complex
-        response_content = ""
-        tool_calls = None
-
-        for chunk in partial_response_chunks:
-            if hasattr(chunk, "choices") and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "content") and delta.content:
-                    response_content += delta.content
-                if hasattr(delta, "tool_calls") and delta.tool_calls:
-                    if tool_calls is None:
-                        tool_calls = []
-                    tool_calls.extend(delta.tool_calls)
-
-        # Create message dictionary
-        message_dict = {"role": "assistant"}
-        if response_content:
-            message_dict["content"] = response_content
-        if tool_calls:
-            message_dict["tool_calls"] = tool_calls
-
-        # Add to conversation
-        ConversationManager.add_message(
-            message_dict=message_dict,
-            tag=MessageTag.CUR,
-        )
-
-    @classmethod
-    def clear_conversation(cls, coder) -> None:
-        """
-        Clear all user and assistant messages from conversation.
-
-        Args:
-            coder: The coder instance
-        """
-        # Clear CUR and DONE messages
-        ConversationManager.clear_tag(MessageTag.CUR)
-        ConversationManager.clear_tag(MessageTag.DONE)
-
-    @classmethod
-    def reset(cls) -> None:
+    def reset(self) -> None:
         """
         Reset the entire conversation system to initial state.
         """
-        ConversationManager.reset()
-        ConversationFiles.reset()
+        coder = self.get_coder()
+        ConversationService.get_manager(coder).reset()
+        if coder:
+            ConversationService.get_files(coder).reset()
 
-    @classmethod
-    def add_static_context_blocks(cls, coder) -> None:
+    def add_static_context_blocks(self) -> None:
         """
         Add static context blocks to conversation (priority 50).
 
         Static blocks include: environment_info, directory_structure, skills
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
             return
 
@@ -818,24 +778,24 @@ class ConversationChunks:
 
         # Add static blocks to conversation manager with stable hash keys
         for block_type, block_content in message_blocks.items():
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,
                 hash_key=("static", block_type),
                 force=True,
             )
 
-    @classmethod
-    def add_pre_message_context_blocks(cls, coder) -> None:
+    def add_pre_message_context_blocks(self) -> None:
         """
         Add pre-message context blocks to conversation (priority 125).
 
         Pre-message blocks include: symbol_outline, git_status, todo_list,
         loaded_skills, context_summary
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
             return
 
@@ -861,7 +821,7 @@ class ConversationChunks:
 
         # Process other blocks
         for block_type, block_content in message_blocks.items():
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,  # Use STATIC tag but with different priority
                 priority=125,  # Between REPO (100) and READONLY_FILES (200)
@@ -869,16 +829,16 @@ class ConversationChunks:
                 force=True,
             )
 
-    @classmethod
-    def add_post_message_context_blocks(cls, coder) -> None:
+    def add_post_message_context_blocks(self) -> None:
         """
         Add post-message context blocks to conversation (priority 250).
 
         Post-message blocks include: tool_context/write_context, background_command_output
-
-        Args:
-            coder: The coder instance
         """
+        coder = self.get_coder()
+        if not coder:
+            return
+
         if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
             return
 
@@ -920,7 +880,7 @@ class ConversationChunks:
 
         # Add post-message blocks to conversation manager with stable hash keys
         for block_type, block_content in message_blocks.items():
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,  # Use STATIC tag but with different priority
                 priority=250,  # Between CUR (200) and REMINDER (300)
@@ -929,12 +889,13 @@ class ConversationChunks:
                 force=True,
             )
 
-    @classmethod
-    def debug_print_conversation_state(cls) -> None:
+    def debug_print_conversation_state(self) -> None:
         """
         Print debug information about conversation state.
         """
+        coder = self.get_coder()
         print("=== Conversation Manager State ===")
-        ConversationManager.debug_print_stream()
-        print("\n=== Conversation Files State ===")
-        ConversationFiles.debug_print_cache()
+        ConversationService.get_manager(coder).debug_print_stream()
+        if coder:
+            print("\n=== Conversation Files State ===")
+            ConversationService.get_files(coder).debug_print_cache()

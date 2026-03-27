@@ -1,49 +1,63 @@
 import os
 import weakref
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import UUID
 
 from cecli.helpers.hashline import get_hashline_content_diff, hashline
 from cecli.repomap import RepoMap
 
-from .manager import ConversationManager
+from .service import ConversationService
 from .tags import MessageTag
 
 
 class ConversationFiles:
     """
-    Singleton class that handles file content caching, change detection,
+    Handles file content caching, change detection,
     and diff generation for file-based messages.
-
-    Design: Singleton class with static methods, not requiring initialization.
     """
 
-    # Class-level storage for singleton pattern
-    _file_contents_original: Dict[str, str] = {}
-    _file_contents_snapshot: Dict[str, str] = {}
-    _file_timestamps: Dict[str, float] = {}
-    _file_diffs: Dict[str, str] = {}
-    _file_to_message_id: Dict[str, str] = {}
-    # Track image files separately since they don't have text content
-    _image_files: Dict[str, bool] = {}
-    # Track numbered context ranges for files
-    _numbered_contexts: Dict[str, List[Tuple[int, int]]] = {}
-    _coder_ref = None
-    _initialized = False
+    _instances: Dict[UUID, "ConversationFiles"] = {}
+
+    def __init__(self, coder):
+        self.coder = weakref.ref(coder)
+        self.uuid = coder.uuid
+        self._file_contents_original: Dict[str, str] = {}
+        self._file_contents_snapshot: Dict[str, str] = {}
+        self._file_timestamps: Dict[str, float] = {}
+        self._file_diffs: Dict[str, str] = {}
+        self._file_to_message_id: Dict[str, str] = {}
+        self._image_files: Dict[str, bool] = {}
+        self._numbered_contexts: Dict[str, List[Tuple[int, int]]] = {}
+        self._initialized = True
 
     @classmethod
-    def initialize(cls, coder) -> None:
-        """
-        Set up singleton with weak reference to coder.
+    def get_instance(cls, coder) -> "ConversationFiles":
+        """Get or create files instance for coder."""
+        if coder.uuid not in cls._instances:
+            cls._instances[coder.uuid] = cls(coder)
 
-        Args:
-            coder: The coder instance to reference
-        """
-        cls._coder_ref = weakref.ref(coder)
-        cls._initialized = True
+        # Update weakref for SwitchCoderSignal
+        if coder is not cls._instances[coder.uuid].get_coder():
+            cls._instances[coder.uuid].coder = weakref.ref(coder)
+
+        return cls._instances[coder.uuid]
 
     @classmethod
+    def destroy_instance(cls, coder_uuid: UUID):
+        """Explicit cleanup for sub-agents."""
+        if coder_uuid in cls._instances:
+            del cls._instances[coder_uuid]
+
+    def get_coder(self):
+        """Get strong reference to coder (or None if destroyed)."""
+        return self.coder()
+
+    def initialize(self) -> None:
+        """Initialize (already handled in __init__)."""
+        self._initialized = True
+
     def add_file(
-        cls,
+        self,
         fname: str,
         content: Optional[str] = None,
         force_refresh: bool = False,
@@ -65,11 +79,11 @@ class ConversationFiles:
         # Check if we need to refresh
         current_mtime = os.path.getmtime(abs_fname) if os.path.exists(abs_fname) else 0
 
-        if force_refresh or abs_fname not in cls._file_contents_original:
+        if force_refresh or abs_fname not in self._file_contents_original:
             # Read content from disk if not provided
             if content is None:
                 # Use coder.io.read_text() - coder should always be available
-                coder = cls.get_coder()
+                coder = self.get_coder()
                 try:
                     content = coder.io.read_text(abs_fname)
                     if coder.hashlines:
@@ -82,18 +96,17 @@ class ConversationFiles:
                     content = ""  # Empty content for unreadable files
 
             # Update cache
-            cls._file_contents_original[abs_fname] = content
-            cls._file_contents_snapshot[abs_fname] = content
-            cls._file_timestamps[abs_fname] = current_mtime
+            self._file_contents_original[abs_fname] = content
+            self._file_contents_snapshot[abs_fname] = content
+            self._file_timestamps[abs_fname] = current_mtime
 
             # Clear previous diff
-            cls._file_diffs.pop(abs_fname, None)
+            self._file_diffs.pop(abs_fname, None)
 
-        return cls._file_contents_original.get(abs_fname, "")
+        return self._file_contents_original.get(abs_fname, "")
 
-    @classmethod
     def get_file_content(
-        cls,
+        self,
         fname: str,
         generate_stub: bool = False,
         context_management_enabled: bool = False,
@@ -116,11 +129,11 @@ class ConversationFiles:
         """
         abs_fname = os.path.abspath(fname)
         # First, ensure file is in cache (read-through cache)
-        if abs_fname not in cls._file_contents_original:
-            cls.add_file(fname)
+        if abs_fname not in self._file_contents_original:
+            self.add_file(fname)
 
         # Get content from cache
-        content = cls._file_contents_original.get(abs_fname)
+        content = self._file_contents_original.get(abs_fname)
         if content is None:
             return None
 
@@ -132,7 +145,7 @@ class ConversationFiles:
         if not context_management_enabled:
             return content
 
-        coder = cls.get_coder()
+        coder = self.get_coder()
 
         # Check if file is large
         content_length = coder.main_model.token_count(content)
@@ -143,8 +156,7 @@ class ConversationFiles:
         # Use RepoMap to generate file stub
         return RepoMap.get_file_stub(fname, coder.io, line_numbers=True)
 
-    @classmethod
-    def has_file_changed(cls, fname: str) -> bool:
+    def has_file_changed(self, fname: str) -> bool:
         """
         Check if file has been modified since last cache.
 
@@ -156,19 +168,18 @@ class ConversationFiles:
         """
         abs_fname = os.path.abspath(fname)
 
-        if abs_fname not in cls._file_contents_original:
+        if abs_fname not in self._file_contents_original:
             return True
 
         if not os.path.exists(abs_fname):
             return True
 
         current_mtime = os.path.getmtime(abs_fname)
-        cached_mtime = cls._file_timestamps.get(abs_fname, 0)
+        cached_mtime = self._file_timestamps.get(abs_fname, 0)
 
         return current_mtime > cached_mtime
 
-    @classmethod
-    def generate_diff(cls, fname: str) -> Optional[str]:
+    def generate_diff(self, fname: str) -> Optional[str]:
         """
         Generate diff between cached content and current file content.
 
@@ -179,11 +190,11 @@ class ConversationFiles:
             Unified diff string or None if no changes
         """
         abs_fname = os.path.abspath(fname)
-        if abs_fname not in cls._file_contents_original:
+        if abs_fname not in self._file_contents_original:
             return None
 
         # Read current content using coder.io.read_text()
-        coder = cls.get_coder()
+        coder = self.get_coder()
         rel_fname = coder.get_rel_fname(fname)
         try:
             current_content = coder.io.read_text(abs_fname)
@@ -197,8 +208,8 @@ class ConversationFiles:
             return None
 
         # Get the last snapshot (use file cache as fallback for backward compatibility)
-        snapshot_content = cls._file_contents_snapshot.get(
-            abs_fname, cls._file_contents_original[abs_fname]
+        snapshot_content = self._file_contents_snapshot.get(
+            abs_fname, self._file_contents_original[abs_fname]
         )
 
         # Generate diff between snapshot and current content using hashline helper
@@ -211,12 +222,11 @@ class ConversationFiles:
 
         # If there's a diff, update the last snapshot with current content
         if diff_text.strip():
-            cls._file_contents_snapshot[abs_fname] = current_content
+            self._file_contents_snapshot[abs_fname] = current_content
 
         return diff_text if diff_text.strip() else None
 
-    @classmethod
-    def update_file_diff(cls, fname: str) -> Optional[str]:
+    def update_file_diff(self, fname: str) -> Optional[str]:
         """
         Update diff for file and add diff message to conversation.
 
@@ -226,13 +236,13 @@ class ConversationFiles:
         Returns:
             Diff string or None if no changes
         """
-        coder = cls.get_coder()
-        diff = cls.generate_diff(fname)
+        coder = self.get_coder()
+        diff = self.generate_diff(fname)
 
         if diff:
             # Store diff
             abs_fname = os.path.abspath(fname)
-            cls._file_diffs[abs_fname] = diff
+            self._file_diffs[abs_fname] = diff
 
             rel_fname = fname
 
@@ -248,17 +258,16 @@ class ConversationFiles:
                 ),
             }
 
-            ConversationManager.add_message(
+            ConversationService.get_manager(coder).add_message(
                 message_dict=diff_message,
                 tag=MessageTag.DIFFS,
-                promotion=ConversationManager.DEFAULT_TAG_PROMOTION_VALUE,
+                promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
                 mark_for_demotion=1,
             )
 
         return diff
 
-    @classmethod
-    def get_file_stub(cls, fname: str) -> str:
+    def get_file_stub(self, fname: str) -> str:
         """
         Get repository map stub for large files.
 
@@ -270,7 +279,7 @@ class ConversationFiles:
         Returns:
             Repository map stub or full content for small files
         """
-        coder = cls.get_coder()
+        coder = self.get_coder()
         if not coder:
             return ""
 
@@ -280,7 +289,7 @@ class ConversationFiles:
         large_file_token_threshold = getattr(coder, "large_file_token_threshold", 8192)
 
         # Use the enhanced get_file_content method with stub generation
-        content = cls.get_file_content(
+        content = self.get_file_content(
             fname=fname,
             generate_stub=True,
             context_management_enabled=context_management_enabled,
@@ -289,8 +298,7 @@ class ConversationFiles:
 
         return content or ""
 
-    @classmethod
-    def clear_file_cache(cls, fname: Optional[str] = None) -> None:
+    def clear_file_cache(self, fname: Optional[str] = None) -> None:
         """
         Clear cache for specific file or all files.
 
@@ -298,24 +306,23 @@ class ConversationFiles:
             fname: Optional specific file to clear (None = clear all)
         """
         if fname is None:
-            cls._file_contents_original.clear()
-            cls._file_contents_snapshot.clear()
-            cls._file_timestamps.clear()
-            cls._file_diffs.clear()
-            cls._file_to_message_id.clear()
-            cls._numbered_contexts.clear()  # New line
+            self._file_contents_original.clear()
+            self._file_contents_snapshot.clear()
+            self._file_timestamps.clear()
+            self._file_diffs.clear()
+            self._file_to_message_id.clear()
+            self._numbered_contexts.clear()
         else:
             abs_fname = os.path.abspath(fname)
-            cls._file_contents_original.pop(abs_fname, None)
-            cls._file_contents_snapshot.pop(abs_fname, None)
-            cls._file_timestamps.pop(abs_fname, None)
-            cls._file_diffs.pop(abs_fname, None)
-            cls._file_to_message_id.pop(abs_fname, None)
-            cls._image_files.pop(abs_fname, None)
-            cls._numbered_contexts.pop(abs_fname, None)  # New line
+            self._file_contents_original.pop(abs_fname, None)
+            self._file_contents_snapshot.pop(abs_fname, None)
+            self._file_timestamps.pop(abs_fname, None)
+            self._file_diffs.pop(abs_fname, None)
+            self._file_to_message_id.pop(abs_fname, None)
+            self._image_files.pop(abs_fname, None)
+            self._numbered_contexts.pop(abs_fname, None)
 
-    @classmethod
-    def add_image_file(cls, fname: str) -> None:
+    def add_image_file(self, fname: str) -> None:
         """
         Track an image file.
 
@@ -323,10 +330,9 @@ class ConversationFiles:
             fname: Absolute file path of image
         """
         abs_fname = os.path.abspath(fname)
-        cls._image_files[abs_fname] = True
+        self._image_files[abs_fname] = True
 
-    @classmethod
-    def remove_image_file(cls, fname: str) -> None:
+    def remove_image_file(self, fname: str) -> None:
         """
         Remove an image file from tracking.
 
@@ -334,29 +340,20 @@ class ConversationFiles:
             fname: Absolute file path of image
         """
         abs_fname = os.path.abspath(fname)
-        cls._image_files.pop(abs_fname, None)
+        self._image_files.pop(abs_fname, None)
 
-    @classmethod
-    def get_all_tracked_files(cls) -> set:
+    def get_all_tracked_files(self) -> set:
         """
         Get all tracked files (both regular and image files).
 
         Returns:
             Set of all tracked file paths
         """
-        regular_files = set(cls._file_contents_original.keys())
-        image_files = set(cls._image_files.keys())
+        regular_files = set(self._file_contents_original.keys())
+        image_files = set(self._image_files.keys())
         return regular_files.union(image_files)
 
-    @classmethod
-    def get_coder(cls):
-        """Get current coder instance via weak reference."""
-        if cls._coder_ref:
-            return cls._coder_ref()
-        return None
-
-    @classmethod
-    def update_file_context(cls, file_path: str, start_line: int, end_line: int) -> None:
+    def update_file_context(self, file_path: str, start_line: int, end_line: int) -> None:
         """
         Update numbered contexts for a file with a new range.
 
@@ -372,7 +369,7 @@ class ConversationFiles:
             start_line, end_line = end_line, start_line
 
         # Get existing ranges
-        existing_ranges = cls._numbered_contexts.get(abs_fname, [])
+        existing_ranges = self._numbered_contexts.get(abs_fname, [])
 
         # Add new range
         new_range = (start_line, end_line)
@@ -398,14 +395,19 @@ class ConversationFiles:
                     merged_ranges.append([current_start, current_end])
 
         # Convert back to tuples
-        cls._numbered_contexts[abs_fname] = [(start, end) for start, end in merged_ranges]
+        self._numbered_contexts[abs_fname] = [(start, end) for start, end in merged_ranges]
 
         # Remove using hash key (file_context, abs_fname)
-        ConversationManager.remove_message_by_hash_key(("file_context_user", abs_fname))
-        ConversationManager.remove_message_by_hash_key(("file_context_assistant", abs_fname))
+        coder = self.get_coder()
+        if coder:
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_user", abs_fname)
+            )
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_assistant", abs_fname)
+            )
 
-    @classmethod
-    def get_file_context(cls, file_path: str) -> str:
+    def get_file_context(self, file_path: str) -> str:
         """
         Generate hashline representation of cached context ranges.
 
@@ -418,12 +420,12 @@ class ConversationFiles:
         abs_fname = os.path.abspath(file_path)
 
         # Get cached ranges
-        ranges = cls._numbered_contexts.get(abs_fname, [])
+        ranges = self._numbered_contexts.get(abs_fname, [])
         if not ranges:
             return ""
 
         # Get coder instance
-        coder = cls.get_coder()
+        coder = self.get_coder()
         if not coder:
             return ""
 
@@ -458,8 +460,7 @@ class ConversationFiles:
         # Join with ellipsis separator
         return "\n...\n\n".join(context_parts)
 
-    @classmethod
-    def remove_file_context(cls, file_path: str) -> None:
+    def remove_file_context(self, file_path: str) -> None:
         """
         Remove all cached context for a file.
 
@@ -469,43 +470,43 @@ class ConversationFiles:
         abs_fname = os.path.abspath(file_path)
 
         # Remove from numbered contexts
-        cls._numbered_contexts.pop(abs_fname, None)
+        self._numbered_contexts.pop(abs_fname, None)
 
         # Remove using hash key (file_context, abs_fname)
-        ConversationManager.remove_message_by_hash_key(("file_context_user", abs_fname))
-        ConversationManager.remove_message_by_hash_key(("file_context_assistant", abs_fname))
+        coder = self.get_coder()
+        if coder:
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_user", abs_fname)
+            )
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_assistant", abs_fname)
+            )
 
-    @classmethod
-    def clear_all_numbered_contexts(cls) -> None:
+    def clear_all_numbered_contexts(self) -> None:
         """Clear all numbered contexts for all files."""
-        cls._numbered_contexts.clear()
+        self._numbered_contexts.clear()
 
-    @classmethod
-    def _get_numbered_contexts(cls) -> Dict[str, List[Tuple[int, int]]]:
+    def _get_numbered_contexts(self) -> Dict[str, List[Tuple[int, int]]]:
         """Get the numbered contexts dictionary."""
-        return cls._numbered_contexts
+        return self._numbered_contexts
 
-    @classmethod
-    def reset(cls) -> None:
+    def reset(self) -> None:
         """Clear all file caches and reset to initial state."""
-        cls.clear_file_cache()
-        cls.clear_all_numbered_contexts()
-        cls._coder_ref = None
-        cls._initialized = False
+        self.clear_file_cache()
+        self.clear_all_numbered_contexts()
+        self._initialized = False
 
-    # Debug methods
-    @classmethod
-    def debug_print_cache(cls) -> None:
+    def debug_print_cache(self) -> None:
         """Print file cache contents and modification status."""
-        print(f"File Cache ({len(cls._file_contents_original)} files):")
-        for fname, content in cls._file_contents_original.items():
-            mtime = cls._file_timestamps.get(fname, 0)
-            has_changed = cls.has_file_changed(fname)
+        print(f"File Cache ({len(self._file_contents_original)} files):")
+        for fname, content in self._file_contents_original.items():
+            mtime = self._file_timestamps.get(fname, 0)
+            has_changed = self.has_file_changed(fname)
             status = "CHANGED" if has_changed else "CACHED"
             line_count = len(content.splitlines())
 
             # Check if snapshot differs from cache
-            snapshot_content = cls._file_contents_snapshot.get(fname)
+            snapshot_content = self._file_contents_snapshot.get(fname)
             snapshot_differs = snapshot_content != content if snapshot_content else False
             snapshot_status = "DIFFERS" if snapshot_differs else "SAME"
 
@@ -514,21 +515,20 @@ class ConversationFiles:
                 f"lines={line_count}, cached_len={len(content)}, snapshot={snapshot_status}"
             )
 
-    @classmethod
-    def debug_get_cache_info(cls) -> Dict[str, Any]:
+    def debug_get_cache_info(self) -> Dict[str, Any]:
         """Return dict with cache size, file count, and diff count."""
         # Count how many snapshots differ from their original cache
         snapshot_diff_count = 0
-        for fname, cached_content in cls._file_contents_original.items():
-            snapshot_content = cls._file_contents_snapshot.get(fname)
+        for fname, cached_content in self._file_contents_original.items():
+            snapshot_content = self._file_contents_snapshot.get(fname)
             if snapshot_content and snapshot_content != cached_content:
                 snapshot_diff_count += 1
 
         return {
-            "cache_size": len(cls._file_contents_original),
-            "snapshot_size": len(cls._file_contents_snapshot),
+            "cache_size": len(self._file_contents_original),
+            "snapshot_size": len(self._file_contents_snapshot),
             "snapshot_diff_count": snapshot_diff_count,
-            "file_count": len(cls._file_timestamps),
-            "diff_count": len(cls._file_diffs),
-            "message_mappings": len(cls._file_to_message_id),
+            "file_count": len(self._file_timestamps),
+            "diff_count": len(self._file_diffs),
+            "message_mappings": len(self._file_to_message_id),
         }

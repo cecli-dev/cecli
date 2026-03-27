@@ -1,7 +1,7 @@
 import asyncio
 
 from ..commands import SwitchCoderSignal
-from ..helpers.conversation import ConversationManager
+from ..helpers.conversation import ConversationService
 from .ask_coder import AskCoder
 from .base_coder import Coder
 
@@ -61,8 +61,9 @@ class ArchitectCoder(AskCoder):
         editor_coder = await Coder.create(**new_kwargs)
 
         # Re-initialize ConversationManager with editor coder
-        ConversationManager.initialize(editor_coder, reset=True, reformat=True, preserve_tags=True)
-
+        ConversationService.get_manager(editor_coder).initialize(
+            reset=True, reformat=True, preserve_tags=True
+        )
         if self.verbose:
             editor_coder.show_announcements()
 
@@ -78,8 +79,7 @@ class ArchitectCoder(AskCoder):
             await editor_coder.generate(user_message=content, preproc=False)
 
             # Clear manager and restore original state
-            ConversationManager.initialize(
-                original_coder or self,
+            ConversationService.get_manager(original_coder or self).initialize(
                 reset=True,
                 reformat=True,
                 preserve_tags=True,
@@ -90,8 +90,7 @@ class ArchitectCoder(AskCoder):
         except Exception as e:
             self.io.tool_error(e)
             # Restore original state on error
-            ConversationManager.initialize(
-                original_coder or self,
+            ConversationService.get_manager(original_coder or self).initialize(
                 reset=True,
                 reformat=True,
                 preserve_tags=True,

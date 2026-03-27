@@ -990,7 +990,7 @@ async def run_test_real(
 
     from cecli import models
     from cecli.coders import Coder
-    from cecli.helpers.conversation import ConversationFiles, ConversationManager
+    from cecli.helpers.conversation import ConversationService
     from cecli.io import InputOutput
     from cecli.main import SwitchCoderSignal
 
@@ -1211,13 +1211,12 @@ async def run_test_real(
     dur = 0
     test_outcomes = []
 
-    ConversationManager.initialize(
-        coder,
+    ConversationService.get_manager(coder).initialize(
         reset=True,
         reformat=True,
     )
 
-    ConversationFiles.reset()
+    ConversationService.get_files(coder).reset()
 
     for i in range(tries):
         start = time.time()

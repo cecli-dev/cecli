@@ -50,11 +50,7 @@ from cecli.coders.base_coder import UnknownEditFormat
 from cecli.commands import Commands, SwitchCoderSignal
 from cecli.deprecated_args import handle_deprecated_model_args
 from cecli.format_settings import format_settings, scrub_sensitive_info
-from cecli.helpers.conversation import (
-    ConversationChunks,
-    ConversationManager,
-    MessageTag,
-)
+from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.copypaste import ClipboardWatcher
 from cecli.helpers.file_searcher import generate_search_path_list
 from cecli.history import ChatSummary
@@ -1208,7 +1204,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     if args.show_repo_map:
         repo_map = coder.get_repo_map()
         if repo_map:
-            repo_string = ConversationChunks.get_repo_map_string(repo_map)
+            repo_string = ConversationService.get_chunks(coder).get_repo_map_string(repo_map)
             pre_init_io.tool_output(repo_string)
         return await graceful_exit(coder)
     if args.apply:
@@ -1316,7 +1312,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
                     await coder.mcp_manager.disconnect_server("Local")
 
             for tag in [MessageTag.SYSTEM, MessageTag.EXAMPLES, MessageTag.STATIC]:
-                ConversationManager.clear_tag(tag)
+                ConversationService.get_manager(coder).clear_tag(tag)
 
             coder = await Coder.create(**kwargs)
 

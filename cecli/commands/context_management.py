@@ -2,11 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers.conversation import (
-    ConversationFiles,
-    ConversationManager,
-    MessageTag,
-)
+from cecli.helpers.conversation import ConversationService, MessageTag
 
 
 class ContextManagementCommand(BaseCommand):
@@ -24,10 +20,10 @@ class ContextManagementCommand(BaseCommand):
 
         # Toggle the setting
         coder.context_management_enabled = not coder.context_management_enabled
-        ConversationManager.clear_tag(MessageTag.READONLY_FILES)
-        ConversationManager.clear_tag(MessageTag.EDIT_FILES)
-        ConversationManager.clear_tag(MessageTag.CHAT_FILES)
-        ConversationFiles.clear_file_cache()
+        ConversationService.get_manager(coder).clear_tag(MessageTag.READONLY_FILES)
+        ConversationService.get_manager(coder).clear_tag(MessageTag.EDIT_FILES)
+        ConversationService.get_manager(coder).clear_tag(MessageTag.CHAT_FILES)
+        ConversationService.get_files(coder).clear_file_cache()
 
         # Report the new state
         if coder.context_management_enabled:

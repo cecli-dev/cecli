@@ -8,7 +8,7 @@ from typing import Optional
 
 from cecli.coders import Coder
 from cecli.commands import SwitchCoderSignal
-from cecli.helpers.conversation import ConversationManager, MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag
 
 # Suppress asyncio task destroyed warnings during shutdown
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
@@ -105,11 +105,11 @@ class CoderWorker:
                     # Skip summarization to avoid blocking LLM calls during mode switch
                     kwargs["summarize_from_coder"] = False
 
-                    for tag in [MessageTag.SYSTEM, MessageTag.EXAMPLES, MessageTag.STATIC]:
-                        ConversationManager.clear_tag(tag)
-
                     new_coder = await Coder.create(**kwargs)
                     new_coder.args = self.coder.args
+
+                    for tag in [MessageTag.SYSTEM, MessageTag.EXAMPLES, MessageTag.STATIC]:
+                        ConversationService.get_manager(new_coder).clear_tag(tag)
 
                     if switch.kwargs.get("show_announcements") is False:
                         new_coder.suppress_announcements_for_next_prompt = True

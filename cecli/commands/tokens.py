@@ -2,7 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers.conversation import ConversationManager, MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag
 
 
 class TokensCommand(BaseCommand):
@@ -31,7 +31,7 @@ class TokensCommand(BaseCommand):
         system_tokens = 0
 
         for tag in system_tags:
-            msgs = ConversationManager.get_messages_dict(tag=tag)
+            msgs = ConversationService.get_manager(coder).get_messages_dict(tag=tag)
             if msgs:
                 system_tokens += coder.main_model.token_count(msgs)
 
@@ -56,11 +56,12 @@ class TokensCommand(BaseCommand):
         res.append((system_tokens, "system messages", ""))
 
         # chat history
-        msgs_done = ConversationManager.get_messages_dict(tag=MessageTag.DONE)
-        msgs_cur = ConversationManager.get_messages_dict(tag=MessageTag.CUR)
-        msgs_diffs = ConversationManager.get_messages_dict(tag=MessageTag.DIFFS)
-        msgs_file_contexts = ConversationManager.get_messages_dict(tag=MessageTag.FILE_CONTEXTS)
-
+        msgs_done = ConversationService.get_manager(coder).get_messages_dict(tag=MessageTag.DONE)
+        msgs_cur = ConversationService.get_manager(coder).get_messages_dict(tag=MessageTag.CUR)
+        msgs_diffs = ConversationService.get_manager(coder).get_messages_dict(tag=MessageTag.DIFFS)
+        msgs_file_contexts = ConversationService.get_manager(coder).get_messages_dict(
+            tag=MessageTag.FILE_CONTEXTS
+        )
         tokens_done = 0
         tokens_cur = 0
         tokens_diffs = 0
@@ -89,7 +90,7 @@ class TokensCommand(BaseCommand):
             res.append((tokens_file_contexts, "numbered context messages", "part of chat history"))
 
         # rules files
-        msgs_rules = ConversationManager.get_messages_dict(tag=MessageTag.RULES)
+        msgs_rules = ConversationService.get_manager(coder).get_messages_dict(tag=MessageTag.RULES)
         if msgs_rules:
             tokens_rules = coder.main_model.token_count(msgs_rules)
             res.append((tokens_rules, "rules files", "/drop to remove"))
@@ -97,7 +98,7 @@ class TokensCommand(BaseCommand):
         # repo map
         if coder.repo_map:
             tokens = coder.main_model.token_count(
-                ConversationManager.get_messages_dict(tag=MessageTag.REPO)
+                ConversationService.get_manager(coder).get_messages_dict(tag=MessageTag.REPO)
             )
             res.append((tokens, "repository map", "use --map-tokens to resize"))
 
@@ -115,7 +116,9 @@ class TokensCommand(BaseCommand):
         file_res = []
 
         # Calculate tokens for read-only files using READONLY_FILES tag
-        readonly_msgs = ConversationManager.get_messages_dict(tag=MessageTag.READONLY_FILES)
+        readonly_msgs = ConversationService.get_manager(coder).get_messages_dict(
+            tag=MessageTag.READONLY_FILES
+        )
         if readonly_msgs:
             # Group messages by file (each file has user and assistant messages)
             file_tokens = {}
@@ -152,7 +155,7 @@ class TokensCommand(BaseCommand):
         editable_file_tokens = {}
 
         for tag in editable_tags:
-            msgs = ConversationManager.get_messages_dict(tag=tag)
+            msgs = ConversationService.get_manager(coder).get_messages_dict(tag=tag)
             if msgs:
                 for msg in msgs:
                     # Extract file name from message content

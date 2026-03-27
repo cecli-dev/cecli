@@ -650,8 +650,13 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
                 # Check if original_text is a hashline JSON block
                 try:
                     # Try to parse as JSON
-                    # parsed = json.loads(original_text_str.strip())
-                    parsed = extract_base64url_parts(original_text_str.strip())
+                    try:
+                        parsed = json.loads(original_text_str.strip())
+                        if not isinstance(parsed, list) or len(parsed) != 3:
+                            parsed = extract_base64url_parts(original_text_str.strip())
+                    except Exception:
+                        parsed = extract_base64url_parts(original_text_str.strip())
+
                     # Check if it's a list with 3 elements (start_hash, end_hash, operation)
                     if isinstance(parsed, list) and len(parsed) == 3:
                         # Validate the format: all strings
@@ -678,7 +683,7 @@ def find_original_update_blocks(content, fence=DEFAULT_FENCE, valid_fnames=None)
 
 def extract_base64url_parts(input_string):
     # Remove any character that is NOT a-z, A-Z, 0-9, -, or _
-    clean_str = re.sub(r"[^a-zA-Z0-9\-_]", "", input_string)
+    clean_str = re.sub(r"[^a-zA-Z0-9\~_@]", "", input_string)
 
     return [
         clean_str[:4],  # First 4 chars
