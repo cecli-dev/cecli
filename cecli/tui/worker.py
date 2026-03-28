@@ -160,6 +160,8 @@ class CoderWorker:
                 # Loop may already be closed
                 pass
 
+        self.interrupt()
+
         # Wait for thread to finish
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)

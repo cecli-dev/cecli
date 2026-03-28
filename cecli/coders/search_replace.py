@@ -449,7 +449,7 @@ def git_cherry_pick_osr_onto_o(texts):
     search_text, replace_text, original_text = texts
 
     with GitTemporaryDirectory() as dname:
-        repo = git.Repo(dname)
+        repo = git.Repo(dname, odbt=git.GitCmdObjectDB)
 
         fname = Path(dname) / "file.txt"
 
@@ -486,7 +486,7 @@ def git_cherry_pick_sr_onto_so(texts):
     search_text, replace_text, original_text = texts
 
     with GitTemporaryDirectory() as dname:
-        repo = git.Repo(dname)
+        repo = git.Repo(dname, odbt=git.GitCmdObjectDB)
 
         fname = Path(dname) / "file.txt"
 

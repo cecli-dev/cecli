@@ -6,7 +6,6 @@ from typing import Optional
 from grep_ast import TreeContext
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern
-from watchfiles import watch
 
 from cecli.dump import dump  # noqa
 from cecli.watch_prompts import watch_ask_prompt, watch_code_prompt
@@ -145,6 +144,8 @@ class FileWatcher:
     def watch_files(self):
         """Watch for file changes and process them"""
         try:
+            from watchfiles import watch
+
             roots_to_watch = self.get_roots_to_watch()
 
             for changes in watch(

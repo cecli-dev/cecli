@@ -102,7 +102,7 @@ def _resolve_mcp_config_path(file_path, io, verbose=False):
     try:
         import git
 
-        repo = git.Repo(search_parent_directories=True)
+        repo = git.Repo(search_parent_directories=True, odbt=git.GitCmdObjectDB)
         git_root = Path(repo.working_tree_dir)
     except (ImportError, git.InvalidGitRepositoryError, FileNotFoundError):
         pass

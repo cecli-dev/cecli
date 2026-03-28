@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 
 try:
@@ -120,7 +121,7 @@ def check_config_files_for_yes(config_files):
 def get_git_root():
     """Try and guess the git repo, since the conf.yml can be at the repo root"""
     try:
-        repo = git.Repo(search_parent_directories=True)
+        repo = git.Repo(search_parent_directories=True, odbt=git.GitCmdObjectDB)
         return repo.working_tree_dir
     except (git.InvalidGitRepositoryError, FileNotFoundError):
         return None
@@ -177,7 +178,7 @@ async def setup_git(git_root, io):
     repo = None
     if git_root:
         try:
-            repo = git.Repo(git_root)
+            repo = git.Repo(git_root, odbt=git.GitCmdObjectDB)
         except ANY_GIT_ERROR:
             pass
     elif cwd == Path.home():
@@ -218,7 +219,7 @@ async def check_gitignore(git_root, io, ask=True):
     if not git_root:
         return
     try:
-        repo = git.Repo(git_root)
+        repo = git.Repo(git_root, odbt=git.GitCmdObjectDB)
         patterns_to_add = []
         if not repo.ignored(".cecli"):
             patterns_to_add.append(".cecli*")
@@ -1489,6 +1490,12 @@ async def graceful_exit(coder=None, exit_code=0):
 
         if coder.mcp_manager and coder.mcp_manager.is_connected:
             await coder.mcp_manager.disconnect_all()
+
+    try:
+        os.killpg(os.getpgrp(), signal.SIGTERM)
+    except Exception:
+        pass
+
     return exit_code
 
 

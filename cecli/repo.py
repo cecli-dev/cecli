@@ -35,6 +35,8 @@ ANY_GIT_ERROR += [
 ]
 ANY_GIT_ERROR = tuple(ANY_GIT_ERROR)
 
+git.Git.USE_SHELL = False
+
 
 @contextlib.contextmanager
 def set_git_env(var_name, value, original_value):
@@ -110,9 +112,11 @@ class GitRepo:
                 fname = fname.parent
 
             try:
-                repo_path = git.Repo(fname, search_parent_directories=True).working_dir
-                repo_path = utils.safe_abs_path(repo_path)
-                repo_paths.append(repo_path)
+                with git.Repo(
+                    fname, search_parent_directories=True, odbt=git.GitCmdObjectDB
+                ) as temp_repo:
+                    repo_path = utils.safe_abs_path(temp_repo.working_dir)
+                    repo_paths.append(repo_path)
             except ANY_GIT_ERROR:
                 pass
 
@@ -125,11 +129,15 @@ class GitRepo:
             raise FileNotFoundError
 
         # https://github.com/gitpython-developers/GitPython/issues/427
-        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitDB)
+        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitCmdObjectDB)
         self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
         if cecli_ignore_file:
             self.cecli_ignore_file = Path(cecli_ignore_file)
+
+    def __del__(self):
+        if self.repo:
+            self.repo.close()
 
     async def commit(self, fnames=None, context=None, message=None, coder_edits=False, coder=None):
         """

@@ -52,7 +52,7 @@ class TestRepoMap:
 
     def test_repo_map_refresh_files(self):
         with GitTemporaryDirectory() as temp_dir:
-            repo = git.Repo(temp_dir)
+            repo = git.Repo(temp_dir, odbt=git.GitCmdObjectDB)
 
             # Create three source files with one function each
             file1_content = "def function1():\n    return 'Hello from file1'\n"
@@ -130,7 +130,7 @@ class TestRepoMap:
 
     def test_repo_map_refresh_auto(self):
         with GitTemporaryDirectory() as temp_dir:
-            repo = git.Repo(temp_dir)
+            repo = git.Repo(temp_dir, odbt=git.GitCmdObjectDB)
 
             # Create two source files with one function each
             file1_content = "def function1():\n    return 'Hello from file1'\n"
