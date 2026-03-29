@@ -165,9 +165,9 @@ The current priorities are to improve core capabilities and user experience of t
 
 7. **Sub Agents**
   * [ ] Add `/fork` and `/rejoin` commands to manually manage parts of the conversation history
-  * [ ] Add an instance-able view of the conversation system so sub agents get their own context and workspaces
-  * [ ] Modify coder classes to have discrete identifiers for themselves/management utilities for them to have their own slices of the world
-  * [ ] Refactor global files like todo lists to live inside instance folders to avoid state conflicts
+  * [x] Add an instance-able view of the conversation system so sub agents get their own context and workspaces
+  * [x] Modify coder classes to have discrete identifiers for themselves/management utilities for them to have their own slices of the world
+  * [x] Refactor global files like todo lists to live inside instance folders to avoid state conflicts
   * [ ] Add a `spawn` tool that launches a sub agent as a background command that the parent model waits for to finish
   * [ ] Add visibility into active sub agent calls in TUI
 
