@@ -1468,7 +1468,11 @@ def apply_hashline_operations(
     result = strip_hashline(result_with_hashes)
 
     # Respect original trailing newline
-    if not original_content.endswith("\n") and result.endswith("\n"):
+    if original_content.endswith("\n") and result and not result.endswith("\n"):
+        # Original ends with newline but result doesn't - add one
+        result += "\n"
+    elif not original_content.endswith("\n") and result.endswith("\n"):
+        # Original doesn't end with newline but result does - remove it
         result = result[:-1]
 
     return result, successful_ops, failed_ops
