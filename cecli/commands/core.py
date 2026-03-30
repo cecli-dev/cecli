@@ -269,12 +269,6 @@ class Commands:
         return session_dir / f"{safe_name}{ext}"
 
 
-def parse_quoted_filenames(args):
-    filenames = re.findall('\\"(.+?)\\"|(\\S+)', args)
-    filenames = [name for sublist in filenames for name in sublist if name]
-    return filenames
-
-
 def get_help_md():
     md = Commands(None, None).get_help_md()
     return md

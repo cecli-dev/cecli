@@ -1,5 +1,4 @@
 import os
-import re
 from pathlib import Path
 from typing import List
 
@@ -19,9 +18,65 @@ def quote_filename(fname: str) -> str:
 
 def parse_quoted_filenames(args: str) -> List[str]:
     """Parse filenames from command arguments, handling quoted names."""
-    filenames = re.findall(r"\"(.+?)\"|(\S+)", args)
-    filenames = [name for sublist in filenames for name in sublist if name]
-    return filenames
+    # Handle empty input
+    if not args.strip():
+        return []
+
+    result = []
+    i = 0
+    n = len(args)
+
+    while i < n:
+        # Skip whitespace
+        while i < n and args[i].isspace():
+            i += 1
+
+        if i >= n:
+            break
+
+        # Check for quoted string
+        if args[i] == '"':
+            i += 1  # Skip opening quote
+            start = i
+            while i < n and args[i] != '"':
+                # Handle escaped quotes inside quoted string
+                if args[i] == "\\" and i + 1 < n and args[i + 1] == '"':
+                    i += 2  # Skip escaped quote
+                else:
+                    i += 1
+
+            if i < n:
+                result.append(args[start:i])
+                i += 1  # Skip closing quote
+            else:
+                # Unclosed quote, treat everything as the argument
+                result.append(args[start:])
+                break
+        else:
+            # Unquoted argument - collect until whitespace or escaped space
+            start = i
+            while i < n and not args[i].isspace():
+                # Check for escaped space or backslash
+                if args[i] == "\\" and i + 1 < n:
+                    if args[i + 1] == " ":
+                        # Escaped space - include both characters and continue
+                        i += 2
+                        continue
+                    elif args[i + 1] == "\\":
+                        # Escaped backslash - skip one backslash
+                        i += 2
+                        continue
+
+                # Regular character or backslash not followed by space/backslash
+                if args[i] == "\\" and i + 1 >= n:
+                    # Lone backslash at end of input - include it
+                    pass
+
+                i += 1
+
+            result.append(args[start:i])
+
+    return result
 
 
 def glob_filtered_to_repo(pattern: str, root: str, repo) -> List[Path]:
