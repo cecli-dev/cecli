@@ -167,7 +167,7 @@ class Tool(BaseTool):
                 # Format output
                 output_content = output or ""
                 output_limit = coder.large_file_token_threshold
-                if len(output_content) > output_limit:
+                if coder.context_management_enabled and len(output_content) > output_limit:
                     output_content = (
                         output_content[:output_limit]
                         + f"\n... (output truncated at {output_limit} characters, based on"
@@ -236,7 +236,7 @@ class Tool(BaseTool):
         # Format the output for the result message
         output_content = combined_output or ""
         output_limit = coder.large_file_token_threshold
-        if len(output_content) > output_limit:
+        if coder.context_management_enabled and len(output_content) > output_limit:
             output_content = (
                 output_content[:output_limit]
                 + f"\n... (output truncated at {output_limit} characters, based on"

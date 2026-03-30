@@ -84,7 +84,7 @@ class Tool(BaseTool):
             output_content = combined_output or ""
             # Use the existing token threshold constant as the character limit for truncation
             output_limit = coder.large_file_token_threshold
-            if len(output_content) > output_limit:
+            if coder.context_management_enabled and len(output_content) > output_limit:
                 # Truncate and add a clear message using the constant value
                 output_content = (
                     output_content[:output_limit]
