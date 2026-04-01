@@ -37,7 +37,7 @@ class ToolRegistry:
         return list(cls._tools.keys())
 
     @classmethod
-    def build_registry(cls, agent_config: Optional[Dict] = None) -> Dict[str, Type]:
+    def build_registry(cls, agent_config: Optional[Dict] = None) -> tuple[Dict[str, Type], List[str]]:
         """
         Build a filtered registry of tools based on agent configuration.
 
@@ -46,13 +46,16 @@ class ToolRegistry:
                          tools_includelist/tools_excludelist keys
 
         Returns:
-            Dictionary mapping normalized tool names to tool classes
+            A tuple containing:
+            - Dictionary mapping normalized tool names to tool classes
+            - List of names of custom tools that were loaded
         """
         if agent_config is None:
             agent_config = {}
 
         # Load tools from tool_paths if specified
         tool_paths = agent_config.get("tools_paths", [])
+        loaded_custom_tools = []
 
         for tool_path in tool_paths:
             path = Path(tool_path)
@@ -65,6 +68,7 @@ class ToolRegistry:
                         # Check if module has a Tool class
                         if hasattr(module, "Tool"):
                             cls.register(module.Tool)
+                            loaded_custom_tools.append(module.Tool.NORM_NAME)
                     except Exception as e:
                         # Log error but continue with other files
                         print(f"Error loading tool from {py_file}: {e}")
@@ -75,6 +79,7 @@ class ToolRegistry:
                         module = plugin_manager.load_module(str(path))
                         if hasattr(module, "Tool"):
                             cls.register(module.Tool)
+                            loaded_custom_tools.append(module.Tool.NORM_NAME)
                     except Exception as e:
                         print(f"Error loading tool from {path}: {e}")
 
@@ -108,7 +113,7 @@ class ToolRegistry:
 
         # Store the built registry in the class attribute
         cls._registry = registry
-        return registry
+        return registry, loaded_custom_tools
 
     @classmethod
     def get_registered_tools(cls) -> List[str]:

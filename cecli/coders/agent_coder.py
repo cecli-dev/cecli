@@ -43,6 +43,7 @@ class AgentCoder(Coder):
     def __init__(self, *args, **kwargs):
         self.recently_removed = {}
         self.tool_usage_history = []
+        self.loaded_custom_tools = []
         self.tool_usage_retries = 20
         self.last_round_tools = []
         self.tool_call_vectors = []
@@ -196,6 +197,9 @@ class AgentCoder(Coder):
 
     def show_announcements(self):
         super().show_announcements()
+        if self.loaded_custom_tools:
+            self.io.tool_output(f"Loaded custom tools: {', '.join(self.loaded_custom_tools)}")
+
         skills = self.skills_manager.find_skills()
         if skills:
             skills_list = []
