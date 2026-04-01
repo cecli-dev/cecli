@@ -68,7 +68,8 @@ class ToolRegistry:
                         # Check if module has a Tool class
                         if hasattr(module, "Tool"):
                             cls.register(module.Tool)
-                            loaded_custom_tools.append(module.Tool.NORM_NAME)
+                            if module.Tool.NORM_NAME:
+                                loaded_custom_tools.append(module.Tool.NORM_NAME)
                     except Exception as e:
                         # Log error but continue with other files
                         print(f"Error loading tool from {py_file}: {e}")
@@ -79,7 +80,8 @@ class ToolRegistry:
                         module = plugin_manager.load_module(str(path))
                         if hasattr(module, "Tool"):
                             cls.register(module.Tool)
-                            loaded_custom_tools.append(module.Tool.NORM_NAME)
+                            if module.Tool.NORM_NAME:
+                                loaded_custom_tools.append(module.Tool.NORM_NAME)
                     except Exception as e:
                         print(f"Error loading tool from {path}: {e}")
 
