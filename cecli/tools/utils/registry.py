@@ -52,9 +52,9 @@ class ToolRegistry:
             agent_config = {}
 
         # Load tools from tool_paths if specified
-        tool_paths = agent_config.get("tool_paths", [])
+        tools_paths = agent_config.get("tools_paths", agent_config.get("tool_paths", []))
 
-        for tool_path in tool_paths:
+        for tool_path in tools_paths:
             path = Path(tool_path)
             if path.is_dir():
                 # Find all Python files in the directory
