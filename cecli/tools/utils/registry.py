@@ -23,8 +23,21 @@ class ToolRegistry:
 
     @classmethod
     def register(cls, tool_class):
-        """Register a tool class."""
-        name = tool_class.NORM_NAME
+        """Register a tool class using the name from its SCHEMA."""
+        name = None
+        if hasattr(tool_class, "SCHEMA"):
+            try:
+                name = tool_class.SCHEMA.get("function", {}).get("name", "").lower()
+            except Exception:
+                pass
+
+        if not name and hasattr(tool_class, "NORM_NAME"):
+            name = tool_class.NORM_NAME
+
+        if not name:
+            # Unable to determine a name, can't register
+            return
+
         cls._tools[name] = tool_class
 
     @classmethod
