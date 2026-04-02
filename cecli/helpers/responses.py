@@ -130,3 +130,116 @@ def extract_tools_from_content_xml(content: str) -> Optional[List[ChatCompletion
         return extracted_calls if extracted_calls else None
     except Exception:
         return None
+
+
+def prefix_tool_name(server_name: str, tool_name: str) -> str:
+    """
+    Prefix a tool name with the server name.
+
+    Args:
+        server_name: Name of the MCP server
+        tool_name: Original tool name
+
+    Returns:
+        Prefixed tool name in format "{server_name}--{tool_name}"
+    """
+    return f"{server_name}--{tool_name}"
+
+
+def unprefix_tool_name(prefixed_name: str) -> tuple[str, str]:
+    """
+    Unprefix a tool name that may have a server prefix.
+
+    Args:
+        prefixed_name: Tool name that may be prefixed with "{server_name}--{tool_name}"
+
+    Returns:
+        Tuple of (server_name, tool_name) where server_name may be empty string
+        if no prefix is found
+    """
+    # Split on the first double dash
+    if "--" in prefixed_name:
+        # Find the first double dash
+        first_dash_index = prefixed_name.find("--")
+        server_name = prefixed_name[:first_dash_index]
+        tool_name = prefixed_name[first_dash_index + 2 :]  # +2 to skip both dashes
+        return server_name, tool_name
+    return "", prefixed_name
+
+
+def prefix_tool_call(tool_call, server_name: str):
+    """
+    Prefix the function name in a tool call.
+
+    Args:
+        tool_call: Tool call (dict or ChatCompletionMessageToolCall) with 'function' key/attribute
+        server_name: Name of the MCP server
+
+    Returns:
+        New tool call with prefixed function name (same type as input)
+    """
+    # Handle ChatCompletionMessageToolCall objects
+    if hasattr(tool_call, "function") and hasattr(tool_call.function, "name"):
+        # Create a copy of the tool call object
+        result = ChatCompletionMessageToolCall(
+            id=tool_call.id,
+            type=tool_call.type,
+            function=Function(
+                name=prefix_tool_name(server_name, tool_call.function.name),
+                arguments=tool_call.function.arguments,
+            ),
+        )
+        return result
+
+    # Handle dictionaries
+    if not isinstance(tool_call, dict):
+        return tool_call
+
+    # Create a deep copy to avoid modifying the original
+    result = tool_call.copy()
+    if "function" in result and isinstance(result["function"], dict):
+        result["function"] = result["function"].copy()
+        if "name" in result["function"]:
+            result["function"]["name"] = prefix_tool_name(server_name, result["function"]["name"])
+
+    return result
+
+
+def unprefix_tool_call(tool_call):
+    """
+    Unprefix the function name in a tool call.
+
+    Args:
+        tool_call: Tool call (dict or ChatCompletionMessageToolCall) with 'function' key/attribute
+
+    Returns:
+        Tuple of (server_name, unprefixed_tool_call) where server_name may be empty string
+        if no prefix is found (same type as input)
+    """
+    # Handle ChatCompletionMessageToolCall objects
+    if hasattr(tool_call, "function") and hasattr(tool_call.function, "name"):
+        server_name, unprefixed_name = unprefix_tool_name(tool_call.function.name)
+
+        # Create a copy of the tool call object with unprefixed name
+        result = ChatCompletionMessageToolCall(
+            id=tool_call.id,
+            type=tool_call.type,
+            function=Function(name=unprefixed_name, arguments=tool_call.function.arguments),
+        )
+        return server_name, result
+
+    # Handle dictionaries
+    if not isinstance(tool_call, dict):
+        return "", tool_call
+
+    # Create a deep copy to avoid modifying the original
+    result = tool_call.copy()
+    server_name = ""
+
+    if "function" in result and isinstance(result["function"], dict):
+        result["function"] = result["function"].copy()
+        if "name" in result["function"]:
+            server_name, unprefixed_name = unprefix_tool_name(result["function"]["name"])
+            result["function"]["name"] = unprefixed_name
+
+    return server_name, result

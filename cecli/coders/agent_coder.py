@@ -738,8 +738,11 @@ class AgentCoder(Coder):
 
                 if tool_name:
                     self.last_round_tools.append(tool_name)
+                    content = (
+                        str(self.partial_response_content) if self.partial_response_content else ""
+                    )
                     tool_call_str = str(tool_call_copy)
-                    tool_vector = create_bigram_vector((tool_call_str,))
+                    tool_vector = create_bigram_vector((tool_call_str, content))
                     tool_vector_norm = normalize_vector(tool_vector)
                     self.tool_call_vectors.append(tool_vector_norm)
         if self.last_round_tools:
@@ -752,6 +755,27 @@ class AgentCoder(Coder):
 
         # Ensure we call base implementation to trigger execution of all tools (native + extracted)
         return await super().process_tool_calls(tool_call_response)
+
+    async def _execute_local_tools(self, tool_calls):
+        """Execute local tools via ToolRegistry."""
+        return await self._execute_local_tool_calls(tool_calls)
+
+    async def _execute_mcp_tools(self, server, tool_calls):
+        """Execute MCP tools via LiteLLM."""
+        responses = []
+        for tool_call in tool_calls:
+            # Use existing _execute_mcp_tool logic
+            result = await self._execute_mcp_tool(
+                server, tool_call.function.name, json.loads(tool_call.function.arguments)
+            )
+            responses.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result,
+                }
+            )
+        return responses
 
     def get_active_model(self):
         if self.main_model.agent_model:
@@ -870,7 +894,7 @@ I will proceed based on the tool results and updated context.""")
         Identifies repetitive tool usage patterns from rounds of tool calls.
         """
         history_len = len(self.tool_usage_history)
-        if history_len < 5:
+        if history_len < 1:
             return set()
 
         similarity_repetitive_tools = self._get_repetitive_tools_by_similarity()
@@ -1087,7 +1111,16 @@ You may be stuck in a cycle. To break the exploration loop and continue making p
 3. **Pivot**: Modify your current exploration strategy. Try alternative methods. Prioritize editing.
                 """
 
-            context_parts.append(repetition_warning)
+            # context_parts.append(repetition_warning)
+            ConversationService.get_manager(self).add_message(
+                message_dict=dict(role="user", content=repetition_warning),
+                tag=MessageTag.CUR,
+                hash_key=("repetition", "agent"),
+                mark_for_delete=0,
+                promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE + 2,
+                mark_for_demotion=1,
+                force=True,
+            )
         else:
             self.model_kwargs = {}
             self._last_repetitive_warning_severity = min(
