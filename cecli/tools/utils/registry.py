@@ -20,6 +20,7 @@ class ToolRegistry:
     _tools: Dict[str, Type] = {}  # normalized name -> Tool class
     _essential_tools: Set[str] = {"contextmanager", "replacetext", "finished"}
     _registry: Dict[str, Type] = {}  # cached filtered registry
+    loaded_custom_tools: List[str] = []
 
     @classmethod
     def register(cls, tool_class):
@@ -51,7 +52,7 @@ class ToolRegistry:
         return list(cls._tools.keys())
 
     @classmethod
-    def build_registry(cls, agent_config: Optional[Dict] = None) -> tuple[Dict[str, Type], List[str]]:
+    def build_registry(cls, agent_config: Optional[Dict] = None) -> Dict[str, Type]:
         """
         Build a filtered registry of tools based on agent configuration.
 
@@ -60,9 +61,8 @@ class ToolRegistry:
                          tools_includelist/tools_excludelist keys
 
         Returns:
-            A tuple containing:
-            - Dictionary mapping normalized tool names to tool classes
-            - List of names of custom tools that were loaded
+            A dictionary mapping normalized tool names to tool classes.
+            Custom loaded tools are stored in `ToolRegistry.loaded_custom_tools`.
         """
         if agent_config is None:
             agent_config = {}
@@ -131,7 +131,8 @@ class ToolRegistry:
 
         # Store the built registry in the class attribute
         cls._registry = registry
-        return registry, loaded_custom_tools
+        cls.loaded_custom_tools = loaded_custom_tools
+        return registry
 
     @classmethod
     def get_registered_tools(cls) -> List[str]:

@@ -2566,7 +2566,7 @@ class Coder:
         # Execute tools for each server
         for server, tool_calls in tool_groups.items():
             # Check if this server is an instance of LocalServer (local tools)
-            if isinstance(server, LocalServer):
+            if server.name == "Local":
                 # Local tools - use _execute_local_tools
                 local_responses = await self._execute_local_tools(tool_calls)
                 all_responses[server] = local_responses
