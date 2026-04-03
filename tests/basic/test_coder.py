@@ -1527,22 +1527,25 @@ This command will print 'Hello, World!' to the console."""
             manager._server_tools[mock_server.name] = [{"function": {"name": "test_tool"}}]
             coder = await Coder.create(self.GPT35, "diff", io=io, mcp_manager=manager)
 
-            # Mock _execute_tool_calls to return tool responses
-            tool_responses = [
-                {
-                    "role": "tool",
-                    "tool_call_id": "test_id",
-                    "content": "Tool execution result",
-                }
-            ]
-            coder._execute_tool_calls = AsyncMock(return_value=tool_responses)
+            # Mock _execute_tool_groups to return tool responses
+            # Note: _execute_tool_groups now returns a dict keyed by server
+            tool_responses = {
+                mock_server: [
+                    {
+                        "role": "tool",
+                        "tool_call_id": "test_id",
+                        "content": "Tool execution result",
+                    }
+                ]
+            }
+            coder._execute_tool_groups = AsyncMock(return_value=tool_responses)
 
             # Test process_tool_calls
             result = await coder.process_tool_calls(response)
             assert result
 
-            # Verify that _execute_tool_calls was called
-            coder._execute_tool_calls.assert_called_once()
+            # Verify that _execute_tool_groups was called
+            coder._execute_tool_groups.assert_called_once()
 
             # Verify that the tool response message was added
             assert len(coder.cur_messages) == 1
@@ -1669,17 +1672,21 @@ This command will print 'Hello, World!' to the console."""
             mock_result.content = [mock_content_item]
             mock_call_tool.return_value = mock_result
 
-            # Test _execute_tool_calls directly
-            result = await coder._execute_tool_calls(server_tool_calls)
+            # Test _execute_tool_groups directly
+            result = await coder._execute_tool_groups(server_tool_calls)
 
             # Verify that server.connect was called
             mock_server.connect.assert_called_once()
 
             # Verify that the correct tool responses were returned
+            # _execute_tool_groups now returns a dict keyed by server
             assert len(result) == 1
-            assert result[0]["role"] == "tool"
-            assert result[0]["tool_call_id"] == "test_id"
-            assert result[0]["content"] == "Tool execution result"
+            assert mock_server in result
+            server_responses = result[mock_server]
+            assert len(server_responses) == 1
+            assert server_responses[0]["role"] == "tool"
+            assert server_responses[0]["tool_call_id"] == "test_id"
+            assert server_responses[0]["content"] == "Tool execution result"
 
     async def test_auto_commit_with_none_content_message(self):
         """
@@ -1764,20 +1771,23 @@ This command will print 'Hello, World!' to the console."""
             mock_call_result.content = [mock_content1, mock_content2]
             mock_call_openai_tool.return_value = mock_call_result
 
-            # Test _execute_tool_calls directly
-            result = await coder._execute_tool_calls(server_tool_calls)
-
+            # Test _execute_tool_groups directly
+            result = await coder._execute_tool_groups(server_tool_calls)
             # Verify that call_openai_tool was called
             mock_call_openai_tool.assert_called_once()
 
             # Verify that the correct tool responses were returned
+            # _execute_tool_groups now returns a dict keyed by server
             assert len(result) == 1
-            assert result[0]["role"] == "tool"
-            assert result[0]["tool_call_id"] == "test_id"
+            assert mock_server in result
+            server_responses = result[mock_server]
+            assert len(server_responses) == 1
+            assert server_responses[0]["role"] == "tool"
+            assert server_responses[0]["tool_call_id"] == "test_id"
             # This will fail with the current code, which is the point of the test.
             # The current code returns a hardcoded string.
             # A fixed version should concatenate the text from all content blocks.
-            assert result[0]["content"] == "First part. Second part."
+            assert server_responses[0]["content"] == "First part. Second part."
 
     @patch(
         "cecli.coders.base_coder.experimental_mcp_client.call_openai_tool",
@@ -1835,19 +1845,23 @@ This command will print 'Hello, World!' to the console."""
             ]
             mock_call_openai_tool.return_value = mock_call_result
 
-            # Test _execute_tool_calls directly
-            result = await coder._execute_tool_calls(server_tool_calls)
+            # Test _execute_tool_groups directly
+            result = await coder._execute_tool_groups(server_tool_calls)
 
             # Verify that call_openai_tool was called
             mock_call_openai_tool.assert_called_once()
 
             # Verify that the correct tool responses were returned
+            # _execute_tool_groups now returns a dict keyed by server
             assert len(result) == 1
-            assert result[0]["role"] == "tool"
-            assert result[0]["tool_call_id"] == "test_id"
+            assert mock_server in result
+            server_responses = result[mock_server]
+            assert len(server_responses) == 1
+            assert server_responses[0]["role"] == "tool"
+            assert server_responses[0]["tool_call_id"] == "test_id"
 
             expected_content = (
                 "Plain text. Hello from blob! [embedded binary resource: binary.dat"
                 " (application/octet-stream)]"
             )
-            assert result[0]["content"] == expected_content
+            assert server_responses[0]["content"] == expected_content

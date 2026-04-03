@@ -12,6 +12,10 @@ class BaseTool(ABC):
     NORM_NAME = None
     SCHEMA = None
 
+    # Invocation tracking for detecting repeated tool calls
+    _invocations = {}  # Dict to store last 3 invocations per tool
+    TRACK_INVOCATIONS = True  # Default to True, subclasses can override
+
     @classmethod
     @abstractmethod
     def execute(cls, coder, **params):
@@ -54,6 +58,39 @@ class BaseTool(ABC):
                     )
                     return handle_tool_error(coder, tool_name, ValueError(error_msg))
 
+        # Check for repeated invocations if TRACK_INVOCATIONS is enabled
+        if cls.TRACK_INVOCATIONS:
+            tool_name = None
+            if cls.SCHEMA and "function" in cls.SCHEMA:
+                tool_name = cls.SCHEMA["function"].get("name", "Unknown Tool")
+            else:
+                tool_name = cls.__name__
+
+            # Initialize invocation tracking for this tool if not exists
+            if tool_name not in cls._invocations:
+                cls._invocations[tool_name] = []
+
+            # Check if current parameters match any of the last 3 invocations
+            current_params_tuple = tuple(
+                sorted(params.items())
+            )  # Convert to sorted tuple for comparison
+
+            for i, (prev_params_tuple, _) in enumerate(cls._invocations[tool_name]):
+                if prev_params_tuple == current_params_tuple:
+                    error_msg = (
+                        f"Tool '{tool_name}' has been called with identical parameters recently. "
+                        "This request is denied to prevent repeated operations."
+                    )
+                    return handle_tool_error(coder, tool_name, ValueError(error_msg))
+
+            # Add current invocation to history (keeping only last 3)
+            cls._invocations[tool_name].append((current_params_tuple, params))
+            if len(cls._invocations[tool_name]) > 3:
+                cls._invocations[tool_name] = cls._invocations[tool_name][-3:]
+        else:
+            # When TRACK_INVOCATIONS is False, clear all invocation history
+            # This indicates the job is making progress, so reset tracking for all tools
+            cls._invocations.clear()
         try:
             return cls.execute(coder, **params)
         except Exception as e:

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from cecli import utils
 from cecli.change_tracker import ChangeTracker
-from cecli.helpers import nested
+from cecli.helpers import nested, responses
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.similarity import (
@@ -124,7 +124,7 @@ class AgentCoder(Coder):
         config["command_timeout"] = nested.getter(config, "command_timeout", 30)
         config["hot_reload"] = nested.getter(config, "hot_reload", False)
 
-        config["tools_paths"] = nested.getter(config, "tools_paths", [])
+        config["tools_paths"] = nested.getter(config, ["tools_paths", "tool_paths"], [])
         config["tools_includelist"] = nested.getter(
             config, ["tools_includelist", "tools_whitelist"], []
         )
@@ -246,7 +246,7 @@ class AgentCoder(Coder):
             tool_name = tool_call.function.name
             result_message = ""
             try:
-                if tool_name.lower() in self.write_tools:
+                if responses.unprefix_tool_name(tool_name)[1].lower() in self.write_tools:
                     used_write_tool = True
 
                 args_string = tool_call.function.arguments.strip()
@@ -738,8 +738,11 @@ class AgentCoder(Coder):
 
                 if tool_name:
                     self.last_round_tools.append(tool_name)
+                    content = (
+                        str(self.partial_response_content) if self.partial_response_content else ""
+                    )
                     tool_call_str = str(tool_call_copy)
-                    tool_vector = create_bigram_vector((tool_call_str,))
+                    tool_vector = create_bigram_vector((tool_call_str, content))
                     tool_vector_norm = normalize_vector(tool_vector)
                     self.tool_call_vectors.append(tool_vector_norm)
         if self.last_round_tools:
@@ -752,6 +755,27 @@ class AgentCoder(Coder):
 
         # Ensure we call base implementation to trigger execution of all tools (native + extracted)
         return await super().process_tool_calls(tool_call_response)
+
+    async def _execute_local_tools(self, tool_calls):
+        """Execute local tools via ToolRegistry."""
+        return await self._execute_local_tool_calls(tool_calls)
+
+    async def _execute_mcp_tools(self, server, tool_calls):
+        """Execute MCP tools via LiteLLM."""
+        responses = []
+        for tool_call in tool_calls:
+            # Use existing _execute_mcp_tool logic
+            result = await self._execute_mcp_tool(
+                server, tool_call.function.name, json.loads(tool_call.function.arguments)
+            )
+            responses.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result,
+                }
+            )
+        return responses
 
     def get_active_model(self):
         if self.main_model.agent_model:
@@ -870,14 +894,15 @@ I will proceed based on the tool results and updated context.""")
         Identifies repetitive tool usage patterns from rounds of tool calls.
         """
         history_len = len(self.tool_usage_history)
-        if history_len < 5:
+        if history_len < 1:
             return set()
 
         similarity_repetitive_tools = self._get_repetitive_tools_by_similarity()
 
         if self.last_round_tools:
             last_round_has_write = any(
-                tool.lower() in self.write_tools for tool in self.last_round_tools
+                responses.unprefix_tool_name(tool)[1].lower() in self.write_tools
+                for tool in self.last_round_tools
             )
             if last_round_has_write:
                 # Remove half of the history when a write tool is used
@@ -889,7 +914,8 @@ I will proceed based on the tool results and updated context.""")
         return {
             tool
             for tool in similarity_repetitive_tools
-            if tool.lower() in self.read_tools or tool.lower() in self.write_tools
+            if responses.unprefix_tool_name(tool)[1].lower() in self.read_tools
+            or responses.unprefix_tool_name(tool)[1].lower() in self.write_tools
         }
 
     def _get_repetitive_tools_by_similarity(self):
@@ -990,6 +1016,8 @@ I will proceed based on the tool results and updated context.""")
             )
 
         context_parts.append("\n\n")
+        repetition_warning = None
+
         if repetitive_tools:
             if not self.model_kwargs:
                 self.model_kwargs = {
@@ -1019,7 +1047,7 @@ I will proceed based on the tool results and updated context.""")
                     )
                     self.model_kwargs["frequency_penalty"] = min(0, max(freq_penalty - 0.15, 0))
 
-            self.model_kwargs["temperature"] = min(self.model_kwargs["temperature"], 1)
+            self.model_kwargs["temperature"] = max(0, min(self.model_kwargs["temperature"], 1))
             # One twentieth of the time, just straight reset the randomness
             if random.random() < 0.05:
                 self.model_kwargs = {}
@@ -1028,11 +1056,11 @@ I will proceed based on the tool results and updated context.""")
                 self._last_repetitive_warning_turn = self.turn_count
                 self._last_repetitive_warning_severity += 1
 
-            repetition_warning = f"""
-## Repetition Detected
-You have been using the following tools repetitively: {', '.join([f'`{t}`' for t in repetitive_tools])}.
-Do not repeat the same parameters for these tools in your next turns. Prioritize editing.
-            """
+            repetition_warning = (
+                "## Repetition Detected\nYou have used the following tools repetitively:"
+                f" {', '.join([f'`{t}`' for t in repetitive_tools])}.\nDo not repeat the same"
+                " parameters for these tools in your next turns. Prioritize editing.\n"
+            )
 
             if self._last_repetitive_warning_severity > 5:
                 self._last_repetitive_warning_severity = 0
@@ -1079,19 +1107,32 @@ Do not repeat the same parameters for these tools in your next turns. Prioritize
                     ]
                 )
 
-                repetition_warning += f"""
-## CRITICAL: Execution Loop Detected
-You may be stuck in a cycle. To break the exploration loop and continue making progress, please do the following:
-1. **Analyze**: Summarize your findings. Describe how you can stop repeating yourself and make progress.
-2. **Reframe**: To help with creativity, include a 2-sentence story about {animal} {verb} {fruit} in your thoughts.
-3. **Pivot**: Modify your current exploration strategy. Try alternative methods. Prioritize editing.
-                """
+                repetition_warning += (
+                    "## CRITICAL: Execution Loop Detected\nYou may be stuck in a cycle. To break"
+                    " the exploration loop and continue making progress, please do the"
+                    " following:\n1. **Analyze**: Summarize your findings. Describe how you can"
+                    " stop repeating yourself and make progress.2. **Reframe**: To help with"
+                    f" creativity, include a 2-sentence story about {animal} {verb} {fruit} in your"
+                    " thoughts.\n3. **Pivot**: Modify your current exploration strategy. Try"
+                    " alternative methods. Prioritize editing.\n"
+                )
 
-            context_parts.append(repetition_warning)
+            # context_parts.append(repetition_warning)
         else:
             self.model_kwargs = {}
             self._last_repetitive_warning_severity = min(
                 self._last_repetitive_warning_severity - 1, 0
+            )
+
+        if repetition_warning:
+            ConversationService.get_manager(self).add_message(
+                message_dict=dict(role="user", content=repetition_warning),
+                tag=MessageTag.CUR,
+                hash_key=("repetition", "agent"),
+                mark_for_delete=0,
+                promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE + 2,
+                mark_for_demotion=1,
+                force=True,
             )
 
         context_parts.append("</context>")
@@ -1100,7 +1141,8 @@ You may be stuck in a cycle. To break the exploration loop and continue making p
     def _generate_write_context(self):
         if self.last_round_tools:
             last_round_has_write = any(
-                tool.lower() in self.write_tools for tool in self.last_round_tools
+                responses.unprefix_tool_name(tool)[1].lower() in self.write_tools
+                for tool in self.last_round_tools
             )
             if last_round_has_write:
                 context_parts = [

@@ -2394,6 +2394,7 @@ class Coder:
                         return
             except Exception as e:
                 self.io.tool_error(f"Error processing tool calls: {str(e)}")
+                self.io.tool_error(traceback.format_exc())
                 self.reflected_message = True
                 return
                 # Continue without tool processing
@@ -2445,29 +2446,40 @@ class Coder:
                     self.reflected_message = test_errors
                     return
 
-    async def process_tool_calls(self, tool_call_response):
-        # Use partial_response_tool_calls if available (populated by consolidate_chunks)
-        # otherwise try to extract from tool_call_response
-        original_tool_calls = []
+    def _extract_and_prepare_tool_calls(self, tool_call_response):
+        """
+        Unified extraction and preparation of tool calls.
+        Returns: list of prepared tool calls
+        """
+        # 1. Use partial_response_tool_calls if available
         if self.partial_response_tool_calls:
-            original_tool_calls = self.partial_response_tool_calls
+            tool_calls = self.partial_response_tool_calls
+        # 2. Extract from tool_call_response
         elif tool_call_response is not None:
-            try:
-                if hasattr(tool_call_response, "choices") and tool_call_response.choices:
-                    message = tool_call_response.choices[0].message
-                    if hasattr(message, "tool_calls") and message.tool_calls:
-                        original_tool_calls = message.tool_calls
-            except (AttributeError, IndexError):
-                pass
+            tool_calls = self._extract_from_response(tool_call_response)
+        else:
+            return []
 
-        if not original_tool_calls:
-            return False
+        # 3. Expand concatenated JSON
+        return self._expand_concatenated_json(tool_calls)
 
-        # Expand any tool calls that have concatenated JSON in their arguments.
-        # This is necessary because some models (like Gemini) will serialize
-        # multiple tool calls in this way.
+    def _extract_from_response(self, response):
+        """Extract tool calls from various response formats."""
+        original_tool_calls = []
+        try:
+            if hasattr(response, "choices") and response.choices:
+                message = response.choices[0].message
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    original_tool_calls = message.tool_calls
+        except (AttributeError, IndexError):
+            pass
+
+        return original_tool_calls
+
+    def _expand_concatenated_json(self, tool_calls):
+        """Expand concatenated JSON arguments."""
         expanded_tool_calls = []
-        for tool_call in original_tool_calls:
+        for tool_call in tool_calls:
             args_string = tool_call.function.arguments.strip()
 
             # If there are no arguments, or it's not a string that looks like it could
@@ -2498,30 +2510,252 @@ class Coder:
                     new_tool_call.id = f"{getattr(tool_call, 'id', 'call')}-{i}"
                 expanded_tool_calls.append(new_tool_call)
 
-        # Collect all tool calls grouped by server
-        server_tool_calls = self._gather_server_tool_calls(expanded_tool_calls)
+        return expanded_tool_calls
 
-        if server_tool_calls and self.num_tool_calls < self.max_tool_calls:
-            self._print_tool_call_info(server_tool_calls)
+    def _group_tools_by_executor(self, tool_calls):
+        """
+        Group tools by their server instance.
+        Returns: dict with server instances as keys and lists of tool calls as values.
+        Uses servers from self.mcp_manager (including LocalServer for local tools).
+        """
+        groups = {}
 
-            if await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
-                tool_responses = await self._execute_tool_calls(server_tool_calls)
+        for tool_call in tool_calls:
+            # Find which server in mcp_manager handles this tool
+            server = self._find_mcp_server_for_tool(tool_call)
+            if server:
+                if server not in groups:
+                    groups[server] = []
 
-                # Add all tool responses
-                for tool_response in tool_responses:
-                    ConversationService.get_manager(self).add_message(
-                        message_dict=tool_response,
-                        tag=MessageTag.CUR,
-                        hash_key=(tool_response["tool_call_id"], str(time.monotonic_ns())),
-                        promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                        mark_for_demotion=1,
+                _, unprefixed_tool_call = responses.unprefix_tool_call(tool_call)
+                groups[server].append(unprefixed_tool_call)
+
+        return groups
+
+    def _find_mcp_server_for_tool(self, tool_call):
+        """Find which MCP server handles this tool."""
+        if not self.mcp_tools or len(self.mcp_tools) == 0:
+            return None
+
+        # Unprefix the tool name to get the server name and unprefixed tool name
+        server_name_from_prefix, unprefixed_tool_name = responses.unprefix_tool_name(
+            nested.getter(tool_call, "function.name")
+        )
+
+        # Check if this tool_call matches any MCP tool
+        for server_name, server_tools in self.mcp_tools:
+            for tool in server_tools:
+                tool_name_from_schema = nested.getter(tool, "function.name")
+                if (
+                    tool_name_from_schema
+                    and tool_name_from_schema.lower() == unprefixed_tool_name.lower()
+                ):
+                    # Find the McpServer instance that will be used for communication
+                    for server in self.mcp_manager:
+                        if server.name == server_name and (
+                            not server_name_from_prefix or server.name == server_name_from_prefix
+                        ):
+                            return server
+
+        return None
+
+    async def _execute_tool_groups(self, tool_groups):
+        """Execute all tool groups."""
+        all_responses = {}
+
+        # Execute tools for each server
+        for server, tool_calls in tool_groups.items():
+            # Check if this server is an instance of LocalServer (local tools)
+            if isinstance(server, LocalServer):
+                # Local tools - use _execute_local_tools
+                local_responses = await self._execute_local_tools(tool_calls)
+                all_responses[server] = local_responses
+            else:
+                # MCP tools - use _execute_mcp_tools
+                mcp_responses = await self._execute_mcp_tools(server, tool_calls)
+                all_responses[server] = mcp_responses
+
+        return all_responses
+
+    async def _execute_local_tools(self, tool_calls):
+        """Execute local tools via ToolRegistry."""
+        # Default implementation returns errors
+        # AgentCoder will override this
+        error_responses = []
+        for tool_call in tool_calls:
+            error_responses.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": f"Coder does not support local tool: {tool_call.function.name}",
+                }
+            )
+        return error_responses
+
+    async def _execute_mcp_tools(self, server, tool_calls):
+        """Execute MCP tools via LiteLLM."""
+        tool_responses = []
+        try:
+            # Connect to the server once
+            session = await server.connect()
+            tool_id_set = set()
+
+            # Execute all tool calls for this server
+            for tool_call in tool_calls:
+                # LLM APIs sometimes return duplicates and that's annoying part 4
+                if tool_call.id in tool_id_set:
+                    continue
+
+                tool_id_set.add(tool_call.id)
+
+                try:
+                    # Arguments can be a stream of JSON objects.
+                    # We need to parse them and run a tool call for each.
+                    args_string = tool_call.function.arguments.strip()
+                    parsed_args_list = []
+                    if args_string:
+                        json_chunks = utils.split_concatenated_json(args_string)
+                        for chunk in json_chunks:
+                            try:
+                                parsed_args_list.append(json.loads(chunk))
+                            except json.JSONDecodeError:
+                                self.io.tool_warning(
+                                    "Malformed JSON arguments in tool"
+                                    f" {tool_call.function.name}: {chunk}"
+                                )
+                                continue
+
+                    if not parsed_args_list and not args_string:
+                        parsed_args_list.append({})  # For tool calls with no arguments
+
+                    all_results_content = []
+                    for args in parsed_args_list:
+                        new_tool_call = copy_tool_call(tool_call)
+                        new_tool_call.function.arguments = json.dumps(args)
+
+                        if not await HookIntegration.call_pre_tool_hooks(
+                            self, new_tool_call.function.name, args
+                        ):
+                            self.io.tool_warning("Tool call skipped by pre-tool call hook")
+                            all_results_content.append("Tool Request Aborted.")
+                            continue
+
+                        call_result = await experimental_mcp_client.call_openai_tool(
+                            session=session,
+                            openai_tool=new_tool_call,
+                        )
+
+                        content_parts = []
+                        if call_result.content:
+                            for item in call_result.content:
+                                if hasattr(item, "resource"):  # EmbeddedResource
+                                    resource = item.resource
+                                    if hasattr(resource, "text"):  # TextResourceContents
+                                        content_parts.append(resource.text)
+                                    elif hasattr(resource, "blob"):  # BlobResourceContents
+                                        try:
+                                            decoded_blob = base64.b64decode(resource.blob).decode(
+                                                "utf-8"
+                                            )
+                                            content_parts.append(decoded_blob)
+                                        except (UnicodeDecodeError, TypeError):
+                                            # Handle non-text blobs gracefully
+                                            name = getattr(resource, "name", "unnamed")
+                                            mime_type = getattr(
+                                                resource, "mimeType", "unknown mime type"
+                                            )
+                                            content_parts.append(
+                                                f"[embedded binary resource: {name} ({mime_type})]"
+                                            )
+                                elif hasattr(item, "text"):  # TextContent
+                                    content_parts.append(item.text)
+
+                        result_text = "".join(content_parts)
+
+                        if not await HookIntegration.call_post_tool_hooks(
+                            self, new_tool_call.function.name, args, result_text
+                        ):
+                            self.io.tool_warning("Tool call output skipped by post-tool call hook")
+                            all_results_content.append("Tool Response Redacted.")
+                            continue
+
+                        all_results_content.append(result_text)
+
+                    tool_responses.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": "\n\n".join(all_results_content),
+                        }
                     )
 
-                return True
-        elif self.num_tool_calls >= self.max_tool_calls:
-            self.io.tool_warning(f"Only {self.max_tool_calls} tool calls allowed, stopping.")
+                except Exception as e:
+                    tool_error = f"Error executing tool call {tool_call.function.name}: \n{e}"
+                    self.io.tool_warning(
+                        f"Executing {tool_call.function.name} on {server.name} failed: \n "
+                        f" Error: {e}\n"
+                    )
+                    tool_responses.append(
+                        {"role": "tool", "tool_call_id": tool_call.id, "content": tool_error}
+                    )
+        except httpx.RemoteProtocolError as e:
+            connection_error = f"Server {server.name} disconnected unexpectedly: {e}"
+            self.io.tool_warning(connection_error)
+            for tool_call in tool_calls:
+                tool_responses.append(
+                    {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
+                )
+        except Exception as e:
+            connection_error = f"Could not connect to server {server.name}\n{e}"
+            self.io.tool_warning(connection_error)
+            for tool_call in tool_calls:
+                tool_responses.append(
+                    {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
+                )
 
-        return False
+        return tool_responses
+
+    async def process_tool_calls(self, tool_call_response):
+        """Simplified main entry point."""
+        # Check if max tool calls exceeded
+        if self.num_tool_calls >= self.max_tool_calls:
+            self.io.tool_warning(f"Only {self.max_tool_calls} tool calls allowed, stopping.")
+            return False
+
+        # 1. Extract and prepare tool calls
+        prepared_calls = self._extract_and_prepare_tool_calls(tool_call_response)
+        if not prepared_calls:
+            return False
+
+        # 2. Group by executor
+        tool_groups = self._group_tools_by_executor(prepared_calls)
+
+        # 3. Print tool call information
+        if tool_groups:
+            self._print_tool_call_info(server_tool_calls=tool_groups)
+
+        # 4. Ask for user confirmation
+        if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
+            return False
+
+        # 5. Execute tools
+        tool_responses_by_server = await self._execute_tool_groups(tool_groups)
+
+        # 6. Add responses to conversation (re-prefixing if necessary)
+        tool_responses = []
+        for server, server_responses in tool_responses_by_server.items():
+            for tool_response in server_responses:
+                tool_responses.append(tool_response)
+
+                ConversationService.get_manager(self).add_message(
+                    message_dict=tool_response,
+                    tag=MessageTag.CUR,
+                    hash_key=(tool_response["tool_call_id"], str(time.monotonic_ns())),
+                    promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
+                    mark_for_demotion=1,
+                )
+
+        return bool(tool_responses)
 
     def _print_tool_call_info(self, server_tool_calls):
         """Print information about an MCP tool call."""
@@ -2541,226 +2775,6 @@ class Coder:
                     self.io.tool_error(traceback.format_exc())
                     pass
 
-    def _gather_server_tool_calls(self, tool_calls):
-        """Collect all tool calls grouped by server.
-        Args:
-            tool_calls: List of tool calls from the LLM response
-
-        Returns:
-            dict: Dictionary mapping servers to their respective tool calls
-        """
-        if not self.mcp_tools or len(self.mcp_tools) == 0:
-            return None
-
-        server_tool_calls = {}
-        tool_id_set = set()
-
-        for tool_call in tool_calls:
-            # LLM APIs sometimes return duplicates and that's annoying part 3
-            if tool_call.get("id") in tool_id_set:
-                continue
-
-            tool_id_set.add(tool_call.get("id"))
-
-            # Check if this tool_call matches any MCP tool
-            for server_name, server_tools in self.mcp_tools:
-                for tool in server_tools:
-                    tool_name_from_schema = tool.get("function", {}).get("name")
-                    if (
-                        tool_name_from_schema
-                        and tool_name_from_schema.lower() == tool_call.function.name.lower()
-                    ):
-                        # Find the McpServer instance that will be used for communication
-                        for server in self.mcp_manager:
-                            if server.name == server_name:
-                                if server not in server_tool_calls:
-                                    server_tool_calls[server] = []
-                                server_tool_calls[server].append(tool_call)
-                                break
-
-        return server_tool_calls
-
-    async def _execute_tool_calls(self, tool_calls):
-        """Process tool calls from the response and execute them if they match MCP tools.
-        Returns a list of tool response messages."""
-        tool_responses = []
-
-        # Define the coroutine to execute all tool calls for a single server
-        async def _exec_server_tools(server, tool_calls_list):
-            if isinstance(server, LocalServer):
-                if hasattr(self, "_execute_local_tool_calls"):
-                    return await self._execute_local_tool_calls(tool_calls_list)
-                else:
-                    # This coder doesn't support local tools, return errors for all calls
-                    error_responses = []
-                    for tool_call in tool_calls_list:
-                        error_responses.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": (
-                                    f"Coder does not support local tool: {tool_call.function.name}"
-                                ),
-                            }
-                        )
-                    return error_responses
-
-            tool_responses = []
-            try:
-                # Connect to the server once
-                session = await server.connect()
-                tool_id_set = set()
-
-                # Execute all tool calls for this server
-                for tool_call in tool_calls_list:
-                    # LLM APIs sometimes return duplicates and that's annoying part 4
-                    if tool_call.id in tool_id_set:
-                        continue
-
-                    tool_id_set.add(tool_call.id)
-
-                    try:
-                        # Arguments can be a stream of JSON objects.
-                        # We need to parse them and run a tool call for each.
-                        args_string = tool_call.function.arguments.strip()
-                        parsed_args_list = []
-                        if args_string:
-                            json_chunks = utils.split_concatenated_json(args_string)
-                            for chunk in json_chunks:
-                                try:
-                                    parsed_args_list.append(json.loads(chunk))
-                                except json.JSONDecodeError:
-                                    self.io.tool_warning(
-                                        "Malformed JSON arguments in tool"
-                                        f" {tool_call.function.name}: {chunk}"
-                                    )
-                                    continue
-
-                        if not parsed_args_list and not args_string:
-                            parsed_args_list.append({})  # For tool calls with no arguments
-
-                        all_results_content = []
-                        for args in parsed_args_list:
-                            new_tool_call = copy_tool_call(tool_call)
-                            new_tool_call.function.arguments = json.dumps(args)
-
-                            if not await HookIntegration.call_pre_tool_hooks(
-                                self, new_tool_call.function.name, args
-                            ):
-                                self.io.tool_warning("Tool call skipped by pre-tool call hook")
-                                all_results_content.append("Tool Request Aborted.")
-                                continue
-
-                            call_result = await experimental_mcp_client.call_openai_tool(
-                                session=session,
-                                openai_tool=new_tool_call,
-                            )
-
-                            content_parts = []
-                            if call_result.content:
-                                for item in call_result.content:
-                                    if hasattr(item, "resource"):  # EmbeddedResource
-                                        resource = item.resource
-                                        if hasattr(resource, "text"):  # TextResourceContents
-                                            content_parts.append(resource.text)
-                                        elif hasattr(resource, "blob"):  # BlobResourceContents
-                                            try:
-                                                decoded_blob = base64.b64decode(
-                                                    resource.blob
-                                                ).decode("utf-8")
-                                                content_parts.append(decoded_blob)
-                                            except (UnicodeDecodeError, TypeError):
-                                                # Handle non-text blobs gracefully
-                                                name = getattr(resource, "name", "unnamed")
-                                                mime_type = getattr(
-                                                    resource, "mimeType", "unknown mime type"
-                                                )
-                                                content_parts.append(
-                                                    "[embedded binary resource:"
-                                                    f" {name} ({mime_type})]"
-                                                )
-                                    elif hasattr(item, "text"):  # TextContent
-                                        content_parts.append(item.text)
-
-                            result_text = "".join(content_parts)
-
-                            if not await HookIntegration.call_post_tool_hooks(
-                                self, new_tool_call.function.name, args, result_text
-                            ):
-                                self.io.tool_warning(
-                                    "Tool call output skipped by post-tool call hook"
-                                )
-                                all_results_content.append("Tool Response Redacted.")
-                                continue
-
-                            all_results_content.append(result_text)
-
-                        tool_responses.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": "\n\n".join(all_results_content),
-                            }
-                        )
-
-                    except Exception as e:
-                        tool_error = f"Error executing tool call {tool_call.function.name}: \n{e}"
-                        self.io.tool_warning(
-                            f"Executing {tool_call.function.name} on {server.name} failed: \n "
-                            f" Error: {e}\n"
-                        )
-                        tool_responses.append(
-                            {"role": "tool", "tool_call_id": tool_call.id, "content": tool_error}
-                        )
-            except httpx.RemoteProtocolError as e:
-                connection_error = f"Server {server.name} disconnected unexpectedly: {e}"
-                self.io.tool_warning(connection_error)
-                for tool_call in tool_calls_list:
-                    tool_responses.append(
-                        {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
-                    )
-            except Exception as e:
-                connection_error = f"Could not connect to server {server.name}\n{e}"
-                self.io.tool_warning(connection_error)
-                for tool_call in tool_calls_list:
-                    tool_responses.append(
-                        {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
-                    )
-
-            return tool_responses
-
-        # Execute all tool calls concurrently
-        async def _execute_all_tool_calls():
-            tasks = []
-            for server, tool_calls_list in tool_calls.items():
-                tasks.append(_exec_server_tools(server, tool_calls_list))
-            # Wait for all tasks to complete
-            results = await asyncio.gather(*tasks)
-            return results
-
-        # Run the async execution and collect results
-        if tool_calls:
-            all_results = []
-            max_retries = 3
-            for i in range(max_retries):
-                try:
-                    all_results = await _execute_all_tool_calls()
-                    break
-                except asyncio.exceptions.CancelledError:
-                    if i < max_retries - 1:
-                        await asyncio.sleep(0.1)  # Brief pause before retrying
-                    else:
-                        self.io.tool_warning(
-                            "MCP tool execution failed after multiple retries due to cancellation."
-                        )
-                        all_results = []
-
-            # Flatten the results from all servers
-            for server_results in all_results:
-                tool_responses.extend(server_results)
-
-        return tool_responses
-
     async def initialize_mcp_tools(self):
         """
         Any setup that needs to happen for MCP Servers so that coder can use it properly
@@ -2779,11 +2793,14 @@ class Coder:
         raise AttributeError("mcp_tools is read only.")
 
     def get_tool_list(self):
-        """Get a flattened list of all MCP tools."""
+        """Get a flattened list of all MCP tools with server prefixes."""
         tool_list = []
         if self.mcp_tools:
-            for _, server_tools in self.mcp_tools:
-                tool_list.extend(server_tools)
+            for server_name, server_tools in self.mcp_tools:
+                for tool in server_tools:
+                    # Prefix the tool name with server name
+                    prefixed_tool = responses.prefix_tool_call(tool, server_name)
+                    tool_list.append(prefixed_tool)
         return tool_list
 
     async def reply_completed(self):

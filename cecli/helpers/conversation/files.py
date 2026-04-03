@@ -353,7 +353,9 @@ class ConversationFiles:
         image_files = set(self._image_files.keys())
         return regular_files.union(image_files)
 
-    def update_file_context(self, file_path: str, start_line: int, end_line: int) -> None:
+    def update_file_context(
+        self, file_path: str, start_line: int, end_line: int, auto_remove=True
+    ) -> None:
         """
         Update numbered contexts for a file with a new range.
 
@@ -399,13 +401,8 @@ class ConversationFiles:
 
         # Remove using hash key (file_context, abs_fname)
         coder = self.get_coder()
-        if coder:
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_user", abs_fname)
-            )
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_assistant", abs_fname)
-            )
+        if coder and auto_remove:
+            self.remove_file_messages(abs_fname)
 
     def get_file_context(self, file_path: str) -> str:
         """
@@ -471,6 +468,25 @@ class ConversationFiles:
 
         # Remove from numbered contexts
         self._numbered_contexts.pop(abs_fname, None)
+
+        # Remove using hash key (file_context, abs_fname)
+        coder = self.get_coder()
+        if coder:
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_user", abs_fname)
+            )
+            ConversationService.get_manager(coder).remove_message_by_hash_key(
+                ("file_context_assistant", abs_fname)
+            )
+
+    def remove_file_messages(self, file_path: str) -> None:
+        """
+        Remove all file messages for a file path.
+
+        Args:
+            file_path: Absolute file path
+        """
+        abs_fname = os.path.abspath(file_path)
 
         # Remove using hash key (file_context, abs_fname)
         coder = self.get_coder()

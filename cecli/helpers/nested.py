@@ -54,7 +54,7 @@ def arg_resolver(obj: Union[List[Any], Dict[str, Any], Any], key: str, default: 
 def getter(
     data: Union[List[Any], Dict[str, Any], Any], path: Union[str, List[str]], default: Any = None
 ) -> Any:
-    """Safely access nested dicts and lists using normalized dot-notation."""
+    """Safely access nested dicts, lists, and objects using normalized dot-notation."""
 
     if data is None:
         return default

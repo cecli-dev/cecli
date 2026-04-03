@@ -82,7 +82,9 @@ class Tool(BaseTool):
         Accepts an array of show operations to perform.
         Uses utility functions for path resolution and error handling.
         """
-        tool_name = "showcontext"
+        tool_name = "ShowContext"
+        already_up_to_date = False
+
         try:
             # 1. Validate show parameter
             if not isinstance(show, list):
@@ -239,14 +241,35 @@ class Tool(BaseTool):
                 # Note: start_line_idx and end_line_idx are 0-based, convert to 1-based for hashline
                 start_line = start_line_idx + 1  # Convert to 1-based
                 end_line = end_line_idx + 1  # Convert to 1-based
-                ConversationService.get_files(coder).update_file_context(
-                    abs_path, start_line, end_line
+
+                original_context_content = ConversationService.get_files(coder).get_file_context(
+                    abs_path
                 )
+                ConversationService.get_files(coder).update_file_context(
+                    abs_path, start_line, end_line, auto_remove=False
+                )
+                new_context_content = ConversationService.get_files(coder).get_file_context(
+                    abs_path
+                )
+
+                if original_context_content and original_context_content == new_context_content:
+                    already_up_to_date = True
+                else:
+                    ConversationService.get_files(coder).remove_file_messages(abs_path)
                 ConversationService.get_chunks(coder).add_file_context_messages()
+
             # Log success and return the formatted context directly
             coder.edit_allowed = True
-            coder.io.tool_output(f"Successfully retrieved context for {len(show)} file(s)")
-            return f"Successfully retrieved most recent context for {len(show)} file(s)"
+
+            if already_up_to_date:
+                coder.io.tool_output("File contents already up to date")
+                return (
+                    "File contents already up to date. Please proceed with your task. "
+                    "Do not call ShowContext again until you edit the file."
+                )
+            else:
+                coder.io.tool_output(f"Successfully retrieved context for {len(show)} file(s)")
+                return f"Successfully retrieved most recent contents for {len(show)} file(s)"
 
         except ToolError as e:
             # Handle expected errors raised by utility functions or validation

@@ -304,7 +304,7 @@ def handle_tool_error(coder, tool_name, e, add_traceback=True):
         error_message += f"\n{traceback.format_exc()}"
     coder.io.tool_error(error_message)
     # Return only the core error message to the LLM for brevity
-    return f"Error: {str(e)}"
+    return f"Error in {tool_name}: {str(e)}"
 
 
 def format_tool_result(

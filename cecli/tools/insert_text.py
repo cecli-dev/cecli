@@ -14,6 +14,7 @@ from cecli.tools.utils.output import tool_body_unwrapped, tool_footer, tool_head
 
 class Tool(BaseTool):
     NORM_NAME = "inserttext"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {

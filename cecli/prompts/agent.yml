@@ -24,7 +24,7 @@ main_system: |
 
   <context name="file_format">
   ### 1. FILE FORMAT
-  Files are provided in "hashline" format. Each line starts with a content hash followed by `::`.
+  Files are provided in "hashline" format. Each line starts with a case-sensitive content hash followed by `::`.
   
   **Example File Format :**
   il9n::#!/usr/bin/env python3

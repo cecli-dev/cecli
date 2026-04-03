@@ -110,7 +110,7 @@ def test_mutually_exclusive_parameters_raise(coder_with_file):
         start_line="invalid_hashline",
     )
 
-    assert result.startswith("Error:")
+    assert result.startswith("Error in InsertText:")
     assert "Hashline insertion failed" in result
     assert file_path.read_text().startswith("first line")
     coder.io.tool_error.assert_called()

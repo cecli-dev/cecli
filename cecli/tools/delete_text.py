@@ -11,6 +11,7 @@ from cecli.tools.utils.helpers import (
 
 class Tool(BaseTool):
     NORM_NAME = "deletetext"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {

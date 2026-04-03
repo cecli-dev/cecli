@@ -1000,6 +1000,10 @@ class Model(ModelSettings):
                 else:
                     temperature = float(self.use_temperature)
             kwargs["temperature"] = temperature
+        else:
+            if override_kwargs and override_kwargs.get("temperature", None):
+                override_kwargs.pop("temperature", None)
+
         effective_tools = tools
         if effective_tools is None and functions:
             effective_tools = [dict(type="function", function=f) for f in functions]
