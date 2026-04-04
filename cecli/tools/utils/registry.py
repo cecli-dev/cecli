@@ -109,25 +109,25 @@ class ToolRegistry:
             "tools_excludelist", agent_config.get("tools_blacklist", [])
         )
 
-        registry = {}
+        # Start with a base set of tools
+        if tools_includelist:
+            # If includelist is provided, start with only those tools
+            working_set = set(tools_includelist)
+        else:
+            # Otherwise, start with all registered tools
+            working_set = set(cls._tools.keys())
 
-        for tool_name, tool_class in cls._tools.items():
-            should_include = True
+        # Add essential tools, they can't be removed by the excludelist
+        working_set.update(cls._essential_tools)
 
-            # Apply include list if specified
-            if tools_includelist:
-                should_include = tool_name in tools_includelist
+        # Remove tools from the excludelist, but keep essential ones
+        if tools_excludelist:
+            for tool_name in tools_excludelist:
+                if tool_name in working_set and tool_name not in cls._essential_tools:
+                    working_set.remove(tool_name)
 
-            # Essential tools are always included
-            if tool_name in cls._essential_tools:
-                should_include = True
-
-            # Apply exclude list (unless essential)
-            if tool_name in tools_excludelist and tool_name not in cls._essential_tools:
-                should_include = False
-
-            if should_include:
-                registry[tool_name] = tool_class
+        # Build the final registry from the working set
+        registry = {name: cls._tools[name] for name in working_set if name in cls._tools}
 
         # Store the built registry in the class attribute
         cls._registry = registry
