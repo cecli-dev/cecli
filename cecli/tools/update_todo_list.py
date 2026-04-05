@@ -76,6 +76,13 @@ class Tool(BaseTool):
             remaining_tasks = []
 
             for task_item in tasks:
+                if not isinstance(task_item, dict):
+                    task_item = {
+                        "task": str(task_item),
+                        "done": False,
+                        "current": False,
+                    }
+
                 if task_item.get("done", False):
                     done_tasks.append(f"✓ {task_item['task']}")
                 else:
@@ -197,6 +204,13 @@ class Tool(BaseTool):
             remaining_tasks = []
 
             for task_item in tasks:
+                if not isinstance(task_item, dict):
+                    task_item = {
+                        "task": str(task_item),
+                        "done": False,
+                        "current": False,
+                    }
+
                 if task_item.get("done", False):
                     done_tasks.append(f"✓ {task_item['task']}")
                 else:
