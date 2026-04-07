@@ -40,6 +40,20 @@ from dotenv import load_dotenv
 if sys.platform == "win32":
     if hasattr(asyncio, "set_event_loop_policy"):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+elif sys.platform == "darwin":
+    # The default KqueueSelector cannot handle pipe-based stdin
+    # (e.g. when running inside Emacs comint-mode). Fall back to
+    # SelectSelector which works with any file descriptor that supports select().
+    import selectors
+
+    if not sys.stdin.isatty():
+        _original_event_loop_policy = asyncio.DefaultEventLoopPolicy
+
+        class _SelectSelectorPolicy(asyncio.DefaultEventLoopPolicy):
+            def new_event_loop(self):
+                return asyncio.SelectorEventLoop(selectors.SelectSelector())
+
+        asyncio.set_event_loop_policy(_SelectSelectorPolicy())
 from prompt_toolkit.enums import EditingMode
 
 from .dump import dump  # noqa

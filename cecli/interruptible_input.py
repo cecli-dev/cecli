@@ -17,7 +17,14 @@ class InterruptibleInput:
             raise RuntimeError("InterruptibleInput is Unix-only (requires selectable stdin).")
 
         self._cancel = threading.Event()
-        self._sel = selectors.DefaultSelector()
+
+        # The default selector (Kqueue on macOS, Epoll on Linux) cannot
+        # handle pipe-based stdin (e.g. when running inside Emacs comint-mode).
+        # Fall back to SelectSelector which works with any fd that supports select().
+        if not sys.stdin.isatty():
+            self._sel = selectors.SelectSelector()
+        else:
+            self._sel = selectors.DefaultSelector()
 
         # self-pipe to wake up select() from interrupt()
         self._r, self._w = os.pipe()
