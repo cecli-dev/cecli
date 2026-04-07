@@ -351,6 +351,14 @@ Aliases:
   - `--stream`
   - `--no-stream`
 
+### `--spinner`
+Enable/disable the spinner while waiting for LLM responses (default: True)  
+Default: True  
+Environment variable: `CECLI_SPINNER`  
+Aliases:
+  - `--spinner`
+  - `--no-spinner`
+
 ### `--user-input-color VALUE`
 Set the color for user input (default: #00cc00)  
 Default: #00cc00  

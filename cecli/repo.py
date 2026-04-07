@@ -80,9 +80,11 @@ class GitRepo:
         subtree_only=False,
         git_commit_verify=True,
         attribute_co_authored_by=False,  # Added parameter
+        show_spinner=True,
     ):
         self.io = io
         self.models = models
+        self.show_spinner = show_spinner
 
         self.normalized_path = {}
         # Single-entry file cache: (commit_sha, interned_set_of_paths)
@@ -486,7 +488,8 @@ class GitRepo:
         commit_message = None
         for model in self.models:
             spinner_text = f"Generating commit message with {model.name}\n"
-            self.io.start_spinner(spinner_text, update_last_text=False)
+            if self.show_spinner:
+                self.io.start_spinner(spinner_text, update_last_text=False)
 
             if model.system_prompt_prefix:
                 current_system_content = model.system_prompt_prefix + "\n" + system_content
@@ -523,7 +526,8 @@ class GitRepo:
         if commit_message and commit_message[0] == '"' and commit_message[-1] == '"':
             commit_message = commit_message[1:-1].strip()
 
-        self.io.start_spinner(self.io.last_spinner_text, update_last_text=False)
+        if self.show_spinner:
+            self.io.start_spinner(self.io.last_spinner_text, update_last_text=False)
         return commit_message
 
     def get_diffs(self, fnames=None):

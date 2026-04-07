@@ -599,6 +599,12 @@ def get_parser(default_config_files, git_root):
         help="Enable/disable streaming responses (default: True)",
     )
     group.add_argument(
+        "--spinner",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable the spinner while waiting for LLM responses (default: True)",
+    )
+    group.add_argument(
         "--user-input-color",
         default="#00cc00",
         help="Set the color for user input (default: #00cc00)",

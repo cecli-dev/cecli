@@ -236,6 +236,9 @@ cog.outl("```")
 ## Enable/disable streaming responses (default: True)
 #stream: true
 
+## Enable/disable the spinner while waiting for LLM responses (default: True)
+#spinner: true
+
 ## Set the color for user input (default: #00cc00)
 #user-input-color: "#00cc00"
 
