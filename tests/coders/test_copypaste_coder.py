@@ -1,7 +1,7 @@
 import hashlib
 import json
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -51,7 +51,7 @@ async def test_send_uses_copy_paste_flow(monkeypatch):
     coder.partial_response_tool_calls = []
     coder.partial_response_function_call = None
     coder.chat_completion_call_hashes = []
-    coder.show_send_output = MagicMock()
+    coder.show_send_output = AsyncMock()
     coder.calculate_and_show_tokens_and_cost = MagicMock()
 
     def fake_preprocess_response():

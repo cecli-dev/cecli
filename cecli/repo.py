@@ -135,6 +135,34 @@ class GitRepo:
         if cecli_ignore_file:
             self.cecli_ignore_file = Path(cecli_ignore_file)
 
+        # Detect if we're in a workspace
+        self.workspace_path = self._detect_workspace_path(self.root)
+        if self.workspace_path:
+            self.io.tool_output(f"Working in workspace: {self.workspace_path.name}")
+
+    def _detect_workspace_path(self, start_path: str):
+        """Check if current directory is within a workspace"""
+        current = Path(start_path).resolve()
+        workspace_root = Path("~/.cecli/workspaces").expanduser()
+
+        # Walk up directory tree looking for workspace root
+        while current != current.parent:
+            if workspace_root in current.parents or current == workspace_root:
+                # If we are inside the workspace root, the workspace is the first child of workspace_root
+                try:
+                    rel = current.relative_to(workspace_root)
+                    if rel.parts:
+                        return workspace_root / rel.parts[0]
+                except (IndexError, ValueError):
+                    pass
+
+            # Alternative check: look for .cecli-workspace.json
+            if (current / ".cecli-workspace.json").exists():
+                return current
+
+            current = current.parent
+        return None
+
     def __del__(self):
         if self.repo:
             self.repo.close()
@@ -502,6 +530,81 @@ class GitRepo:
         res = [fname for fname in files if not self.ignored_file(fname)]
 
         return res
+
+    def get_workspace_files(self):
+        """
+        If in a workspace, return all tracked files from all projects.
+        Paths are relative to the workspace root.
+        """
+        if not self.workspace_path:
+            return self.get_tracked_files()
+
+        import hashlib
+        import json
+        import subprocess
+
+        metadata_path = self.workspace_path / ".cecli-workspace.json"
+        if not metadata_path.exists():
+            return self.get_tracked_files()
+
+        try:
+            with open(metadata_path, "r") as f:
+                config = json.load(f)
+        except Exception:
+            return self.get_tracked_files()
+
+        # Generate a cache key based on the SHAs of all project HEADs
+        # This is similar to how base_coder uses staged files hash
+        projects = config.get("projects", [])
+        project_shas = []
+        for proj in projects:
+            proj_name = proj.get("name")
+            if not proj_name:
+                continue
+            proj_root = self.workspace_path / proj_name / "main"
+            if not proj_root.exists():
+                continue
+            try:
+                sha = subprocess.check_output(
+                    ["git", "-C", str(proj_root), "rev-parse", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                    encoding="utf-8",
+                ).strip()
+                project_shas.append(f"{proj_name}:{sha}")
+            except Exception:
+                project_shas.append(f"{proj_name}:unknown")
+
+        cache_key = hashlib.sha1(",".join(project_shas).encode()).hexdigest()
+
+        if hasattr(self, "_workspace_files_cache"):
+            cached_key, cached_files = self._workspace_files_cache
+            if cached_key == cache_key:
+                return cached_files
+
+        all_files = []
+        for proj in projects:
+            proj_name = proj.get("name")
+            if not proj_name:
+                continue
+
+            proj_root = self.workspace_path / proj_name / "main"
+            if not proj_root.exists():
+                continue
+
+            try:
+                res = subprocess.check_output(
+                    ["git", "-C", str(proj_root), "ls-files"],
+                    stderr=subprocess.DEVNULL,
+                    encoding="utf-8",
+                ).splitlines()
+
+                for f in res:
+                    all_files.append(f"{proj_name}/main/{f}")
+            except Exception:
+                continue
+
+        self._workspace_files_cache = (cache_key, all_files)
+        return all_files
 
     def normalize_path(self, path):
         orig_path = path

@@ -262,19 +262,25 @@ class TUI(App):
         coder_mode = getattr(coder, "edit_format", "code") or "code"
 
         # Get project name (just the folder name, not full path)
-        project_name = str(Path.cwd())
+        home = str(Path.home())
+        cwd = str(Path.cwd())
+        if cwd.startswith(home):
+            project_name = cwd.replace(home, "~", 1)
+        else:
+            project_name = cwd
 
         if len(project_name) >= 64:
             project_name = project_name.split("/")[-1]
 
         if coder.repo:
             root_path = str(coder.repo.root)
+            if root_path.startswith(home):
+                root_path = root_path.replace(home, "~", 1)
 
             if len(root_path) <= 64:
                 project_name = root_path
             else:
                 project_name = root_path.split("/")[-1]
-
         # Get history file path from coder's io
         history_file = getattr(coder.io, "input_history_file", None)
 

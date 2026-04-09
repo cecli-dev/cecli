@@ -315,6 +315,19 @@ def get_parser(default_config_files, git_root):
         default=None,
     )
     #########
+    group = parser.add_argument_group("Workspace Settings")
+    group.add_argument(
+        "--workspaces",
+        type=str,
+        help="JSON/YAML configuration for workspace initialization",
+    )
+    group.add_argument(
+        "--workspace-name",
+        type=str,
+        help="Specify the workspace name to activate",
+    )
+
+    #########
     group = parser.add_argument_group("Agent Settings")
     group.add_argument(
         "--agent-config",

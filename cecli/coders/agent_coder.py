@@ -1037,7 +1037,9 @@ I will proceed based on the tool results and updated context.""")
                     )
                     self.model_kwargs["frequency_penalty"] = min(0, max(freq_penalty - 0.15, 0))
 
-            self.model_kwargs["temperature"] = max(0, min(self.model_kwargs["temperature"], 1))
+            self.model_kwargs["temperature"] = max(
+                0, min(nested.getter(self.model_kwargs, "temperature", 1), 1)
+            )
             # One twentieth of the time, just straight reset the randomness
             if random.random() < 0.05:
                 self.model_kwargs = {}

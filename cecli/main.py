@@ -542,36 +542,56 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     else:
         git_root = get_git_root()
     conf_fname = handle_core_files(Path(".cecli.conf.yml"))
-    default_config_files = []
-    try:
-        default_config_files += [conf_fname.resolve()]
-    except OSError:
-        pass
+    default_config_files = [
+        str(Path.home() / ".cecli.conf.yml"),
+        str(Path(".cecli.conf.yml")),
+    ]
+    if git_root:
+        default_config_files.append(str(Path(git_root) / ".cecli.conf.yml"))
+    parser = get_parser(default_config_files, git_root)
+    args, unknown = parser.parse_known_args(argv)
+
+    # Load dotenv files and re-parse args before workspace logic
+    # to allow environment variables to be used in workspace config
+    loaded_dotenvs = load_dotenv_files(git_root, args.env_file, args.encoding)
+    args, unknown = parser.parse_known_args(argv)
+
+    uses_workspace = False
+    if args.workspaces or args.workspace_name:
+        from cecli.helpers.monorepo.config import (
+            find_active_workspace_name,
+            load_workspace_config,
+        )
+        from cecli.helpers.monorepo.workspace import WorkspaceManager
+
+        # Interpolate environment variables in the workspaces argument
+        if args.workspaces:
+            args.workspaces = interpolate_env_vars(args.workspaces)
+
+        ws_config_arg = convert_yaml_to_json_string(args.workspaces) if args.workspaces else None
+        ws_name = args.workspace_name or find_active_workspace_name(ws_config_arg)
+        if ws_name:
+            config = load_workspace_config(ws_config_arg, name=ws_name)
+            workspace_manager = WorkspaceManager(ws_name, config)
+
+            if not workspace_manager.exists():
+                workspace_manager.initialize()
+
+            os.chdir(workspace_manager.get_working_directory())
+            git_root = get_git_root()
+            uses_workspace = True
+
     if git_root:
         git_conf = Path(git_root) / conf_fname
         if git_conf not in default_config_files:
-            default_config_files.append(git_conf)
-    default_config_files.append(Path.home() / conf_fname)
-    default_config_files = list(map(str, default_config_files))
-    parser = get_parser(default_config_files, git_root)
-    try:
+            default_config_files.append(str(git_conf))
+
+    if uses_workspace:
+        parser = get_parser(default_config_files, git_root)
         args, unknown = parser.parse_known_args(argv)
-    except AttributeError as e:
-        if all(word in str(e) for word in ["bool", "object", "has", "no", "attribute", "strip"]):
-            if check_config_files_for_yes(default_config_files):
-                return await graceful_exit(None, 1)
-        raise e
-    if args.verbose:
-        print("Config files search order, if no --config:")
-        for file in default_config_files:
-            exists = "(exists)" if Path(file).exists() else ""
-            print(f"  - {file} {exists}")
-    default_config_files.reverse()
-    parser = get_parser(default_config_files, git_root)
-    args, unknown = parser.parse_known_args(argv)
-    loaded_dotenvs = load_dotenv_files(git_root, args.env_file, args.encoding)
-    args, unknown = parser.parse_known_args(argv)
+
     set_args_error_data(args)
+
     if len(unknown):
         print("Unknown Args: ", unknown)
 
@@ -589,6 +609,8 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
         args.retries = convert_yaml_to_json_string(args.retries)
     if hasattr(args, "hooks") and args.hooks is not None:
         args.hooks = convert_yaml_to_json_string(args.hooks)
+    if hasattr(args, "workspaces") and args.workspaces is not None:
+        args.hooks = convert_yaml_to_json_string(args.workspaces)
 
     # Interpolate environment variables in all string arguments
     for key, value in vars(args).items():
@@ -1152,7 +1174,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
                     pre_init_io.tool_output()
                 except KeyboardInterrupt:
                     return await graceful_exit(coder, 1)
-        if args.git and not suppress_pre_init:
+        if args.git and not (suppress_pre_init or args.workspaces or args.workspace_name):
             git_root = await setup_git(git_root, pre_init_io)
             if args.gitignore:
                 await check_gitignore(git_root, pre_init_io)
