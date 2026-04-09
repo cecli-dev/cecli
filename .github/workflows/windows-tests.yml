@@ -44,6 +44,12 @@ jobs:
         pip install uv
         uv pip install --system pytest pytest-asyncio pytest-mock -r requirements/requirements.in -r requirements/requirements-help.in -r requirements/requirements-playwright.in '.[help,playwright]'
 
+    - name: Configure Git for tests
+      run: |
+        git config --global user.name "Test User"
+        git config --global user.email "test@example.com"
+        git config --global init.defaultBranch main
+
     - name: Run tests
       run: |
         pytest
