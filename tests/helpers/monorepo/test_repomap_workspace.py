@@ -113,7 +113,7 @@ def test_project_branch_switching(mock_workspace):
     subprocess.run(["git", "commit", "-m", "feature commit"], cwd=p1_dir, check=True)
 
     # Go back to master
-    subprocess.run(["git", "checkout", "master"], cwd=p1_dir, check=True)
+    subprocess.run(["git", "checkout", "main"], cwd=p1_dir, check=True)
 
     # Define config with the new branch
     config = {
@@ -143,7 +143,7 @@ def test_project_branch_switching(mock_workspace):
 def test_project_use_current_branch_flag(mock_workspace):
     # Setup: p1 is on master
     p1_dir = mock_workspace / "p1" / "main"
-    subprocess.run(["git", "checkout", "master"], cwd=p1_dir, check=True)
+    subprocess.run(["git", "checkout", "main"], cwd=p1_dir, check=True)
 
     # Define config with a different branch but use_current_branch=True
     config = {
@@ -161,12 +161,12 @@ def test_project_use_current_branch_flag(mock_workspace):
     # Re-initialize should NOT trigger checkout
     wm.initialize()
 
-    # Verify p1 is still on master
+    # Verify p1 is still on main
     current_branch = subprocess.check_output(
         ["git", "-C", str(p1_dir), "rev-parse", "--abbrev-ref", "HEAD"], encoding="utf-8"
     ).strip()
 
-    assert current_branch == "master"
+    assert current_branch == "main"
 
 
 def test_get_workspace_files_caching(mock_workspace):
