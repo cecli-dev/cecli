@@ -5,7 +5,7 @@ description: Workspaces allow you to work across multiple related repositories s
 ---
 # Workspaces
 
-Workspaces allow you to manage multiple independent git repositories within isolated environments. The system initializes workspaces with specified branches as git worktrees, enabling parallel development across multiple projects.
+Workspaces allow you to manage multiple git repositories within a single monorepo-like folder structure, enabling development across multiple related projects.
 
 ## Configuration
 
@@ -75,5 +75,6 @@ If the workspace does not exist, `cecli` will create the directory structure at 
 
 ## Arguments
 
-- `--workspaces <file>`: Provide a JSON/YAML configuration or file path for workspace initialization.
-- `--workspace-name <name>`: Specify the workspace name to activate from the configuration.
+`--workspaces <file>`: Provide a JSON/YAML configuration or file path for workspace initialization.
+
+`--workspace-name <name>`: Specify the workspace name to activate from the configuration.
