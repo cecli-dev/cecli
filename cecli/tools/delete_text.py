@@ -64,8 +64,6 @@ class Tool(BaseTool):
             raise ToolError(
                 "Please call `ShowContext` first to make sure edits are appropriately scoped"
             )
-        else:
-            coder.edit_allowed = False
 
         tool_name = "DeleteText"
         try:
@@ -131,7 +129,11 @@ class Tool(BaseTool):
 
         except ToolError as e:
             # Handle errors raised by utility functions (expected errors)
+            coder.edit_allowed = False
+            cls.clear_invocation_cache()
             return handle_tool_error(coder, tool_name, e, add_traceback=False)
         except Exception as e:
             # Handle unexpected errors
+            coder.edit_allowed = False
+            cls.clear_invocation_cache()
             return handle_tool_error(coder, tool_name, e)

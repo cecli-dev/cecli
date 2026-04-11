@@ -1,5 +1,3 @@
-import traceback
-
 from cecli.helpers.hashline import apply_hashline_operation
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
@@ -73,8 +71,6 @@ class Tool(BaseTool):
             raise ToolError(
                 "Please call `ShowContext` first to make sure edits are appropriately scoped"
             )
-        else:
-            coder.edit_allowed = False
 
         tool_name = "InsertText"
         try:
@@ -138,14 +134,15 @@ class Tool(BaseTool):
             )
 
         except ToolError as e:
+            coder.edit_allowed = False
+            cls.clear_invocation_cache()
             # Handle errors raised by utility functions (expected errors)
             return handle_tool_error(coder, tool_name, e, add_traceback=False)
 
         except Exception as e:
-            coder.io.tool_error(
-                f"Error in InsertText: {str(e)}\n{traceback.format_exc()}"
-            )  # Add traceback
-            return f"Error: {str(e)}"
+            coder.edit_allowed = False
+            cls.clear_invocation_cache()
+            return handle_tool_error(coder, tool_name, e)
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
