@@ -1607,6 +1607,7 @@ class Coder:
         if not self.commands.is_command(user_message):
             self.last_user_message = user_message
 
+        is_reflection = False
         while True:
             self.reflected_message = None
             self.empty_response = False
@@ -1624,8 +1625,10 @@ class Coder:
                 else:
                     return
 
-            async for _ in self.send_message(message):
+            async for _ in self.send_message(message, trigger_bell=not is_reflection):
                 pass
+
+            is_reflection = True
 
             await self.hot_reload()
 
