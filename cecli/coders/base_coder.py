@@ -2768,7 +2768,6 @@ class Coder:
 
     def _print_tool_call_info(self, server_tool_calls):
         """Print information about an MCP tool call."""
-        self.io.ring_bell()
         # self.io.tool_output("Preparing to run MCP tools", bold=False)
 
         for server, tool_calls in server_tool_calls.items():
