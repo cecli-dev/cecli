@@ -120,3 +120,23 @@ def test_target_symbol_empty_string_treated_as_missing():
             end_pattern=None,
             line_count=1,
         )
+
+
+def test_multiline_pattern_search(coder_with_file):
+    coder, file_path = coder_with_file
+    # file_path contains "alpha\nbeta\ngamma\n"
+
+    result = show_context.Tool.execute(
+        coder,
+        show=[
+            {
+                "file_path": "example.txt",
+                "start_text": "alpha\nbeta",
+                "end_text": "beta\ngamma",
+                "padding": 0,
+            }
+        ],
+    )
+
+    assert "Successfully retrieved most recent contents for 1 file(s)" in result
+    coder.io.tool_error.assert_not_called()
