@@ -91,7 +91,7 @@ class BaseTool(ABC):
         else:
             # When TRACK_INVOCATIONS is False, clear all invocation history
             # This indicates the job is making progress, so reset tracking for all tools
-            cls._invocations.clear()
+            cls.clear_invocation_cache()
         try:
             return cls.execute(coder, **params)
         except Exception as e:
@@ -104,3 +104,7 @@ class BaseTool(ABC):
     @classmethod
     def on_duplicate_request(cls, coder, **kwargs):
         pass
+
+    @classmethod
+    def clear_invocation_cache(cls):
+        cls._invocations.clear()

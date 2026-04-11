@@ -7,6 +7,7 @@ from cecli.tools.utils.base_tool import BaseTool
 
 class Tool(BaseTool):
     NORM_NAME = "commandinteractive"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {

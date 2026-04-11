@@ -17,42 +17,99 @@ class Tool(BaseTool):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command_string": {
+                    "command": {
                         "type": "string",
-                        "description": "The shell command to execute.",
+                        "description": (
+                            "The shell command to execute. To send stdin to an existing background"
+                            " command, use the format 'command_key::{key}'."
+                        ),
                     },
                     "background": {
                         "type": "boolean",
                         "description": "Run command in background (non-blocking).",
                         "default": False,
                     },
-                    "stop_background": {
+                    "stop": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, stop the background command specified in the 'command'"
+                            " parameter (format 'command_key::{key}')."
+                        ),
+                        "default": False,
+                    },
+                    "pty": {
+                        "type": "boolean",
+                        "description": (
+                            "Run the command in a pseudo-terminal (PTY). Useful for interactive"
+                            " programs like 'vi' or 'top'."
+                        ),
+                        "default": False,
+                    },
+                    "stdin": {
                         "type": "string",
-                        "description": "Command string to stop if running in background.",
+                        "description": (
+                            "Input to send to the command's stdin. Supports escape sequences like"
+                            " \\n, \\r, \\t, and hex escapes like \\x1b."
+                        ),
                     },
                 },
-                "required": ["command_string"],
+                "required": ["command"],
             },
         },
     }
 
+    @staticmethod
+    def _parse_command_key(command):
+        """Extract command key from command string if it follows the pattern."""
+        if command and command.startswith("command_key::"):
+            return command.split("::", 1)[1].strip()
+        return None
+
     @classmethod
-    async def execute(cls, coder, command_string, background=False, stop_background=None, **kwargs):
+    async def execute(
+        cls, coder, command, background=False, stop=None, stdin=None, pty=False, **kwargs
+    ):
         """
         Execute a shell command, optionally in background.
         Commands run with timeout based on agent_config['command_timeout'] (default: 30 seconds).
         """
+        command_key = cls._parse_command_key(command)
+
         # Handle stopping background commands
-        if stop_background:
-            return await cls._stop_background_command(coder, stop_background)
+        if stop:
+            if not command_key:
+                return (
+                    "Error: 'command' in format 'command_key::{key}' is required when 'stop' is"
+                    " true."
+                )
+            return await cls._stop_background_command(coder, command_key)
+
+        # Handle sending stdin to an existing background command
+        if stdin:
+            if not command_key:
+                return (
+                    "Error: 'command' in format 'command_key::{key}' is required when using"
+                    " 'stdin'."
+                )
+
+            cls.clear_invocation_cache()
+
+            success = BackgroundCommandManager.send_command_input(command_key, stdin)
+            if success:
+                return f"Sent input to background command {command_key}: {stdin}"
+            else:
+                return f"Error: Background command {command_key} not found or not running."
+
+        if not command:
+            return "Error: 'command' must be provided."
 
         # Check for implicit background (trailing & on Linux)
-        if not background and command_string.strip().endswith("&"):
+        if not background and command.strip().endswith("&"):
             background = True
-            command_string = command_string.strip()[:-1].strip()
+            command = command.strip()[:-1].strip()
 
         # Get user confirmation
-        confirmed = await cls._get_confirmation(coder, command_string, background)
+        confirmed = await cls._get_confirmation(coder, command, background)
         if not confirmed:
             return "Command execution skipped by user."
 
@@ -62,11 +119,11 @@ class Tool(BaseTool):
             timeout = coder.agent_config.get("command_timeout", 30)
 
         if background:
-            return await cls._execute_background(coder, command_string)
+            return await cls._execute_background(coder, command, use_pty=pty)
         elif timeout > 0:
-            return await cls._execute_with_timeout(coder, command_string, timeout)
+            return await cls._execute_with_timeout(coder, command, timeout, use_pty=pty)
         else:
-            return await cls._execute_foreground(coder, command_string)
+            return await cls._execute_foreground(coder, command)
 
     @classmethod
     async def _get_confirmation(cls, coder, command_string, background):
@@ -90,7 +147,7 @@ class Tool(BaseTool):
         )
 
     @classmethod
-    async def _execute_background(cls, coder, command_string):
+    async def _execute_background(cls, coder, command_string, use_pty=False):
         """
         Execute command in background.
         """
@@ -98,7 +155,11 @@ class Tool(BaseTool):
 
         # Use static manager to start background command
         command_key = BackgroundCommandManager.start_background_command(
-            command_string, verbose=coder.verbose, cwd=coder.root, max_buffer_size=4096
+            command_string,
+            verbose=coder.verbose,
+            cwd=coder.root,
+            max_buffer_size=4096,
+            use_pty=use_pty,
         )
 
         return (
@@ -108,7 +169,7 @@ class Tool(BaseTool):
         )
 
     @classmethod
-    async def _execute_with_timeout(cls, coder, command_string, timeout):
+    async def _execute_with_timeout(cls, coder, command_string, timeout, use_pty=False):
         """
         Execute command with timeout. If timeout elapses, move to background.
 
@@ -136,7 +197,7 @@ class Tool(BaseTool):
             executable=shell if platform.system() != "Windows" else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             cwd=coder.root,
             text=True,
             bufsize=1,
