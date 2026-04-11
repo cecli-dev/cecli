@@ -479,6 +479,7 @@ class TextualInputOutput(InputOutput):
                 res = group.preference
                 self.user_input(f"{question} - {res}", log_only=False)
             else:
+                self.notify_user_input_required()
                 # Send confirmation request to TUI with full options
                 self.output_queue.put(
                     {

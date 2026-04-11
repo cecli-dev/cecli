@@ -535,10 +535,6 @@ class TUI(App):
 
     def show_confirmation(self, msg):
         """Show inline confirmation bar."""
-        # Trigger notification
-        if self.worker and self.worker.coder and self.worker.coder.io:
-            self.worker.coder.io.notify_user_input_required()
-
         # Disable input while confirm bar is active
         input_area = self.query_one("#input", InputArea)
         input_area.disabled = True
