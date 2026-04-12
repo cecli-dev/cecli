@@ -3065,7 +3065,7 @@ class Coder:
                 self.temperature,
                 # This could include any tools, but for now it is just MCP tools
                 tools=tools,
-                override_kwargs=self.model_kwargs,
+                override_kwargs=self.model_kwargs.copy(),
             )
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 

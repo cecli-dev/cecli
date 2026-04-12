@@ -1009,38 +1009,44 @@ I will proceed based on the tool results and updated context.""")
         repetition_warning = None
 
         if repetitive_tools:
+            default_temp = (
+                float(self.get_active_model().use_temperature)
+                if isinstance(self.get_active_model().use_temperature, (int, float, str))
+                else 1
+            )
+            default_fp = 0
+
             if not self.model_kwargs:
                 self.model_kwargs = {
-                    "temperature": (
-                        1
-                        if isinstance(self.get_active_model().use_temperature, bool)
-                        else float(self.get_active_model().use_temperature)
-                    )
-                    + 0.1,
-                    "frequency_penalty": 0.2,
+                    "temperature": default_temp + 0.1,
+                    "frequency_penalty": default_fp + 0.2,
                     "presence_penalty": 0.1,
                 }
             else:
-                temperature = nested.getter(self.model_kwargs, "temperature")
-                freq_penalty = nested.getter(self.model_kwargs, "frequency_penalty")
-                if temperature and freq_penalty:
-                    self.model_kwargs["temperature"] = min(temperature + 0.1, 2)
-                    self.model_kwargs["frequency_penalty"] = min(freq_penalty + 0.1, 1)
+                temperature = nested.getter(self.model_kwargs, "temperature", default_temp)
+                freq_penalty = nested.getter(self.model_kwargs, "frequency_penalty", default_fp)
+
+                self.model_kwargs["temperature"] = temperature + 0.1
+                self.model_kwargs["frequency_penalty"] = freq_penalty + 0.1
 
                 if random.random() < 0.2:
-                    self.model_kwargs["temperature"] = min(
-                        (
-                            1
-                            if isinstance(self.get_active_model().use_temperature, bool)
-                            else float(self.get_active_model().use_temperature)
-                        ),
-                        max(temperature - 0.15, 1),
+                    self.model_kwargs["temperature"] = max(
+                        default_temp,
+                        temperature - 0.15,
                     )
-                    self.model_kwargs["frequency_penalty"] = min(0, max(freq_penalty - 0.15, 0))
+                    self.model_kwargs["frequency_penalty"] = max(
+                        default_fp,
+                        freq_penalty - 0.15,
+                    )
 
             self.model_kwargs["temperature"] = max(
-                0, min(nested.getter(self.model_kwargs, "temperature", 1), 1)
+                0, min(nested.getter(self.model_kwargs, "temperature", default_temp), 1)
             )
+
+            self.model_kwargs["frequency_penalty"] = max(
+                0, min(nested.getter(self.model_kwargs, "frequency_penalty", default_fp), 1)
+            )
+
             # One twentieth of the time, just straight reset the randomness
             if random.random() < 0.05:
                 self.model_kwargs = {}

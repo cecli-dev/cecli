@@ -64,8 +64,6 @@ class Tool(BaseTool):
             raise ToolError(
                 "Please call `ShowContext` first to make sure edits are appropriately scoped"
             )
-        else:
-            coder.edit_allowed = False
 
         tool_name = "DeleteText"
         try:
@@ -120,6 +118,8 @@ class Tool(BaseTool):
             )
 
             coder.files_edited_by_tools.add(rel_path)
+            cls.clear_invocation_cache()
+
             # 5. Format and return result
             success_message = f"Deleted lines {start_line} to {end_line} in {file_path}"
             return format_tool_result(
@@ -131,7 +131,9 @@ class Tool(BaseTool):
 
         except ToolError as e:
             # Handle errors raised by utility functions (expected errors)
+            coder.edit_allowed = False
             return handle_tool_error(coder, tool_name, e, add_traceback=False)
         except Exception as e:
             # Handle unexpected errors
+            coder.edit_allowed = False
             return handle_tool_error(coder, tool_name, e)

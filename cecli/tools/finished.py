@@ -26,6 +26,7 @@ class Tool(BaseTool):
 
         This gives the LLM explicit control over when it can stop looping
         """
+        cls.clear_invocation_cache()
 
         if coder:
             coder.agent_finished = True

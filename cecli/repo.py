@@ -128,9 +128,8 @@ class GitRepo:
             self.io.tool_error("Files are in different git repos.")
             raise FileNotFoundError
 
-        # https://github.com/gitpython-developers/GitPython/issues/427
-        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitCmdObjectDB)
-        self.root = utils.safe_abs_path(self.repo.working_tree_dir)
+        self._init_repo_path = repo_paths.pop()
+        self.init_repo()
 
         if cecli_ignore_file:
             self.cecli_ignore_file = Path(cecli_ignore_file)
@@ -139,6 +138,18 @@ class GitRepo:
         self.workspace_path = self._detect_workspace_path(self.root)
         if self.workspace_path:
             self.io.tool_output(f"Working in workspace: {self.workspace_path.name}")
+
+    def init_repo(self):
+        if not self.repo:
+            self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
+            self.root = utils.safe_abs_path(self.repo.working_tree_dir)
+
+        try:
+            commit = self.repo.head.commit
+            return commit
+        except ANY_GIT_ERROR:
+            self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
+            self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
     def _detect_workspace_path(self, start_path: str):
         """Check if current directory is within a workspace"""
@@ -477,6 +488,8 @@ class GitRepo:
     def get_tracked_files(self):
         if not self.repo:
             return []
+
+        self.init_repo()
 
         try:
             commit = self.repo.head.commit

@@ -5,10 +5,21 @@ Provides a static BackgroundCommandManager class for running shell commands
 in the background and capturing their output for injection into chat streams.
 """
 
+import codecs
+import os
+import platform
 import subprocess
 import threading
 from collections import deque
 from typing import Dict, Optional, Tuple
+
+try:
+    import pty
+    import termios
+
+    HAS_PTY = True
+except ImportError:
+    HAS_PTY = False
 
 
 class CircularBuffer:
@@ -89,14 +100,48 @@ class CircularBuffer:
             return sum(len(chunk) for chunk in self.buffer)
 
 
+class InputBuffer:
+    """
+    Thread-safe buffer for queuing input to be sent to a process.
+    """
+
+    def __init__(self):
+        self.queue = deque()
+        self.lock = threading.Lock()
+
+    def append(self, text: str) -> None:
+        """Add text to the input queue."""
+        with self.lock:
+            self.queue.append(text)
+
+    def pop_all(self) -> str:
+        """Get and clear all queued input."""
+        with self.lock:
+            result = "".join(self.queue)
+            self.queue.clear()
+            return result
+
+    def has_input(self) -> bool:
+        """Check if there is queued input."""
+        with self.lock:
+            return len(self.queue) > 0
+
+
 class BackgroundProcess:
     """
     Represents a background process with output capture.
     """
 
     def __init__(
-        self, command: str, process: subprocess.Popen, buffer: CircularBuffer, persist: bool = False
+        self,
+        command: str,
+        process: subprocess.Popen,
+        buffer: CircularBuffer,
+        persist: bool = False,
+        input_buffer: Optional[InputBuffer] = None,
+        master_fd: Optional[int] = None,
     ):
+        self.master_fd = master_fd
         """
         Initialize background process wrapper.
 
@@ -116,7 +161,11 @@ class BackgroundProcess:
         self.start_time = time.time()
         self.end_time = None
         self.persist = persist
+        self.input_buffer = input_buffer or InputBuffer()
+        self.writer_thread = None
+        self._stop_event = threading.Event()
         self._start_output_reader()
+        self._start_input_writer()
 
     def _start_output_reader(self) -> None:
         """Start thread to read process output."""
@@ -128,21 +177,70 @@ class BackgroundProcess:
                 # we're in a separate thread and the buffer will capture
                 # output as soon as it's available
 
-                # Read stdout
-                for line in iter(self.process.stdout.readline, ""):
-                    if line:
-                        self.buffer.append(line)
+                if self.master_fd is not None:
+                    while not self._stop_event.is_set():
+                        try:
+                            data = os.read(self.master_fd, 4096).decode(errors="replace")
+                            if not data:
+                                break
+                            self.buffer.append(data)
+                        except (OSError, EOFError):
+                            break
+                else:
+                    # Read stdout
+                    for line in iter(self.process.stdout.readline, ""):
+                        if line:
+                            self.buffer.append(line)
 
-                # Read stderr
-                for line in iter(self.process.stderr.readline, ""):
-                    if line:
-                        self.buffer.append(line)
+                    # Read stderr
+                    for line in iter(self.process.stderr.readline, ""):
+                        if line:
+                            self.buffer.append(line)
 
             except Exception as e:
                 self.buffer.append(f"\n[Error reading process output: {str(e)}]\n")
 
         self.reader_thread = threading.Thread(target=reader, daemon=True)
         self.reader_thread.start()
+
+    def _start_input_writer(self) -> None:
+        """Start thread to write input to process stdin."""
+
+        def writer():
+            try:
+                while not self._stop_event.is_set() and self.is_alive():
+                    if self.input_buffer.has_input():
+                        text = self.input_buffer.pop_all()
+                        if text:
+                            if self.master_fd is not None:
+                                os.write(self.master_fd, text.encode("latin-1"))
+                            else:
+                                try:
+                                    # Try to write to the binary buffer for lossless propagation
+                                    self.process.stdin.buffer.write(text.encode("latin-1"))
+                                    self.process.stdin.buffer.flush()
+                                except (AttributeError, ValueError):
+                                    # Fallback to text mode if buffer is not available
+                                    self.process.stdin.write(text)
+                                    self.process.stdin.flush()
+                    import time
+
+                    time.sleep(0.1)
+            except (BrokenPipeError, OSError):
+                pass
+            except Exception as e:
+                self.buffer.append(f"\n[Error writing to process input: {str(e)}]\n")
+            finally:
+                try:
+                    if self.master_fd is not None:
+                        os.close(self.master_fd)
+                    else:
+                        self.process.stdin.close()
+                except Exception:
+                    pass
+
+        self.writer_thread = threading.Thread(target=writer, daemon=True)
+        self.writer_thread.start()
 
     def get_output(self, clear: bool = False) -> str:
         """
@@ -171,6 +269,11 @@ class BackgroundProcess:
         """Check if process is running."""
         return self.process.poll() is None
 
+    def send_input(self, text: str) -> None:
+        """Queue input to be sent to the process."""
+        if self.input_buffer:
+            self.input_buffer.append(text)
+
     def stop(self, timeout: float = 5.0) -> Tuple[bool, str, Optional[int]]:
         """
         Stop the process gracefully.
@@ -184,6 +287,9 @@ class BackgroundProcess:
         import time
 
         try:
+            # Signal threads to stop
+            self._stop_event.set()
+
             # Try SIGTERM first
             self.process.terminate()
             self.process.wait(timeout=timeout)
@@ -192,7 +298,6 @@ class BackgroundProcess:
             output = self.get_output(clear=True)
             exit_code = self.process.returncode
             self.end_time = time.time()
-
             return True, output, exit_code
 
         except subprocess.TimeoutExpired:
@@ -262,6 +367,8 @@ class BackgroundCommandManager:
         existing_process: Optional[subprocess.Popen] = None,
         existing_buffer: Optional[CircularBuffer] = None,
         persist: bool = False,
+        existing_input_buffer: Optional[InputBuffer] = None,
+        use_pty: bool = False,
     ) -> str:
         """
         Start a command in background.
@@ -283,7 +390,29 @@ class BackgroundCommandManager:
             buffer = existing_buffer or CircularBuffer(max_size=max_buffer_size)
 
             # Use existing process or start new one
-            if existing_process:
+            master_fd = None
+            if use_pty and HAS_PTY and platform.system() != "Windows":
+                master_fd, slave_fd = pty.openpty()
+
+                # Disable echo on the slave PTY
+                attr = termios.tcgetattr(slave_fd)
+                attr[3] = attr[3] & ~termios.ECHO
+                termios.tcsetattr(slave_fd, termios.TCSANOW, attr)
+
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    stdin=slave_fd,
+                    cwd=cwd,
+                    close_fds=True,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                )
+                os.close(slave_fd)
+            elif existing_process:
                 process = existing_process
             else:
                 process = subprocess.Popen(
@@ -291,15 +420,22 @@ class BackgroundCommandManager:
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,  # No stdin for background commands
+                    stdin=subprocess.PIPE,
                     cwd=cwd,
-                    text=True,  # Use text mode for easier handling
-                    bufsize=1,  # Line buffered
+                    text=True,
+                    bufsize=1,
                     universal_newlines=True,
                 )
 
             # Create background process wrapper
-            bg_process = BackgroundProcess(command, process, buffer, persist=persist)
+            bg_process = BackgroundProcess(
+                command,
+                process,
+                buffer,
+                persist=persist,
+                input_buffer=existing_input_buffer,
+                master_fd=master_fd,
+            )
 
             # Generate unique key and store
             command_key = cls._generate_command_key(command)
@@ -366,6 +502,30 @@ class BackgroundCommandManager:
             if not bg_process:
                 return f"[Error] No background command found with key: {command_key}"
             return bg_process.get_new_output()
+
+    @classmethod
+    def send_command_input(cls, command_key: str, text: str) -> bool:
+        """
+        Send input to a background command.
+
+        Args:
+            command_key: Command key returned by start_background_command
+            text: Text to send to the command's stdin
+
+        Returns:
+            True if input was queued, False if command not found
+        """
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+            if not bg_process:
+                return False
+            # Decode escape sequences (like \x1b) if present in the string
+            try:
+                text = codecs.decode(text, "unicode_escape")
+            except Exception:
+                pass
+            bg_process.send_input(text)
+            return True
 
     @classmethod
     def get_all_command_outputs(cls, clear: bool = False) -> Dict[str, str]:

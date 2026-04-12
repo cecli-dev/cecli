@@ -23,7 +23,7 @@ class Tool(BaseTool):
                 " used for start_text and end_text to represent the first and last lines of"
                 " the file respectively. Never use hashlines as the start_text and end_text"
                 " values. These values must be lines from the content of the file."
-                " They should not contain newlines."
+                " They can contain up to 3 lines but newlines should generally be avoided."
                 " Avoid using generic keywords."
                 " Do not use the same pattern for the start_text and end_text."
                 " It is usually best to use function names and other block identifiers as "
@@ -114,11 +114,8 @@ class Tool(BaseTool):
                         " 'end_text'."
                     )
 
-                if "\n" in start_text or "\n" in end_text:
-                    raise ToolError(
-                        "Patterns must not contain newlines characters. They must match a single"
-                        " line."
-                    )
+                if start_text.count("\n") > 4 or end_text.count("\n") > 4:
+                    raise ToolError("Patterns must not contain more than 5 lines.")
                 start_text = strip_hashline(start_text).strip()
                 end_text = strip_hashline(end_text).strip()
 
@@ -151,12 +148,26 @@ class Tool(BaseTool):
                     if start_text == "@000":
                         start_indices = [0]
                     else:
-                        start_indices = [i for i, line in enumerate(lines) if start_text in line]
+                        start_pattern_lines = start_text.split("\n")
+                        start_indices = []
+                        for i in range(len(lines) - len(start_pattern_lines) + 1):
+                            if all(
+                                p_line in lines[i + j]
+                                for j, p_line in enumerate(start_pattern_lines)
+                            ):
+                                start_indices.append(i)
 
                     if end_text == "000@":
                         end_indices = [num_lines - 1]
                     else:
-                        end_indices = [i for i, line in enumerate(lines) if end_text in line]
+                        end_pattern_lines = end_text.split("\n")
+                        end_indices = []
+                        for i in range(len(lines) - len(end_pattern_lines) + 1):
+                            if all(
+                                p_line in lines[i + j] for j, p_line in enumerate(end_pattern_lines)
+                            ):
+                                # For multiline end patterns, we want the index of the LAST line of the match
+                                end_indices.append(i + len(end_pattern_lines) - 1)
 
                     if len(start_indices) > 5:
                         raise ToolError(

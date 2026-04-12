@@ -7,6 +7,7 @@ from cecli.tools.utils.base_tool import BaseTool
 
 class Tool(BaseTool):
     NORM_NAME = "commandinteractive"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {
@@ -91,6 +92,8 @@ class Tool(BaseTool):
                     + f"\n... (output truncated at {output_limit} characters, based on"
                     " large_file_token_threshold)"
                 )
+
+            cls.clear_invocation_cache()
 
             if exit_status == 0:
                 return (

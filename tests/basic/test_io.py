@@ -537,6 +537,8 @@ class TestInputOutputFormatFiles:
     def test_format_files_for_input_pretty_true_no_files(
         self, mock_join, mock_abspath, mock_columns, mock_is_dumb_terminal
     ):
+        mock_join.side_effect = lambda *args: "/".join(args)
+        mock_abspath.side_effect = lambda p: "/ABS_PREFIX_VERY_LONG/" + os.path.normpath(p)
         io = InputOutput(pretty=True, root="test_root")
         io.format_files_for_input([], [], [])
         mock_columns.assert_not_called()
@@ -547,6 +549,8 @@ class TestInputOutputFormatFiles:
     def test_format_files_for_input_pretty_true_editable_only(
         self, mock_join, mock_abspath, mock_columns, mock_is_dumb_terminal
     ):
+        mock_join.side_effect = lambda *args: "/".join(args)
+        mock_abspath.side_effect = lambda p: "/ABS_PREFIX_VERY_LONG/" + os.path.normpath(p)
         io = InputOutput(pretty=True, root="test_root")
         rel_fnames = ["edit1.txt", "edit[markup].txt"]
 
