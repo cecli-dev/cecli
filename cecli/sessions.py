@@ -73,8 +73,7 @@ class SessionManager:
                     "edit_format": session_data.get("edit_format", "unknown"),
                     "num_messages": len(
                         session_data.get("chat_history", {}).get("done_messages", [])
-                    )
-                    + len(session_data.get("chat_history", {}).get("cur_messages", [])),
+                    ) + len(session_data.get("chat_history", {}).get("cur_messages", [])),
                     "num_files": (
                         len(session_data.get("files", {}).get("editable", []))
                         + len(session_data.get("files", {}).get("read_only", []))

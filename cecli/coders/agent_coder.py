@@ -322,10 +322,8 @@ class AgentCoder(Coder):
             except Exception as e:
                 self.model_kwargs = {}
                 result_message = f"Error executing {tool_name}: {e}"
-                self.io.tool_error(
-                    f"""Error during {tool_name} execution: {e}
-{traceback.format_exc()}"""
-                )
+                self.io.tool_error(f"""Error during {tool_name} execution: {e}
+{traceback.format_exc()}""")
             tool_responses.append(
                 {"role": "tool", "tool_call_id": tool_call.id, "content": result_message}
             )
@@ -392,11 +390,9 @@ class AgentCoder(Coder):
                             content_parts.append(item.text)
                 return "".join(content_parts)
             except Exception as e:
-                self.io.tool_warning(
-                    f"""Executing {tool_name} on {server.name} failed:
+                self.io.tool_warning(f"""Executing {tool_name} on {server.name} failed:
   Error: {e}
-"""
-                )
+""")
                 return f"Error executing tool call {tool_name}: {e}"
 
         return await _exec_async()
@@ -625,9 +621,7 @@ class AgentCoder(Coder):
                         size_indicator = (
                             "🔴 Large"
                             if tokens > 5000
-                            else "🟡 Medium"
-                            if tokens > 1000
-                            else "🟢 Small"
+                            else "🟡 Medium" if tokens > 1000 else "🟢 Small"
                         )
                         editable_files.append(
                             f"- {rel_fname}: {tokens:,} tokens ({size_indicator})"
@@ -651,9 +645,7 @@ class AgentCoder(Coder):
                         size_indicator = (
                             "🔴 Large"
                             if tokens > 5000
-                            else "🟡 Medium"
-                            if tokens > 1000
-                            else "🟢 Small"
+                            else "🟡 Medium" if tokens > 1000 else "🟢 Small"
                         )
                         readonly_files.append(
                             f"- {rel_fname}: {tokens:,} tokens ({size_indicator})"
@@ -866,10 +858,8 @@ class AgentCoder(Coder):
                 "I have processed the results of the previous tool calls. Let me analyze them"
                 " and continue working towards your request."
             )
-            next_prompt_parts.append(
-                """
-I will proceed based on the tool results and updated context."""
-            )
+            next_prompt_parts.append("""
+I will proceed based on the tool results and updated context.""")
             next_prompt_parts.append(f"\nYour original question was: {original_question}")
             self.reflected_message = "\n".join(next_prompt_parts)
             self.io.tool_output("Continuing exploration...")

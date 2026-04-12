@@ -183,9 +183,7 @@ class Tool(BaseTool):
 
         from cecli.helpers.background_commands import CircularBuffer
 
-        coder.io.tool_output(
-            f"⚙️ Executing shell command with {timeout}s timeout: {command_string}"
-        )
+        coder.io.tool_output(f"⚙️ Executing shell command with {timeout}s timeout: {command_string}")
 
         shell = os.environ.get("SHELL", "/bin/sh")
 
