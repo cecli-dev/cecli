@@ -68,6 +68,44 @@ def process_data(data):
     return result
 ```
 
+## Evals Format (`evals.json`)
+
+The `evals/` directory contains `evals.json` files for testing skill performance. These evaluations help ensure that skills behave as expected and provide a way to measure their accuracy and effectiveness. These evaluation files can be executed using the `RunEvals` tool in Agent Mode.
+
+### `evals.json` Structure
+
+The `evals.json` file has the following structure:
+
+```json
+{
+  "skill_name": "your-skill-name",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A user query to test the skill.",
+      "expected_output": "A description of the ideal response from the AI.",
+      "assertions": [
+        "A list of specific points or phrases that must be in the output.",
+        "Another assertion to check for.",
+        "And so on..."
+      ],
+      "files": [
+        "path/to/test/file1.txt",
+        "path/to/test/file2.py"
+      ]
+    }
+  ]
+}
+```
+
+- **`skill_name`**: The name of the skill being evaluated.
+- **`evals`**: An array of evaluation objects.
+  - **`id`**: A unique identifier for the test case.
+  - **`prompt`**: The input prompt to send to the AI.
+  - **`expected_output`**: A natural language description of what the ideal response should contain.
+  - **`assertions`**: A list of specific, verifiable statements that must be true about the AI's output. These are used for automated checking.
+  - **`files`**: A list of file paths to be included in the context when running the evaluation.
+
 ## Skill Configuration
 
 Skills are configured through the `agent-config` parameter in the YAML configuration file. The following options are available:
@@ -114,7 +152,7 @@ To create a custom skill:
 
 Example skill creation:
 ```bash
-mkdir -p ~/skills/my-custom-skill/{references,scripts,assets}
+mkdir -p ~/skills/my-custom-skill/{references,scripts,assets,evals}
 
 cat > ~/skills/my-custom-skill/SKILL.md << 'EOF'
 ---
@@ -155,6 +193,25 @@ echo "Setting up my custom skill..."
 # Setup commands here
 EOF
 chmod +x ~/skills/my-custom-skill/scripts/setup.sh
+
+# Add an eval file
+cat > ~/skills/my-custom-skill/evals/evals.json << 'EOF'
+{
+  "skill_name": "my-custom-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Test prompt for feature 1",
+      "expected_output": "Expected behavior for feature 1",
+      "assertions": [
+        "Should do this",
+        "Should not do that"
+      ],
+      "files": []
+    }
+  ]
+}
+EOF
 ```
 
 ## Best Practices for Skills
