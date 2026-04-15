@@ -129,18 +129,12 @@ class GitRepo:
         num_repos = len(set(repo_paths))
 
         if num_repos == 0:
-            # Check if we are in a workspace before raising
-            self.workspace_path = self._detect_workspace_path(check_fnames[0])
-            if self.workspace_path:
-                self.is_workspace = True
-                self._init_repo_path = str(Path(check_fnames[0]).resolve())
-            else:
-                raise FileNotFoundError
-        elif num_repos > 1:
+            raise FileNotFoundError
+        if num_repos > 1:
             self.io.tool_error("Files are in different git repos.")
             raise FileNotFoundError
-        else:
-            self._init_repo_path = repo_paths.pop()
+
+        self._init_repo_path = repo_paths.pop()
 
         # Detect if we're in a workspace
         self.workspace_path = self._detect_workspace_path(self._init_repo_path)
