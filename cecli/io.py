@@ -758,6 +758,10 @@ class InputOutput:
             print()
 
     def interrupt_input(self):
+        if self.coder:
+            coder = self.coder()
+            if coder and hasattr(coder, "interrupt_event"):
+                coder.interrupt_event.set()
         if self.output_task and not self.output_task.done():
             self.output_task.cancel()
 

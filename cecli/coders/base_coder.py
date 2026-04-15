@@ -329,6 +329,7 @@ class Coder:
         uuid="",
     ):
         # initialize from args.map_cache_dir
+        self.interrupt_event = asyncio.Event()
         self.uuid = generate_unique_id()
         if uuid:
             self.uuid = uuid
@@ -1735,6 +1736,7 @@ class Coder:
         Console().show_cursor(True)
 
         self.io.tool_warning("\n\n^C KeyboardInterrupt")
+        self.interrupt_event.set()
 
         self.last_keyboard_interrupt = time.time()
 
@@ -2285,7 +2287,7 @@ class Coder:
                     self.io.tool_output(f"Retrying in {retry_delay:.1f} seconds...")
                     await asyncio.sleep(retry_delay)
                     continue
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, asyncio.CancelledError):
                     interrupted = True
                     break
                 except FinishReasonLength:
@@ -3040,6 +3042,7 @@ class Coder:
             return prompts.added_files.format(fnames=", ".join(added_fnames))
 
     async def send(self, messages, model=None, functions=None, tools=None):
+        self.interrupt_event.clear()
         self.got_reasoning_content = False
         self.ended_reasoning_content = False
 
@@ -3059,15 +3062,33 @@ class Coder:
         self.token_profiler.start()
 
         try:
-            hash_object, completion = await model.send_completion(
-                messages,
-                functions,
-                self.stream,
-                self.temperature,
-                # This could include any tools, but for now it is just MCP tools
-                tools=tools,
-                override_kwargs=self.model_kwargs,
+            completion_task = asyncio.create_task(
+                model.send_completion(
+                    messages,
+                    functions,
+                    self.stream,
+                    self.temperature,
+                    # This could include any tools, but for now it is just MCP tools
+                    tools=tools,
+                    override_kwargs=self.model_kwargs,
+                )
             )
+            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+
+            done, pending = await asyncio.wait(
+                {completion_task, interrupt_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if interrupt_task in done:
+                completion_task.cancel()
+                try:
+                    await completion_task
+                except asyncio.CancelledError:
+                    pass
+                raise KeyboardInterrupt
+
+            hash_object, completion = completion_task.result()
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
             if not isinstance(completion, ModelResponse):
@@ -3090,7 +3111,7 @@ class Coder:
                 self.token_profiler.on_error()
                 self.calculate_and_show_tokens_and_cost(messages, completion)
             raise
-        except KeyboardInterrupt as kbi:
+        except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
             self.keyboard_interrupt()
             raise kbi
         finally:
