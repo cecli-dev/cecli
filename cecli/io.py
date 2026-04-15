@@ -758,6 +758,9 @@ class InputOutput:
             print()
 
     def interrupt_input(self):
+        if self.output_task and not self.output_task.done():
+            self.output_task.cancel()
+
         if self.prompt_session and self.prompt_session.app:
             # Store any partial input before interrupting
             self.placeholder = self.prompt_session.app.current_buffer.text
