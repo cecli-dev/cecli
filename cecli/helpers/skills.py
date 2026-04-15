@@ -35,6 +35,7 @@ class SkillContent:
     references: Dict[str, Path] = field(default_factory=dict)
     scripts: Dict[str, Path] = field(default_factory=dict)
     assets: Dict[str, Path] = field(default_factory=dict)
+    evals: Dict[str, Path] = field(default_factory=dict)
 
 
 class SkillsManager:
@@ -227,6 +228,9 @@ class SkillsManager:
         # Load assets
         assets = self._load_assets(skill_dir)
 
+        # Load evals
+        evals = self._load_evals(skill_dir)
+
         return SkillContent(
             metadata=metadata,
             frontmatter=frontmatter,
@@ -234,6 +238,7 @@ class SkillsManager:
             references=references,
             scripts=scripts,
             assets=assets,
+            evals=evals,
         )
 
     def _load_references(self, skill_dir: Path) -> Dict[str, Path]:
@@ -286,6 +291,23 @@ class SkillsManager:
 
         return assets
 
+    def _load_evals(self, skill_dir: Path) -> Dict[str, Path]:
+        """Load eval files from the evals/ directory."""
+        evals = {}
+        evals_dir = skill_dir / "evals"
+
+        if evals_dir.exists():
+            for eval_file in evals_dir.glob("**/*"):
+                if eval_file.is_file():
+                    try:
+                        # Use relative path as key, store the Path object
+                        rel_path = eval_file.relative_to(evals_dir)
+                        evals[str(rel_path)] = eval_file
+                    except Exception:
+                        continue
+
+        return evals
+
     def get_skill_summary(self, skill_name: str) -> Optional[str]:
         """
         Get a summary of a skill for display purposes.
@@ -315,9 +337,11 @@ class SkillsManager:
         ref_count = len(skill.references)
         script_count = len(skill.scripts)
         asset_count = len(skill.assets)
+        eval_count = len(skill.evals)
 
         summary += (
-            f"Resources: {ref_count} references, {script_count} scripts, {asset_count} assets\n"
+            f"Resources: {ref_count} references, {script_count} scripts, {asset_count} assets,"
+            f" {eval_count} evals\n"
         )
 
         return summary
@@ -538,6 +562,14 @@ class SkillsManager:
                     result += "Available asset files:\n\n"
                     for asset_name, asset_path in skill_content.assets.items():
                         result += f"- **{asset_name}**: `{asset_path}`\n"
+                    result += "\n"
+
+                # Add evals file paths
+                if skill_content.evals:
+                    result += f"#### Evals ({len(skill_content.evals)} file(s))\n\n"
+                    result += "Available eval files:\n\n"
+                    for eval_name, eval_path in skill_content.evals.items():
+                        result += f"- **{eval_name}**: `{eval_path}`\n"
                     result += "\n"
 
                 result += "---\n\n"
