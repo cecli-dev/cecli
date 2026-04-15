@@ -31,6 +31,7 @@ workspaces:
       repo: "https://github.com/user/backend.git"
       branch: "develop"
       use_current_branch: true  # Default: true. Set to false to force branch switching on init.
+      ignore: "~/.cecli/backend.ignore" # Optional: Path to a custom ignore file for this project
 ```
 
 ### Multiple Workspaces

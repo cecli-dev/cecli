@@ -95,7 +95,7 @@ class AgentCoder(Coder):
         super().__init__(*args, **kwargs)
 
     def _setup_agent(self):
-        os.makedirs(".cecli/workspace", exist_ok=True)
+        os.makedirs(".cecli/temp", exist_ok=True)
 
     def _get_agent_config(self):
         """
@@ -1020,7 +1020,7 @@ I will proceed based on the tool results and updated context.""")
                 self.model_kwargs = {
                     "temperature": default_temp + 0.1,
                     "frequency_penalty": default_fp + 0.2,
-                    "presence_penalty": 0.1,
+                    # "presence_penalty": 0.1,
                 }
             else:
                 temperature = nested.getter(self.model_kwargs, "temperature", default_temp)

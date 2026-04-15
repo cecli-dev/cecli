@@ -610,7 +610,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     if hasattr(args, "hooks") and args.hooks is not None:
         args.hooks = convert_yaml_to_json_string(args.hooks)
     if hasattr(args, "workspaces") and args.workspaces is not None:
-        args.hooks = convert_yaml_to_json_string(args.workspaces)
+        args.workspaces = convert_yaml_to_json_string(args.workspaces)
 
     # Interpolate environment variables in all string arguments
     for key, value in vars(args).items():

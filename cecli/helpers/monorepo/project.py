@@ -11,6 +11,7 @@ class Project:
         self.config = config
         self.name = config["name"]
         self.repo_url = config["repo"]
+        self.ignore_file = config.get("ignore")
         self.base_path = workspace_path / self.name
         self.main_path = self.base_path / "main"
 

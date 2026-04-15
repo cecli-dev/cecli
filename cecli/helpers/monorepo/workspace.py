@@ -24,6 +24,17 @@ class WorkspaceManager:
             project = Project(self.path, proj_cfg)
             project.initialize()
 
+        # Copy ignore files to workspace root
+        for proj_cfg in projects_config:
+            ignore_file = proj_cfg.get("ignore")
+            if ignore_file:
+                ignore_path = Path(ignore_file).expanduser()
+                if ignore_path.exists():
+                    import shutil
+
+                    dest_path = self.path / f"{proj_cfg['name']}.ignore"
+                    shutil.copy2(ignore_path, dest_path)
+
         # Write metadata
         import json
 

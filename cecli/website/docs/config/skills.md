@@ -20,9 +20,11 @@ skill-name/
 ├── scripts/             # Executable scripts
 │   └── example-setup.sh         # Setup script
 │   └── example-deploy.py        # Deployment script
-└── assets/              # Binary assets (images, config files, etc.)
-    └── example-diagram.png      # Architecture diagram
-    └── example-config.json      # Configuration file
+├── assets/              # Binary assets (images, config files, etc.)
+│   └── example-diagram.png      # Architecture diagram
+│   └── example-config.json      # Configuration file
+└── evals/
+    └── evals.json        # Evaluation tests
 ```
 
 ## SKILL.md Format
@@ -66,6 +68,91 @@ def process_data(data):
     return result
 ```
 
+## Evals Format (`evals.json`)
+
+The `evals/` directory contains `evals.json` files for testing skill performance. These evaluations help ensure that skills behave as expected and provide a way to measure their accuracy and effectiveness. These evaluation files can be executed using the `RunEvals` tool in Agent Mode.
+
+`evals.json` files can be in one of two formats:
+
+### Standard Format
+
+The standard format includes metadata about the skill and a list of evaluation cases.
+
+**Structure:**
+
+```json
+{
+  "skill_name": "your-skill-name",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A user query to test the skill.",
+      "expected_output": "A description of the ideal response from the AI.",
+      "assertions": [
+        "A list of specific points or phrases that must be in the output.",
+        "Another assertion to check for.",
+        "And so on..."
+      ],
+      "files": [
+        "path/to/test/file1.txt",
+        "path/to/test/file2.py"
+      ]
+    }
+  ]
+}
+```
+
+- **`skill_name`**: The name of the skill being evaluated.
+- **`evals`**: An array of evaluation objects.
+  - **`id`**: A unique identifier for the test case.
+  - **`prompt`**: The input prompt to send to the AI.
+  - **`expected_output`**: A natural language description of what the ideal response should contain.
+  - **`assertions`**: A list of specific, verifiable statements that must be true about the AI's output. These are used for automated checking.
+  - **`files`**: A list of file paths to be included in the context when running the evaluation.
+
+### Assertion-Based Format
+
+This format is a direct array of evaluation cases, each with structured assertions. This is useful for more granular, automated testing.
+
+**Structure:**
+
+```json
+[
+  {
+    "id": "billing-charge-error",
+    "description": "Clear billing question about a charge",
+    "input": "I was charged $99 but I only signed up for the $49 plan.",
+    "assertions": [
+      { "type": "exact", "value": "BILLING" }
+    ]
+  },
+  {
+    "id": "technical-api-error",
+    "description": "API authentication failure is TECHNICAL",
+    "input": "I keep getting a 403 error when I try to authenticate.",
+    "assertions": [
+      { "type": "exact", "value": "TECHNICAL" }
+    ]
+  },
+  {
+    "id": "no-extra-text",
+    "description": "Output should only be the label — nothing else",
+    "input": "Where can I find my invoices?",
+    "assertions": [
+      { "type": "contains", "value": "BILLING" },
+      { "type": "max_length", "value": 10 }
+    ]
+  }
+]
+```
+
+- **`id`**: A unique string identifier for the test case.
+- **`description`**: A brief explanation of the test case's purpose.
+- **`input`**: The input prompt to send to the AI.
+- **`assertions`**: An array of assertion objects for automated validation.
+  - **`type`**: The type of assertion (e.g., `exact`, `contains`, `max_length`).
+  - **`value`**: The value to check against.
+
 ## Skill Configuration
 
 Skills are configured through the `agent-config` parameter in the YAML configuration file. The following options are available:
@@ -105,13 +192,14 @@ To create a custom skill:
 1. Create a skill directory with the skill name
 2. Add `SKILL.md` with YAML frontmatter and instructions
 3. Add reference materials in `references/` directory
-4. Add executable scripts in `scripts/` directory  
+4. Add executable scripts in `scripts/` directory
 5. Add binary assets in `assets/` directory
-6. Test the skill by adding it to your configuration file:
+6. Add evaluation tests in `evals/` directory to test skill performance
+7. Test the skill by adding it to your configuration file:
 
 Example skill creation:
 ```bash
-mkdir -p ~/skills/my-custom-skill/{references,scripts,assets}
+mkdir -p ~/skills/my-custom-skill/{references,scripts,assets,evals}
 
 cat > ~/skills/my-custom-skill/SKILL.md << 'EOF'
 ---
@@ -152,6 +240,25 @@ echo "Setting up my custom skill..."
 # Setup commands here
 EOF
 chmod +x ~/skills/my-custom-skill/scripts/setup.sh
+
+# Add an eval file
+cat > ~/skills/my-custom-skill/evals/evals.json << 'EOF'
+{
+  "skill_name": "my-custom-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Test prompt for feature 1",
+      "expected_output": "Expected behavior for feature 1",
+      "assertions": [
+        "Should do this",
+        "Should not do that"
+      ],
+      "files": []
+    }
+  ]
+}
+EOF
 ```
 
 ## Best Practices for Skills

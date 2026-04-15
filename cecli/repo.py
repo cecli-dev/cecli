@@ -95,6 +95,12 @@ class GitRepo:
         self.subtree_only = subtree_only
         self.git_commit_verify = git_commit_verify
         self.ignore_file_cache = {}
+        self.is_workspace = False
+        self.workspace_path = None
+        self.workspace_config = {}
+        self.workspace_ignore_specs = {}
+        self.workspace_ignore_ts = {}
+        # Workspace detection and config loading occurs later in __init__
 
         if git_dname:
             check_fnames = [git_dname]
@@ -129,27 +135,40 @@ class GitRepo:
             raise FileNotFoundError
 
         self._init_repo_path = repo_paths.pop()
-        self.init_repo()
-
-        if cecli_ignore_file:
-            self.cecli_ignore_file = Path(cecli_ignore_file)
 
         # Detect if we're in a workspace
-        self.workspace_path = self._detect_workspace_path(self.root)
+        self.workspace_path = self._detect_workspace_path(self._init_repo_path)
         if self.workspace_path:
-            self.io.tool_output(f"Working in workspace: {self.workspace_path.name}")
+            self.is_workspace = True
+
+            try:
+                from cecli.helpers.monorepo.config import load_workspace_config
+
+                self.workspace_config = load_workspace_config(name=self.workspace_path.name)
+            except Exception:
+                self.workspace_config = {}
+
+            self.refresh_cecli_ignore()
+
+        self.init_repo()
+        if cecli_ignore_file:
+            self.cecli_ignore_file = Path(cecli_ignore_file)
 
     def init_repo(self):
         if not self.repo:
             self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
             self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
+        if self.is_workspace:
+            self.root = self.workspace_path
+
         try:
             commit = self.repo.head.commit
             return commit
         except ANY_GIT_ERROR:
-            self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
-            self.root = utils.safe_abs_path(self.repo.working_tree_dir)
+            if not self.is_workspace:
+                self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
+                self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
     def _detect_workspace_path(self, start_path: str):
         """Check if current directory is within a workspace"""
@@ -612,7 +631,9 @@ class GitRepo:
                 ).splitlines()
 
                 for f in res:
-                    all_files.append(f"{proj_name}/main/{f}")
+                    rel_path = f"{proj_name}/main/{f}"
+                    if not self.ignored_file(rel_path):
+                        all_files.append(rel_path)
             except Exception:
                 continue
 
@@ -625,21 +646,39 @@ class GitRepo:
         if res:
             return res
 
-        path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
+        if self.is_workspace:
+            try:
+                # In workspace mode, try to make it relative to workspace_path first
+                path = str(
+                    Path(
+                        PurePosixPath(
+                            (Path(self.workspace_path) / path).relative_to(self.workspace_path)
+                        )
+                    )
+                )
+            except ValueError:
+                # Fallback to standard relative_to(self.root)
+                path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
+        else:
+            path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
+
         self.normalized_path[orig_path] = path
         return path
 
     def refresh_cecli_ignore(self):
-        if not self.cecli_ignore_file:
+        if not self.cecli_ignore_file and not self.is_workspace:
             return
 
         current_time = time.time()
         if current_time - self.cecli_ignore_last_check < 1:
             return
 
+        if self.is_workspace:
+            self._refresh_workspace_ignores()
+
         self.cecli_ignore_last_check = current_time
 
-        if not self.cecli_ignore_file.is_file():
+        if not self.cecli_ignore_file or not self.cecli_ignore_file.is_file():
             return
 
         mtime = self.cecli_ignore_file.stat().st_mtime
@@ -651,6 +690,35 @@ class GitRepo:
                 pathspec.patterns.GitWildMatchPattern,
                 lines,
             )
+
+    def _refresh_workspace_ignores(self):
+        if not hasattr(self, "workspace_config") or not self.workspace_config:
+            return
+
+        if not hasattr(self, "workspace_ignore_specs"):
+            self.workspace_ignore_specs = {}
+            self.workspace_ignore_ts = {}
+
+        projects = self.workspace_config.get("projects", [])
+        for proj in projects:
+            proj_name = proj.get("name")
+            ignore_file = proj.get("ignore")
+            if not proj_name or not ignore_file:
+                continue
+
+            ignore_path = self.workspace_path / f"{proj_name}.ignore"
+            if not ignore_path.is_file():
+                continue
+
+            mtime = ignore_path.stat().st_mtime
+            if mtime != self.workspace_ignore_ts.get(proj_name):
+                self.workspace_ignore_ts[proj_name] = mtime
+                self.ignore_file_cache = {}
+                lines = ignore_path.read_text().splitlines()
+                self.workspace_ignore_specs[proj_name] = pathspec.PathSpec.from_lines(
+                    pathspec.patterns.GitWildMatchPattern,
+                    lines,
+                )
 
     def _get_gitignore_spec(self, dir_path):
         """Get or create a GitIgnoreSpec for a directory, caching for performance."""
@@ -754,6 +822,31 @@ class GitRepo:
 
             if cwd_path not in fname_path.parents and fname_path != cwd_path:
                 return True
+
+        if self.is_workspace:
+            # Check project-specific ignores
+            try:
+                fname_rel = self.normalize_path(fname)
+                parts = Path(fname_rel).parts
+                if parts:
+                    proj_name = parts[0]
+                    if (
+                        hasattr(self, "workspace_ignore_specs")
+                        and proj_name in self.workspace_ignore_specs
+                    ):
+                        # Check against project-specific spec
+                        # The spec expects paths relative to the project root (usually proj/main/)
+                        if len(parts) > 2 and parts[1] == "main":
+                            proj_rel_path = str(Path(*parts[2:]))
+                        else:
+                            proj_rel_path = str(Path(*parts[1:]))
+
+                        if self.workspace_ignore_specs[proj_name].match_file(proj_rel_path):
+                            return True
+                # If not matched by project-specific ignore, continue to global ignore
+                # but don't return False yet as there might be a global .cecli.ignore
+            except (ValueError, IndexError):
+                pass
 
         if not self.cecli_ignore_file or not self.cecli_ignore_file.is_file():
             return False

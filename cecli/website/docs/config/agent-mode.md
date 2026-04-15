@@ -52,6 +52,7 @@ Agent Mode uses a centralized local tool registry that manages all available too
 - **Git Tools**: `GitDiff`, `GitLog`, `GitShow`, `GitStatus`
 - **Utility Tools**: `UpdateTodoList`, `ListChanges`, `UndoChange`, `Finished`
 - **Skill Management**: `LoadSkill`, `RemoveSkill`
+- **Eval Management**: `RunEvals`
 
 #### Enhanced Context Management
 

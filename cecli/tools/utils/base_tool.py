@@ -82,7 +82,9 @@ class BaseTool(ABC):
                         "This request is denied to prevent repeated operations."
                     )
                     cls.on_duplicate_request(coder, **params)
-                    return handle_tool_error(coder, tool_name, ValueError(error_msg))
+                    return handle_tool_error(
+                        coder, tool_name, ValueError(error_msg), add_traceback=False
+                    )
 
             # Add current invocation to history (keeping only last 3)
             cls._invocations[tool_name].append((current_params_tuple, params))

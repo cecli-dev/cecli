@@ -758,6 +758,11 @@ class InputOutput:
             print()
 
     def interrupt_input(self):
+        if self.coder:
+            coder = self.coder()
+            if coder and hasattr(coder, "interrupt_event"):
+                coder.interrupt_event.set()
+
         if self.prompt_session and self.prompt_session.app:
             # Store any partial input before interrupting
             self.placeholder = self.prompt_session.app.current_buffer.text
@@ -1301,6 +1306,7 @@ class InputOutput:
                 self.user_input(f"{question} - {res}", log_only=False)
             else:
                 # Ring the bell if needed
+                self.notify_user_input_required()
                 self.ring_bell()
                 self.start_spinner("Awaiting Confirmation...", False)
 
@@ -1708,22 +1714,28 @@ class InputOutput:
 
         return None  # Unknown system
 
+    def _send_notification(self):
+        if self.notifications_command:
+            try:
+                result = subprocess.run(self.notifications_command, shell=True, capture_output=True)
+                if result.returncode != 0 and result.stderr:
+                    error_msg = result.stderr.decode("utf-8", errors="replace")
+                    self.tool_warning(f"Failed to run notifications command: {error_msg}")
+            except Exception as e:
+                self.tool_warning(f"Failed to run notifications command: {e}")
+        else:
+            print("\a", end="", flush=True)  # Ring the bell
+
+    def notify_user_input_required(self):
+        """Send a notification that user input is required."""
+        if self.notifications:
+            self._send_notification()
+
     def ring_bell(self):
         """Ring the terminal bell if needed and clear the flag"""
         if self.bell_on_next_input and self.notifications:
-            if self.notifications_command:
-                try:
-                    result = subprocess.run(
-                        self.notifications_command, shell=True, capture_output=True
-                    )
-                    if result.returncode != 0 and result.stderr:
-                        error_msg = result.stderr.decode("utf-8", errors="replace")
-                        self.tool_warning(f"Failed to run notifications command: {error_msg}")
-                except Exception as e:
-                    self.tool_warning(f"Failed to run notifications command: {e}")
-            else:
-                print("\a", end="", flush=True)  # Ring the bell
-            self.bell_on_next_input = False  # Clear the flag
+            self._send_notification()
+            self.bell_on_next_input = False
 
     def toggle_multiline_mode(self):
         """Toggle between normal and multiline input modes"""

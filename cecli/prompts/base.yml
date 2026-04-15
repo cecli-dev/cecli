@@ -98,7 +98,7 @@ compaction_prompt: |
   - (e.g., "Discovered that the connection timeout error is triggered by the `RetryPolicy` class.")
   - (e.g., "Successfully refactored the `validate_input` function to handle null bytes.")
   - (e.g., "Reverted changes to `db.py` after determining the issue was in the environment config instead.")
-  - (e.g., "Verified that the fix works in isolation using a temporary script in `.cecli/workspace`.")
+  - (e.g., "Verified that the fix works in isolation using a temporary script in `.cecli/temp`.")
 
   ### 3. Current Technical Context
   - **Files In-Scope**: List paths currently being edited or actively referenced.
