@@ -1076,8 +1076,10 @@ class InputOutput:
                 inp = line
                 break
 
-            self.user_input(inp)
-            return inp
+                self.user_input(inp)
+                return inp
+            finally:
+                self.is_processing_prompt = False
         finally:
             self.is_processing_prompt = False
 
