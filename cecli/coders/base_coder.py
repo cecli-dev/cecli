@@ -1278,7 +1278,11 @@ class Coder:
         try:
             if with_message:
                 self.io.user_input(with_message)
-                await self.run_one(with_message, preproc)
+                self.io.is_processing_prompt = True
+                try:
+                    await self.run_one(with_message, preproc)
+                finally:
+                    self.io.is_processing_prompt = False
                 return self.partial_response_content
 
             user_message = None
@@ -1340,7 +1344,11 @@ class Coder:
         try:
             if with_message:
                 self.io.user_input(with_message)
-                await self.run_one(with_message, preproc)
+                self.io.is_processing_prompt = True
+                try:
+                    await self.run_one(with_message, preproc)
+                finally:
+                    self.io.is_processing_prompt = False
                 return self.partial_response_content
 
             # Initialize state for task coordination
@@ -1534,7 +1542,11 @@ class Coder:
                 self.compact_context_completed = True
 
             self.run_one_completed = False
-            await self.run_one(user_message, preproc)
+            self.io.is_processing_prompt = True
+            try:
+                await self.run_one(user_message, preproc)
+            finally:
+                self.io.is_processing_prompt = False
             self.show_undo_hint()
         except asyncio.CancelledError:
             # Don't show undo hint if cancelled
