@@ -1740,7 +1740,9 @@ class InputOutput:
 
     def notify_user_input_required(self):
         """Send a notification that user input is required."""
-        if self.notifications and not self.is_processing_prompt:
+        if self.is_processing_prompt:
+            return
+        if self.notifications:
             self._send_notification()
 
     def ring_bell(self):
