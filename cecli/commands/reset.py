@@ -22,6 +22,7 @@ class ResetCommand(BaseCommand):
             # Re-initialize Conversation components with current coder
             ConversationService.get_manager(coder).initialize(reformat=True)
             ConversationService.get_files(coder)  # Ensure instance exists/initialized
+            coder.observation_manager.reset()
 
             # Clear TUI output if available
             if coder.tui and coder.tui():
