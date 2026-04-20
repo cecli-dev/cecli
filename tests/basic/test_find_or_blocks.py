@@ -4,6 +4,7 @@ import difflib
 import io
 import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -73,17 +74,20 @@ def process_markdown(filename, fh):
 
 class TestFindOrBlocks:
     def test_process_markdown(self):
+        # Get the fixtures directory path
+        fixtures_dir = Path(__file__).parent.parent / "fixtures"
+
         # Path to the input markdown file
-        input_file = "tests/fixtures/chat-history.md"
+        input_file = fixtures_dir / "chat-history.md"
 
         # Path to the expected output file
-        expected_output_file = "tests/fixtures/chat-history-search-replace-gold.txt"
+        expected_output_file = fixtures_dir / "chat-history-search-replace-gold.txt"
 
         # Create a StringIO object to capture the output
         output = io.StringIO()
 
         # Run process_markdown
-        process_markdown(input_file, output)
+        process_markdown(str(input_file), output)
 
         # Get the actual output
         actual_output = output.getvalue()
@@ -98,7 +102,7 @@ class TestFindOrBlocks:
             diff = difflib.unified_diff(
                 expected_output.splitlines(keepends=True),
                 actual_output.splitlines(keepends=True),
-                fromfile=expected_output_file,
+                fromfile=str(expected_output_file),
                 tofile="actual output",
             )
 
