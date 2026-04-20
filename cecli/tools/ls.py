@@ -1,6 +1,8 @@
+import json
 import os
 
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
@@ -75,3 +77,26 @@ class Tool(BaseTool):
         except Exception as e:
             coder.io.tool_error(f"Error in ls: {str(e)}")
             return f"Error: {str(e)}"
+
+    @classmethod
+    def format_output(cls, coder, mcp_server, tool_response):
+        """Format output for Ls tool."""
+        color_start, color_end = color_markers(coder)
+
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            return
+
+        tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
+
+        # Output the directory parameter with the requested format
+        directory = params.get("directory", "")
+        if directory:
+            # Format as "ls: • directory"
+            formatted_query = f"{color_start}directory:{color_end} {directory}"
+            coder.io.tool_output(formatted_query)
+            coder.io.tool_output("")
+
+        tool_footer(coder=coder, tool_response=tool_response)

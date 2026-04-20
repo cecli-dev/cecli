@@ -85,7 +85,12 @@ class ConversationChunks:
                 )
 
         # Add system reminder as a pre-prompt context block
-        if hasattr(coder.gpt_prompts, "system_reminder") and coder.gpt_prompts.system_reminder:
+        use_reminders = getattr(coder.args, "use_reminders", True)
+        if (
+            use_reminders
+            and hasattr(coder.gpt_prompts, "system_reminder")
+            and coder.gpt_prompts.system_reminder
+        ):
             msg = dict(
                 role="user",
                 content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder),
@@ -235,7 +240,8 @@ class ConversationChunks:
             for f in editable_rel_files:
                 reminder_lines.append(f"  - {f}")
 
-        if len(reminder_lines) > 1:  # Only add reminder if there are files
+        use_reminders = getattr(coder.args, "use_reminders", True)
+        if use_reminders and len(reminder_lines) > 1:  # Only add reminder if there are files
             reminder_lines.append("</context>\n")
             reminder_content = "\n".join(reminder_lines)
             ConversationService.get_manager(coder).add_message(

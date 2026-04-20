@@ -86,9 +86,10 @@ class OutputContainer(RichLog):
 
     async def stream_chunk(self, text: str):
         """Stream a chunk of markdown text."""
-        if not text:
+        if not text or text == "(empty response)":
             return
 
+        self.set_last_write_type("assistant")
         # Check for cost updates in the text
         self._check_cost(text)
         # Add text to line buffer
@@ -98,7 +99,6 @@ class OutputContainer(RichLog):
         while "\n" in self._line_buffer:
             line, self._line_buffer = self._line_buffer.split("\n", 1)
             if line.rstrip():
-                self.set_last_write_type("assistant")
                 # Format with prefix on first line, proper indentation on subsequent lines
                 if self._first_line_of_response:
                     wrapped_line = self._wrap_text_with_prefix(line.rstrip(), prefix="• ")

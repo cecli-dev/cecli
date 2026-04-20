@@ -1,14 +1,17 @@
 # Import necessary functions
+import json
 import os
 import platform
 
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.run_cmd import run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
     NORM_NAME = "command"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {
@@ -183,7 +186,7 @@ class Tool(BaseTool):
 
         from cecli.helpers.background_commands import CircularBuffer
 
-        coder.io.tool_output(f"⚙️ Executing shell command with {timeout}s timeout: {command_string}")
+        coder.io.tool_output(f"⚙️ Executing shell command with {timeout}s timeout.")
 
         shell = os.environ.get("SHELL", "/bin/sh")
 
@@ -284,7 +287,7 @@ class Tool(BaseTool):
             tui = coder.tui()
             should_print = False
 
-        coder.io.tool_output(f"⚙️ Executing shell command: {command_string}")
+        coder.io.tool_output("⚙️ Executing shell command.")
 
         # Use run_cmd_subprocess for non-interactive execution
         exit_status, combined_output = run_cmd_subprocess(
@@ -328,8 +331,52 @@ class Tool(BaseTool):
         else:
             return output  # Error message from manager
 
-    @classmethod
     async def _handle_errors(cls, coder, command_string, e):
         """Handle errors during command execution."""
-        coder.io.tool_error(f"Error executing shell command '{command_string}': {str(e)}")
+        coder.io.tool_error(f"Error executing shell command: {str(e)}")
         return f"Error executing command: {str(e)}"
+
+    @classmethod
+    def format_output(cls, coder, mcp_server, tool_response):
+        """Format output for Command tool."""
+        color_start, color_end = color_markers(coder)
+
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            return
+
+        # Output header
+        tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
+
+        command = params.get("command", "")
+        background = params.get("background", False)
+        stop = params.get("stop", False)
+        stdin = params.get("stdin")
+        pty = params.get("pty", False)
+
+        coder.io.tool_output("")
+
+        # Show additional parameters if they are not default
+        extras = []
+        if background:
+            extras.append("background=True")
+        if stop:
+            extras.append("stop=True")
+        if pty:
+            extras.append("pty=True")
+
+        if extras:
+            coder.io.tool_output(f"{color_start}Options:{color_end} {', '.join(extras)}")
+
+        if stdin:
+            coder.io.tool_output(f"{color_start}Stdin:{color_end}")
+            coder.io.tool_output(stdin)
+
+        coder.io.tool_output(f"{color_start}Command:{color_end}")
+        coder.io.tool_output(command)
+        coder.io.tool_output("")
+
+        # Output footer
+        tool_footer(coder=coder, tool_response=tool_response)

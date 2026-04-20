@@ -1,3 +1,4 @@
+import json
 import os
 
 from cecli.helpers.hashline import hashline, strip_hashline
@@ -8,6 +9,7 @@ from cecli.tools.utils.helpers import (
     is_provided,
     resolve_paths,
 )
+from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
@@ -88,7 +90,7 @@ class Tool(BaseTool):
         try:
             # 1. Validate show parameter
             if not isinstance(show, list):
-                raise ToolError("show parameter must be an array")
+                show = [show] if isinstance(show, dict) else show
 
             if len(show) == 0:
                 raise ToolError("show array cannot be empty")
@@ -279,7 +281,7 @@ class Tool(BaseTool):
                     "Do not call ShowContext again until you edit the file."
                 )
             else:
-                coder.io.tool_output(f"Successfully retrieved context for {len(show)} file(s)")
+                coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
                 return f"Successfully retrieved most recent contents for {len(show)} file(s)"
 
         except ToolError as e:
@@ -288,6 +290,38 @@ class Tool(BaseTool):
         except Exception as e:
             # Handle unexpected errors during processing
             return handle_tool_error(coder, tool_name, e)
+
+    @classmethod
+    def format_output(cls, coder, mcp_server, tool_response):
+        """Format output for ShowContext tool."""
+        color_start, color_end = color_markers(coder)
+
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            return
+
+        tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
+
+        show_ops = params.get("show", [])
+        if show_ops:
+            coder.io.tool_output("")
+            for i, show_op in enumerate(show_ops):
+                file_path = show_op.get("file_path", "")
+                start_text = strip_hashline(show_op.get("start_text", "")).strip()
+                end_text = strip_hashline(show_op.get("end_text", "")).strip()
+                padding = show_op.get("padding", 5)
+
+                # Format as "show: • file_path • start_text • end_text • padding"
+                formatted_query = (
+                    f"{color_start}range_{i + 1}:{color_end} {file_path} • {start_text} •"
+                    f" {end_text} • {padding}"
+                )
+                coder.io.tool_output(formatted_query)
+            coder.io.tool_output("")
+
+        tool_footer(coder=coder, tool_response=tool_response)
 
     @classmethod
     def on_duplicate_request(cls, coder, **kwargs):

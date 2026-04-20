@@ -17,3 +17,8 @@ class InputContainer(Vertical):
         self.coder_mode = mode
         self.border_title = self.coder_mode
         self.refresh()
+
+    def update_cost(self, cost_text: str):
+        """Update the cost display in the border subtitle."""
+        self.border_subtitle = cost_text
+        self.refresh()

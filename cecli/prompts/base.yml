@@ -85,29 +85,43 @@ go_ahead_tip: ""
 
 compaction_prompt: |
   # Instruction: Context Compaction & State Preservation
-  The following conversation is exceeding the context limit. Transform this history into a "Mission Briefing" that allows a new LLM instance to resume with zero loss of technical momentum. 
+  The following conversation is exceeding the context limit. Transform this history into a "Mission Intent" summary that allows a new LLM instance to resume with zero loss of technical momentum.
   
   ## Required Output Format:
 
   ### 1. Core Objective
   A concise statement of the final goal and the specific success criteria.
 
-  ### 2. Narrative Event Log (Up to 50 Outcomes)
-  Provide a bulleted list documenting the sequence of **outcomes and milestones** reached. Do not describe tool syntax; describe what was learned or changed in one sentence per bullet:
-  - (e.g., "Mapped the project structure and identified `core/logic.py` as the primary target.")
-  - (e.g., "Discovered that the connection timeout error is triggered by the `RetryPolicy` class.")
-  - (e.g., "Successfully refactored the `validate_input` function to handle null bytes.")
-  - (e.g., "Reverted changes to `db.py` after determining the issue was in the environment config instead.")
-  - (e.g., "Verified that the fix works in isolation using a temporary script in `.cecli/temp`.")
+  ### 2. Current Technical Context
+        - **Files In-Scope**: List paths currently being edited or actively referenced.
+        - **Verified Facts**: List specific findings about the code logic that are now "known truths."
+        - **Discarded Hypotheses**: List paths or theories that were tested and proven incorrect to avoid repetition.
 
-  ### 3. Current Technical Context
-  - **Files In-Scope**: List paths currently being edited or actively referenced.
-  - **Verified Facts**: List specific findings about the code logic that are now "known truths."
-  - **Discarded Hypotheses**: List paths or theories that were tested and proven incorrect to avoid repetition.
-
-  ### 4. Strategic Pivot & Next Steps
+  ### 3. Strategic Pivot & Next Steps
   - **Current Intent**: What is the model currently trying to prove or implement?
   - **Immediate Next Steps**: The prioritized next tool calls and logic steps.
-
   ---
   ## Conversation History to Compact:
+
+observation_prompt: |
+  Review the following conversation history and extract an 
+  event-based log of key decisions, tool outputs, and user requests.
+  Focus on "what happened" rather than a narrative summary.
+  Use a bulleted list of concise, factual statements.
+  Document the sequence of **outcomes and milestones** reached. 
+  Do not describe tool syntax; describe what was learned or changed in one sentence per bullet.
+
+reflection_prompt: |
+  Condense the following observation log into a consolidated set of 
+  key historical facts. Additionally, explicitly state the 
+  CURRENT GOALS and NEXT STEPS based on the history.
+
+  Format as:
+  OBSERVATIONS:
+  - [fact 1]
+  - [fact 2]
+  - [fact 3]
+
+  STATUS:
+  - Goal: [current goal]
+  - Next Step: [immediate next step]
