@@ -2652,10 +2652,28 @@ class Coder:
                             all_results_content.append("Tool Request Aborted.")
                             continue
 
-                        call_result = await experimental_mcp_client.call_openai_tool(
-                            session=session,
-                            openai_tool=new_tool_call,
+                        tool_call_task = asyncio.create_task(
+                            experimental_mcp_client.call_openai_tool(
+                                session=session,
+                                openai_tool=new_tool_call,
+                            )
                         )
+                        interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+
+                        done, pending = await asyncio.wait(
+                            {tool_call_task, interrupt_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+
+                        if interrupt_task in done:
+                            tool_call_task.cancel()
+                            try:
+                                await tool_call_task
+                            except asyncio.CancelledError:
+                                pass
+                            raise KeyboardInterrupt("Tool call interrupted")
+
+                        call_result = tool_call_task.result()
 
                         content_parts = []
                         if call_result.content:
@@ -2701,6 +2719,9 @@ class Coder:
                         }
                     )
 
+                except KeyboardInterrupt:
+                    self.io.tool_warning(f"Tool call {tool_call.function.name} interrupted.")
+                    raise
                 except Exception as e:
                     tool_error = f"Error executing tool call {tool_call.function.name}: \n{e}"
                     self.io.tool_warning(
@@ -2751,6 +2772,7 @@ class Coder:
             return False
 
         # 5. Execute tools
+        self.interrupt_event.clear()
         tool_execution_task = asyncio.create_task(self._execute_tool_groups(tool_groups))
         interrupt_task = asyncio.create_task(self.interrupt_event.wait())
 
