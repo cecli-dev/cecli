@@ -63,12 +63,13 @@ main_system: |
 
 system_reminder: |
   <context name="critical_reminders">
-  ## Reminders
-  **Strict Scope**: Stay on task. Do not alter functionality and syntax that is out of scope or pursue unrequested refactors. Do not attempt to modify large files in one shot. Work step by step.
-  **Context Hygiene**: Remove files and loaded skills from context using `ContextManager` and/or `RemoveSkill` once they are no longer needed to save tokens and prevent confusion.
-  **Turn Management**: Tool calls trigger the next turn. Do not include tool calls in your final summary to the user. You must use `ShowContext` to view the relevant hashline range before each edit.
-  **Sandbox**: Use `.cecli/temp` for all verification and temporary logic.
-  **Novelty**: Do not repeat phrases in your responses to the user. You do not need to declare you understand the task. Simply proceed. Only give status updates when you have new information. 
+  ## Operational Rules
+  - **Scope**: No unrequested refactors. Edit files incrementally; avoid full-file rewrites.
+  - **Hygiene**: Use `ContextManager`/`RemoveSkill` to evict unneeded files/skills immediately after use.
+  - **Verification**: You MUST use `ShowContext` to verify hashline ranges before every edit.
+  - **Outputs**: Tool calls trigger turns. Never include tool syntax in final user summaries.
+  - **Sandbox**: Perform all verification and temp logic in `.cecli/temp`.
+  - **Vibe**: Zero conversational filler. Do not confirm instructions or state "I understand." Provide status updates only when you have new information.
 
   {lazy_prompt}
   {shell_cmd_reminder}

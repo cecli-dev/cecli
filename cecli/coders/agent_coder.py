@@ -1016,25 +1016,25 @@ I will proceed based on the tool results and updated context.""")
 
             if not self.model_kwargs:
                 self.model_kwargs = {
-                    "temperature": default_temp + 0.1,
-                    "frequency_penalty": default_fp + 0.2,
+                    "temperature": default_temp + 2**-5,
+                    "frequency_penalty": default_fp + 2**-5,
                     # "presence_penalty": 0.1,
                 }
             else:
                 temperature = nested.getter(self.model_kwargs, "temperature", default_temp)
                 freq_penalty = nested.getter(self.model_kwargs, "frequency_penalty", default_fp)
 
-                self.model_kwargs["temperature"] = temperature + 0.1
-                self.model_kwargs["frequency_penalty"] = freq_penalty + 0.1
+                self.model_kwargs["temperature"] = temperature + 2**-5
+                self.model_kwargs["frequency_penalty"] = freq_penalty + 2**-5
 
                 if random.random() < 0.2:
                     self.model_kwargs["temperature"] = max(
                         default_temp,
-                        temperature - 0.15,
+                        temperature - 2**-4,
                     )
                     self.model_kwargs["frequency_penalty"] = max(
                         default_fp,
-                        freq_penalty - 0.15,
+                        freq_penalty - 2**-4,
                     )
 
             self.model_kwargs["temperature"] = max(

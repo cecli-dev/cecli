@@ -8,7 +8,7 @@ import xxhash
 from cecli.utils import is_image_file
 
 from .service import ConversationService
-from .tags import MessageTag
+from .tags import DEFAULT_TAG_PRIORITY, MessageTag
 
 
 class ConversationChunks:
@@ -897,7 +897,7 @@ class ConversationChunks:
             ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,  # Use STATIC tag but with different priority
-                priority=250,  # Between CUR (200) and REMINDER (300)
+                priority=DEFAULT_TAG_PRIORITY[MessageTag.REMINDER] + 25,  # After REMINDER (300)
                 mark_for_delete=0,
                 hash_key=("post_message", block_type),
                 force=True,

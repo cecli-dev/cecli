@@ -274,7 +274,7 @@ ptyprocess==0.7.0
     # via
     #   -c requirements/common-constraints.txt
     #   pexpect
-py-cymbal==0.1.5
+py-cymbal==0.1.6
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in

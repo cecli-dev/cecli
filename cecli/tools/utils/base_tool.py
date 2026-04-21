@@ -14,6 +14,7 @@ class BaseTool(ABC):
 
     # Invocation tracking for detecting repeated tool calls
     _invocations = {}  # Dict to store last 3 invocations per tool
+    _invocation_summary = set()  # Set to track distinct tool names
     TRACK_INVOCATIONS = True  # Default to True, subclasses can override
 
     @classmethod
@@ -86,6 +87,18 @@ class BaseTool(ABC):
             else:
                 tool_name = cls.__name__
 
+            # Check if adding this tool would reach 3 distinct tools
+            # If so, clear all tracking and start fresh without counting this tool
+            if (
+                len(cls._invocation_summary) + (0 if tool_name in cls._invocation_summary else 1)
+                >= 3
+            ):
+                cls._invocations.clear()
+                cls._invocation_summary.clear()
+            else:
+                # Only add to summary if we didn't just clear everything
+                cls._invocation_summary.add(tool_name)
+
             # Initialize invocation tracking for this tool if not exists
             if tool_name not in cls._invocations:
                 cls._invocations[tool_name] = []
@@ -127,3 +140,4 @@ class BaseTool(ABC):
     @classmethod
     def clear_invocation_cache(cls):
         cls._invocations.clear()
+        cls._invocation_summary.clear()

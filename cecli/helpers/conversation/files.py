@@ -261,8 +261,8 @@ class ConversationFiles:
             ConversationService.get_manager(coder).add_message(
                 message_dict=diff_message,
                 tag=MessageTag.DIFFS,
-                promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_demotion=1,
+                # promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
+                # mark_for_demotion=1,
             )
 
         return diff

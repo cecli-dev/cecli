@@ -7,6 +7,7 @@ from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 class Tool(BaseTool):
     NORM_NAME = "ls"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {

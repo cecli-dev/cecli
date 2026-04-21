@@ -15,7 +15,7 @@ class LoadSkillCommand(BaseCommand):
             io.tool_output("Usage: /load-skill <skill-name>")
             return format_command_result(io, "load-skill", "Usage: /load-skill <skill-name>")
 
-        skill_name = args.strip()
+        skill_names = args.strip().split()
 
         # Check if we're in agent mode
         if not hasattr(coder, "edit_format") or coder.edit_format != "agent":
@@ -35,10 +35,14 @@ class LoadSkillCommand(BaseCommand):
                 )
             return format_command_result(io, "load-skill", "Skills manager is not initialized")
 
-        # Use the instance method on skills_manager
-        result = coder.skills_manager.load_skill(skill_name)
-        io.tool_output(result)
-        return format_command_result(io, "load-skill", f"Loaded skill: {skill_name}")
+        results = []
+        for skill_name in skill_names:
+            # Use the instance method on skills_manager
+            result = coder.skills_manager.load_skill(skill_name)
+            io.tool_output(result)
+            results.append(result)
+
+        return format_command_result(io, "load-skill", "\n".join(results))
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
@@ -57,12 +61,13 @@ class LoadSkillCommand(BaseCommand):
         """Get help text for the load-skill command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /load-skill <skill-name>  # Load a skill by name\n"
+        help_text += "  /load-skill <skill-name>...  # Load one or more skills by name\n"
         help_text += "\nExamples:\n"
         help_text += "  /load-skill pdf  # Load the PDF skill\n"
-        help_text += "  /load-skill web  # Load the web skill\n"
+        help_text += "  /load-skill web pdf  # Load both web and PDF skills\n"
         help_text += (
-            "\nThis command loads a skill by name. Skills are only available in agent mode.\n"
+            "\nThis command loads one or more skills by name. Skills are only available in agent"
+            " mode.\n"
         )
         help_text += "Skills provide additional functionality and tools to the agent.\n"
         return help_text

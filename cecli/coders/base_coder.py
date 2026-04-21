@@ -2737,8 +2737,8 @@ class Coder:
                     message_dict=tool_response,
                     tag=MessageTag.CUR,
                     hash_key=(tool_response["tool_call_id"], str(time.monotonic_ns())),
-                    promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                    mark_for_demotion=1,
+                    # promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
+                    # mark_for_demotion=1,
                 )
 
         return bool(tool_responses)
@@ -2925,8 +2925,8 @@ class Coder:
                 message_dict=msg,
                 tag=MessageTag.CUR,
                 hash_key=("assistant_message", str(msg), str(time.monotonic_ns())),
-                promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_demotion=1,
+                # promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
+                # mark_for_demotion=1,
             )
 
     def get_file_mentions(self, content, ignore_current=False):

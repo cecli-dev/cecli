@@ -32,7 +32,7 @@ textual>=6.0.0
 tomlkit>=0.14.0
 truststore
 xxhash>=3.6.0
-py-cymbal>=0.1.5
+py-cymbal>=0.1.6
 
 # Replaced networkx with rustworkx for better performance in repomap
 rustworkx>=0.15.0

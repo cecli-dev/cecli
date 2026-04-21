@@ -19,25 +19,22 @@ class LoadMcpCommand(BaseCommand):
                 io, cls.NORM_NAME, "No MCP servers found, nothing to load."
             )
 
-        server_name = args.strip()
-        server = coder.mcp_manager.get_server(server_name)
-        if server is None:
-            return format_command_result(
-                io, cls.NORM_NAME, "", f"MCP server {server_name} does not exist."
-            )
+        server_names = args.strip().split()
+        results = []
+        for server_name in server_names:
+            server = coder.mcp_manager.get_server(server_name)
+            if server is None:
+                results.append(f"MCP server {server_name} does not exist.")
+                continue
 
-        did_connect = await coder.mcp_manager.connect_server(server.name)
-
-        if not did_connect:
-            return format_command_result(io, cls.NORM_NAME, f"Unable to load server: {server_name}")
+            did_connect = await coder.mcp_manager.connect_server(server.name)
+            if did_connect:
+                results.append(f"Loaded server: {server_name}")
+            else:
+                results.append(f"Unable to load server: {server_name}")
 
         try:
-            if did_connect:
-                return format_command_result(io, cls.NORM_NAME, f"Loaded server: {server_name}")
-            else:
-                return format_command_result(
-                    io, cls.NORM_NAME, "", f"Unable to Load server: {server_name}"
-                )
+            return format_command_result(io, cls.NORM_NAME, "\n".join(results))
         finally:
             from . import SwitchCoderSignal
 
@@ -69,9 +66,9 @@ class LoadMcpCommand(BaseCommand):
         """Get help text for the load-mcp command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /load-mcp <mcp-name>  # Load a mcp by name\n"
+        help_text += "  /load-mcp <mcp-name>...  # Load one or more mcps by name\n"
         help_text += "\nExamples:\n"
         help_text += "  /load-mcp context7  # Load the context7 mcp\n"
-        help_text += "  /load-mcp github  # Load the github mcp\n"
-        help_text += "\nThis command loads a MCP server by name.\n"
+        help_text += "  /load-mcp github context7  # Load both github and context7 mcps\n"
+        help_text += "\nThis command loads one or more MCP servers by name.\n"
         return help_text
