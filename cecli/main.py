@@ -722,6 +722,7 @@ async def main_async(
             notifications_command=args.notifications_command,
             notification_bell=args.notification_bell,
             verbose=args.verbose,
+            show_spinner=args.spinner,
         )
 
     validate_tui_args(args)

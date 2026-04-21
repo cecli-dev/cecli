@@ -75,3 +75,31 @@ class TestSpinnerArgParsing:
         parser = get_parser()
         args = parser.parse_args(["--no-spinner"])
         assert args.spinner is False
+
+
+
+class TestIOSpinnerGating:
+    """Tests that InputOutput.start_spinner respects show_spinner=False."""
+
+    def test_io_show_spinner_false_disables_fallback_spinner(self):
+        """When show_spinner=False, fallback_spinner_enabled is False."""
+        from cecli.io import InputOutput
+
+        io = InputOutput(pretty=False, show_spinner=False)
+        assert io.fallback_spinner_enabled is False
+
+    def test_io_show_spinner_true_by_default(self):
+        """By default, fallback_spinner_enabled is True."""
+        from cecli.io import InputOutput
+
+        io = InputOutput(pretty=False)
+        assert io.fallback_spinner_enabled is True
+
+    def test_io_start_spinner_noop_when_disabled(self):
+        """start_spinner should not create a fallback spinner when show_spinner=False."""
+        from cecli.io import InputOutput
+
+        io = InputOutput(pretty=False, show_spinner=False)
+        io.start_spinner("Awaiting Confirmation...")
+        assert io.fallback_spinner is None
+        assert io.spinner_running is False
