@@ -137,53 +137,65 @@ class TestRepo:
         model2 = Model("gpt-4")
         dump(model1)
         dump(model2)
-        repo = GitRepo(InputOutput(), None, None, models=[model1, model2])
 
-        # Call the get_commit_message method with dummy diff and context
-        result = await repo.get_commit_message("dummy diff", "dummy context")
+        with GitTemporaryDirectory():
+            repo = GitRepo(InputOutput(), None, None, models=[model1, model2])
 
-        # Assert that the returned message is the expected one from the second model
-        assert result == "a good commit message"
+            # Call the get_commit_message method with dummy diff and context
+            result = await repo.get_commit_message("dummy diff", "dummy context")
 
-        # Check that simple_send_with_retries was called twice
-        assert mock_send.call_count == 2
+            # Assert that the returned message is the expected one from the second model
+            assert result == "a good commit message"
 
-        # Check that both calls were made with the same messages
-        first_call_messages = mock_send.call_args_list[0][0][0]  # Get messages from first call
-        second_call_messages = mock_send.call_args_list[1][0][0]  # Get messages from second call
-        assert first_call_messages == second_call_messages
+            # Check that simple_send_with_retries was called twice
+            assert mock_send.call_count == 2
+
+            # Check that both calls were made with the same messages
+            first_call_messages = mock_send.call_args_list[0][0][0]  # Get messages from first call
+            second_call_messages = mock_send.call_args_list[1][0][
+                0
+            ]  # Get messages from second call
+            assert first_call_messages == second_call_messages
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_strip_quotes(self, mock_send):
         mock_send.return_value = '"a good commit message"'
 
-        repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
-        # Call the get_commit_message method with dummy diff and context
-        result = await repo.get_commit_message("dummy diff", "dummy context")
+        with GitTemporaryDirectory():
+            repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
+            # Call the get_commit_message method with dummy diff and context
+            result = await repo.get_commit_message("dummy diff", "dummy context")
 
-        # Assert that the returned message is the expected one
-        assert result == "a good commit message"
+            # Assert that the returned message is the expected one
+            assert result == "a good commit message"
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_no_strip_unmatched_quotes(self, mock_send):
         mock_send.return_value = 'a good "commit message"'
 
-        repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
-        # Call the get_commit_message method with dummy diff and context
-        result = await repo.get_commit_message("dummy diff", "dummy context")
+        with GitTemporaryDirectory():
+            repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
+            # Call the get_commit_message method with dummy diff and context
+            result = await repo.get_commit_message("dummy diff", "dummy context")
 
-        # Assert that the returned message is the expected one
-        assert result == 'a good "commit message"'
+            # Assert that the returned message is the expected one
+            assert result == 'a good "commit message"'
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_with_custom_prompt(self, mock_send):
         mock_send.return_value = "Custom commit message"
         custom_prompt = "Generate a commit message in the style of Shakespeare"
 
-        repo = GitRepo(InputOutput(), None, None, models=[self.GPT35], commit_prompt=custom_prompt)
-        result = await repo.get_commit_message("dummy diff", "dummy context")
+        with GitTemporaryDirectory():
+            repo = GitRepo(
+                InputOutput(), None, None, models=[self.GPT35], commit_prompt=custom_prompt
+            )
+            result = await repo.get_commit_message("dummy diff", "dummy context")
 
-        assert result == "Custom commit message"
+            assert result == "Custom commit message"
+            mock_send.assert_called_once()
+            args = mock_send.call_args[0]  # Get positional args
+            assert args[0][0]["content"] == custom_prompt  # Check first message content
         mock_send.assert_called_once()
         args = mock_send.call_args[0]  # Get positional args
         assert args[0][0]["content"] == custom_prompt  # Check first message content

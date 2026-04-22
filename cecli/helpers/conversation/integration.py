@@ -8,7 +8,7 @@ import xxhash
 from cecli.utils import is_image_file
 
 from .service import ConversationService
-from .tags import MessageTag
+from .tags import DEFAULT_TAG_PRIORITY, MessageTag
 
 
 class ConversationChunks:
@@ -85,7 +85,12 @@ class ConversationChunks:
                 )
 
         # Add system reminder as a pre-prompt context block
-        if hasattr(coder.gpt_prompts, "system_reminder") and coder.gpt_prompts.system_reminder:
+        use_reminders = getattr(coder.args, "use_reminders", True)
+        if (
+            use_reminders
+            and hasattr(coder.gpt_prompts, "system_reminder")
+            and coder.gpt_prompts.system_reminder
+        ):
             msg = dict(
                 role="user",
                 content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder),
@@ -235,7 +240,8 @@ class ConversationChunks:
             for f in editable_rel_files:
                 reminder_lines.append(f"  - {f}")
 
-        if len(reminder_lines) > 1:  # Only add reminder if there are files
+        use_reminders = getattr(coder.args, "use_reminders", True)
+        if use_reminders and len(reminder_lines) > 1:  # Only add reminder if there are files
             reminder_lines.append("</context>\n")
             reminder_content = "\n".join(reminder_lines)
             ConversationService.get_manager(coder).add_message(
@@ -891,7 +897,7 @@ class ConversationChunks:
             ConversationService.get_manager(coder).add_message(
                 message_dict={"role": "user", "content": block_content},
                 tag=MessageTag.STATIC,  # Use STATIC tag but with different priority
-                priority=250,  # Between CUR (200) and REMINDER (300)
+                priority=DEFAULT_TAG_PRIORITY[MessageTag.REMINDER] + 25,  # After REMINDER (300)
                 mark_for_delete=0,
                 hash_key=("post_message", block_type),
                 force=True,

@@ -42,6 +42,7 @@ Screen {
     margin: 0 1 0 1;
     border: round $accent 50%;
     border-title-align: right;
+    border-subtitle-align: right;
     background: $surface;
 }
 

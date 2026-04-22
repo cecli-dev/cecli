@@ -19,6 +19,7 @@ class ClearCommand(BaseCommand):
         ConversationService.get_manager(coder).clear_tag(MessageTag.FILE_CONTEXTS)
 
         ConversationService.get_files(coder).reset()
+        coder.observation_manager.reset()
 
         # Clear TUI output if available
         if coder.tui and coder.tui():

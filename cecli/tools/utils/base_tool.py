@@ -14,6 +14,7 @@ class BaseTool(ABC):
 
     # Invocation tracking for detecting repeated tool calls
     _invocations = {}  # Dict to store last 3 invocations per tool
+    _invocation_summary = set()  # Set to track distinct tool names
     TRACK_INVOCATIONS = True  # Default to True, subclasses can override
 
     @classmethod
@@ -50,6 +51,26 @@ class BaseTool(ABC):
 
             if "parameters" in function_schema and "required" in function_schema["parameters"]:
                 required_params = function_schema["parameters"]["required"]
+                properties = function_schema["parameters"].get("properties", {})
+
+                # Auto-correction: If a required parameter is missing but it's an array,
+                # and the current params look like a single item of that array, wrap it.
+                if len(required_params) == 1:
+                    missing_param = required_params[0]
+                    if missing_param not in params and params:
+                        param_schema = properties.get(missing_param, {})
+                        if param_schema.get("type") == "array":
+                            params = {missing_param: [params]}
+
+                # Auto-correction: If a required parameter is present but is a dict instead of an array
+                for param_name in required_params:
+                    if param_name in params:
+                        param_schema = properties.get(param_name, {})
+                        if param_schema.get("type") == "array" and isinstance(
+                            params[param_name], dict
+                        ):
+                            params[param_name] = [params[param_name]]
+
                 missing_params = [param for param in required_params if param not in params]
                 if missing_params:
                     tool_name = function_schema.get("name", "Unknown Tool")
@@ -66,6 +87,18 @@ class BaseTool(ABC):
             else:
                 tool_name = cls.__name__
 
+            # Check if adding this tool would reach 3 distinct tools
+            # If so, clear all tracking and start fresh without counting this tool
+            if (
+                len(cls._invocation_summary) + (0 if tool_name in cls._invocation_summary else 1)
+                >= 3
+            ):
+                cls._invocations.clear()
+                cls._invocation_summary.clear()
+            else:
+                # Only add to summary if we didn't just clear everything
+                cls._invocation_summary.add(tool_name)
+
             # Initialize invocation tracking for this tool if not exists
             if tool_name not in cls._invocations:
                 cls._invocations[tool_name] = []
@@ -79,7 +112,7 @@ class BaseTool(ABC):
                 if prev_params_tuple == current_params_tuple:
                     error_msg = (
                         f"Tool '{tool_name}' has been called with identical parameters recently. "
-                        "This request is denied to prevent repeated operations."
+                        "This request is denied."
                     )
                     cls.on_duplicate_request(coder, **params)
                     return handle_tool_error(
@@ -107,3 +140,4 @@ class BaseTool(ABC):
     @classmethod
     def clear_invocation_cache(cls):
         cls._invocations.clear()
+        cls._invocation_summary.clear()

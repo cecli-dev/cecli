@@ -1,8 +1,10 @@
+import json
 import os
 import time
 
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError, parse_arg_as_list
+from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
@@ -75,6 +77,7 @@ class Tool(BaseTool):
         if not remove_files and not editable_files and not view_files and not create_files:
             raise ToolError("You must specify at least one of: remove, editable, view, or create")
 
+        coder.io.tool_output("⚙️ Modifying Context.")
         messages = []
 
         for f in create_files:
@@ -93,6 +96,36 @@ class Tool(BaseTool):
         coder.edit_allowed = True
 
         return "\n".join(messages)
+
+    @classmethod
+    def format_output(cls, coder, mcp_server, tool_response):
+        """Format output for ContextManager tool."""
+        color_start, color_end = color_markers(coder)
+
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            return
+
+        tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
+
+        # Define action display names
+        action_names = {
+            "create": "create",
+            "remove": "remove",
+            "view": "view",
+            "editable": "editable",
+        }
+
+        # Output each action with comma-separated file list
+        for action_key, display_name in action_names.items():
+            files = parse_arg_as_list(params.get(action_key))
+            if files:
+                file_list = ", ".join(files)
+                coder.io.tool_output(f"{color_start}{display_name}:{color_end} {file_list}")
+
+        tool_footer(coder=coder, tool_response=tool_response)
 
     @staticmethod
     def _remove(coder, file_path):

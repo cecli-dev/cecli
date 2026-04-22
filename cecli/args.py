@@ -594,6 +594,12 @@ def get_parser(default_config_files, git_root):
         default=False,
     )
     group.add_argument(
+        "--use-reminders",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable injecting reminder messages (default: True)",
+    )
+    group.add_argument(
         "--completion-menu-color",
         metavar="COLOR",
         default=None,

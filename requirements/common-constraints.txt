@@ -345,6 +345,8 @@ psutil==7.1.3
     # via -r requirements/requirements.in
 ptyprocess==0.7.0
     # via pexpect
+py-cymbal==0.1.6
+    # via -r requirements/requirements.in
 pycodestyle==2.14.0
     # via flake8
 pycparser==2.23

@@ -7,6 +7,7 @@ from . import (
     command_interactive,
     context_manager,
     delete_text,
+    explore_symbols,
     finished,
     git_branch,
     git_diff,
@@ -16,7 +17,6 @@ from . import (
     git_status,
     grep,
     insert_text,
-    list_changes,
     load_skill,
     ls,
     remove_skill,
@@ -25,8 +25,6 @@ from . import (
     thinking,
     undo_change,
     update_todo_list,
-    view_files_matching,
-    view_files_with_symbol,
 )
 
 # List of all available tool modules for dynamic discovery
@@ -35,6 +33,7 @@ TOOL_MODULES = [
     command_interactive,
     context_manager,
     delete_text,
+    explore_symbols,
     finished,
     git_branch,
     git_diff,
@@ -44,7 +43,6 @@ TOOL_MODULES = [
     git_status,
     grep,
     insert_text,
-    list_changes,
     load_skill,
     ls,
     remove_skill,
@@ -53,6 +51,4 @@ TOOL_MODULES = [
     thinking,
     undo_change,
     update_todo_list,
-    view_files_matching,
-    view_files_with_symbol,
 ]

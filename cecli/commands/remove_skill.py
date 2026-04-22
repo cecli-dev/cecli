@@ -15,7 +15,7 @@ class RemoveSkillCommand(BaseCommand):
             io.tool_output("Usage: /remove-skill <skill-name>")
             return format_command_result(io, "remove-skill", "Usage: /remove-skill <skill-name>")
 
-        skill_name = args.strip()
+        skill_names = args.strip().split()
 
         # Check if we're in agent mode
         if not hasattr(coder, "edit_format") or coder.edit_format != "agent":
@@ -35,10 +35,14 @@ class RemoveSkillCommand(BaseCommand):
                 )
             return format_command_result(io, "remove-skill", "Skills manager is not initialized")
 
-        # Use the instance method on skills_manager
-        result = coder.skills_manager.remove_skill(skill_name)
-        io.tool_output(result)
-        return format_command_result(io, "remove-skill", f"Removed skill: {skill_name}")
+        results = []
+        for skill_name in skill_names:
+            # Use the instance method on skills_manager
+            result = coder.skills_manager.remove_skill(skill_name)
+            io.tool_output(result)
+            results.append(result)
+
+        return format_command_result(io, "remove-skill", "\n".join(results))
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
@@ -57,12 +61,13 @@ class RemoveSkillCommand(BaseCommand):
         """Get help text for the remove-skill command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /remove-skill <skill-name>  # Remove a skill by name\n"
+        help_text += "  /remove-skill <skill-name>...  # Remove one or more skills by name\n"
         help_text += "\nExamples:\n"
         help_text += "  /remove-skill pdf  # Remove the PDF skill\n"
-        help_text += "  /remove-skill web  # Remove the web skill\n"
+        help_text += "  /remove-skill web pdf  # Remove both web and PDF skills\n"
         help_text += (
-            "\nThis command removes a skill by name. Skills are only available in agent mode.\n"
+            "\nThis command removes one or more skills by name. Skills are only available in agent"
+            " mode.\n"
         )
         help_text += "Skills provide additional functionality and tools to the agent.\n"
         return help_text

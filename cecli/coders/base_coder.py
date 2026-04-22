@@ -43,6 +43,7 @@ from cecli.commands import Commands, SwitchCoderSignal
 from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import command_parser, coroutines, nested, responses
 from cecli.helpers.conversation import ConversationService, MessageTag
+from cecli.helpers.observations.manager import ObservationManager
 from cecli.helpers.profiler import TokenProfiler
 from cecli.history import ChatSummary
 from cecli.hooks import HookIntegration
@@ -443,6 +444,7 @@ class Coder:
 
         # Initialize conversation system if enabled
         ConversationService.get_chunks(self).initialize_conversation_system()
+        self.observation_manager = ObservationManager.get_instance(self)
 
         self.commands = commands or Commands(self.io, self, args=args)
         self.commands.coder = self
@@ -923,10 +925,10 @@ class Coder:
                             file_stub = RepoMap.get_file_stub(fname, self.io)
 
                             # Add message about showing definitions instead of full content
-                            self.io.tool_output(
-                                f"⚠️ '{relative_fname}' is very large ({file_tokens} tokens). "
-                                "Use /context-management to toggle truncation off if needed."
-                            )
+                            # self.io.tool_output(
+                            #    f"⚠️ '{relative_fname}' is very large ({file_tokens} tokens). "
+                            #    "Use /context-management to toggle truncation off if needed."
+                            # )
 
                             # Add a message in the content itself so the model knows it's truncated
                             truncation_note = (
@@ -991,10 +993,10 @@ class Coder:
                         file_stub = RepoMap.get_file_stub(fname, self.io)
 
                         # Add message about showing definitions instead of full content
-                        self.io.tool_output(
-                            f"⚠️ '{relative_fname}' is very large ({file_tokens} tokens). "
-                            "Use /context-management to toggle truncation off if needed."
-                        )
+                        # self.io.tool_output(
+                        #    f"⚠️ '{relative_fname}' is very large ({file_tokens} tokens). "
+                        #    "Use /context-management to toggle truncation off if needed."
+                        # )
 
                         # Add a message in the content itself so the model knows it's truncated
                         truncation_note = (
@@ -1761,11 +1763,14 @@ class Coder:
         if not self.enable_context_compaction:
             return
 
-        # Check if combined messages exceed the token limit,
-        # Get messages from ConversationManager
-        done_messages = ConversationService.get_manager(self).get_messages_dict(MessageTag.DONE)
-        cur_messages = ConversationService.get_manager(self).get_messages_dict(MessageTag.CUR)
-        diff_messages = ConversationService.get_manager(self).get_messages_dict(MessageTag.DIFFS)
+        # Trigger background observation/reflection check
+        await self.observation_manager.check_and_trigger()
+
+        manager = ConversationService.get_manager(self)
+        done_messages = manager.get_messages_dict(MessageTag.DONE)
+        cur_messages = manager.get_messages_dict(MessageTag.CUR)
+        diff_messages = manager.get_messages_dict(MessageTag.DIFFS)
+
         # Exclude first cur_message since that's the user's initial input
         done_tokens = self.summarizer.count_tokens(done_messages)
         cur_tokens = self.summarizer.count_tokens(cur_messages[1:] if len(cur_messages) > 1 else [])
@@ -1783,129 +1788,97 @@ class Coder:
         self.io.update_spinner("Compacting...")
 
         try:
-            # Check if done_messages alone exceed the limit
-            if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
-                # Create a summary of the done_messages
-                # Append custom message to compaction prompt if provided
-                compaction_prompt = self.gpt_prompts.compaction_prompt
-                if message:
-                    compaction_prompt = f"{compaction_prompt}\n\n{message}"
+            compaction_prompt = self.gpt_prompts.compaction_prompt
+            if message:
+                compaction_prompt = f"{compaction_prompt}\n\n{message}"
 
-                summary_text = await self.summarizer.summarize_all_as_text(
-                    done_messages,
+            async def summarize_and_update(messages, tag):
+                text = await self.summarizer.summarize_all_as_text(
+                    messages,
                     compaction_prompt,
                     self.context_compaction_summary_tokens,
                 )
+                if not text:
+                    raise ValueError(f"Summarization of {tag} messages returned empty.")
 
-                if not summary_text:
-                    raise ValueError("Summarization returned an empty result.")
+                if self.observation_manager.observations:
+                    obs_text = "\n".join(self.observation_manager.observations)
+                    text = f"HISTORICAL OBSERVATIONS:\n{obs_text}\n\n{text}"
 
-                # Replace old DONE messages with the summary in ConversationManager
-                ConversationService.get_manager(self).clear_tag(MessageTag.DONE)
-                ConversationService.get_manager(self).add_message(
-                    message_dict={
-                        "role": "user",
-                        "content": summary_text,
-                    },
-                    tag=MessageTag.DONE,
-                )
-                ConversationService.get_manager(self).add_message(
-                    message_dict={
-                        "role": "assistant",
-                        "content": (
-                            "Ok, I will use this summary as the context for our conversation going"
-                            " forward."
-                        ),
-                    },
-                    tag=MessageTag.DONE,
-                )
+                manager.clear_tag(tag)
 
-            # Check if cur_messages alone exceed the limit (after potentially compacting done_messages)
-            if cur_tokens > self.context_compaction_max_tokens or cur_tokens > done_tokens:
-                # Create a summary of the cur_messages
-                # Append custom message to compaction prompt if provided
-                compaction_prompt = self.gpt_prompts.compaction_prompt
-                if message:
-                    compaction_prompt = f"{compaction_prompt}\n\n{message}"
+                if tag == MessageTag.DONE:
+                    manager.add_message({"role": "user", "content": text}, tag=tag)
+                    manager.add_message(
+                        {
+                            "role": "assistant",
+                            "content": (
+                                "Ok, I will use this summary and the observations as context for"
+                                " our conversation going forward."
+                            ),
+                        },
+                        tag=tag,
+                    )
+                else:
+                    if self.last_user_message:
+                        manager.add_message(
+                            {"role": "user", "content": self.last_user_message}, tag=tag
+                        )
 
-                cur_summary_text = await self.summarizer.summarize_all_as_text(
-                    cur_messages,
-                    compaction_prompt,
-                    self.context_compaction_summary_tokens,
-                )
+                    manager.add_message(
+                        {
+                            "role": "assistant",
+                            "content": "Ok. I am awaiting your summary of our goals to proceed.",
+                        },
+                        tag=tag,
+                        force=True,
+                    )
 
-                if not cur_summary_text:
-                    raise ValueError("Summarization of current messages returned an empty result.")
-
-                # Replace current CUR messages with the summary in ConversationManager
-                ConversationService.get_manager(self).clear_tag(MessageTag.CUR)
-
-                if self.last_user_message:
-                    ConversationService.get_manager(self).add_message(
-                        message_dict={
+                    manager.add_message(
+                        {
                             "role": "user",
-                            "content": self.last_user_message,
+                            "content": (
+                                "Here is a summary of our current goals and historical"
+                                f" context:\n{text}"
+                            ),
                         },
-                        tag=MessageTag.CUR,
+                        tag=tag,
                     )
 
-                # Add the summary conversation
-                ConversationService.get_manager(self).add_message(
-                    message_dict={
-                        "role": "assistant",
-                        "content": "Ok. I am awaiting your summary of our goals to proceed.",
-                    },
-                    tag=MessageTag.CUR,
-                    force=True,
-                )
-                ConversationService.get_manager(self).add_message(
-                    message_dict={
-                        "role": "user",
-                        "content": f"Here is a summary of our current goals:\n{cur_summary_text}",
-                    },
-                    tag=MessageTag.CUR,
-                )
-                ConversationService.get_manager(self).add_message(
-                    message_dict={
-                        "role": "assistant",
-                        "content": (
-                            "Ok, I will use this summary and proceed with our task."
-                            " I will first apply any changes in the summary and then"
-                            " continue exploration as necessary."
-                        ),
-                    },
-                    tag=MessageTag.CUR,
-                    force=True,
-                )
-
-                # Find the last assistant messages in the current conversation
-                latest_messages = []
-
-                # Search from the end to find the most recent assistant messages
-                for msg in reversed(cur_messages):
-                    latest_messages.append(msg)
-
-                    if msg["role"] == "assistant":
-                        break
-
-                for msg in reversed(latest_messages):
-                    ConversationService.get_manager(self).add_message(
-                        message_dict={
-                            "role": msg["role"],
-                            "content": msg["content"],
+                    manager.add_message(
+                        {
+                            "role": "assistant",
+                            "content": (
+                                "Ok, I will use this summary and proceed with our task. I will"
+                                " first apply any changes in the summary and then continue"
+                                " exploration as necessary."
+                            ),
                         },
-                        tag=MessageTag.CUR,
+                        tag=tag,
+                        force=True,
                     )
+
+                    latest_messages = []
+                    for msg in reversed(messages):
+                        latest_messages.append(msg)
+                        if msg["role"] == "assistant":
+                            break
+                    for msg in reversed(latest_messages):
+                        manager.add_message(msg, tag=tag)
+
+            if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
+                await summarize_and_update(done_messages, MessageTag.DONE)
+
+            if cur_tokens > self.context_compaction_max_tokens or cur_tokens > done_tokens:
+                await summarize_and_update(cur_messages, MessageTag.CUR)
 
             self.io.tool_output("...chat history compacted.")
             self.io.update_spinner(self.io.last_spinner_text)
 
-            # Clear all diff and file context messages
-            ConversationService.get_manager(self).clear_tag(MessageTag.DIFFS)
-            ConversationService.get_manager(self).clear_tag(MessageTag.FILE_CONTEXTS)
-
-            # Reset ConversationFiles cache entirely
+            manager.clear_tag(MessageTag.DIFFS)
+            manager.clear_tag(MessageTag.FILE_CONTEXTS)
             ConversationService.get_files(self).clear_file_cache()
+
         except Exception as e:
             self.io.tool_warning(f"Context compaction failed: {e}")
             self.io.tool_warning("Proceeding with full history for now.")
@@ -2248,10 +2221,11 @@ class Coder:
 
         self.multi_response_content = ""
         if self.show_pretty():
-            spinner_text = (
-                f"Waiting for {self.get_active_model().name} •"
-                f" ${self.format_cost(self.total_cost)} session"
-            )
+            spinner_text = f"Waiting for {self.get_active_model().name}"
+
+            if not self.tui:
+                spinner_text += f" • ${self.format_cost(self.total_cost)} session"
+
             self.io.start_spinner(spinner_text)
             if self.stream:
                 self.mdstream = True
@@ -2809,8 +2783,8 @@ class Coder:
                     message_dict=tool_response,
                     tag=MessageTag.CUR,
                     hash_key=(tool_response["tool_call_id"], str(time.monotonic_ns())),
-                    promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                    mark_for_demotion=1,
+                    # promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
+                    # mark_for_demotion=1,
                 )
 
         return bool(tool_responses)
@@ -2996,8 +2970,8 @@ class Coder:
                 message_dict=msg,
                 tag=MessageTag.CUR,
                 hash_key=("assistant_message", str(msg), str(time.monotonic_ns())),
-                promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_demotion=1,
+                # promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
+                # mark_for_demotion=1,
             )
 
     def get_file_mentions(self, content, ignore_current=False):
@@ -3586,13 +3560,18 @@ class Coder:
 
         self.message_tokens_received += completion_tokens
 
-        tokens_report = f"Tokens: {format_tokens(self.message_tokens_sent)} sent"
+        # Build the new streamlined format
+        tokens_parts = [format_tokens(prompt_tokens)]
 
-        if cache_write_tokens:
-            tokens_report += f", {format_tokens(cache_write_tokens)} cache write"
         if cache_hit_tokens:
-            tokens_report += f", {format_tokens(cache_hit_tokens)} cache hit"
-        tokens_report += f", {format_tokens(self.message_tokens_received)} received."
+            tokens_parts.append(f"{format_tokens(cache_hit_tokens)}")
+        if cache_write_tokens:
+            tokens_parts.append(f"{format_tokens(cache_write_tokens)}")
+
+        tokens_str = "/".join(tokens_parts)
+
+        tokens_report = f"{tokens_str} ↑ {format_tokens(completion_tokens)} ↓"
+
         tokens_report = self.token_profiler.add_to_usage_report(
             tokens_report, self.message_tokens_sent, self.message_tokens_received
         )
@@ -3615,9 +3594,12 @@ class Coder:
         self.total_cost += cost
         self.message_cost += cost
 
+        total_combined_tokens = (
+            self.total_tokens_sent + self.total_tokens_received + prompt_tokens + completion_tokens
+        )
         cost_report = (
-            f"Cost: ${self.format_cost(self.message_cost)} message,"
-            f" ${self.format_cost(self.total_cost)} session."
+            f"${self.format_cost(self.message_cost)} • {format_tokens(total_combined_tokens)} ↑↓"
+            f" ${self.format_cost(self.total_cost)}"
         )
 
         if cache_hit_tokens and cache_write_tokens:
@@ -3675,8 +3657,11 @@ class Coder:
         self.total_tokens_sent += self.message_tokens_sent
         self.total_tokens_received += self.message_tokens_received
 
-        self.io.tool_output(self.usage_report)
-        self.io.rule()
+        if self.tui and self.tui():
+            self.tui().update_cost(self.usage_report.replace("\n", " "))
+        else:
+            self.io.tool_output(self.usage_report)
+            self.io.rule()
 
         self.message_cost = 0.0
         self.message_tokens_sent = 0

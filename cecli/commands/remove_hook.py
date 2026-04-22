@@ -15,24 +15,28 @@ class RemoveHookCommand(BaseCommand):
         if not args.strip():
             io.tool_error("Usage: /remove-hook <hook-name>")
             return 1
-
-        hook_name = args.strip()
-
-        # Check if hook exists
+        hook_names = args.strip().split()
         hook_manager = HookManager()
-        if not hook_manager.hook_exists(hook_name):
-            io.tool_error(f"Error: Hook '{hook_name}' not found")
-            return 1
+        results = []
+        errors = 0
 
-        # Disable the hook
-        success = hook_manager.disable_hook(hook_name)
+        for hook_name in hook_names:
+            if not hook_manager.hook_exists(hook_name):
+                io.tool_error(f"Error: Hook '{hook_name}' not found")
+                results.append(f"Hook '{hook_name}' not found")
+                errors += 1
+                continue
 
-        if success:
-            io.tool_output(f"Hook '{hook_name}' disabled successfully")
-            return 0
-        else:
-            io.tool_error(f"Error: Failed to disable hook '{hook_name}'")
-            return 1
+            success = hook_manager.disable_hook(hook_name)
+            if success:
+                io.tool_output(f"Hook '{hook_name}' disabled successfully")
+                results.append(f"Hook '{hook_name}' disabled")
+            else:
+                io.tool_error(f"Error: Failed to disable hook '{hook_name}'")
+                results.append(f"Failed to disable hook '{hook_name}'")
+                errors += 1
+
+        return 0 if errors == 0 else 1
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
@@ -58,10 +62,10 @@ class RemoveHookCommand(BaseCommand):
         """Get help text for the remove-hook command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /remove-hook <hook-name>  # Disable a specific hook\n"
+        help_text += "  /remove-hook <hook-name>...  # Disable one or more hooks\n"
         help_text += "\nExamples:\n"
         help_text += "  /remove-hook my_start_hook\n"
-        help_text += "  /remove-hook check_commands\n"
+        help_text += "  /remove-hook check_commands my_start_hook\n"
         help_text += "\nThis command disables a hook without removing it from the registry.\n"
         help_text += "Use /load-hook to re-enable it later.\n"
         help_text += "Use /hooks to see all available hooks and their current state.\n"

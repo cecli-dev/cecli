@@ -25,6 +25,7 @@ from cecli.helpers.skills import SkillsManager
 from cecli.hooks import HookIntegration
 from cecli.llm import litellm
 from cecli.mcp import LocalServer, McpServerManager
+from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import copy_tool_call, tool_call_to_dict
 
@@ -52,12 +53,9 @@ class AgentCoder(Coder):
         self.read_tools = {
             "command",
             "commandinteractive",
-            "viewfilesatglob",
-            "viewfilesmatching",
+            "exploresymbols",
             "ls",
-            "viewfileswithsymbol",
             "grep",
-            "listchanges",
             "showcontext",
             "thinking",
             "updatetodolist",
@@ -328,7 +326,7 @@ class AgentCoder(Coder):
                 {"role": "tool", "tool_call_id": tool_call.id, "content": result_message}
             )
 
-        if self.auto_lint and used_write_tool and not self.edit_allowed:
+        if self.auto_lint and used_write_tool:
             edited = list(self.files_edited_by_tools)
             lint_errors = self.lint_edited(edited, show_output=False)
             self.lint_outcome = not lint_errors
@@ -1019,25 +1017,25 @@ I will proceed based on the tool results and updated context.""")
 
             if not self.model_kwargs:
                 self.model_kwargs = {
-                    "temperature": default_temp + 0.1,
-                    "frequency_penalty": default_fp + 0.2,
+                    "temperature": default_temp + 2**-5,
+                    "frequency_penalty": default_fp + 2**-5,
                     # "presence_penalty": 0.1,
                 }
             else:
                 temperature = nested.getter(self.model_kwargs, "temperature", default_temp)
                 freq_penalty = nested.getter(self.model_kwargs, "frequency_penalty", default_fp)
 
-                self.model_kwargs["temperature"] = temperature + 0.1
-                self.model_kwargs["frequency_penalty"] = freq_penalty + 0.1
+                self.model_kwargs["temperature"] = temperature + 2**-5
+                self.model_kwargs["frequency_penalty"] = freq_penalty + 2**-5
 
                 if random.random() < 0.2:
                     self.model_kwargs["temperature"] = max(
                         default_temp,
-                        temperature - 0.15,
+                        temperature - 2**-4,
                     )
                     self.model_kwargs["frequency_penalty"] = max(
                         default_fp,
-                        freq_penalty - 0.15,
+                        freq_penalty - 2**-4,
                     )
 
             self.model_kwargs["temperature"] = max(
@@ -1161,7 +1159,7 @@ I will proceed based on the tool results and updated context.""")
 
         Parameters:
         - file_path: Path to the file to add
-        - explicit: Whether this was an explicit view command (vs. implicit through ViewFilesMatching)
+        - explicit: Whether this was an explicit view command (vs. implicit through other tools)
         """
         abs_path = self.abs_root_path(file_path)
         rel_path = self.get_rel_fname(abs_path)
@@ -1206,7 +1204,7 @@ I will proceed based on the tool results and updated context.""")
 
         Override parent's method to disable implicit file mention handling in agent mode.
         Files should only be added via explicit tool commands
-        (`View`, `ViewFilesAtGlob`, `ViewFilesMatching`, `ViewFilesWithSymbol`).
+        (`ContextManager`).
         """
         pass
 
@@ -1218,6 +1216,7 @@ I will proceed based on the tool results and updated context.""")
         inp = await super().preproc_user_input(inp)
         inp = self.wrap_user_input(inp)
 
+        BaseTool.clear_invocation_cache()
         self.agent_finished = False
         self.turn_count = 0
         return inp

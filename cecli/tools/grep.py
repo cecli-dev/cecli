@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import oslex
 
 from cecli.run_cmd import run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
@@ -226,3 +228,52 @@ class Tool(BaseTool):
             coder.io.tool_output(ui_message)
 
         return final_message
+
+    @classmethod
+    def format_output(cls, coder, mcp_server, tool_response):
+        """Format output for Grep tool."""
+        color_start, color_end = color_markers(coder)
+
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            return
+
+        tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
+
+        # Output each search operation with the requested format
+        searches = params.get("searches", [])
+        if searches:
+            coder.io.tool_output("")
+            for i, search_op in enumerate(searches):
+                pattern = search_op.get("pattern", "")
+                file_pattern = search_op.get("file_pattern", "*")
+                directory = search_op.get("directory", ".")
+                use_regex = search_op.get("use_regex", False)
+                case_insensitive = search_op.get("case_insensitive", False)
+                context_before = search_op.get("context_before", 5)
+                context_after = search_op.get("context_after", 5)
+
+                # Format as "search: • pattern • file_pattern • directory • options"
+                formatted_query = (
+                    f"{color_start}search_{i + 1}:{color_end} {pattern} • {file_pattern} •"
+                    f" {directory}"
+                )
+
+                # Add options if they differ from defaults
+                options = []
+                if use_regex:
+                    options.append("regex")
+                if case_insensitive:
+                    options.append("case-insensitive")
+                if context_before != 5 or context_after != 5:
+                    options.append(f"context:{context_before}/{context_after}")
+
+                if options:
+                    formatted_query += f" • {' '.join(options)}"
+
+                coder.io.tool_output(formatted_query)
+            coder.io.tool_output("")
+
+        tool_footer(coder=coder, tool_response=tool_response)

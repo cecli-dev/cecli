@@ -129,7 +129,7 @@ class Tool(BaseTool):
 
                     for edit_index, edit in file_edits:
                         try:
-                            edit_replace_text = edit.get("replace_text")
+                            edit_replace_text = strip_hashline(edit.get("replace_text"))
                             edit_start_line = edit.get("start_line")
                             edit_end_line = edit.get("end_line")
 
@@ -310,7 +310,7 @@ class Tool(BaseTool):
 
             for edit_index, edit in file_edits:
                 # Show diff for this edit using hashline diff
-                replace_text = edit.get("replace_text", "")
+                replace_text = strip_hashline(edit.get("replace_text", ""))
                 start_line = edit.get("start_line")
                 end_line = edit.get("end_line")
 

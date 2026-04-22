@@ -393,6 +393,14 @@ class TUI(App):
         except Exception:
             pass
 
+    def update_cost(self, cost_text: str):
+        """Update the cost display in the input container's border subtitle."""
+        try:
+            container = self.query_one(InputContainer)
+            container.update_cost(cost_text)
+        except Exception:
+            pass
+
     def _update_key_hints_for_commands(self, text: str, is_completion: bool = False):
         """
         Update key hints left area with command description.

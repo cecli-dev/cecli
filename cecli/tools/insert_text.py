@@ -1,4 +1,4 @@
-from cecli.helpers.hashline import apply_hashline_operation
+from cecli.helpers.hashline import apply_hashline_operation, strip_hashline
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
     ToolError,
@@ -84,7 +84,7 @@ class Tool(BaseTool):
                     start_line_hash=start_line,
                     end_line_hash=start_line,  # For insert, end_line is same as start_line
                     operation="insert",
-                    text=content,
+                    text=strip_hashline(content),
                 )
             except Exception as e:
                 coder.edit_allowed = True
