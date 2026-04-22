@@ -48,8 +48,7 @@ class Tool(BaseTool):
             # Security check: ensure the resolved path is within the project root
             if not abs_path.startswith(os.path.abspath(coder.root)):
                 coder.io.tool_error(
-                    f"Error: Path '{dir_path}' attempts to access files outside the project"
-                    " root."
+                    f"Error: Path '{dir_path}' attempts to access files outside the project root."
                 )
                 return "Error: Path is outside the project root."
 
@@ -80,8 +79,7 @@ class Tool(BaseTool):
                 sorted_contents = sorted(contents)
                 if len(sorted_contents) > 10:
                     return (
-                        f"Found {len(sorted_contents)} files:"
-                        f" {', '.join(sorted_contents[:10])}..."
+                        f"Found {len(sorted_contents)} files: {', '.join(sorted_contents[:10])}..."
                     )
                 else:
                     return f"Found {len(sorted_contents)} files: {', '.join(sorted_contents)}"

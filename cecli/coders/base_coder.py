@@ -2772,7 +2772,6 @@ class Coder:
         finally:
             self.globally_approved_tool_calls = False
 
-
         # 6. Add responses to conversation (re-prefixing if necessary)
         tool_responses = []
         for server, server_responses in tool_responses_by_server.items():
