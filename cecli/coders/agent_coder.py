@@ -827,11 +827,12 @@ class AgentCoder(Coder):
             )
             self.io.tool_output(waiting_msg)
             await asyncio.sleep(command_timeout / 2)
-            return True
+            return False
 
         # Check for recently finished commands that need reflection
         if recently_finished_commands and not self.agent_finished:
-            return True  # Retrigger reflection to process recently finished command outputs
+            self.reflected_message = "Background command finished, processing output."
+            return False  # Retrigger reflection to process recently finished command outputs
 
         # 3. If no content and no tools, we might be done or just empty response
         if (not content or not content.strip()) and not tool_calls_found:

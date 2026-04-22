@@ -385,6 +385,7 @@ class InputOutput:
         self.verbose = verbose
         self.profile_start_time = None
         self.profile_last_time = None
+        self.is_processing_prompt = False
 
         # Variables used to interface with base_coder
         self.coder = None
@@ -762,6 +763,8 @@ class InputOutput:
             coder = self.coder()
             if coder and hasattr(coder, "interrupt_event"):
                 coder.interrupt_event.set()
+        if self.output_task and not self.output_task.done():
+            self.output_task.cancel()
 
         if self.prompt_session and self.prompt_session.app:
             # Store any partial input before interrupting
@@ -812,267 +815,272 @@ class InputOutput:
         abs_read_only_stubs_fnames=None,
         edit_format=None,
     ):
-        self.rule()
+        self.is_processing_prompt = True
+        try:
+            self.rule()
 
-        rel_fnames = list(rel_fnames)
-        show = ""
-        if rel_fnames:
-            rel_read_only_fnames = [
-                get_rel_fname(fname, root) for fname in abs_read_only_fnames or []
-            ]
-            rel_read_only_stubs_fnames = [
-                get_rel_fname(fname, root) for fname in abs_read_only_stubs_fnames or []
-            ]
-            show = self.format_files_for_input(
-                rel_fnames, rel_read_only_fnames, rel_read_only_stubs_fnames
-            )
+            rel_fnames = list(rel_fnames)
+            show = ""
+            if rel_fnames:
+                rel_read_only_fnames = [
+                    get_rel_fname(fname, root) for fname in abs_read_only_fnames or []
+                ]
+                rel_read_only_stubs_fnames = [
+                    get_rel_fname(fname, root) for fname in abs_read_only_stubs_fnames or []
+                ]
+                show = self.format_files_for_input(
+                    rel_fnames, rel_read_only_fnames, rel_read_only_stubs_fnames
+                )
 
-        prompt_prefix = ""
+            prompt_prefix = ""
 
-        if edit_format:
-            prompt_prefix += edit_format
-        if self.multiline_mode:
-            prompt_prefix += (" " if edit_format else "") + "multi"
-        prompt_prefix += "> "
-
-        show += prompt_prefix
-        self.prompt_prefix = prompt_prefix
-
-        inp = ""
-        multiline_input = False
-
-        style = self._get_style()
-
-        completer_instance = ThreadedCompleter(
-            AutoCompleter(
-                root,
-                rel_fnames,
-                addable_rel_fnames,
-                commands,
-                self.encoding,
-                abs_read_only_fnames=(abs_read_only_fnames or set())
-                | (abs_read_only_stubs_fnames or set()),
-            )
-        )
-
-        def suspend_to_bg(event):
-            """Suspend currently running application."""
-            event.app.suspend_to_background()
-
-        kb = KeyBindings()
-
-        @kb.add(Keys.ControlZ, filter=Condition(lambda: hasattr(signal, "SIGTSTP")))
-        def _(event):
-            "Suspend to background with ctrl-z"
-            suspend_to_bg(event)
-
-        @kb.add("c-space")
-        def _(event):
-            "Ignore Ctrl when pressing space bar"
-            event.current_buffer.insert_text(" ")
-
-        @kb.add("c-up")
-        def _(event):
-            "Navigate backward through history"
-            event.current_buffer.history_backward()
-
-        @kb.add("c-down")
-        def _(event):
-            "Navigate forward through history"
-            event.current_buffer.history_forward()
-
-        @kb.add("c-x", "c-e")
-        def _(event):
-            "Edit current input in external editor (like Bash)"
-            buffer = event.current_buffer
-            current_text = buffer.text
-
-            # Open the editor with the current text
-            edited_text = pipe_editor(input_data=current_text, suffix="md")
-
-            # Replace the buffer with the edited text, strip any trailing newlines
-            buffer.text = edited_text.rstrip("\n")
-
-            # Move cursor to the end of the text
-            buffer.cursor_position = len(buffer.text)
-
-        @kb.add("c-t", filter=Condition(lambda: self.fzf_available))
-        def _(event):
-            "Fuzzy find files to add to the chat"
-            buffer = event.current_buffer
-            if not buffer.text.strip().startswith("/add "):
-                return
-
-            files = run_fzf(addable_rel_fnames, multi=True)
-            if files:
-                buffer.text = "/add " + " ".join(files)
-                buffer.cursor_position = len(buffer.text)
-
-        @kb.add("c-r", filter=Condition(lambda: self.fzf_available))
-        def _(event):
-            "Fuzzy search in history and paste it in the prompt"
-            buffer = event.current_buffer
-            history_lines = self.get_input_history()
-            selected_lines = run_fzf(history_lines)
-            if selected_lines:
-                buffer.text = "".join(selected_lines)
-                buffer.cursor_position = len(buffer.text)
-
-        @kb.add("enter", eager=True, filter=~is_searching)
-        def _(event):
-            "Handle Enter key press"
-            if self.multiline_mode and not (
-                self.editingmode == EditingMode.VI
-                and event.app.vi_state.input_mode == InputMode.NAVIGATION
-            ):
-                # In multiline mode and if not in vi-mode or vi navigation/normal mode,
-                # Enter adds a newline
-                event.current_buffer.insert_text("\n")
-            else:
-                # In normal mode, Enter submits
-                event.current_buffer.validate_and_handle()
-
-        @kb.add("escape", "enter", eager=True, filter=~is_searching)  # This is Alt+Enter
-        def _(event):
-            "Handle Alt+Enter key press"
+            if edit_format:
+                prompt_prefix += edit_format
             if self.multiline_mode:
-                # In multiline mode, Alt+Enter submits
-                event.current_buffer.validate_and_handle()
-            else:
-                # In normal mode, Alt+Enter adds a newline
-                event.current_buffer.insert_text("\n")
+                prompt_prefix += (" " if edit_format else "") + "multi"
+            prompt_prefix += "> "
 
-        while True:
-            if multiline_input:
-                show = self.prompt_prefix
+            show += prompt_prefix
+            self.prompt_prefix = prompt_prefix
 
-            try:
-                self.interrupted = False
-                if not multiline_input:
-                    if self.file_watcher:
-                        self.file_watcher.start()
-                    if self.clipboard_watcher:
-                        self.clipboard_watcher.start()
+            inp = ""
+            multiline_input = False
 
-                if self.prompt_session:
-                    # Use placeholder if set, then clear it
-                    default = self.placeholder or ""
-                    self.placeholder = None
+            style = self._get_style()
 
-                    def get_continuation(width, line_number, is_soft_wrap):
-                        return self.prompt_prefix
+            completer_instance = ThreadedCompleter(
+                AutoCompleter(
+                    root,
+                    rel_fnames,
+                    addable_rel_fnames,
+                    commands,
+                    self.encoding,
+                    abs_read_only_fnames=(abs_read_only_fnames or set())
+                    | (abs_read_only_stubs_fnames or set()),
+                )
+            )
 
-                    line = await self.prompt_session.prompt_async(
-                        show,
-                        default=default,
-                        completer=completer_instance,
-                        reserve_space_for_menu=4,
-                        complete_style=CompleteStyle.MULTI_COLUMN,
-                        style=style,
-                        key_bindings=kb,
-                        complete_while_typing=True,
-                        prompt_continuation=get_continuation,
-                    )
+            def suspend_to_bg(event):
+                """Suspend currently running application."""
+                event.app.suspend_to_background()
+
+            kb = KeyBindings()
+
+            @kb.add(Keys.ControlZ, filter=Condition(lambda: hasattr(signal, "SIGTSTP")))
+            def _(event):
+                "Suspend to background with ctrl-z"
+                suspend_to_bg(event)
+
+            @kb.add("c-space")
+            def _(event):
+                "Ignore Ctrl when pressing space bar"
+                event.current_buffer.insert_text(" ")
+
+            @kb.add("c-up")
+            def _(event):
+                "Navigate backward through history"
+                event.current_buffer.history_backward()
+
+            @kb.add("c-down")
+            def _(event):
+                "Navigate forward through history"
+                event.current_buffer.history_forward()
+
+            @kb.add("c-x", "c-e")
+            def _(event):
+                "Edit current input in external editor (like Bash)"
+                buffer = event.current_buffer
+                current_text = buffer.text
+
+                # Open the editor with the current text
+                edited_text = pipe_editor(input_data=current_text, suffix="md")
+
+                # Replace the buffer with the edited text, strip any trailing newlines
+                buffer.text = edited_text.rstrip("\n")
+
+                # Move cursor to the end of the text
+                buffer.cursor_position = len(buffer.text)
+
+            @kb.add("c-t", filter=Condition(lambda: self.fzf_available))
+            def _(event):
+                "Fuzzy find files to add to the chat"
+                buffer = event.current_buffer
+                if not buffer.text.strip().startswith("/add "):
+                    return
+
+                files = run_fzf(addable_rel_fnames, multi=True)
+                if files:
+                    buffer.text = "/add " + " ".join(files)
+                    buffer.cursor_position = len(buffer.text)
+
+            @kb.add("c-r", filter=Condition(lambda: self.fzf_available))
+            def _(event):
+                "Fuzzy search in history and paste it in the prompt"
+                buffer = event.current_buffer
+                history_lines = self.get_input_history()
+                selected_lines = run_fzf(history_lines)
+                if selected_lines:
+                    buffer.text = "".join(selected_lines)
+                    buffer.cursor_position = len(buffer.text)
+
+            @kb.add("enter", eager=True, filter=~is_searching)
+            def _(event):
+                "Handle Enter key press"
+                if self.multiline_mode and not (
+                    self.editingmode == EditingMode.VI
+                    and event.app.vi_state.input_mode == InputMode.NAVIGATION
+                ):
+                    # In multiline mode and if not in vi-mode or vi navigation/normal mode,
+                    # Enter adds a newline
+                    event.current_buffer.insert_text("\n")
                 else:
-                    try:
-                        self.interruptible_input = InterruptibleInput()
-                    except RuntimeError:
-                        # Fallback to non-interruptible input (Windows ...)
-                        line = await asyncio.get_event_loop().run_in_executor(None, input, show)
+                    # In normal mode, Enter submits
+                    event.current_buffer.validate_and_handle()
 
-                    if self.interruptible_input:
-                        try:
-                            line = await asyncio.get_event_loop().run_in_executor(
-                                None, self.interruptible_input.input, show
-                            )
-                        except InterruptedError:
-                            self.interrupted = True
-                            line = ""
-                        finally:
-                            self.interruptible_input.close()
-                            self.interruptible_input = None
-
-                # Check if we were interrupted by a file change
-                if self.interrupted:
-                    line = line or ""
-                    if self.file_watcher:
-                        cmd = self.file_watcher.process_changes()
-                        return cmd
-
-            except EOFError:
-                coder = self.get_coder()
-
-                if coder:
-                    await coder.commands.execute("exit", "")
-                    return ""
+            @kb.add("escape", "enter", eager=True, filter=~is_searching)  # This is Alt+Enter
+            def _(event):
+                "Handle Alt+Enter key press"
+                if self.multiline_mode:
+                    # In multiline mode, Alt+Enter submits
+                    event.current_buffer.validate_and_handle()
                 else:
-                    raise SystemExit
+                    # In normal mode, Alt+Enter adds a newline
+                    event.current_buffer.insert_text("\n")
 
-            except KeyboardInterrupt:
-                self.console.print()
-                return ""
-            except UnicodeEncodeError as err:
-                self.tool_error(str(err))
-                return ""
-            except Exception as err:
+            while True:
+                if multiline_input:
+                    show = self.prompt_prefix
+
                 try:
-                    self.prompt_session.app.exit()
-                except Exception:
-                    pass
+                    self.interrupted = False
+                    if not multiline_input:
+                        if self.file_watcher:
+                            self.file_watcher.start()
+                        if self.clipboard_watcher:
+                            self.clipboard_watcher.start()
 
-                import traceback
+                    if self.prompt_session:
+                        # Use placeholder if set, then clear it
+                        default = self.placeholder or ""
+                        self.placeholder = None
 
-                self.tool_error(str(err))
-                self.tool_error(traceback.format_exc())
-                return ""
-            finally:
-                if self.file_watcher:
-                    self.file_watcher.stop()
-                if self.clipboard_watcher:
-                    self.clipboard_watcher.stop()
+                        def get_continuation(width, line_number, is_soft_wrap):
+                            return self.prompt_prefix
 
-            line = line or ""
+                        line = await self.prompt_session.prompt_async(
+                            show,
+                            default=default,
+                            completer=completer_instance,
+                            reserve_space_for_menu=4,
+                            complete_style=CompleteStyle.MULTI_COLUMN,
+                            style=style,
+                            key_bindings=kb,
+                            complete_while_typing=True,
+                            prompt_continuation=get_continuation,
+                        )
+                    else:
+                        try:
+                            self.interruptible_input = InterruptibleInput()
+                        except RuntimeError:
+                            # Fallback to non-interruptible input (Windows ...)
+                            line = await asyncio.get_event_loop().run_in_executor(None, input, show)
 
-            if line.strip("\r\n") and not multiline_input:
-                stripped = line.strip("\r\n")
-                if stripped == "{":
-                    multiline_input = True
-                    multiline_tag = None
-                    inp += ""
-                elif stripped[0] == "{":
-                    # Extract tag if it exists (only alphanumeric chars)
-                    tag = "".join(c for c in stripped[1:] if c.isalnum())
-                    if stripped == "{" + tag:
+                        if self.interruptible_input:
+                            try:
+                                line = await asyncio.get_event_loop().run_in_executor(
+                                    None, self.interruptible_input.input, show
+                                )
+                            except InterruptedError:
+                                self.interrupted = True
+                                line = ""
+                            finally:
+                                self.interruptible_input.close()
+                                self.interruptible_input = None
+
+                    # Check if we were interrupted by a file change
+                    if self.interrupted:
+                        line = line or ""
+                        if self.file_watcher:
+                            cmd = self.file_watcher.process_changes()
+                            return cmd
+
+                except EOFError:
+                    coder = self.get_coder()
+
+                    if coder:
+                        await coder.commands.execute("exit", "")
+                        return ""
+                    else:
+                        raise SystemExit
+
+                except KeyboardInterrupt:
+                    self.console.print()
+                    return ""
+                except UnicodeEncodeError as err:
+                    self.tool_error(str(err))
+                    return ""
+                except Exception as err:
+                    try:
+                        self.prompt_session.app.exit()
+                    except Exception:
+                        pass
+
+                    import traceback
+
+                    self.tool_error(str(err))
+                    self.tool_error(traceback.format_exc())
+                    return ""
+                finally:
+                    if self.file_watcher:
+                        self.file_watcher.stop()
+                    if self.clipboard_watcher:
+                        self.clipboard_watcher.stop()
+
+                line = line or ""
+
+                if line.strip("\r\n") and not multiline_input:
+                    stripped = line.strip("\r\n")
+                    if stripped == "{":
                         multiline_input = True
-                        multiline_tag = tag
+                        multiline_tag = None
                         inp += ""
+                    elif stripped[0] == "{":
+                        # Extract tag if it exists (only alphanumeric chars)
+                        tag = "".join(c for c in stripped[1:] if c.isalnum())
+                        if stripped == "{" + tag:
+                            multiline_input = True
+                            multiline_tag = tag
+                            inp += ""
+                        else:
+                            inp = line
+                            break
                     else:
                         inp = line
                         break
-                else:
-                    inp = line
-                    break
-                continue
-            elif multiline_input and line.strip():
-                if multiline_tag:
-                    # Check if line is exactly "tag}"
-                    if line.strip("\r\n") == f"{multiline_tag}}}":
+                    continue
+                elif multiline_input and line.strip():
+                    if multiline_tag:
+                        # Check if line is exactly "tag}"
+                        if line.strip("\r\n") == f"{multiline_tag}}}":
+                            break
+                        else:
+                            inp += line + "\n"
+                    # Check if line is exactly "}"
+                    elif line.strip("\r\n") == "}":
                         break
                     else:
                         inp += line + "\n"
-                # Check if line is exactly "}"
-                elif line.strip("\r\n") == "}":
-                    break
-                else:
+                elif multiline_input:
                     inp += line + "\n"
-            elif multiline_input:
-                inp += line + "\n"
-            else:
-                inp = line
-                break
+                else:
+                    inp = line
+                    break
 
-        self.user_input(inp)
-        return inp
+            self.user_input(inp)
+            return inp
+        finally:
+            self.is_processing_prompt = False
+            self.is_processing_prompt = False
 
     async def stop_input_task(self):
         if self.input_task:
@@ -1715,6 +1723,8 @@ class InputOutput:
         return None  # Unknown system
 
     def _send_notification(self):
+        if self.is_processing_prompt:
+            return
         if self.notifications_command:
             try:
                 result = subprocess.run(self.notifications_command, shell=True, capture_output=True)
@@ -1728,6 +1738,8 @@ class InputOutput:
 
     def notify_user_input_required(self):
         """Send a notification that user input is required."""
+        if self.is_processing_prompt:
+            return
         if self.notifications:
             self._send_notification()
 

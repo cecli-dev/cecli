@@ -648,3 +648,40 @@ class TestInputOutputFormatFiles:
         args_ed, _ = mock_columns.call_args_list[2]
         renderables_ed = args_ed[0]
         assert renderables_ed == ["Editable:", "edit1.txt", "edit[markup].txt"]
+import asyncio
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from cecli.io import InputOutput
+
+
+@pytest.mark.asyncio
+async def test_notification_suppressed_during_processing():
+    """
+    Verify that notifications are not sent when a prompt is being processed.
+    """
+    # Initialize InputOutput with notifications enabled
+    io = InputOutput(notifications=True)
+    io.is_processing_prompt = False  # Start in idle state
+
+    with patch.object(io, "_send_notification") as mock_send_notification:
+        # 1. Test when idle: notification should be sent
+        io.notify_user_input_required()
+        mock_send_notification.assert_called_once()
+
+        # Reset mock for the next check
+        mock_send_notification.reset_mock()
+
+        # 2. Test when processing: notification should be suppressed
+        io.is_processing_prompt = True
+        io.notify_user_input_required()
+        mock_send_notification.assert_not_called()
+
+        # Reset mock for the next check
+        mock_send_notification.reset_mock()
+
+        # 3. Test after processing: notification should be sent again
+        io.is_processing_prompt = False
+        io.notify_user_input_required()
+        mock_send_notification.assert_called_once()

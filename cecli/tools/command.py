@@ -131,7 +131,7 @@ class Tool(BaseTool):
     @classmethod
     async def _get_confirmation(cls, coder, command_string, background):
         """Get user confirmation for command execution."""
-        if coder.skip_cli_confirmations:
+        if coder.skip_cli_confirmations or getattr(coder, "globally_approved_tool_calls", False):
             return True
 
         command_string = coder.format_command_with_prefix(command_string)

@@ -37,6 +37,7 @@ class Tool(BaseTool):
             confirmed = (
                 True
                 if coder.skip_cli_confirmations
+                or getattr(coder, "globally_approved_tool_calls", False)
                 else await coder.io.confirm_ask(
                     "Allow execution of this command?",
                     subject=command_string,
@@ -72,6 +73,7 @@ class Tool(BaseTool):
             else:
                 coder.io.tool_output(">>> You may need to interact with the command below <<<")
                 coder.io.tool_output(" \n")
+                coder.io.bell_on_next_input = False
                 await coder.io.stop_input_task()
                 await asyncio.sleep(1)
                 exit_status, combined_output = _run_interactive()

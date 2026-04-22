@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import asyncio
 import hashlib
 import json
 import locale
@@ -366,6 +367,7 @@ class Coder:
 
         self.context_compaction_max_tokens = context_compaction_max_tokens
         self.context_compaction_summary_tokens = context_compaction_summary_tokens
+        self.globally_approved_tool_calls = False
         self.max_reflections = (
             3 if self.edit_format == "agent" else nested.getter(self.args, "max_reflections", 3)
         )
@@ -1278,7 +1280,11 @@ class Coder:
         try:
             if with_message:
                 self.io.user_input(with_message)
-                await self.run_one(with_message, preproc)
+                self.io.is_processing_prompt = True
+                try:
+                    await self.run_one(with_message, preproc)
+                finally:
+                    self.io.is_processing_prompt = False
                 return self.partial_response_content
 
             user_message = None
@@ -1340,7 +1346,11 @@ class Coder:
         try:
             if with_message:
                 self.io.user_input(with_message)
-                await self.run_one(with_message, preproc)
+                self.io.is_processing_prompt = True
+                try:
+                    await self.run_one(with_message, preproc)
+                finally:
+                    self.io.is_processing_prompt = False
                 return self.partial_response_content
 
             # Initialize state for task coordination
@@ -1534,7 +1544,11 @@ class Coder:
                 self.compact_context_completed = True
 
             self.run_one_completed = False
-            await self.run_one(user_message, preproc)
+            self.io.is_processing_prompt = True
+            try:
+                await self.run_one(user_message, preproc)
+            finally:
+                self.io.is_processing_prompt = False
             self.show_undo_hint()
         except asyncio.CancelledError:
             # Don't show undo hint if cancelled
@@ -1738,6 +1752,7 @@ class Coder:
         Console().show_cursor(True)
 
         self.io.tool_warning("\n\n^C KeyboardInterrupt")
+        self.interrupt_event.set()
 
         self.interrupt_event.set()
         self.last_keyboard_interrupt = time.time()
@@ -2261,7 +2276,7 @@ class Coder:
                     self.io.tool_output(f"Retrying in {retry_delay:.1f} seconds...")
                     await asyncio.sleep(retry_delay)
                     continue
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, asyncio.CancelledError):
                     interrupted = True
                     break
                 except FinishReasonLength:
@@ -2721,11 +2736,41 @@ class Coder:
             self._print_tool_call_info(server_tool_calls=tool_groups)
 
         # 4. Ask for user confirmation
-        if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
-            return False
+        try:
+            self.globally_approved_tool_calls = False
+            if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
+                return False
 
-        # 5. Execute tools
-        tool_responses_by_server = await self._execute_tool_groups(tool_groups)
+            # 5. Execute tools
+            tool_execution_task = asyncio.create_task(self._execute_tool_groups(tool_groups))
+            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+
+            tool_responses_by_server = {}
+            try:
+                done, pending = await asyncio.wait(
+                    {tool_execution_task, interrupt_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if interrupt_task in done:
+                    tool_execution_task.cancel()
+                    try:
+                        await tool_execution_task
+                    except asyncio.CancelledError:
+                        pass
+                    self.io.tool_warning("Tool execution interrupted.")
+                    return False
+
+                if tool_execution_task in done:
+                    tool_responses_by_server = tool_execution_task.result()
+
+            except asyncio.CancelledError:
+                self.io.tool_warning("Tool execution cancelled.")
+                return False
+            if self.io.group_responses.get("Run MCP Tools"):
+                self.globally_approved_tool_calls = True
+        finally:
+            self.globally_approved_tool_calls = False
 
         # 6. Add responses to conversation (re-prefixing if necessary)
         tool_responses = []
@@ -2745,7 +2790,6 @@ class Coder:
 
     def _print_tool_call_info(self, server_tool_calls):
         """Print information about an MCP tool call."""
-        self.io.ring_bell()
         # self.io.tool_output("Preparing to run MCP tools", bold=False)
 
         for server, tool_calls in server_tool_calls.items():
@@ -3045,7 +3089,7 @@ class Coder:
                     self.temperature,
                     # This could include any tools, but for now it is just MCP tools
                     tools=tools,
-                    override_kwargs=self.model_kwargs.copy(),
+                    override_kwargs=self.model_kwargs,
                 )
             )
             interrupt_task = asyncio.create_task(self.interrupt_event.wait())
@@ -3086,7 +3130,7 @@ class Coder:
                 self.token_profiler.on_error()
                 self.calculate_and_show_tokens_and_cost(messages, completion)
             raise
-        except KeyboardInterrupt as kbi:
+        except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
             self.keyboard_interrupt()
             raise kbi
         finally:
