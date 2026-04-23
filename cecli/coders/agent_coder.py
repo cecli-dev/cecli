@@ -582,6 +582,7 @@ class AgentCoder(Coder):
 
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
         ConversationService.get_chunks(self).add_post_message_context_blocks()
+        ConversationService.get_chunks(self).add_randomized_cta()
 
         return ConversationService.get_manager(self).get_messages_dict()
 

@@ -1,4 +1,5 @@
 import json
+import random
 import weakref
 from typing import Any, Dict, List
 from uuid import UUID
@@ -93,7 +94,9 @@ class ConversationChunks:
         ):
             msg = dict(
                 role="user",
-                content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder),
+                content=self._shuffle_reminders(
+                    coder.fmt_system_prompt(coder.gpt_prompts.system_reminder)
+                ),
             )
             ConversationService.get_manager(coder).add_message(
                 message_dict=msg,
@@ -102,6 +105,62 @@ class ConversationChunks:
                 force=True,
                 mark_for_delete=0,
             )
+
+    def add_randomized_cta(self) -> None:
+        coder = self.get_coder()
+        if not coder:
+            return
+
+        message = random.choice(
+            [
+                "Given the above, please call any tools necessary to make progress on your task",
+                (
+                    "Based on the information provided, please execute the appropriate tools to"
+                    " move the task forward."
+                ),
+                "With this context in mind, please proceed with your work.",
+                (
+                    "In light of the above, please utilize the required tools to continue with this"
+                    " request."
+                ),
+                (
+                    "Continue making progress. If you have reached the goal, summarize the results."
+                    " Otherwise, call the next necessary tool."
+                ),
+                (
+                    "Please use the proper tools to fulfill the next steps of this task based on"
+                    " the current data."
+                ),
+                (
+                    "You’ve got what you need, please invoke the right tools to keep making"
+                    " progress towards our goal."
+                ),
+                (
+                    "Considering what we've established, please use the available tools to complete"
+                    " the current objective."
+                ),
+                (
+                    "Given this information, please use the available tools to proceed with the"
+                    " assignment."
+                ),
+                "Please take the next logical steps to make headway on this task.",
+            ]
+        )
+
+        msg = dict(
+            role="user",
+            content="\n\n" + message,
+        )
+
+        ConversationService.get_manager(coder).add_message(
+            message_dict=msg,
+            tag=MessageTag.REMINDER,
+            hash_key=("main", "randomized_cta"),
+            force=True,
+            mark_for_delete=0,
+            promotion=2 * ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
+            mark_for_demotion=1,
+        )
 
     def cleanup_files(self) -> None:
         """
@@ -902,6 +961,35 @@ class ConversationChunks:
                 hash_key=("post_message", block_type),
                 force=True,
             )
+
+    def _shuffle_reminders(self, content: str) -> str:
+        """
+        If the string is a critical_reminders block, shuffle all bulleted points
+        to prevent the model from developing 'boilerplate blindness.'
+        """
+        if not content.strip().startswith('<context name="critical_reminders">'):
+            return content
+
+        lines = content.splitlines()
+
+        # 1. Identify indices of lines starting with a hyphen (and the content itself)
+        # We use strip() to handle indentation within the XML block
+        list_info = [(i, line) for i, line in enumerate(lines) if line.strip().startswith("-")]
+
+        if not list_info:
+            return content
+
+        # 2. Extract and shuffle the list items
+        indices = [item[0] for item in list_info]
+        bullet_contents = [item[1] for item in list_info]
+        random.shuffle(bullet_contents)
+
+        # 3. Reconstruct the block by placing shuffled items back into the original indices
+        new_lines = list(lines)
+        for index, shuffled_text in zip(indices, bullet_contents):
+            new_lines[index] = shuffled_text
+
+        return "\n".join(new_lines)
 
     def debug_print_conversation_state(self) -> None:
         """
