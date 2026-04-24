@@ -1008,7 +1008,10 @@ class Model(ModelSettings):
         if effective_tools is None and functions:
             effective_tools = [dict(type="function", function=f) for f in functions]
         if effective_tools:
-            kwargs["tools"] = effective_tools
+            sorted_tools = sorted(
+                effective_tools, key=lambda x: x.get("function", {}).get("name", "Invalid Name")
+            )
+            kwargs["tools"] = sorted_tools
         if functions and len(functions) == 1:
             function = functions[0]
             if "name" in function:
