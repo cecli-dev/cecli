@@ -71,9 +71,10 @@ class SessionManager:
                     "file": session_file,
                     "model": session_data.get("model", "unknown"),
                     "edit_format": session_data.get("edit_format", "unknown"),
-                    "num_messages": len(
-                        session_data.get("chat_history", {}).get("done_messages", [])
-                    ) + len(session_data.get("chat_history", {}).get("cur_messages", [])),
+                    "num_messages": (
+                        len(session_data.get("chat_history", {}).get("done_messages", []))
+                        + len(session_data.get("chat_history", {}).get("cur_messages", []))
+                    ),
                     "num_files": (
                         len(session_data.get("files", {}).get("editable", []))
                         + len(session_data.get("files", {}).get("read_only", []))
@@ -149,11 +150,11 @@ class SessionManager:
             "editor_edit_format": self.coder.main_model.editor_edit_format,
             "edit_format": self.coder.edit_format,
             "chat_history": {
-                "done_messages": ConversationService.get_manager(self.coder).get_messages_dict(
-                    MessageTag.DONE
+                "done_messages": (
+                    ConversationService.get_manager(self.coder).get_messages_dict(MessageTag.DONE)
                 ),
-                "cur_messages": ConversationService.get_manager(self.coder).get_messages_dict(
-                    MessageTag.CUR
+                "cur_messages": (
+                    ConversationService.get_manager(self.coder).get_messages_dict(MessageTag.CUR)
                 ),
             },
             "files": {

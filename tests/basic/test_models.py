@@ -382,6 +382,7 @@ class TestModels:
             num_ctx=expected_ctx,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 
@@ -390,11 +391,14 @@ class TestModels:
         model = Model("gpt-4")
         messages = [{"role": "user", "content": "Hello"}]
         await model.send_completion(
-            messages, functions=None, stream=False, tools=[dict(type="function", function="test")]
+            messages,
+            functions=None,
+            stream=False,
+            tools=[dict(type="function", function=dict(name="test"))],
         )
         mock_completion.assert_called_once()
         call_kwargs = mock_completion.call_args.kwargs
-        assert call_kwargs["tools"] == [dict(type="function", function="test")]
+        assert call_kwargs["tools"] == [dict(type="function", function=dict(name="test"))]
         assert call_kwargs["model"] == model.name
         assert call_kwargs["stream"] is False
 
@@ -402,10 +406,10 @@ class TestModels:
     async def test_legacy_tool_call_propagation(self, mock_completion):
         model = Model("gpt-4")
         messages = [{"role": "user", "content": "Hello"}]
-        await model.send_completion(messages, functions=["test"], stream=False)
+        await model.send_completion(messages, functions=[dict(name="test")], stream=False)
         mock_completion.assert_called_once()
         call_kwargs = mock_completion.call_args.kwargs
-        assert call_kwargs["tools"] == [dict(type="function", function="test")]
+        assert call_kwargs["tools"] == [dict(type="function", function=dict(name="test"))]
         assert call_kwargs["model"] == model.name
         assert call_kwargs["stream"] is False
 
@@ -423,6 +427,7 @@ class TestModels:
             num_ctx=4096,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 
@@ -439,6 +444,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
         assert "num_ctx" not in mock_completion.call_args.kwargs
@@ -471,6 +477,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 
@@ -488,6 +495,7 @@ class TestModels:
             temperature=0,
             timeout=300,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 
@@ -505,6 +513,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 
@@ -527,6 +536,7 @@ class TestModels:
             temperature=0.7,
             timeout=600,
             drop_params=True,
+            headers={"Connection": "close"},
             cache_control_injection_points=ANY,
         )
 

@@ -117,8 +117,6 @@ greenlet==3.2.4
     # via
     #   playwright
     #   sqlalchemy
-grep-ast==0.9.0
-    # via -r requirements/requirements.in
 griffe==1.15.0
     # via banks
 h11==0.16.0
@@ -308,9 +306,7 @@ packaging==25.0
 pandas==2.3.3
     # via -r requirements/requirements-dev.in
 pathspec==0.12.1
-    # via
-    #   -r requirements/requirements.in
-    #   grep-ast
+    # via -r requirements/requirements.in
 pexpect==4.9.0
     # via -r requirements/requirements.in
 pillow==12.0.0
@@ -526,12 +522,15 @@ tree-sitter==0.25.2
     # via
     #   -r requirements/requirements.in
     #   tree-sitter-language-pack
-tree-sitter-c-sharp==0.23.1
+    #   tree-sitter-languages
+tree-sitter-c-sharp==0.23.5
     # via tree-sitter-language-pack
 tree-sitter-embedded-template==0.25.0
     # via tree-sitter-language-pack
-tree-sitter-language-pack==0.11.0
-    # via grep-ast
+tree-sitter-language-pack==0.13.0
+    # via -r requirements/requirements.in
+tree-sitter-languages==1.10.2
+    # via -r requirements/requirements.in
 tree-sitter-yaml==0.7.2
     # via tree-sitter-language-pack
 triton==3.5.1

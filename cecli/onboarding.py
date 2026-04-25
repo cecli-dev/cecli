@@ -165,7 +165,7 @@ def start_openrouter_oauth_flow(io):
 
     class OAuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
-            nonlocal auth_code, server_error
+            nonlocal auth_code, server_error  # noqa
             parsed_path = urlparse(self.path)
             if parsed_path.path == "/callback/cecli":
                 query_params = parse_qs(parsed_path.query)
@@ -193,7 +193,7 @@ def start_openrouter_oauth_flow(io):
             pass
 
     def run_server():
-        nonlocal server_error
+        nonlocal server_error  # noqa
         try:
             with socketserver.TCPServer(("localhost", port), OAuthCallbackHandler) as httpd:
                 io.tool_output(f"Temporary server listening on {callback_url}", log_only=True)
@@ -203,7 +203,7 @@ def start_openrouter_oauth_flow(io):
                     time.sleep(0.1)
                 io.tool_output("Shutting down temporary server.", log_only=True)
         except Exception as e:
-            server_error = f"Failed to start or run temporary server: {e}"
+            server_error = f"Failed to start or run temporary server: {e}"  # noqa
             server_started.set()
             shutdown_server.set()
 
