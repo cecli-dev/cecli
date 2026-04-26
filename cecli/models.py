@@ -1128,7 +1128,6 @@ class Model(ModelSettings):
         from cecli.exceptions import LiteLLMExceptions
 
         litellm_ex = LiteLLMExceptions()
-        messages = model_request_parser(self, messages, None)
         retry_delay = 0.125
         if self.verbose:
             dump(messages)
