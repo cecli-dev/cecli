@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 
 from cecli import models
 from cecli.helpers.conversation import ConversationService, MessageTag
-from cecli.hooks.manager import HookManager
 
 
 class SessionManager:
@@ -155,18 +154,24 @@ class SessionManager:
         if hasattr(self.coder, "mcp_manager") and self.coder.mcp_manager:
             connected_mcps = [server.name for server in self.coder.mcp_manager.connected_servers]
 
-        hook_manager = HookManager()
-        all_hooks_by_type = hook_manager.get_all_hooks()
-        enabled_hooks = []
-        for hook_type in all_hooks_by_type:
-            for hook in hook_manager.get_hooks(hook_type):
-                enabled_hooks.append(hook.name)
+        # Get CUR and DONE messages from ConversationManager
+        connected_mcps = []
+        if hasattr(self.coder, "mcp_manager") and self.coder.mcp_manager:
+            connected_mcps = [server.name for server in self.coder.mcp_manager.connected_servers]
 
         skills_data = None
         if hasattr(self.coder, "skills_manager") and self.coder.skills_manager:
             skills_data = {
                 "include": self.coder.skills_manager.include_list,
                 "exclude": self.coder.skills_manager.exclude_list,
+            }
+
+        agent_config_data = None
+        if hasattr(self.coder, "agent_config"):
+            agent_config_data = {
+                "tools_paths": self.coder.agent_config.get("tools_paths", []),
+                "tools_includelist": self.coder.agent_config.get("tools_includelist", []),
+                "tools_excludelist": self.coder.agent_config.get("tools_excludelist", []),
             }
 
         return {
@@ -198,8 +203,8 @@ class SessionManager:
             },
             "todo_list": todo_content,
             "mcps": connected_mcps,
-            "hooks": enabled_hooks,
             "skills": skills_data,
+            "agent_config": agent_config_data,
         }
 
     def _find_session_file(self, session_identifier: str) -> Optional[Path]:
@@ -349,18 +354,6 @@ class SessionManager:
                 for mcp_name in to_connect:
                     await self.coder.mcp_manager.connect_server(mcp_name)
 
-            # Load hooks
-            hook_manager = HookManager()
-            saved_hooks = session_data.get("hooks", [])
-            # Disable all hooks first
-            all_hooks_by_type = hook_manager.get_all_hooks()
-            for hook_type in all_hooks_by_type:
-                for hook in hook_manager.get_hooks(hook_type):
-                    hook_manager.disable_hook(hook.name)
-            # Enable saved hooks
-            for hook_name in saved_hooks:
-                hook_manager.enable_hook(hook_name)
-
             # Load skills
             skills_data = session_data.get("skills")
             if (
@@ -370,6 +363,15 @@ class SessionManager:
             ):
                 self.coder.skills_manager.include_list = skills_data.get("include", [])
                 self.coder.skills_manager.exclude_list = skills_data.get("exclude", [])
+
+            # Load agent_config for tools
+            agent_config_data = session_data.get("agent_config")
+            if agent_config_data and hasattr(self.coder, "agent_config"):
+                self.coder.agent_config.update(agent_config_data)
+                from cecli.tools.utils.registry import ToolRegistry
+
+                ToolRegistry.build_registry(agent_config=self.coder.agent_config)
+                self.coder.loaded_custom_tools = ToolRegistry.loaded_custom_tools
 
             return True
 
