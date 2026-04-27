@@ -162,10 +162,11 @@ class SessionManager:
         skills_data = None
         if hasattr(self.coder, "skills_manager") and self.coder.skills_manager:
             skills_data = {
-                "include": list(self.coder.skills_manager.include_list)
+                "skills_paths": self.coder.skills_manager.directory_paths,
+                "skills_includelist": list(self.coder.skills_manager.include_list)
                 if self.coder.skills_manager.include_list is not None
                 else [],
-                "exclude": list(self.coder.skills_manager.exclude_list)
+                "skills_excludelist": list(self.coder.skills_manager.exclude_list)
                 if self.coder.skills_manager.exclude_list is not None
                 else [],
             }
@@ -365,8 +366,13 @@ class SessionManager:
                 and hasattr(self.coder, "skills_manager")
                 and self.coder.skills_manager
             ):
-                self.coder.skills_manager.include_list = set(skills_data.get("include", []))
-                self.coder.skills_manager.exclude_list = set(skills_data.get("exclude", []))
+                self.coder.skills_manager.directory_paths = skills_data.get("skills_paths", [])
+                self.coder.skills_manager.include_list = set(
+                    skills_data.get("skills_includelist", [])
+                )
+                self.coder.skills_manager.exclude_list = set(
+                    skills_data.get("skills_excludelist", [])
+                )
 
             # Load agent_config for tools
             agent_config_data = session_data.get("agent_config")
