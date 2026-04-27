@@ -162,8 +162,12 @@ class SessionManager:
         skills_data = None
         if hasattr(self.coder, "skills_manager") and self.coder.skills_manager:
             skills_data = {
-                "include": list(self.coder.skills_manager.include_list),
-                "exclude": list(self.coder.skills_manager.exclude_list),
+                "include": list(self.coder.skills_manager.include_list)
+                if self.coder.skills_manager.include_list is not None
+                else [],
+                "exclude": list(self.coder.skills_manager.exclude_list)
+                if self.coder.skills_manager.exclude_list is not None
+                else [],
             }
 
         agent_config_data = None
