@@ -61,9 +61,9 @@ class AgentCoder(Coder):
             "updatetodolist",
         }
         self.write_tools = {
-            "deletetext",
-            "inserttext",
-            "replacetext",
+            "command",
+            "commandinteractive",
+            "edittext",
             "undochange",
         }
         self.edit_allowed = False
