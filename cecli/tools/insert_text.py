@@ -69,7 +69,7 @@ class Tool(BaseTool):
 
         if not coder.edit_allowed:
             raise ToolError(
-                "Please call `ShowContext` first to make sure edits are appropriately scoped"
+                "Please call `GetLines` first to make sure edits are appropriately scoped"
             )
 
         tool_name = "InsertText"

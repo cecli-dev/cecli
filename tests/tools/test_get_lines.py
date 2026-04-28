@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from cecli.tools import show_context
+from cecli.tools import get_lines
 
 
 class DummyIO:
@@ -50,7 +50,7 @@ def coder_with_file(tmp_path):
 def test_pattern_with_zero_line_number_is_allowed(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = show_context.Tool.execute(
+    result = get_lines.Tool.execute(
         coder,
         show=[
             {
@@ -70,7 +70,7 @@ def test_pattern_with_zero_line_number_is_allowed(coder_with_file):
 def test_empty_pattern_uses_line_number(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = show_context.Tool.execute(
+    result = get_lines.Tool.execute(
         coder,
         show=[
             {
@@ -91,7 +91,7 @@ def test_conflicting_pattern_and_line_number_raise(coder_with_file):
     coder, file_path = coder_with_file
 
     # Test that missing start_text raises an error
-    result = show_context.Tool.execute(
+    result = get_lines.Tool.execute(
         coder,
         show=[
             {
@@ -126,7 +126,7 @@ def test_multiline_pattern_search(coder_with_file):
     coder, file_path = coder_with_file
     # file_path contains "alpha\nbeta\ngamma\n"
 
-    result = show_context.Tool.execute(
+    result = get_lines.Tool.execute(
         coder,
         show=[
             {
