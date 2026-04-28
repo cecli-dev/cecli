@@ -5,6 +5,7 @@ import json
 import queue
 import time
 from functools import lru_cache
+import platform
 from pathlib import Path
 
 import textual.strip
@@ -358,6 +359,11 @@ class TUI(App):
             self._mouse_hold_timer.stop()
             self._mouse_hold_timer = None
         self.update_key_hints(generating=self._currently_generating)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Handle mouse move events to prevent strange characters on Windows."""
+        if platform.system() == "Windows":
+            event.stop()
 
     def _show_select_hint(self) -> None:
         """Show the shift+drag to select hint."""
