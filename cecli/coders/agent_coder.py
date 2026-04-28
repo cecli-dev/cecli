@@ -55,15 +55,15 @@ class AgentCoder(Coder):
             "commandinteractive",
             "explorecode",
             "ls",
+            "getlines",
             "grep",
-            "showcontext",
             "thinking",
             "updatetodolist",
         }
         self.write_tools = {
-            "deletetext",
-            "inserttext",
-            "replacetext",
+            "command",
+            "commandinteractive",
+            "edittext",
             "undochange",
         }
         self.edit_allowed = False
@@ -999,7 +999,7 @@ I will proceed based on the tool results and updated context.""")
             context_parts.append("\n\n")
             context_parts.append("## File Editing Tools Disabled")
             context_parts.append(
-                "File editing tools are currently disabled.Use `ShowContext` to determine the"
+                "File editing tools are currently disabled.Use `GetLines` to determine the"
                 " current hashline prefixes needed to perform an edit and activate them when you"
                 " are ready to edit a file."
             )

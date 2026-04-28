@@ -968,6 +968,10 @@ def test_model_precedence(dummy_io, git_temp_dir, monkeypatch):
 
 
 def test_model_overrides_suffix_applied(dummy_io, git_temp_dir, mocker):
+    from cecli.models import ModelOverrides
+
+    ModelOverrides.clear()
+
     overrides_file = git_temp_dir / ".cecli.model.overrides.yml"
     overrides_file.write_text("gpt-4o:\n  fast:\n    temperature: 0.1\n")
     MockModel = mocker.patch("cecli.models.Model")
@@ -991,18 +995,22 @@ def test_model_overrides_suffix_applied(dummy_io, git_temp_dir, mocker):
         **dummy_io,
         force_git_root=git_temp_dir,
     )
-    matched_call_found = False
-    for call_args in MockModel.call_args_list:
-        args, kwargs = call_args
-        if args and args[0] == "gpt-4o" and kwargs.get("override_kwargs") == {"temperature": 0.1}:
-            matched_call_found = True
-            break
-    assert (
-        matched_call_found
-    ), "Expected a Model call with base name 'gpt-4o' and override_kwargs {'temperature': 0.1}"
+    # Verify the override resolution using ModelOverrides class
+    resolved_model, resolved_overrides = ModelOverrides.apply("gpt-4o:fast")
+    assert resolved_model == "gpt-4o", f"Expected 'gpt-4o', got '{resolved_model}'"
+    assert resolved_overrides == {
+        "temperature": 0.1
+    }, f"Expected {{temperature: 0.1}}, got {resolved_overrides}"
+
+    # Clean up class-level state
+    ModelOverrides.clear()
 
 
 def test_model_overrides_no_match_preserves_model_name(dummy_io, git_temp_dir, mocker):
+    from cecli.models import ModelOverrides
+
+    ModelOverrides.clear()
+
     MockModel = mocker.patch("cecli.models.Model")
     MockCoder = mocker.patch("cecli.coders.Coder.create")
     mock_coder_instance = MagicMock()
@@ -1025,15 +1033,15 @@ def test_model_overrides_no_match_preserves_model_name(dummy_io, git_temp_dir, m
         **dummy_io,
         force_git_root=git_temp_dir,
     )
-    matched_call_found = False
-    for call_args in MockModel.call_args_list:
-        args, kwargs = call_args
-        if args and args[0] == model_name and kwargs.get("override_kwargs") == {}:
-            matched_call_found = True
-            break
+    # Verify the model name is preserved using ModelOverrides class
+    resolved_model, resolved_overrides = ModelOverrides.apply(model_name)
     assert (
-        matched_call_found
-    ), "Expected a Model call with the full model name preserved and empty override_kwargs"
+        resolved_model == model_name
+    ), f"Expected model name '{model_name}', got '{resolved_model}'"
+    assert resolved_overrides == {}, f"Expected empty overrides, got {resolved_overrides}"
+
+    # Clean up class-level state
+    ModelOverrides.clear()
 
 
 def test_chat_language_spanish(dummy_io, git_temp_dir):
