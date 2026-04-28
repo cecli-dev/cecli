@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import TestCase, mock
 
 from cecli.coders import Coder
-from cecli.commands import Commands
+from cecli.commands import Commands, SwitchCoderSignal
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.io import InputOutput
 from cecli.models import Model
@@ -196,3 +196,116 @@ class TestSessionCommands(TestCase):
             self.assertTrue(
                 any("deprecated" in call[0][0] for call in mock_tool_warning.call_args_list)
             )
+
+    async def test_cmd_save_load_session_agent_config(self):
+        """Test session save/load for agent-specific configs (mcp, skills, tools)."""
+        with GitTemporaryDirectory():
+            # Mock args for AgentCoder
+            mock_args = mock.MagicMock()
+            mock_args.agent_config = json.dumps(
+                {
+                    "tools_paths": ["/test/tools/path"],
+                    "tools_includelist": ["included_tool"],
+                    "tools_excludelist": ["excluded_tool"],
+                }
+            )
+            # This is needed for the skills manager to be created
+            mock_args.skills_paths = ["/test/skills/path"]
+            mock_args.mcp_servers = json.dumps([{"name": "mock_mcp"}])
+            mock_args.mcp_servers_files = []
+            mock_args.verbose = False
+            mock_args.debug = False
+            mock_args.tui = False
+            mock_args.auto_save_session_name = "auto-save"
+            mock_args.auto_save = False
+            mock_args.auto_load = False
+            mock_args.yes_always_commands = True
+            mock_args.command_prefix = None
+            mock_args.file_diffs = True
+            mock_args.max_reflections = 3
+            mock_args.model = "gpt-3.5-turbo"
+            mock_args.weak_model = None
+            mock_args.editor_model = None
+            mock_args.agent_model = None
+            mock_args.editor_edit_format = None
+            mock_args.retries = None
+            mock_args.reasoning_effort = None
+            mock_args.thinking_tokens = None
+            mock_args.check_model_accepts_settings = True
+            mock_args.copy_paste = False
+            mock_args.hooks = None
+
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+
+            # === SAVE SESSION ===
+            coder_to_save = await Coder.create(
+                self.GPT35, "agent", io, args=mock_args, repo=mock.MagicMock()
+            )
+            commands_to_save = Commands(io, coder_to_save, args=mock_args)
+
+            # Configure state to be saved
+            await coder_to_save.mcp_manager.connect_server("mock_mcp")
+            coder_to_save.skills_manager.include_list = {"included_skill"}
+            coder_to_save.skills_manager.exclude_list = {"excluded_skill"}
+            coder_to_save.skills_manager.directory_paths = ["/test/skills/path/saved"]
+
+            session_name = "agent_session"
+            await commands_to_save.execute("save-session", session_name)
+
+            session_file = Path(handle_core_files(".cecli")) / "sessions" / f"{session_name}.json"
+            self.assertTrue(session_file.exists())
+
+            with open(session_file, "r", encoding="utf-8") as f:
+                saved_data = json.load(f)
+
+            # Assert saved data is correct
+            self.assertEqual(saved_data["mcps"], ["mock_mcp"])
+            self.assertEqual(saved_data["skills"]["skills_paths"], ["/test/skills/path/saved"])
+            self.assertEqual(saved_data["skills"]["skills_includelist"], ["included_skill"])
+            self.assertEqual(saved_data["skills"]["skills_excludelist"], ["excluded_skill"])
+            self.assertEqual(saved_data["tools"]["tools_paths"], ["/test/tools/path"])
+            self.assertEqual(saved_data["tools"]["tools_includelist"], ["included_tool"])
+            self.assertEqual(saved_data["tools"]["tools_excludelist"], ["excluded_tool"])
+
+            # === LOAD SESSION ===
+            # Create a new coder to load into, ensuring it's a clean slate
+            coder_to_load_initial = await Coder.create(
+                self.GPT35, "agent", io, args=mock_args, repo=mock.MagicMock()
+            )
+            commands_to_load = Commands(io, coder_to_load_initial, args=mock_args)
+
+            # Mock ToolRegistry.build_registry to check if it's called
+            with mock.patch(
+                "cecli.tools.utils.registry.ToolRegistry.build_registry"
+            ) as mock_build_registry:
+                coder_after_load = None
+                try:
+                    await commands_to_load.execute("load-session", session_name)
+                except SwitchCoderSignal as e:
+                    # The SwitchCoderSignal is expected, we need to get the new coder from it
+                    coder_after_load = await Coder.create(**e.kwargs)
+
+                self.assertIsNotNone(coder_after_load)
+
+                # Assert loaded state is correct in the new coder instance
+                connected_mcps = {s.name for s in coder_after_load.mcp_manager.connected_servers}
+                self.assertIn("mock_mcp", connected_mcps)
+
+                self.assertEqual(
+                    coder_after_load.skills_manager.directory_paths, ["/test/skills/path/saved"]
+                )
+                self.assertEqual(coder_after_load.skills_manager.include_list, {"included_skill"})
+                self.assertEqual(coder_after_load.skills_manager.exclude_list, {"excluded_skill"})
+
+                self.assertEqual(
+                    coder_after_load.agent_config["tools_paths"], ["/test/tools/path"]
+                )
+                self.assertEqual(
+                    coder_after_load.agent_config["tools_includelist"], ["included_tool"]
+                )
+                self.assertEqual(
+                    coder_after_load.agent_config["tools_excludelist"], ["excluded_tool"]
+                )
+
+                # Assert that the tool registry was rebuilt
+                mock_build_registry.assert_called_with(agent_config=coder_after_load.agent_config)
