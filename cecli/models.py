@@ -471,9 +471,7 @@ class Model(ModelSettings):
 
         io = kwargs.get("io", nested.getter(from_model, "io", None))
         verbose = kwargs.get("verbose", nested.getter(from_model, "verbose", False))
-        override_kwargs = kwargs.get(
-            "override_kwargs", nested.getter(from_model, "override_kwargs", None)
-        )
+        override_kwargs = kwargs.get("override_kwargs", None)
         retries = kwargs.get("retries", nested.getter(from_model, "retries", None))
         debug = kwargs.get("debug", nested.getter(from_model, "debug", False))
 
@@ -595,7 +593,7 @@ class Model(ModelSettings):
             valid_model_settings_fields = {f.name for f in fields(ModelSettings)}
 
             for key, value in self.override_kwargs.items():
-                if key == "model_settings":
+                if key == "model_settings" or key == "model-settings":
                     if not isinstance(value, dict):
                         raise ValueError(
                             f"override_kwargs 'model_settings' must be a dict, got {type(value)}"
@@ -1174,7 +1172,6 @@ class Model(ModelSettings):
                 effective_tools, key=lambda x: x.get("function", {}).get("name", "Invalid Name")
             )
             kwargs["tools"] = sorted_tools
-            kwargs["parallel_tool_calls"] = True
 
         if functions and len(functions) == 1:
             function = functions[0]
@@ -1288,7 +1285,12 @@ class Model(ModelSettings):
                 await asyncio.sleep(retry_delay)
                 continue
 
-    async def simple_send_with_retries(self, messages, max_tokens=None):
+    async def simple_send_with_retries(
+        self,
+        messages,
+        max_tokens=None,
+        override_kwargs={},
+    ):
         from cecli.exceptions import LiteLLMExceptions
 
         litellm_ex = LiteLLMExceptions()
@@ -1298,7 +1300,11 @@ class Model(ModelSettings):
         while True:
             try:
                 _hash, response = await self.send_completion(
-                    messages=messages, functions=None, stream=False, max_tokens=max_tokens
+                    messages=messages,
+                    functions=None,
+                    stream=False,
+                    max_tokens=max_tokens,
+                    override_kwargs=override_kwargs,
                 )
                 if (
                     not response
