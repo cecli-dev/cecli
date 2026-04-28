@@ -382,7 +382,7 @@ class TestModels:
             num_ctx=expected_ctx,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 
@@ -427,7 +427,7 @@ class TestModels:
             num_ctx=4096,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 
@@ -444,7 +444,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
         assert "num_ctx" not in mock_completion.call_args.kwargs
@@ -477,7 +477,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 
@@ -495,7 +495,7 @@ class TestModels:
             temperature=0,
             timeout=300,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 
@@ -513,7 +513,7 @@ class TestModels:
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 
@@ -536,7 +536,7 @@ class TestModels:
             temperature=0.7,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close"},
+            headers={"Connection": "close", "User-Agent": ANY},
             cache_control_injection_points=ANY,
         )
 

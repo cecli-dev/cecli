@@ -361,64 +361,12 @@ def register_litellm_models(git_root, model_metadata_fname, io, verbose=False):
 
 def load_model_overrides(git_root, model_overrides_fname, io, verbose=False):
     """Load model tag overrides from a YAML file."""
-    from pathlib import Path
-
-    import yaml
-
-    model_overrides_files = generate_search_path_list(
-        ".cecli.model.overrides.yml", git_root, model_overrides_fname
-    )
-    overrides = {}
-    files_loaded = []
-    for fname in model_overrides_files:
-        try:
-            if Path(fname).exists():
-                with open(fname, "r") as f:
-                    content = yaml.safe_load(f)
-                    if content:
-                        for model_name, tags in content.items():
-                            if model_name not in overrides:
-                                overrides[model_name] = {}
-                            overrides[model_name].update(tags)
-                        files_loaded.append(fname)
-        except Exception as e:
-            io.tool_error(f"Error loading model overrides from {fname}: {e}")
-    if len(files_loaded) > 0 and verbose:
-        io.tool_output("Loaded model overrides from:")
-        for file_loaded in files_loaded:
-            io.tool_output(f"  - {file_loaded}")
-    if (
-        model_overrides_fname
-        and model_overrides_fname not in files_loaded
-        and model_overrides_fname != ".cecli.model.overrides.yml"
-    ):
-        io.tool_warning(f"Model Overrides File Not Found: {model_overrides_fname}")
-    return overrides
+    models.ModelOverrides.load_from_file(git_root, model_overrides_fname, io, verbose=verbose)
 
 
 def load_model_overrides_from_string(model_overrides_str, io):
     """Load model tag overrides from a JSON/YAML string."""
-    import json
-
-    import yaml
-
-    overrides = {}
-    if not model_overrides_str:
-        return overrides
-    try:
-        try:
-            content = json.loads(model_overrides_str)
-        except json.JSONDecodeError:
-            content = yaml.safe_load(model_overrides_str)
-        if content and isinstance(content, dict):
-            for model_name, tags in content.items():
-                if model_name not in overrides:
-                    overrides[model_name] = {}
-                overrides[model_name].update(tags)
-        return overrides
-    except Exception as e:
-        io.tool_error(f"Error parsing model overrides string: {e}")
-        return {}
+    models.ModelOverrides.load_from_string(model_overrides_str, io)
 
 
 async def sanity_check_repo(repo, io):
@@ -847,105 +795,52 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
     if not selected_model_name:
         return await graceful_exit(None, 1)
     args.model = selected_model_name
-    model_overrides = {}
+
+    # Load model tag overrides (stored in ModelOverrides class-level state)
     if args.model_overrides_file:
-        model_overrides = load_model_overrides(
+        models.ModelOverrides.load_from_file(
             git_root, args.model_overrides_file, io, verbose=args.verbose
         )
+
     if args.model_overrides:
-        direct_overrides = load_model_overrides_from_string(args.model_overrides, io)
-        for model_name, tags in direct_overrides.items():
-            if model_name not in model_overrides:
-                model_overrides[model_name] = {}
-            model_overrides[model_name].update(tags)
-    override_index = {}
-    for base_model, suffixes in model_overrides.items():
-        if not isinstance(suffixes, dict):
-            continue
-        for suffix, cfg in suffixes.items():
-            if not isinstance(cfg, dict):
-                continue
-            full_name = f"{base_model}:{suffix}"
-            override_index[full_name] = base_model, cfg
+        models.ModelOverrides.load_from_string(args.model_overrides, io)
 
-    def apply_model_overrides(model_name):
-        """Return (effective_model_name, override_kwargs) for a given model_name.
-
-        If model_name ends with ":suffix" where suffix is configured for the
-        prefix (everything before the last colon), we switch to the prefix model
-        and apply that override dict. Otherwise we leave the name unchanged
-        and return empty overrides.
-        """
-        if not model_name:
-            return model_name, {}
-        prefix = ""
-        if model_name.startswith(models.COPY_PASTE_PREFIX):
-            prefix = models.COPY_PASTE_PREFIX
-            model_name = model_name[len(prefix) :]
-
-        # Try to find a matching override by checking all possible suffix matches.
-        # We iterate from right to left splitting on colons to handle cases where
-        # the base model name itself contains colons (e.g. "provider/model:tag:alias")
-        parts = model_name.split(":")
-        # We need at least one split to have a base and a suffix
-        for i in range(len(parts) - 1, 0, -1):
-            potential_base = ":".join(parts[:i])
-            potential_suffix = ":".join(parts[i:])
-
-            # Check if this base has the suffix configured
-            if potential_base in model_overrides:
-                suffixes = model_overrides[potential_base]
-                if isinstance(suffixes, dict) and potential_suffix in suffixes:
-                    cfg = suffixes[potential_suffix]
-                    if isinstance(cfg, dict):
-                        model_name = prefix + potential_base
-                        return model_name, cfg.copy()
-
-        # No match found
-        model_name = prefix + model_name
-        return model_name, {}
-
-    main_model_name, main_model_overrides = apply_model_overrides(args.model)
-    weak_model_name, weak_model_overrides = apply_model_overrides(args.weak_model)
-    editor_model_name, editor_model_overrides = apply_model_overrides(args.editor_model)
-    agent_model_name, agent_model_overrides = apply_model_overrides(args.agent_model)
     weak_model_obj = None
-    if weak_model_name:
+    if args.weak_model:
         weak_model_obj = models.Model(
-            weak_model_name,
+            args.weak_model,
             weak_model=False,
             verbose=args.verbose,
             io=io,
-            override_kwargs=weak_model_overrides,
-            retries=args.retries,
-            debug=args.debug,
-        )
-    editor_model_obj = None
-    if editor_model_name:
-        editor_model_obj = models.Model(
-            editor_model_name,
-            editor_model=False,
-            verbose=args.verbose,
-            io=io,
-            override_kwargs=editor_model_overrides,
-            retries=args.retries,
-            debug=args.debug,
-        )
-    agent_model_obj = None
-    if agent_model_name:
-        agent_model_obj = models.Model(
-            agent_model_name,
-            agent_model=False,
-            verbose=args.verbose,
-            io=io,
-            override_kwargs=agent_model_overrides,
             retries=args.retries,
             debug=args.debug,
         )
 
-    if main_model_name.startswith("openrouter/") and not os.environ.get("OPENROUTER_API_KEY"):
+    editor_model_obj = None
+    if args.editor_model:
+        editor_model_obj = models.Model(
+            args.editor_model,
+            editor_model=False,
+            verbose=args.verbose,
+            io=io,
+            retries=args.retries,
+            debug=args.debug,
+        )
+
+    agent_model_obj = None
+    if args.agent_model:
+        agent_model_obj = models.Model(
+            args.agent_model,
+            agent_model=False,
+            verbose=args.verbose,
+            io=io,
+            retries=args.retries,
+            debug=args.debug,
+        )
+
+    if args.model.startswith("openrouter/") and not os.environ.get("OPENROUTER_API_KEY"):
         io.tool_warning(
-            f"The specified model '{main_model_name}' requires an OpenRouter API key, which was not"
+            f"The specified model '{args.model}' requires an OpenRouter API key, which was not"
             " found."
         )
         if await offer_openrouter_oauth(io):
@@ -958,24 +853,25 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
                 return await graceful_exit(None, 1)
         else:
             io.tool_error(
-                f"Unable to proceed without an OpenRouter API key for model '{main_model_name}'."
+                f"Unable to proceed without an OpenRouter API key for model '{args.model}'."
             )
             await io.offer_url(
                 urls.models_and_keys, "Open documentation URL for more info?", acknowledge=True
             )
             return await graceful_exit(None, 1)
+
     main_model = models.Model(
-        main_model_name,
+        args.model,
         weak_model=weak_model_obj,
         editor_model=editor_model_obj,
         agent_model=agent_model_obj,
         editor_edit_format=args.editor_edit_format,
         verbose=args.verbose,
         io=io,
-        override_kwargs=main_model_overrides,
         retries=args.retries,
         debug=args.debug,
     )
+
     if args.copy_paste and main_model.copy_paste_transport == "api":
         main_model.enable_copy_paste_mode()
     if main_model.remove_reasoning is not None:

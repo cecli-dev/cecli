@@ -428,7 +428,14 @@ class GitRepo:
             if max_tokens and num_tokens > max_tokens:
                 continue
 
-            commit_message = await model.simple_send_with_retries(messages)
+            commit_message = await model.simple_send_with_retries(
+                messages,
+                override_kwargs={
+                    "reasoning_effort": None,
+                    "thinking": None,
+                    "drop_params": True,
+                },
+            )
             if commit_message:
                 break  # Found a model that could generate the message
 
