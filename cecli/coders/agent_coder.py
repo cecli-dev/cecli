@@ -415,7 +415,24 @@ class AgentCoder(Coder):
 """)
                 return f"Error executing tool call {tool_name}: {e}"
 
-        return await _exec_async()
+        exec_future = asyncio.create_task(_exec_async())
+        interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+
+        done, pending = await asyncio.wait(
+            {exec_future, interrupt_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        if interrupt_task in done:
+            exec_future.cancel()
+            try:
+                await exec_future
+            except asyncio.CancelledError:
+                pass
+            return "Tool execution interrupted by user."
+        else:
+            interrupt_task.cancel()
+            return await exec_future
 
     def _calculate_context_block_tokens(self, force=False):
         """
