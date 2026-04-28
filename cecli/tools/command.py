@@ -255,8 +255,10 @@ class Tool(BaseTool):
                         f"[Large Response ({total_size} characters). "
                         "Output saved to paginated files.]\n"
                         f"File Aliases (for use with ContextManager):\n{alias_list_str}\n"
-                        "Use the `ContextManager` tool to view these files and to remove them "
-                        "when done reading. Do not use standard cli tools to view these files."
+                        "Use the `ContextManager` tool to view these files."
+                        "Do not use standard cli tools to view these files."
+                        "Remove them from context after taking note of the relevant information "
+                        "in the output to prevent overfilling stale context."
                     )
 
                 # Remove from background tracking since it's done
@@ -339,8 +341,10 @@ class Tool(BaseTool):
                 f"[Large Response ({total_size} characters). "
                 "Output saved to paginated files.]\n"
                 f"File Aliases (for use with ContextManager):\n{alias_list_str}\n"
-                "Use the `ContextManager` tool to view these files and to remove them "
-                "when done reading. Do not use standard cli tools to view these files."
+                "Use the `ContextManager` tool to view these files."
+                "Do not use standard cli tools to view these files."
+                "Remove them from context after taking note of the relevant information "
+                "in the output to prevent overfilling stale context."
             )
 
         if tui:
