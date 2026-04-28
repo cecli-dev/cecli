@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from cecli.helpers.hashline import hashline
-from cecli.tools import insert_text
+from cecli.tools import edit_text
 
 
 class DummyIO:
@@ -85,14 +85,19 @@ def test_position_top_succeeds_with_no_patterns(coder_with_file):
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    result = insert_text.Tool.execute(
+    result = edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="inserted line",
-        start_line=start_line,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "inserted line",
+                "start_line": start_line,
+            },
+        ],
     )
 
-    assert result.startswith("Successfully executed InsertText.")
+    assert result.startswith("Successfully executed EditText.")
     lines = file_path.read_text().splitlines()
     assert lines[0] == "first line"  # Original first line remains first
     assert lines[1] == "inserted line"  # Inserted line comes after line 1
@@ -103,15 +108,20 @@ def test_mutually_exclusive_parameters_raise(coder_with_file):
     coder, file_path = coder_with_file
 
     # Test with invalid hashline format (missing pipe)
-    result = insert_text.Tool.execute(
+    result = edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="new line",
-        start_line="invalid_hashline",
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "new line",
+                "start_line": "invalid_hashline",
+            },
+        ],
     )
 
-    assert result.startswith("Error in InsertText:")
-    assert "Hashline insertion failed" in result
+    assert result.startswith("Error in EditText:")
+    assert "Invalid Edit - Source Not Modified" in result
     assert file_path.read_text().startswith("first line")
     coder.io.tool_error.assert_called()
 
@@ -128,11 +138,16 @@ def test_trailing_newline_preservation(coder_with_file):
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    insert_text.Tool.execute(
+    edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="inserted line",
-        start_line=start_line,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "inserted line",
+                "start_line": start_line,
+            },
+        ],
     )
 
     content = file_path.read_text()
@@ -160,11 +175,16 @@ def test_no_trailing_newline_preservation(coder_with_file):
     # Extract hash fragment from {hash}::content format
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
-    insert_text.Tool.execute(
+    edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="inserted line",
-        start_line=start_line,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "inserted line",
+                "start_line": start_line,
+            },
+        ],
     )
 
     content = file_path.read_text()
@@ -188,14 +208,19 @@ def test_line_number_beyond_file_length_appends(coder_with_file):
     # Extract hash fragment from {hash}::content format
     hash_fragment = line2_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
-    result = insert_text.Tool.execute(
+    result = edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="appended line",
-        start_line=start_line,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "appended line",
+                "start_line": start_line,
+            },
+        ],
     )
 
-    assert result.startswith("Successfully executed InsertText.")
+    assert result.startswith("Successfully executed EditText.")
     content = file_path.read_text()
     assert content == "first line\nsecond line\nappended line\n"
     coder.io.tool_error.assert_not_called()
@@ -216,11 +241,16 @@ def test_line_number_beyond_file_length_appends_no_trailing_newline(coder_with_f
     hash_fragment = line2_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    insert_text.Tool.execute(
+    edit_text.Tool.execute(
         coder,
-        file_path="example.txt",
-        content="appended line",
-        start_line=start_line,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "appended line",
+                "start_line": start_line,
+            },
+        ],
     )
     content = file_path.read_text()
     # Current implementation joins with \n, but respects original trailing newline

@@ -15,3 +15,5 @@ codespell
 uv
 memray
 objgraph
+pympler
+guppy3

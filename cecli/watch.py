@@ -3,11 +3,11 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from grep_ast import TreeContext
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern
 
 from cecli.dump import dump  # noqa
+from cecli.helpers.grep_ast import TreeContext
 from cecli.watch_prompts import watch_ask_prompt, watch_code_prompt
 
 
@@ -55,8 +55,11 @@ def load_gitignores(gitignore_paths: list[Path]) -> Optional[PathSpec]:
     ]  # Always ignore
     for path in gitignore_paths:
         if path.exists():
-            with open(path) as f:
-                patterns.extend(f.readlines())
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    patterns.extend(f.readlines())
+            except Exception:
+                pass  # Ignore files that can't be read
 
     return PathSpec.from_lines(GitWildMatchPattern, patterns) if patterns else None
 

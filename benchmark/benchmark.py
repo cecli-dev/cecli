@@ -292,9 +292,7 @@ def main(
 
     if not dry and "CECLI_DOCKER" not in os.environ:
         logger.warning("Warning: Benchmarking runs unvetted code. Run in a docker container.")
-        logger.warning(
-            "Set CECLI_DOCKER in the environment to by-pass this check at your own risk."
-        )
+        logger.warning("Set CECLI_DOCKER in the environment to bypass this check at your own risk.")
         return
 
     # Check dirs exist

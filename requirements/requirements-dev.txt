@@ -41,6 +41,10 @@ fonttools==4.60.1
     # via
     #   -c requirements/common-constraints.txt
     #   matplotlib
+guppy3==3.1.6
+    # via
+    #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements-dev.in
 identify==2.6.15
     # via
     #   -c requirements/common-constraints.txt
@@ -150,6 +154,10 @@ pygments==2.19.2
     #   pytest
     #   rich
     #   textual
+pympler==1.1
+    # via
+    #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements-dev.in
 pyparsing==3.2.5
     # via
     #   -c requirements/common-constraints.txt

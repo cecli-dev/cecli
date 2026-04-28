@@ -135,14 +135,18 @@ def generate_celebration_svg(output_path=None, width=DEFAULT_WIDTH, height=DEFAU
 
     # Font embedding
     font_data = embed_font()
-    font_face = f"""
+    font_face = (
+        f"""
     @font-face {{
         font-family: 'GlassTTYVT220';
         src: url(data:font/truetype;charset=utf-8;base64,{font_data}) format('truetype');
         font-weight: normal;
         font-style: normal;
     }}
-    """ if font_data else ""
+    """
+        if font_data
+        else ""
+    )
 
     # Generate confetti elements
     confetti = generate_confetti(count=150, width=width, height=height)

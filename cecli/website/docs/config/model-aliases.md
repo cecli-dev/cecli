@@ -97,7 +97,7 @@ for alias, model in sorted(MODEL_ALIASES.items()):
 
 ## Advanced Model Settings
 
-CECLI/Cecli supports model names with colon-separated suffixes (e.g., `gpt-5:high`) that map to additional configuration parameters defined in the relevant config.yml file. This allows you to create named configurations for different use cases. These configurations map precisely to the LiteLLM `completion()` method parameters [here](https://docs.litellm.ai/docs/completion/input), though more are supported for specific models and providers.
+CECLI/Cecli supports model names with colon-separated suffixes (e.g., `gpt-5:high`) that map to additional configuration parameters defined in the relevant config.yml file. This allows you to create named configurations for different use cases. These configurations map precisely to the LiteLLM `completion()` method parameters [here](https://docs.litellm.ai/docs/completion/input), though more are supported for specific models and providers. Any key under the `model_settings` key will override the model parameters defined in files like `.cecli.model.settings.yml` (more information [here](https://cecli.dev/docs/config/adv-model-settings.html))
 
 ### Configuration File
 
@@ -151,6 +151,45 @@ cecli --model gpt-5 --editor-model gpt-5:creative
 2. It looks up the suffix in the overrides file for that model.
 3. The corresponding configuration parameters are applied to the model's API calls.
 4. The parameters are deep-merged into the model's existing settings, with overrides taking precedence.
+
+
+### Default Overrides
+
+In addition to suffix-based overrides, you can define **default overrides** that apply directly to a model by name without requiring a colon-separated suffix. Use the special `defaults` key within your `model-overrides` configuration:
+
+```yaml
+model-overrides:
+  defaults:
+    gpt-5:
+      temperature: 0.7
+      top_p: 0.9
+    claude-4-5-sonnet:
+      temperature: 1
+      model_settings:
+        cache_control: true      
+```
+
+When you run `cecli --model gpt-5`, the default overrides specified under `defaults` are applied automatically. This is useful for setting baseline parameters for specific models without creating a named configuration.
+
+Default overrides work alongside suffix-based overrides. If both a default override and a suffix override match the same parameter, the suffix override takes precedence:
+
+```bash
+# Applies default overrides for gpt-5
+cecli --model gpt-5
+
+# Applies suffix-based overrides for gpt-5:high, merged on top of defaults
+cecli --model gpt-5:high
+```
+
+```yaml
+model-overrides:
+  defaults:
+    gpt-5:
+      temperature: 0.7
+  gpt-5:
+    high:
+      temperature: 0.9  # Overrides the default of 0.7
+```
 
 ### Priority
 

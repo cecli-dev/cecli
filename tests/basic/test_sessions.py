@@ -106,8 +106,10 @@ class TestSessionCommands(TestCase):
                     "read_only_stubs": [],
                 },
                 "settings": {"auto_commits": True, "auto_lint": False, "auto_test": False},
-                "todo_list": """Restored tasks
-- item""",
+                "todo_list": (
+                    """Restored tasks
+- item"""
+                ),
             }
             session_file = Path(handle_core_files(".cecli")) / "sessions" / "test_session.json"
             session_file.parent.mkdir(parents=True, exist_ok=True)

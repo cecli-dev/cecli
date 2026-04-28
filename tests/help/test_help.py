@@ -1,7 +1,9 @@
 import asyncio
+import importlib
 import time
 from unittest.mock import AsyncMock
 
+import pytest
 from requests.exceptions import ConnectionError, ReadTimeout
 
 import cecli
@@ -10,6 +12,8 @@ from cecli.commands import Commands
 from cecli.help import Help, fname_to_url
 from cecli.io import InputOutput
 from cecli.models import Model
+
+_has_llama_index = importlib.util.find_spec("llama_index") is not None
 
 
 class TestHelp:
@@ -90,10 +94,16 @@ class TestHelp:
         # HelpCoder.run may or may not be called depending on help initialization
         # Don't assert it was called
 
+    @pytest.mark.skipif(
+        not _has_llama_index, reason="requires llama_index (install with cecli-dev[help])"
+    )
     def test_init(self):
         help_inst = Help()
         assert help_inst.retriever is not None
 
+    @pytest.mark.skipif(
+        not _has_llama_index, reason="requires llama_index (install with cecli-dev[help])"
+    )
     def test_ask_without_mock(self):
         help_instance = Help()
         question = "What is cecli?"
