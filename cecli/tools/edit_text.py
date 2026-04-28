@@ -56,9 +56,9 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "enum": ["replace", "delete", "insert"],
                                     "description": (
-                                        "The type of operation: 'replace' (replace range with text), "
-                                        "'delete' (remove range), or 'insert' (insert text after start_line). "
-                                        "Defaults to 'replace'."
+                                        "The type of operation: 'replace' (replace range with"
+                                        " text), 'delete' (remove range), or 'insert' (insert text"
+                                        " after start_line). Defaults to 'replace'."
                                     ),
                                 },
                                 "text": {
@@ -78,8 +78,8 @@ class Tool(BaseTool):
                                 "end_line": {
                                     "type": "string",
                                     "description": (
-                                        'Hashline format for end line: "{4 char hash}" (without the '
-                                        "braces)"
+                                        'Hashline format for end line: "{4 char hash}" (without the'
+                                        " braces)"
                                     ),
                                 },
                             },
@@ -179,8 +179,8 @@ class Tool(BaseTool):
                             if operation in ("replace", "delete"):
                                 if edit_start_line is None:
                                     raise ToolError(
-                                        f"Edit {edit_index + 1}: 'start_line' parameter is required "
-                                        f"for '{operation}' operation"
+                                        f"Edit {edit_index + 1}: 'start_line' parameter is required"
+                                        f" for '{operation}' operation"
                                     )
                                 if edit_end_line is None:
                                     raise ToolError(
@@ -190,8 +190,8 @@ class Tool(BaseTool):
                             if operation == "insert":
                                 if edit_start_line is None:
                                     raise ToolError(
-                                        f"Edit {edit_index + 1}: 'start_line' parameter is required "
-                                        "for 'insert' operation"
+                                        f"Edit {edit_index + 1}: 'start_line' parameter is required"
+                                        " for 'insert' operation"
                                     )
                                 # For insert, end_line defaults to start_line
                                 edit_end_line = edit_end_line or edit_start_line
