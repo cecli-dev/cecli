@@ -786,12 +786,6 @@ class ConversationChunks:
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_user", file_path),
                 force=True,
-                promotion=(
-                    ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE
-                    if promote_messages
-                    else None
-                ),
-                mark_for_demotion=1 if promote_messages else None,
             )
 
             ConversationService.get_manager(coder).add_message(
@@ -799,12 +793,6 @@ class ConversationChunks:
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_assistant", file_path),
                 force=True,
-                promotion=(
-                    ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE
-                    if promote_messages
-                    else None
-                ),
-                mark_for_demotion=1 if promote_messages else None,
             )
 
     def reset(self) -> None:

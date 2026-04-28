@@ -13,11 +13,11 @@ from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
-    NORM_NAME = "showcontext"
+    NORM_NAME = "getlines"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ShowContext",
+            "name": "GetLines",
             "description": (
                 "Get hashline prefixes of context between start and end patterns in multiple files."
                 " Accepts an array of show objects, each with file_path, start_text,"
@@ -84,7 +84,7 @@ class Tool(BaseTool):
         Accepts an array of show operations to perform.
         Uses utility functions for path resolution and error handling.
         """
-        tool_name = "ShowContext"
+        tool_name = "GetLines"
         already_up_to_date = False
 
         try:
@@ -269,6 +269,7 @@ class Tool(BaseTool):
                     already_up_to_date = True
                 else:
                     ConversationService.get_files(coder).remove_file_messages(abs_path)
+
                 ConversationService.get_chunks(coder).add_file_context_messages()
 
             # Log success and return the formatted context directly
@@ -277,8 +278,8 @@ class Tool(BaseTool):
             if already_up_to_date:
                 coder.io.tool_output("File contents already up to date")
                 return (
-                    "File contents already up to date. Please proceed with your task. "
-                    "Do not call ShowContext again until you edit the file."
+                    "File contents already up to date."
+                    "Do not call GetLines again with these parameters until you edit the file."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
@@ -293,7 +294,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for ShowContext tool."""
+        """Format output for GetLines tool."""
         color_start, color_end = color_markers(coder)
 
         try:

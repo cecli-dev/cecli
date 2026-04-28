@@ -18,11 +18,11 @@ finally:
 
 
 class Tool(BaseTool):
-    NORM_NAME = "exploresymbols"
+    NORM_NAME = "explorecode"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ExploreSymbols",
+            "name": "ExploreCode",
             "description": (
                 "Search, investigate, and find references to symbols using the Cymbal code indexing"
                 " library. This is the preferred tool for analyzing code structure."
@@ -174,7 +174,7 @@ class Tool(BaseTool):
             return "\n\n" + "=" * 40 + "\n\n".join(all_results)
 
         except Exception as e:
-            coder.io.tool_error(f"Error in ExploreSymbols: {str(e)}")
+            coder.io.tool_error(f"Error in ExploreCode: {str(e)}")
             return f"Error: {str(e)}"
         finally:
             if "c" in locals():
@@ -293,7 +293,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for ExploreSymbols tool."""
+        """Format output for ExploreCode tool."""
         color_start, color_end = color_markers(coder)
 
         try:

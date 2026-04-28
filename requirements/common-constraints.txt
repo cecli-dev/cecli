@@ -119,6 +119,8 @@ greenlet==3.2.4
     #   sqlalchemy
 griffe==1.15.0
     # via banks
+guppy3==3.1.6
+    # via -r requirements/requirements-dev.in
 h11==0.16.0
     # via
     #   httpcore
@@ -374,6 +376,8 @@ pygments==2.19.2
     #   textual
 pyjwt[crypto]==2.10.1
     # via mcp
+pympler==1.1
+    # via -r requirements/requirements-dev.in
 pypandoc==1.16.2
     # via -r requirements/requirements.in
 pyparsing==3.2.5

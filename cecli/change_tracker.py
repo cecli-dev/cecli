@@ -21,7 +21,7 @@ class ChangeTracker:
 
         Parameters:
         - file_path: Path to the file that was changed
-        - change_type: Type of change (e.g., 'replacetext', 'insertlines')
+        - change_type: Type of change (e.g., 'edittext', 'insertlines')
         - original_content: Original content before the change
         - new_content: New content after the change
         - metadata: Additional information about the change (line numbers, positions, etc.)

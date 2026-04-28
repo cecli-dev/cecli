@@ -46,13 +46,12 @@ This loop continues automatically until the `Finished` tool is called, or the ma
 
 Agent Mode uses a centralized local tool registry that manages all available tools:
 
-- **File Discovery Tools**: `ViewFilesMatching`, `ViewFilesWithSymbol`, `Ls`, `Grep`
-- **Editing Tools**: `ReplaceText`, `InsertText`, `DeleteText`
-- **Context Management Tools**: `ContextManager`
+- **File Discovery Tools**: `ExploreCode`, `Ls`, `Grep`
+- **Editing Tools**: `EditText`,
+- **Context Management Tools**: `ContextManager`, `GetLines`
 - **Git Tools**: `GitDiff`, `GitLog`, `GitShow`, `GitStatus`
-- **Utility Tools**: `UpdateTodoList`, `ListChanges`, `UndoChange`, `Finished`
+- **Utility Tools**: `UpdateTodoList`, `UndoChange`, `Finished`
 - **Skill Management**: `LoadSkill`, `RemoveSkill`
-- **Eval Management**: `RunEvals`
 
 #### Enhanced Context Management
 
@@ -70,14 +69,6 @@ Agent Mode includes some useful context management features:
 - **Proactive file discovery**: LLM can find relevant files without user guidance
 - **Smart file removal**: Large files can be removed from context to save tokens
 - **Dynamic context updates**: Context blocks provide real-time project information
-
-#### Granular Editing Capabilities
-
-Agent Mode prioritizes granular tools over SEARCH/REPLACE:
-
-- **Precision editing**: `ReplaceText` for targeted changes
-- **Block operations**: `InsertText`, `DeleteText` for larger modifications
-- **Refactoring support**: `ExtractLines` for code reorganization
 
 #### Safety and Recovery
 
@@ -122,10 +113,10 @@ Files are made editable and modifications are applied:
 Tool Call: MakeEditable
 Arguments: {"file_path": "main.py"}
 
-Tool Call: ReplaceText
+Tool Call: EditText
 Arguments: {"file_path": "main.py", "find_text": "old_function", "replace_text": "new_function"}
 
-Tool Call: InsertText
+Tool Call: EditText
 Arguments: {"file_path": "main.py", "after_pattern": "import statements", "content": "new_imports"}
 ```
 
@@ -159,7 +150,7 @@ Agent Mode can also be configured directly in the relevant config.yml file:
 agent: true
 agent-config:
   # Tool configuration
-  tools_includelist: [contextmanager", "replacetext", "finished"]  # Optional: Whitelist of tools
+  tools_includelist: [contextmanager", "edittext", "finished"]  # Optional: Whitelist of tools
   tools_excludelist: ["command", "commandinteractive"]  # Optional: Blacklist of tools
   tools_paths: ["./custom-tools", "~/my-tools"]  # Optional: Directories or files containing custom tools
   
@@ -194,7 +185,7 @@ agent-config:
 Certain tools are always available regardless of includelist/excludelist settings:
 
 - `ContextManager` - Add, drop, and make files editable in the context
-- `replacetext` - Basic text replacement
+- `edittext` - Basic text replacement
 - `finished` - Complete the task
 
 The registry also supports **Custom Tools** that can be loaded from specified directories or files using the `tool_paths` configuration option. Custom tools must be Python files containing a `Tool` class that inherits from `BaseTool` and defines a `NORM_NAME` attribute.
@@ -287,7 +278,7 @@ agent: true
 # Agent Mode configuration
 agent-config:
   # Tool configuration
-  tools_includelist: ["contextmanager", "replacetext", "finished"]  # Optional: Whitelist of tools
+  tools_includelist: ["contextmanager", "edittext", "finished"]  # Optional: Whitelist of tools
   tools_excludelist: ["command", "commandinteractive"]  # Optional: Blacklist of tools
   tools_paths: ["./custom-tools", "~/my-tools"]  # Optional: Directories or files containing custom tools
   
