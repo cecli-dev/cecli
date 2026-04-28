@@ -1216,9 +1216,17 @@ class Model(ModelSettings):
                 }
 
         if kwargs.get("headers", None):
-            kwargs["headers"].update({"Connection": "close"})
+            kwargs["headers"].update(
+                {
+                    "User-Agent": f"cecli/{__version__}",
+                    "Connection": "close",
+                }
+            )
         else:
-            kwargs["headers"] = {"Connection": "close"}
+            kwargs["headers"] = {
+                "User-Agent": f"cecli/{__version__}",
+                "Connection": "close",
+            }
 
         litellm_ex = LiteLLMExceptions()
         retry_delay = 0.125
