@@ -20,7 +20,7 @@ from cecli import __version__
 from cecli.dump import dump
 from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import nested
-from cecli.helpers.file_searcher import handle_core_files
+from cecli.helpers.file_searcher import generate_search_path_list, handle_core_files
 from cecli.helpers.model_providers import ModelProviderManager
 from cecli.helpers.nested import deep_merge
 from cecli.helpers.requests import model_request_parser
@@ -310,6 +310,152 @@ class ModelInfoManager:
 model_info_manager = ModelInfoManager()
 
 
+class ModelOverrides:
+    """Class-level manager for model tag overrides (suffix-based model name resolution).
+
+    Allows users to define model tag overrides like "model:suffix" that map to
+    a base model name with specific configuration overrides.
+
+    State is stored at the class level so it can be loaded once (e.g. from a YAML file
+    in the entry point) and automatically applied when Model is instantiated.
+    """
+
+    _overrides: dict = {}
+    _defaults_overrides: dict = {}
+
+    @classmethod
+    def load_from_file(cls, git_root, model_overrides_fname, io, verbose=False):
+        """Load model tag overrides from a YAML file."""
+        from pathlib import Path
+
+        import yaml
+
+        model_overrides_files = generate_search_path_list(
+            ".cecli.model.overrides.yml", git_root, model_overrides_fname
+        )
+        overrides = {}
+        files_loaded = []
+        for fname in model_overrides_files:
+            try:
+                if Path(fname).exists():
+                    with open(fname, "r") as f:
+                        content = yaml.safe_load(f)
+                        if content:
+                            for model_name, tags in content.items():
+                                if model_name not in overrides:
+                                    overrides[model_name] = {}
+                                overrides[model_name].update(tags)
+                            files_loaded.append(fname)
+            except Exception as e:
+                io.tool_error(f"Error loading model overrides from {fname}: {e}")
+        if len(files_loaded) > 0 and verbose:
+            io.tool_output("Loaded model overrides from:")
+            for file_loaded in files_loaded:
+                io.tool_output(f"  - {file_loaded}")
+        if (
+            model_overrides_fname
+            and model_overrides_fname not in files_loaded
+            and model_overrides_fname != ".cecli.model.overrides.yml"
+        ):
+            io.tool_warning(f"Model Overrides File Not Found: {model_overrides_fname}")
+        cls._from_file_or_string(overrides)
+
+    @classmethod
+    def load_from_string(cls, model_overrides_str, io):
+        """Load model tag overrides from a JSON/YAML string."""
+        import json
+
+        import yaml
+
+        overrides = {}
+        if not model_overrides_str:
+            return
+        try:
+            try:
+                content = json.loads(model_overrides_str)
+            except json.JSONDecodeError:
+                content = yaml.safe_load(model_overrides_str)
+            if content and isinstance(content, dict):
+                for model_name, tags in content.items():
+                    if model_name not in overrides:
+                        overrides[model_name] = {}
+                    overrides[model_name].update(tags)
+        except Exception as e:
+            io.tool_error(f"Error parsing model overrides string: {e}")
+            return
+        cls._from_file_or_string(overrides)
+
+    @classmethod
+    def _from_file_or_string(cls, overrides):
+        """Internal: process raw overrides dict into class-level state."""
+        # Extract 'defaults' key for direct model name matching
+        defaults_overrides = {}
+        if "defaults" in overrides:
+            defaults_overrides = overrides.pop("defaults")
+            if not isinstance(defaults_overrides, dict):
+                defaults_overrides = {}
+
+        # Merge into class-level state
+        for model_name, tags in overrides.items():
+            if model_name not in cls._overrides:
+                cls._overrides[model_name] = {}
+            if isinstance(tags, dict):
+                cls._overrides[model_name].update(tags)
+
+        # Merge defaults
+        for model_name, tags in defaults_overrides.items():
+            if model_name not in cls._defaults_overrides:
+                cls._defaults_overrides[model_name] = {}
+            if isinstance(tags, dict):
+                cls._defaults_overrides[model_name].update(tags)
+
+    @classmethod
+    def apply(cls, model_name):
+        """Return (effective_model_name, override_kwargs) for a given model_name.
+
+        If model_name ends with ":suffix" where suffix is configured for the
+        prefix (everything before the last colon), we return the prefix model
+        and the associated override dict. Otherwise we leave the name unchanged
+        and return empty overrides.
+
+        NOTE: COPY_PASTE_PREFIX handling is done by Model.__init__ before this
+        method is called, so we only work with the clean model name here.
+        """
+        if not model_name:
+            return model_name, {}
+
+        # Try to find a matching override by checking all possible suffix matches.
+        # We iterate from right to left splitting on colons to handle cases where
+        # the base model name itself contains colons (e.g. "provider/model:tag:alias")
+        parts = model_name.split(":")
+        for i in range(len(parts) - 1, 0, -1):
+            potential_base = ":".join(parts[:i])
+            potential_suffix = ":".join(parts[i:])
+
+            # Check if this base has the suffix configured
+            if potential_base in cls._overrides:
+                suffixes = cls._overrides[potential_base]
+                if isinstance(suffixes, dict) and potential_suffix in suffixes:
+                    cfg = suffixes[potential_suffix]
+                    if isinstance(cfg, dict):
+                        return potential_base, cfg.copy()
+
+        # Check for direct match in defaults overrides
+        if model_name in cls._defaults_overrides:
+            cfg = cls._defaults_overrides[model_name]
+            if isinstance(cfg, dict):
+                return model_name, cfg.copy()
+
+        # No match found
+        return model_name, {}
+
+    @classmethod
+    def clear(cls):
+        """Reset all model overrides."""
+        cls._overrides = {}
+        cls._defaults_overrides = {}
+
+
 class Model(ModelSettings):
     def __init__(
         self,
@@ -357,6 +503,20 @@ class Model(ModelSettings):
         else:
             model = provided_model
         model = MODEL_ALIASES.get(model, model)
+
+        # Resolve model tag overrides (suffix-based model name resolution)
+        resolved_model, resolved_overrides = ModelOverrides.apply(model)
+
+        if resolved_overrides:
+            model = resolved_model
+            merged = resolved_overrides.copy()
+
+            if override_kwargs:
+                merged.update(override_kwargs)
+
+            override_kwargs = merged
+            self.override_kwargs = override_kwargs
+
         self.name = model
         self.max_chat_history_tokens = 1024
         self.weak_model = None
@@ -1005,13 +1165,17 @@ class Model(ModelSettings):
                 override_kwargs.pop("temperature", None)
 
         effective_tools = tools
+
         if effective_tools is None and functions:
             effective_tools = [dict(type="function", function=f) for f in functions]
+
         if effective_tools:
             sorted_tools = sorted(
                 effective_tools, key=lambda x: x.get("function", {}).get("name", "Invalid Name")
             )
             kwargs["tools"] = sorted_tools
+            kwargs["parallel_tool_calls"] = True
+
         if functions and len(functions) == 1:
             function = functions[0]
             if "name" in function:
