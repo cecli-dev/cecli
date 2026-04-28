@@ -109,10 +109,6 @@ gitpython==3.1.45
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
-grep-ast==0.9.0
-    # via
-    #   -c requirements/common-constraints.txt
-    #   -r requirements/requirements.in
 h11==0.16.0
     # via
     #   -c requirements/common-constraints.txt
@@ -244,7 +240,6 @@ pathspec==0.12.1
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
-    #   grep-ast
 pexpect==4.9.0
     # via
     #   -c requirements/common-constraints.txt
@@ -434,7 +429,8 @@ tqdm==4.67.1
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
     #   tree-sitter-language-pack
-tree-sitter-c-sharp==0.23.1
+    #   tree-sitter-languages
+tree-sitter-c-sharp==0.23.5
     # via
     #   -c requirements/common-constraints.txt
     #   tree-sitter-language-pack
@@ -442,10 +438,14 @@ tree-sitter-embedded-template==0.25.0
     # via
     #   -c requirements/common-constraints.txt
     #   tree-sitter-language-pack
-tree-sitter-language-pack==0.11.0
+tree-sitter-language-pack==0.13.0
     # via
     #   -c requirements/common-constraints.txt
-    #   grep-ast
+    #   -r requirements/requirements.in
+tree-sitter-languages==1.10.2
+    # via
+    #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements.in
 tree-sitter-yaml==0.7.2
     # via
     #   -c requirements/common-constraints.txt

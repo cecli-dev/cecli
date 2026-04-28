@@ -53,17 +53,17 @@ class AgentCoder(Coder):
         self.read_tools = {
             "command",
             "commandinteractive",
-            "exploresymbols",
+            "explorecode",
             "ls",
+            "getlines",
             "grep",
-            "showcontext",
             "thinking",
             "updatetodolist",
         }
         self.write_tools = {
-            "deletetext",
-            "inserttext",
-            "replacetext",
+            "command",
+            "commandinteractive",
+            "edittext",
             "undochange",
         }
         self.edit_allowed = False
@@ -582,6 +582,7 @@ class AgentCoder(Coder):
 
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
         ConversationService.get_chunks(self).add_post_message_context_blocks()
+        ConversationService.get_chunks(self).add_randomized_cta()
 
         return ConversationService.get_manager(self).get_messages_dict()
 
@@ -998,7 +999,7 @@ I will proceed based on the tool results and updated context.""")
             context_parts.append("\n\n")
             context_parts.append("## File Editing Tools Disabled")
             context_parts.append(
-                "File editing tools are currently disabled.Use `ShowContext` to determine the"
+                "File editing tools are currently disabled.Use `GetLines` to determine the"
                 " current hashline prefixes needed to perform an edit and activate them when you"
                 " are ready to edit a file."
             )

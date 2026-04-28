@@ -11,7 +11,7 @@ import platform
 import subprocess
 import threading
 from collections import deque
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     import pty
@@ -624,3 +624,51 @@ class BackgroundCommandManager:
                     ),
                 }
             return result
+
+    @staticmethod
+    def save_paginated_output(
+        output: str,
+        command_key: str,
+        page_size: int,
+        abs_root_path_func,
+        local_agent_folder_func,
+    ) -> Optional[Tuple[str, List[str], List[str]]]:
+        """
+        Save long output to paginated files in a folder for later access.
+
+        When output exceeds the page_size threshold, it is split into multiple
+        files named `{page_number}.txt` inside a folder named `{command_key}`
+        in the agent's local folder.
+
+        Args:
+            output: Full output text to save
+            command_key: Command key used for both folder naming and as the filename root
+            page_size: Maximum characters per page (typically large_file_token_threshold)
+            abs_root_path_func: Callable to convert relative path to absolute (e.g., coder.abs_root_path)
+            local_agent_folder_func: Callable to generate relative paths (e.g., coder.local_agent_folder)
+
+        Returns:
+            Tuple of (folder path, rel file paths list, alias paths list), or None if output fits in one page.
+        """
+        if not output or len(output) <= page_size:
+            return None
+
+        folder_path = local_agent_folder_func(command_key)
+        abs_folder = abs_root_path_func(folder_path)
+        os.makedirs(abs_folder, exist_ok=True)
+
+        num_pages = (len(output) + page_size - 1) // page_size
+
+        for i in range(num_pages):
+            page_num = i + 1
+            filename = f"{page_num}.txt"
+            abs_path = os.path.join(abs_folder, filename)
+            page_content = output[i * page_size : (i + 1) * page_size]
+            with open(abs_path, "w") as f:
+                f.write(page_content)
+
+        file_paths = [f"{folder_path}/{page_num}.txt" for page_num in range(1, num_pages + 1)]
+        alias_paths = [
+            f"command_key::{command_key}/{page_num}.txt" for page_num in range(1, num_pages + 1)
+        ]
+        return (folder_path, file_paths, alias_paths)

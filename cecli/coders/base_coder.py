@@ -1131,8 +1131,9 @@ class Coder:
                     "other_files": other_files,
                     "mentioned_fnames": mentioned_fnames,
                     "all_abs_files": all_abs_files,
-                    "read_only_count": len(set(self.abs_read_only_fnames)) + len(
-                        set(self.abs_read_only_stubs_fnames)
+                    "read_only_count": (
+                        len(set(self.abs_read_only_fnames))
+                        + len(set(self.abs_read_only_stubs_fnames))
                     ),
                 }
             )

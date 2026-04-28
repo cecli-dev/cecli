@@ -78,22 +78,22 @@ def format_args_for_reporting(args):
 
 
 def get_args_error_data():
-    global resolved_args_data
+    global resolved_args_data  # noqa
     return resolved_args_data
 
 
 def set_args_error_data(args):
-    global resolved_args_data
+    global resolved_args_data  # noqa
     resolved_args_data = args
 
 
 def get_error_prefix():
-    global error_prefix
+    global error_prefix  # noqa
     return error_prefix
 
 
 def update_error_prefix(prefix):
-    global error_prefix
+    global error_prefix  # noqa
     error_prefix.append(f"{prefix}\n")
     error_prefix = error_prefix[-10:]
 

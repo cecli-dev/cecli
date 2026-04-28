@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 
 from cecli.tools.utils.base_tool import BaseTool
@@ -69,10 +70,10 @@ class Tool(BaseTool):
         create: list[str] | None
             Files to create and make editable.
         """
-        remove_files = parse_arg_as_list(remove)
-        editable_files = parse_arg_as_list(editable)
-        view_files = parse_arg_as_list(view)
-        create_files = parse_arg_as_list(create)
+        remove_files = sorted(parse_arg_as_list(remove), key=cls._natural_sort_key)
+        editable_files = sorted(parse_arg_as_list(editable), key=cls._natural_sort_key)
+        view_files = sorted(parse_arg_as_list(view), key=cls._natural_sort_key)
+        create_files = sorted(parse_arg_as_list(create), key=cls._natural_sort_key)
 
         if not remove_files and not editable_files and not view_files and not create_files:
             raise ToolError("You must specify at least one of: remove, editable, view, or create")
@@ -120,18 +121,18 @@ class Tool(BaseTool):
 
         # Output each action with comma-separated file list
         for action_key, display_name in action_names.items():
-            files = parse_arg_as_list(params.get(action_key))
+            files = sorted(parse_arg_as_list(params.get(action_key)), key=cls._natural_sort_key)
             if files:
                 file_list = ", ".join(files)
                 coder.io.tool_output(f"{color_start}{display_name}:{color_end} {file_list}")
 
         tool_footer(coder=coder, tool_response=tool_response)
 
-    @staticmethod
-    def _remove(coder, file_path):
+    @classmethod
+    def _remove(cls, coder, file_path):
         """Remove a file from the coder's context."""
         try:
-            abs_path = coder.abs_root_path(file_path)
+            abs_path = cls._resolve_file_path(coder, file_path)
             rel_path = coder.get_rel_fname(abs_path)
             removed = False
 
@@ -153,11 +154,11 @@ class Tool(BaseTool):
             coder.io.tool_error(f"Error removing file '{file_path}': {str(e)}")
             return f"Error removing {file_path}: {e}"
 
-    @staticmethod
-    def _editable(coder, file_path):
+    @classmethod
+    def _editable(cls, coder, file_path):
         """Make a file editable in the coder's context."""
         try:
-            abs_path = coder.abs_root_path(file_path)
+            abs_path = cls._resolve_file_path(coder, file_path)
             if abs_path in coder.abs_fnames:
                 coder.io.tool_output(f"📝 File '{file_path}' is already editable")
                 return f"Already editable: {file_path}"
@@ -179,17 +180,18 @@ class Tool(BaseTool):
             coder.io.tool_error(f"Error making editable '{file_path}': {str(e)}")
             return f"Error making editable {file_path}: {e}"
 
-    @staticmethod
-    def _view(coder, file_path):
+    @classmethod
+    def _view(cls, coder, file_path):
         """View a file (add as read‑only) in the coder's context."""
         try:
-            return coder._add_file_to_context(file_path, explicit=True)
+            resolved_path = cls._resolve_file_path(coder, file_path)
+            return coder._add_file_to_context(resolved_path, explicit=True)
         except Exception as e:
             coder.io.tool_error(f"Error viewing file '{file_path}': {str(e)}")
             return f"Error viewing {file_path}: {e}"
 
-    @staticmethod
-    def _create(coder, file_path):
+    @classmethod
+    def _create(cls, coder, file_path):
         """Create a new file on the file system and make it editable in the coder's context."""
         try:
             abs_path = coder.abs_root_path(file_path)
@@ -215,3 +217,25 @@ class Tool(BaseTool):
         except Exception as e:
             coder.io.tool_error(f"Error creating file '{file_path}': {str(e)}")
             return f"Error creating {file_path}: {e}"
+
+    @classmethod
+    def _resolve_file_path(cls, coder, file_path):
+        """Resolve a file path, handling command_key:: aliases.
+
+        command_key::{command_key}/{filename} resolves to the actual
+        file path under the agent's local agent folder.
+        """
+        if file_path.startswith("command_key::"):
+            alias_path = file_path[len("command_key::") :]
+            parts = alias_path.split("/", 1)
+            if len(parts) == 2:
+                command_key = parts[0]
+                filename = parts[1]
+                rel_path = coder.local_agent_folder(f"{command_key}/{filename}")
+                return coder.abs_root_path(rel_path)
+        return coder.abs_root_path(file_path)
+
+    @classmethod
+    def _natural_sort_key(cls, s: str) -> list:
+        """Natural sort key that splits "a10b2" into ["a", 10, "b", 2]."""
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]

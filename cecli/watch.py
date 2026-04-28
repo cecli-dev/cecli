@@ -3,11 +3,11 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from grep_ast import TreeContext
 from pathspec import PathSpec
 from pathspec.patterns import GitWildMatchPattern
 
 from cecli.dump import dump  # noqa
+from cecli.helpers.grep_ast import TreeContext
 from cecli.watch_prompts import watch_ask_prompt, watch_code_prompt
 
 

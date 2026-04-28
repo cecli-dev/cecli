@@ -12,7 +12,6 @@ from pathlib import Path
 
 import tree_sitter
 from diskcache import Cache
-from grep_ast import TreeContext, filename_to_lang
 from pygments.lexers import guess_lexer_for_filename
 from pygments.token import Token
 
@@ -27,7 +26,13 @@ from cecli.tools.utils.helpers import ToolError
 
 # tree_sitter is throwing a FutureWarning
 warnings.simplefilter("ignore", category=FutureWarning)
-from grep_ast.tsl import USING_TSL_PACK, get_language, get_parser  # noqa: E402
+
+from cecli.helpers.grep_ast import TreeContext, filename_to_lang  # noqa: E402
+from cecli.helpers.grep_ast.tsl import (  # noqa: E402
+    USING_TSL_PACK,
+    get_language,
+    get_parser,
+)
 
 
 # Define the Tag namedtuple with a default for specific_kind to maintain compatibility
@@ -1435,7 +1440,7 @@ def get_scm_fname(lang):
 
 
 def get_supported_languages_md():
-    from grep_ast.parsers import PARSERS
+    from cecli.helpers.grep_ast.parsers import PARSERS
 
     res = """
 | Language | File extension | Repo map | Linter |
