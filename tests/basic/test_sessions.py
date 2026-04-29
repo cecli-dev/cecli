@@ -297,9 +297,7 @@ class TestSessionCommands(TestCase):
                 self.assertEqual(coder_after_load.skills_manager.include_list, {"included_skill"})
                 self.assertEqual(coder_after_load.skills_manager.exclude_list, {"excluded_skill"})
 
-                self.assertEqual(
-                    coder_after_load.agent_config["tools_paths"], ["/test/tools/path"]
-                )
+                self.assertEqual(coder_after_load.agent_config["tools_paths"], ["/test/tools/path"])
                 self.assertEqual(
                     coder_after_load.agent_config["tools_includelist"], ["included_tool"]
                 )
