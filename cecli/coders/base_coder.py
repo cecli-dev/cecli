@@ -1370,11 +1370,6 @@ class Coder:
             except (SwitchCoderSignal, SystemExit):
                 # Re-raise SwitchCoder to be handled by outer try block
                 raise
-            except KeyboardInterrupt:
-                # Handle keyboard interrupt gracefully
-                self.io.set_placeholder("")
-                self.io.stop_spinner()
-                self.keyboard_interrupt()
             finally:
                 # Signal tasks to stop
                 self.input_running = False
