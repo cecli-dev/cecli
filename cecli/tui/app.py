@@ -2,10 +2,10 @@
 
 import concurrent.futures
 import json
+import platform
 import queue
 import time
 from functools import lru_cache
-import platform
 from pathlib import Path
 
 import textual.strip
