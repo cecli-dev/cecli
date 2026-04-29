@@ -1,6 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 from textual import events
 
 # Assuming TUI is in cecli.tui.app
