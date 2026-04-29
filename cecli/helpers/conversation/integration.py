@@ -446,7 +446,7 @@ class ConversationChunks:
                 dict(role="user", content=repo_content),
                 dict(
                     role="assistant",
-                    content="Ok, I won't try and edit those files without asking first.",
+                    content="Thank you, these files will help with navigating the codebase.",
                 ),
             ]
 
