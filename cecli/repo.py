@@ -348,12 +348,26 @@ class GitRepo:
             cmd.append("--no-verify")
         if fnames:
             fnames = [str(self.abs_root_path(fn)) for fn in fnames]
+            added_fnames = []
             for fname in fnames:
                 try:
+                    # Check if file is git-ignored before trying to add
+                    rel_fname = self.get_rel_fname(fname)
+                    # Only skip git-ignored files if add_gitignore_files is enabled
+                    # and we have access to coder context
+                    if coder and hasattr(coder, 'add_gitignore_files') and coder.add_gitignore_files:
+                        if self.git_ignored_file(rel_fname):
+                            # Skip git-ignored files when add_gitignore_files is enabled
+                            continue
                     self.repo.git.add(fname)
+                    added_fnames.append(fname)
                 except ANY_GIT_ERROR as err:
                     self.io.tool_error(f"Unable to add {fname}: {err}")
-            cmd += ["--"] + fnames
+            if added_fnames:
+                cmd += ["--"] + added_fnames
+            else:
+                # No files to commit (all were git-ignored or failed to add)
+                return
         else:
             cmd += ["-a"]
 
