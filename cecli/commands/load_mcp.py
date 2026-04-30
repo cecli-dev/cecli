@@ -57,9 +57,7 @@ class LoadMcpCommand(BaseCommand):
             server_name = server.name
             coder.interrupt_event.clear()
 
-            connect_task = asyncio.create_task(
-                coder.mcp_manager.connect_server(server_name)
-            )
+            connect_task = asyncio.create_task(coder.mcp_manager.connect_server(server_name))
             interrupt_task = asyncio.create_task(coder.interrupt_event.wait())
 
             done, pending = await asyncio.wait(

@@ -47,9 +47,7 @@ class RemoveMcpCommand(BaseCommand):
 
             coder.interrupt_event.clear()
 
-            disconnect_task = asyncio.create_task(
-                coder.mcp_manager.disconnect_server(server_name)
-            )
+            disconnect_task = asyncio.create_task(coder.mcp_manager.disconnect_server(server_name))
             interrupt_task = asyncio.create_task(coder.interrupt_event.wait())
 
             done, pending = await asyncio.wait(
