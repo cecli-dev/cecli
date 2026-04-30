@@ -16,6 +16,7 @@ from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested, responses
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.helpers.conversation import ConversationService, MessageTag
+from cecli.helpers.coroutines import interruptible
 from cecli.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -301,25 +302,15 @@ class AgentCoder(Coder):
                 else:
                     all_results_content.append(f"Error: Unknown tool name '{tool_name}'")
                 if tasks:
-                    gather_future = asyncio.gather(*tasks, return_exceptions=True)
-                    interrupt_task = asyncio.create_task(self.interrupt_event.wait())
-
-                    done, pending = await asyncio.wait(
-                        {gather_future, interrupt_task},
-                        return_when=asyncio.FIRST_COMPLETED,
+                    gather_coro = asyncio.gather(*tasks, return_exceptions=True)
+                    task_results, interrupted = await interruptible(
+                        gather_coro, self.interrupt_event
                     )
 
-                    if interrupt_task in done:
-                        gather_future.cancel()
-                        try:
-                            await gather_future
-                        except asyncio.CancelledError:
-                            pass
+                    if interrupted:
                         self.io.tool_warning("Tool execution interrupted.")
-                        # Append a message indicating interruption
                         all_results_content.append("Tool execution interrupted by user.")
-                    else:
-                        task_results = gather_future.result()
+                    elif task_results:
                         for res in task_results:
                             if isinstance(res, Exception):
                                 all_results_content.append(f"Error in tool execution: {res}")
@@ -415,24 +406,11 @@ class AgentCoder(Coder):
 """)
                 return f"Error executing tool call {tool_name}: {e}"
 
-        exec_future = asyncio.create_task(_exec_async())
-        interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+        result, interrupted = await interruptible(_exec_async(), self.interrupt_event)
 
-        done, pending = await asyncio.wait(
-            {exec_future, interrupt_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        if interrupt_task in done:
-            exec_future.cancel()
-            try:
-                await exec_future
-            except asyncio.CancelledError:
-                pass
+        if interrupted:
             return "Tool execution interrupted by user."
-        else:
-            interrupt_task.cancel()
-            return await exec_future
+        return result
 
     def _calculate_context_block_tokens(self, force=False):
         """
