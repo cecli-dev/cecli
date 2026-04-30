@@ -18,7 +18,7 @@ class LoadSessionCommand(BaseCommand):
         from cecli import sessions
 
         session_manager = sessions.SessionManager(coder, io)
-        session_manager.load_session(args.strip())
+        await session_manager.load_session(args.strip())
 
         return format_command_result(io, "load-session", f"Loaded session: {args.strip()}")
 
