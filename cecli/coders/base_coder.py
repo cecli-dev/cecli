@@ -1449,10 +1449,6 @@ class Coder:
 
                 await asyncio.sleep(0.1)  # Small yield to prevent tight loop
 
-            except KeyboardInterrupt:
-                self.io.set_placeholder("")
-                self.keyboard_interrupt()
-                await self.io.stop_task_streams()
             except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
