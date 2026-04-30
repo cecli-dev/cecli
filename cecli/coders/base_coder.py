@@ -2178,6 +2178,8 @@ class Coder:
         # Notify IO that LLM processing is starting
         self.io.llm_started()
 
+        ConversationService.get_manager(self).flush_queue()
+
         if inp:
             # Make sure current coder actually has control of conversation system
             ConversationService.get_chunks(self).initialize_conversation_system()

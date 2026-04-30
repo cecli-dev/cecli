@@ -21,12 +21,14 @@ class Tool(BaseTool):
             "description": (
                 "Get hashline prefixes of context between start and end patterns in multiple files."
                 " Accepts an array of show objects, each with file_path, start_text,"
-                " end_text, and optional padding. Special markers '@000' and '000@' can be"
-                " used for start_text and end_text to represent the first and last lines of"
-                " the file respectively. Never use hashlines as the start_text and end_text"
-                " values. These values must be lines from the content of the file."
+                " end_text, and optional padding."
+                " These values must be lines from the content of the file."
                 " They can contain up to 3 lines but newlines should generally be avoided."
-                " Avoid using generic keywords."
+                " Avoid using generic keywords and symbols. Special markers '@000' and '000@' can be"
+                " used for start_text and end_text to represent the first and last lines of"
+                " the file respectively. Avoid using the special markers on files with contents."
+                " They are intended to be used with empty files."
+                " Never use hashlines as the start_text and end_text values."
                 " Do not use the same pattern for the start_text and end_text."
                 " It is usually best to use function names and other block identifiers as "
                 " start_texts and end_texts."
@@ -279,7 +281,7 @@ class Tool(BaseTool):
                 coder.io.tool_output("File contents already up to date")
                 return (
                     "File contents already up to date."
-                    "Do not call GetLines again with these parameters until you edit the file."
+                    " Do not call GetLines again with these parameters until you edit the file."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
