@@ -4005,8 +4005,10 @@ class Coder:
         return edits
 
     def local_agent_folder(self, path):
-        abs_path = self.abs_root_path(f".cecli/agents/{GLOBAL_DATE}/{self.uuid}/path")
-        os.makedirs(abs_path, exist_ok=True)
+        os.makedirs(
+            self.abs_root_path(f".cecli/agents/{GLOBAL_DATE}/{self.uuid}"),
+            exist_ok=True,
+        )
 
         stripped = path.lstrip("/")
         return f".cecli/agents/{GLOBAL_DATE}/{self.uuid}/{stripped}"
