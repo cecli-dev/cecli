@@ -353,7 +353,7 @@ class GitRepo:
                 try:
                     # Check if file is git-ignored before trying to add
                     if coder and hasattr(coder, "add_gitignore_files") and coder.add_gitignore_files:
-                        rel_fname = coder.get_rel_fname(fname)
+                        rel_fname = self.get_rel_fname(fname)
                         if self.git_ignored_file(rel_fname):
                             # Skip git-ignored files when add_gitignore_files is enabled
                             continue
@@ -403,6 +403,12 @@ class GitRepo:
             return os.path.relpath(self.repo.git_dir, os.getcwd())
         except (ValueError, OSError):
             return self.repo.git_dir
+
+    def get_rel_fname(self, fname):
+        try:
+            return os.path.relpath(fname, self.root)
+        except ValueError:
+            return fname
 
     async def get_commit_message(self, diffs, context, user_language=None):
         diffs = "# Diffs:\n" + diffs
