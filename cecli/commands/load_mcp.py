@@ -57,26 +57,15 @@ class LoadMcpCommand(BaseCommand):
             server_name = server.name
             coder.interrupt_event.clear()
 
-            connect_task = asyncio.create_task(coder.mcp_manager.connect_server(server_name))
-            interrupt_task = asyncio.create_task(coder.interrupt_event.wait())
-
-            done, pending = await asyncio.wait(
-                {connect_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
+            did_connect, interrupted = await coder.coroutines.interruptible(
+                coder.mcp_manager.connect_server(server_name),
+                coder.interrupt_event,
             )
 
-            if interrupt_task in done:
-                connect_task.cancel()
-                try:
-                    await connect_task
-                except asyncio.CancelledError:
-                    pass
-
+            if interrupted:
                 io.tool_warning(f"MCP connection interrupted: {server_name}")
                 results.append(f"Interrupted: {server_name}")
                 continue
-
-            did_connect = connect_task.result()
 
             if did_connect:
                 results.append(f"Loaded server: {server_name}")

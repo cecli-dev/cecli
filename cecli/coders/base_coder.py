@@ -1731,8 +1731,6 @@ class Coder:
 
         self.io.tool_warning("\n\n^C KeyboardInterrupt")
         self.interrupt_event.set()
-
-        self.interrupt_event.set()
         self.last_keyboard_interrupt = time.time()
 
     # Old summarization system removed - using context compaction logic instead
@@ -2253,16 +2251,10 @@ class Coder:
 
                     self.io.tool_output(f"Retrying in {retry_delay:.1f} seconds...")
 
-                    sleep_task = asyncio.create_task(asyncio.sleep(retry_delay))
-                    interrupt_task = asyncio.create_task(self.interrupt_event.wait())
-
-                    done, pending = await asyncio.wait(
-                        {sleep_task, interrupt_task},
-                        return_when=asyncio.FIRST_COMPLETED,
+                    _res, interrupted_sleep = await coroutines.interruptible(
+                        asyncio.sleep(retry_delay), self.interrupt_event
                     )
-
-                    if interrupt_task in done:
-                        sleep_task.cancel()
+                    if interrupted_sleep:
                         interrupted = True
                         break
 
@@ -2632,28 +2624,18 @@ class Coder:
                             all_results_content.append("Tool Request Aborted.")
                             continue
 
-                        tool_call_task = asyncio.create_task(
-                            experimental_mcp_client.call_openai_tool(
+                        async def do_tool_call():
+                            return await experimental_mcp_client.call_openai_tool(
                                 session=session,
                                 openai_tool=new_tool_call,
                             )
-                        )
-                        interrupt_task = asyncio.create_task(self.interrupt_event.wait())
 
-                        done, pending = await asyncio.wait(
-                            {tool_call_task, interrupt_task},
-                            return_when=asyncio.FIRST_COMPLETED,
+                        call_result, interrupted = await coroutines.interruptible(
+                            do_tool_call(), self.interrupt_event
                         )
 
-                        if interrupt_task in done:
-                            tool_call_task.cancel()
-                            try:
-                                await tool_call_task
-                            except asyncio.CancelledError:
-                                pass
+                        if interrupted:
                             raise KeyboardInterrupt("Tool call interrupted")
-
-                        call_result = tool_call_task.result()
 
                         content_parts = []
                         if call_result.content:
@@ -2756,30 +2738,13 @@ class Coder:
 
         # 5. Execute tools
         self.interrupt_event.clear()
-        tool_execution_task = asyncio.create_task(self._execute_tool_groups(tool_groups))
-        interrupt_task = asyncio.create_task(self.interrupt_event.wait())
 
-        tool_responses_by_server = {}
-        try:
-            done, pending = await asyncio.wait(
-                {tool_execution_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+        tool_responses_by_server, interrupted = await coroutines.interruptible(
+            self._execute_tool_groups(tool_groups), self.interrupt_event
+        )
 
-            if interrupt_task in done:
-                tool_execution_task.cancel()
-                try:
-                    await tool_execution_task
-                except asyncio.CancelledError:
-                    pass
-                self.io.tool_warning("Tool execution interrupted.")
-                return False
-
-            if tool_execution_task in done:
-                tool_responses_by_server = tool_execution_task.result()
-
-        except asyncio.CancelledError:
-            self.io.tool_warning("Tool execution cancelled.")
+        if interrupted:
+            self.io.tool_warning("Tool execution interrupted.")
             return False
 
         # 6. Add responses to conversation (re-prefixing if necessary)
@@ -3092,34 +3057,22 @@ class Coder:
         self.token_profiler.start()
 
         try:
-            completion_task = asyncio.create_task(
-                model.send_completion(
-                    messages,
-                    functions,
-                    self.stream,
-                    self.temperature,
-                    # This could include any tools, but for now it is just MCP tools
-                    tools=tools,
-                    override_kwargs=self.model_kwargs.copy(),
-                    interrupt_event=self.interrupt_event,
-                )
-            )
-            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
-
-            done, pending = await asyncio.wait(
-                {completion_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
+            completion_coro = model.send_completion(
+                messages,
+                functions,
+                self.stream,
+                self.temperature,
+                # This could include any tools, but for now it is just MCP tools
+                tools=tools,
+                override_kwargs=self.model_kwargs.copy(),
+                interrupt_event=self.interrupt_event,
             )
 
-            if interrupt_task in done:
-                completion_task.cancel()
-                try:
-                    await completion_task
-                except asyncio.CancelledError:
-                    pass
+            (hash_object, completion), interrupted = await coroutines.interruptible(
+                completion_coro, self.interrupt_event
+            )
+            if interrupted:
                 raise KeyboardInterrupt
-
-            hash_object, completion = completion_task.result()
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
             if not isinstance(completion, ModelResponse):

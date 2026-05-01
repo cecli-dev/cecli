@@ -19,7 +19,7 @@ from PIL import Image
 from cecli import __version__
 from cecli.dump import dump
 from cecli.exceptions import LiteLLMExceptions
-from cecli.helpers import nested
+from cecli.helpers import coroutines, nested
 from cecli.helpers.file_searcher import generate_search_path_list, handle_core_files
 from cecli.helpers.model_providers import ModelProviderManager
 from cecli.helpers.nested import deep_merge
@@ -1292,13 +1292,11 @@ class Model(ModelSettings):
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
                 if interrupt_event:
-                    try:
-                        await asyncio.wait_for(interrupt_event.wait(), timeout=retry_delay)
-                        # if we get here, the event was set
+                    _res, interrupted = await coroutines.interruptible(
+                        asyncio.sleep(retry_delay), interrupt_event
+                    )
+                    if interrupted:
                         raise KeyboardInterrupt("Interrupted during retry sleep")
-                    except asyncio.TimeoutError:
-                        # sleep finished without interruption
-                        pass
                 else:
                     await asyncio.sleep(retry_delay)
                 continue

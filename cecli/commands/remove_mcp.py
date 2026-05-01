@@ -47,26 +47,15 @@ class RemoveMcpCommand(BaseCommand):
 
             coder.interrupt_event.clear()
 
-            disconnect_task = asyncio.create_task(coder.mcp_manager.disconnect_server(server_name))
-            interrupt_task = asyncio.create_task(coder.interrupt_event.wait())
-
-            done, pending = await asyncio.wait(
-                {disconnect_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
+            was_disconnected, interrupted = await coder.coroutines.interruptible(
+                coder.mcp_manager.disconnect_server(server_name),
+                coder.interrupt_event,
             )
 
-            if interrupt_task in done:
-                disconnect_task.cancel()
-                try:
-                    await disconnect_task
-                except asyncio.CancelledError:
-                    pass
-
+            if interrupted:
                 io.tool_warning(f"MCP disconnection interrupted: {server_name}")
                 results.append(f"Interrupted: {server_name}")
                 continue
-
-            was_disconnected = disconnect_task.result()
 
             if was_disconnected:
                 results.append(f"Removed server: {server_name}")
