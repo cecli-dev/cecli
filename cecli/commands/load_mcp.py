@@ -20,7 +20,6 @@ class LoadMcpCommand(BaseCommand):
             )
 
         server_names = args.strip().split()
-        import asyncio
 
         results = []
 

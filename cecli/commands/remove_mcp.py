@@ -20,7 +20,6 @@ class RemoveMcpCommand(BaseCommand):
             )
 
         server_names = args.strip().split()
-        import asyncio
 
         results = []
         servers_to_disconnect = []
