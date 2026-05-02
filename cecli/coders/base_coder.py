@@ -331,6 +331,7 @@ class Coder:
     ):
         # initialize from args.map_cache_dir
         self.interrupt_event = asyncio.Event()
+        self.coroutines = coroutines
         self.uuid = generate_unique_id()
         if uuid:
             self.uuid = uuid
