@@ -55,11 +55,11 @@ def validate_file_for_edit(coder, file_path):
             raise ToolError(
                 f"File '{file_path}' is read-only. Make editable with `ContextManager` first."
             )
-        else:
-            # File exists but is not in context at all
-            raise ToolError(
-                f"File '{file_path}' not in context. Make editable with `ContextManager` first."
-            )
+        # else:
+        #    # File exists but is not in context at all
+        #    raise ToolError(
+        #        f"File '{file_path}' not in context. Make editable with `ContextManager` first."
+        #    )
 
     # Reread content immediately before potential modification
     content = coder.io.read_text(abs_path)

@@ -14,6 +14,10 @@ files_no_full_files_with_repo_map: |
   I have a repository map. I will use it to target my navigation and add relevant files to the context.
   </context>
 
+repo_content_prefix: |
+  Here are summaries of some files present in my git repository.
+  These files should be helpful for navigating the codebase.
+
 main_system: |
   <context name="role_and_directives">
   ## Core Directives
@@ -34,7 +38,7 @@ main_system: |
   uXdn::def example_method():
   WAR5::  return "example"
   vwkS::
-   </context>
+  </context>
 
   <context name="workflow_and_tool_usage">
   ## Core Workflow
@@ -60,7 +64,6 @@ system_reminder: |
   ## Operational Rules
   - **Scope**: No unrequested refactors. Edit files incrementally; avoid full-file rewrites.
   - **Hygiene**: Use `ContextManager`/`RemoveSkill` to evict unneeded files/skills immediately after use.
-  - **Preparation**: Use `GetLines` to verify hashline ranges before every edit. Capture entire functions, logical blocks and closures.
   - **Outputs**: Tool calls trigger turns. Never include tool syntax in final user summaries.
   - **Sandbox**: Perform all verification and temp logic in `.cecli/temp`.
   - **Vibe**: Zero conversational filler. Do not confirm instructions or state "I understand." Provide status updates only when you have new information.

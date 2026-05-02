@@ -19,16 +19,17 @@ class Tool(BaseTool):
         "function": {
             "name": "GetLines",
             "description": (
-                "Get hashline prefixes of context between start and end patterns in multiple files."
-                " Accepts an array of show objects, each with file_path, start_text,"
-                " end_text, and optional padding. Special markers '@000' and '000@' can be"
-                " used for start_text and end_text to represent the first and last lines of"
-                " the file respectively. Never use hashlines as the start_text and end_text"
-                " values. These values must be lines from the content of the file."
+                "Get hashline prefixes of content between start and end patterns in files."
+                " Accepts an array of `show` objects, each with file_path, start_text,"
+                " end_text, and optional padding."
+                " These values must be lines from the content of the file."
                 " They can contain up to 3 lines but newlines should generally be avoided."
-                " Avoid using generic keywords."
+                " Avoid using generic keywords and symbols. Special markers '@000' and '000@' can be"
+                " used for start_text and end_text to represent the first and last lines of"
+                " the file respectively. Avoid using the special markers on non-empty files."
+                " Never use hashlines as the start_text and end_text values."
                 " Do not use the same pattern for the start_text and end_text."
-                " It is usually best to use function names and other block identifiers as "
+                " It is best to use function names, variable declarations and other block identifiers as "
                 " start_texts and end_texts."
             ),
             "parameters": {
@@ -47,14 +48,14 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "description": (
                                         "The content marking the beginning of the context range."
-                                        " Use '@000' for the first line."
+                                        " Use '@000' for the first line on empty files."
                                     ),
                                 },
                                 "end_text": {
                                     "type": "string",
                                     "description": (
-                                        "The content marking the end of the context range. Use"
-                                        " '000@' for the last line."
+                                        "The content marking the end of the context range."
+                                        " Use '000@' for the last line on empty files."
                                     ),
                                 },
                                 "padding": {
@@ -75,6 +76,8 @@ class Tool(BaseTool):
             },
         },
     }
+
+    _last_invocation = {}  # file_path -> {start_idx, end_idx}
 
     @classmethod
     def execute(cls, coder, show, **kwargs):
@@ -172,59 +175,68 @@ class Tool(BaseTool):
                                 end_indices.append(i + len(end_pattern_lines) - 1)
 
                     if len(start_indices) > 5:
-                        raise ToolError(
-                            f"Start pattern '{start_text}' too broad. Do not search for"
-                            " it again. Be more specific."
-                        )
+                        # Too many matches - use _last_invocation to disambiguate
+                        last = cls._last_invocation.get(abs_path)
+                        if last is None:
+                            raise ToolError(
+                                f"Start pattern '{start_text}' too broad. Do not search for"
+                                " it again. Be more specific."
+                            )
+                        # Find the best match: smallest sum of absolute distances to last start/end
+                        # that comes after the range, with tie-breaking by smallest sum
+                        last_s, last_e = last["start_idx"], last["end_idx"]
+                        candidates = []
+                        for s in start_indices:
+                            for e in [idx for idx in end_indices if idx >= s]:
+                                dist_sum = abs(s - last_s) + abs(e - last_e)
+                                candidates.append((dist_sum, s, e))
+                        # Sort by distance sum, then prefer ranges after the last range
+                        candidates.sort(key=lambda x: (x[0], x[1] < last_s, x[1], x[2]))
+                        best_pair = (candidates[0][1], candidates[0][2])
+                    else:
+                        best_pair = None
+                        min_dist = float("inf")
 
-                    # if len(end_indices) > 5:
-                    #     raise ToolError(
-                    #         f"End pattern '{end_text}' too broad. Do not search for it"
-                    #         " again. Be more specific."
-                    #     )
+                        for s in start_indices:
+                            for e in [idx for idx in end_indices if idx >= s]:
+                                dist = e - s
+                                if dist < min_dist:
+                                    min_dist = dist
+                                    best_pair = (s, e)
 
-                    best_pair = None
-                    min_dist = float("inf")
+                        if not start_indices:
+                            raise ToolError(
+                                f"Start pattern '{start_text}' not found in {file_path}. Do not search"
+                                " for it again."
+                            )
 
-                    for s in start_indices:
-                        for e in [idx for idx in end_indices if idx >= s]:
-                            dist = e - s
-                            if dist < min_dist:
-                                min_dist = dist
-                                best_pair = (s, e)
+                        if not end_indices:
+                            raise ToolError(
+                                f"End pattern '{end_text}' not found in {file_path}. Do not search for"
+                                " it again."
+                            )
 
-                    if not start_indices:
-                        raise ToolError(
-                            f"Start pattern '{start_text}' not found in {file_path}. Do not search"
-                            " for it again."
-                        )
-
-                    if not end_indices:
-                        raise ToolError(
-                            f"End pattern '{end_text}' not found in {file_path}. Do not search for"
-                            " it again."
-                        )
-
-                    if best_pair is None:
-                        raise ToolError(
-                            f"End pattern '{end_text}' not found after start pattern in"
-                            f" {file_path}."
-                        )
+                        if best_pair is None:
+                            raise ToolError(
+                                f"End pattern '{end_text}' not found after start pattern in"
+                                f" {file_path}."
+                            )
                     s_idx, e_idx = best_pair
+                # Store the found indices for future disambiguation
+                cls._last_invocation[abs_path] = {"start_idx": s_idx, "end_idx": e_idx}
 
-                    found_by = f"range '{start_text}' to '{end_text}'"
+                found_by = f"range '{start_text}' to '{end_text}'"
 
-                    try:
-                        padding_int = int(padding)
-                        if padding_int < 0:
-                            raise ValueError()
-                    except ValueError:
-                        coder.io.tool_warning(f"Invalid padding '{padding}', using default 5.")
-                        padding_int = 5
+                try:
+                    padding_int = int(padding)
+                    if padding_int < 0:
+                        raise ValueError()
+                except ValueError:
+                    coder.io.tool_warning(f"Invalid padding '{padding}', using default 5.")
+                    padding_int = 5
 
-                    start_line_idx = max(0, s_idx - padding_int)
-                    end_line_idx = min(num_lines - 1, e_idx + padding_int)
-
+                start_line_idx = max(0, s_idx - padding_int)
+                end_line_idx = min(num_lines - 1, e_idx + padding_int)
                 if start_line_idx == -1 or end_line_idx == -1:
                     raise ToolError("Internal error: Could not determine line range.")
                 # 6. Format output for this operation
@@ -279,7 +291,7 @@ class Tool(BaseTool):
                 coder.io.tool_output("File contents already up to date")
                 return (
                     "File contents already up to date."
-                    "Do not call GetLines again with these parameters until you edit the file."
+                    " Do not call `GetLines` again with these parameters until you edit the file."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")

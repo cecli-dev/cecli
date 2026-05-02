@@ -1198,7 +1198,7 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             from cecli.sessions import SessionManager
 
             session_manager = SessionManager(coder, io)
-            session_manager.load_session(
+            await session_manager.load_session(
                 args.auto_save_session_name if args.auto_save_session_name else "auto-save"
             )
         except Exception:

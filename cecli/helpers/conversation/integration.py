@@ -446,7 +446,7 @@ class ConversationChunks:
                 dict(role="user", content=repo_content),
                 dict(
                     role="assistant",
-                    content="Ok, I won't try and edit those files without asking first.",
+                    content="Thank you, these files will help with navigating the codebase.",
                 ),
             ]
 
@@ -781,14 +781,14 @@ class ConversationChunks:
             }
 
             # Add to conversation manager
-            ConversationService.get_manager(coder).add_message(
+            ConversationService.get_manager(coder).queue_message(
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_user", file_path),
                 force=True,
             )
 
-            ConversationService.get_manager(coder).add_message(
+            ConversationService.get_manager(coder).queue_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_assistant", file_path),
