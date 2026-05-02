@@ -32,6 +32,8 @@ from cecli.utils import copy_tool_call, tool_call_to_dict
 from .base_coder import Coder
 
 from cecli.helpers.coroutines import interruptible  # isort:skip
+
+
 class AgentCoder(Coder):
     """Mode where the LLM autonomously manages which files are in context."""
 
@@ -301,6 +303,7 @@ class AgentCoder(Coder):
                 else:
                     all_results_content.append(f"Error: Unknown tool name '{tool_name}'")
                 if tasks:
+
                     async def gather_and_await():
                         return await asyncio.gather(*tasks, return_exceptions=True)
 
