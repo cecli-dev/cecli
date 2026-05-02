@@ -120,7 +120,8 @@ class BaseTool(ABC):
                     )
 
             # Add current invocation to history (keeping only last 3)
-            cls._invocations[tool_name].append((current_params_tuple, params))
+            if params:
+                cls._invocations[tool_name].append((current_params_tuple, params))
             if len(cls._invocations[tool_name]) > 3:
                 cls._invocations[tool_name] = cls._invocations[tool_name][-3:]
 
