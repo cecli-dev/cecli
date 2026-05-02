@@ -352,7 +352,11 @@ class GitRepo:
             for fname in fnames:
                 try:
                     # Check if file is git-ignored before trying to add
-                    if coder and hasattr(coder, "add_gitignore_files") and coder.add_gitignore_files:
+                    if (
+                        coder
+                        and hasattr(coder, "add_gitignore_files")
+                        and coder.add_gitignore_files
+                    ):
                         rel_fname = self.get_rel_fname(fname)
                         if self.git_ignored_file(rel_fname):
                             # Skip git-ignored files when add_gitignore_files is enabled
