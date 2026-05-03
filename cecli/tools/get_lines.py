@@ -279,8 +279,8 @@ class Tool(BaseTool):
 
                 if original_context_content and original_context_content == new_context_content:
                     already_up_to_date = True
-                else:
-                    ConversationService.get_files(coder).remove_file_messages(abs_path)
+                # else:
+                ConversationService.get_files(coder).remove_file_messages(abs_path)
 
                 ConversationService.get_chunks(coder).add_file_context_messages()
 

@@ -18,6 +18,7 @@ class ConversationChunks:
     def __init__(self, coder):
         self.coder = weakref.ref(coder)
         self.uuid = coder.uuid
+        self._last_clear_count = 0
 
     @classmethod
     def get_instance(cls, coder) -> "ConversationChunks":
@@ -212,7 +213,11 @@ class ConversationChunks:
         if diff_count > 0 and other_count > 0 and diff_count / other_count > 20:
             should_clear = True
 
-        if should_clear:
+        self._last_clear_count += 1
+
+        if should_clear and self._last_clear_count >= 10:
+            self._last_clear_count = 0
+
             # Clear all diff messages
             ConversationService.get_manager(coder).clear_tag(MessageTag.DIFFS)
             ConversationService.get_manager(coder).clear_tag(MessageTag.FILE_CONTEXTS)
@@ -587,7 +592,7 @@ class ConversationChunks:
                 # Add assistant message with file path as hash_key
                 assistant_msg = {
                     "role": "assistant",
-                    "content": "I understand, thank you for sharing the file contents.",
+                    "content": f"Thank you for sharing the file contents for {rel_fname}.",
                 }
                 ConversationService.get_manager(coder).add_message(
                     message_dict=assistant_msg,
@@ -687,7 +692,7 @@ class ConversationChunks:
             # Create assistant message
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the file contents.",
+                "content": f"Thank you for sharing the file contents for {rel_fname}.",
             }
 
             # Determine tag based on editability
@@ -777,7 +782,7 @@ class ConversationChunks:
 
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the prefixed file contents.",
+                "content": f"Thank you for sharing the prefixed file contents for {rel_fname}.",
             }
 
             # Add to conversation manager
@@ -786,6 +791,7 @@ class ConversationChunks:
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_user", file_path),
                 force=True,
+                update_timestamp=False,
             )
 
             ConversationService.get_manager(coder).queue_message(
@@ -793,6 +799,7 @@ class ConversationChunks:
                 tag=MessageTag.FILE_CONTEXTS,
                 hash_key=("file_context_assistant", file_path),
                 force=True,
+                update_timestamp=False,
             )
 
     def reset(self) -> None:
