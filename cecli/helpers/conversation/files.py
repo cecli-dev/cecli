@@ -436,16 +436,18 @@ class ConversationFiles:
 
         # Generate hashline representations for each range
         context_parts = []
+        content_lines = content.splitlines()
+
         for i, (start_line, end_line) in enumerate(ranges):
             # Note: hashline uses 1-based line numbers, so no conversion needed
             start_line_adj = max(1, start_line)
-            end_line_adj = min(len(content.splitlines()), end_line)
+            end_line_adj = min(len(content_lines), end_line)
 
             if start_line_adj > end_line_adj:
                 continue
 
             # Extract lines for this range (0-based indexing for list)
-            lines = content.splitlines()[start_line_adj - 1 : end_line_adj]
+            lines = content_lines[start_line_adj - 1 : end_line_adj]
 
             # Generate hashline representation using the hashline() function
             # Join lines back with newlines for hashline()
