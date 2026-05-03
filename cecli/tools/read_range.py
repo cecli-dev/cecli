@@ -13,11 +13,11 @@ from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
-    NORM_NAME = "getlines"
+    NORM_NAME = "readrange"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "GetLines",
+            "name": "ReadRange",
             "description": (
                 "Get hashline prefixes of content between start and end patterns in files."
                 " Accepts an array of `show` objects, each with file_path, start_text,"
@@ -87,7 +87,7 @@ class Tool(BaseTool):
         Accepts an array of show operations to perform.
         Uses utility functions for path resolution and error handling.
         """
-        tool_name = "GetLines"
+        tool_name = "ReadRange"
         already_up_to_date = None
 
         try:
@@ -297,7 +297,7 @@ class Tool(BaseTool):
                 coder.io.tool_output("File contents already up to date")
                 return (
                     "Lines already up to date in context for these files."
-                    " Do not call `GetLines` again with these parameters again unless you edit the relevant files."
+                    " Do not call `ReadRange` again with these parameters again unless you edit the relevant files."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
@@ -312,7 +312,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for GetLines tool."""
+        """Format output for ReadRange tool."""
         color_start, color_end = color_markers(coder)
 
         try:
