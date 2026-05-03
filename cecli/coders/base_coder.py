@@ -139,6 +139,12 @@ class Coder:
     partial_response_tool_calls = []
     commit_before_message = []
     message_cost = 0.0
+    total_tokens_sent = 0
+    total_tokens_received = 0
+    total_cached_tokens = 0
+    message_tokens_sent = 0
+    message_tokens_received = 0
+    message_cached_tokens = 0
     add_cache_headers = False
     cache_warming_thread = None
     num_cache_warming_pings = 0
@@ -227,6 +233,7 @@ class Coder:
                 ignore_mentions=from_coder.ignore_mentions,
                 total_tokens_sent=from_coder.total_tokens_sent,
                 total_tokens_received=from_coder.total_tokens_received,
+                total_cached_tokens=from_coder.total_cached_tokens,
                 file_watcher=from_coder.file_watcher,
                 mcp_manager=from_coder.mcp_manager,
                 uuid=from_coder.uuid,
@@ -316,6 +323,7 @@ class Coder:
         ignore_mentions=None,
         total_tokens_sent=0,
         total_tokens_received=0,
+        total_cached_tokens=0,
         file_watcher=None,
         auto_copy_context=False,
         auto_accept_architect=True,
@@ -388,8 +396,10 @@ class Coder:
         self.total_cost = total_cost
         self.total_tokens_sent = total_tokens_sent
         self.total_tokens_received = total_tokens_received
+        self.total_cached_tokens = total_cached_tokens
         self.message_tokens_sent = 0
         self.message_tokens_received = 0
+        self.message_cached_tokens = 0
 
         self.token_profiler = TokenProfiler(
             enable_printing=nested.getter(self.args, "show_speed", False)
@@ -3502,6 +3512,7 @@ class Coder:
                 completion.usage, "cache_read_input_tokens", 0
             )
             cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0)
+            self.message_cached_tokens += cache_hit_tokens
 
             if hasattr(completion.usage, "cache_read_input_tokens") or hasattr(
                 completion.usage, "cache_creation_input_tokens"
@@ -3534,8 +3545,22 @@ class Coder:
             tokens_report, self.message_tokens_sent, self.message_tokens_received
         )
 
+        total_combined_tokens = (
+            self.total_tokens_sent
+            + self.total_tokens_received
+            + self.message_tokens_sent
+            + self.message_tokens_received
+        )
+        total_combined_cached = self.total_cached_tokens + self.message_cached_tokens
+
+        total_stats = f"{format_tokens(total_combined_tokens)}"
+        if total_combined_cached:
+            total_stats += f"/{format_tokens(total_combined_cached)}"
+
+        total_stats += " ↑↓"
+
         if not self.get_active_model().info.get("input_cost_per_token"):
-            self.usage_report = tokens_report
+            self.usage_report = tokens_report + "\n" + total_stats
             return
 
         try:
@@ -3552,11 +3577,8 @@ class Coder:
         self.total_cost += cost
         self.message_cost += cost
 
-        total_combined_tokens = (
-            self.total_tokens_sent + self.total_tokens_received + prompt_tokens + completion_tokens
-        )
         cost_report = (
-            f"${self.format_cost(self.message_cost)} • {format_tokens(total_combined_tokens)} ↑↓"
+            f"${self.format_cost(self.message_cost)} • {total_stats}"
             f" ${self.format_cost(self.total_cost)}"
         )
 
@@ -3614,6 +3636,7 @@ class Coder:
 
         self.total_tokens_sent += self.message_tokens_sent
         self.total_tokens_received += self.message_tokens_received
+        self.total_cached_tokens += self.message_cached_tokens
 
         if self.tui and self.tui():
             self.tui().update_cost(self.usage_report.replace("\n", " "))
@@ -3624,6 +3647,7 @@ class Coder:
         self.message_cost = 0.0
         self.message_tokens_sent = 0
         self.message_tokens_received = 0
+        self.message_cached_tokens = 0
 
     def get_multi_response_content_in_progress(self, final=False):
         cur = self.multi_response_content or ""

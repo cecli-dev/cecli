@@ -214,6 +214,12 @@ class SessionManager:
             "mcps": connected_mcps,
             "skills": skills_data,
             "tools": agent_config_data,
+            "usage": {
+                "total_tokens_sent": self.coder.total_tokens_sent,
+                "total_tokens_received": self.coder.total_tokens_received,
+                "total_cached_tokens": self.coder.total_cached_tokens,
+                "total_cost": self.coder.total_cost,
+            },
         }
 
     def _find_session_file(self, session_identifier: str) -> Optional[Path]:
@@ -271,6 +277,12 @@ class SessionManager:
                 else:
                     self.io.tool_warning(f"File not found, skipping: {rel_fname}")
 
+            # Load usage stats
+            usage = session_data.get("usage", {})
+            self.coder.total_tokens_sent = usage.get("total_tokens_sent", 0)
+            self.coder.total_tokens_received = usage.get("total_tokens_received", 0)
+            self.coder.total_cached_tokens = usage.get("total_cached_tokens", 0)
+            self.coder.total_cost = usage.get("total_cost", 0.0)
             if session_data.get("model"):
                 self.coder.main_model = models.Model(
                     session_data.get("model", self.coder.args.model),
