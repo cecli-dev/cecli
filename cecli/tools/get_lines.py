@@ -88,7 +88,7 @@ class Tool(BaseTool):
         Uses utility functions for path resolution and error handling.
         """
         tool_name = "GetLines"
-        already_up_to_date = False
+        already_up_to_date = None
 
         try:
             # 1. Validate show parameter
@@ -277,9 +277,15 @@ class Tool(BaseTool):
                     abs_path
                 )
 
-                if original_context_content and original_context_content == new_context_content:
+                if (
+                    original_context_content
+                    and original_context_content == new_context_content
+                    and already_up_to_date is not False
+                ):
                     already_up_to_date = True
-                # else:
+                else:
+                    already_up_to_date = False
+
                 ConversationService.get_files(coder).remove_file_messages(abs_path)
 
                 ConversationService.get_chunks(coder).add_file_context_messages()
@@ -290,8 +296,8 @@ class Tool(BaseTool):
             if already_up_to_date:
                 coder.io.tool_output("File contents already up to date")
                 return (
-                    "File contents already up to date."
-                    " Do not call `GetLines` again with these parameters until you edit the file."
+                    "Lines already up to date in context for these files."
+                    " Do not call `GetLines` again with these parameters again unless you edit the relevant files."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
