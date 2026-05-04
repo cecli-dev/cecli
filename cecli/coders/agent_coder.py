@@ -42,6 +42,9 @@ class AgentCoder(Coder):
     stop_on_empty = False
 
     def __init__(self, *args, **kwargs):
+        if kwargs.get("uuid", None):
+            self.uuid = kwargs.get("uuid")
+
         self.recently_removed = {}
         self.tool_usage_history = []
         self.loaded_custom_tools = []

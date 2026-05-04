@@ -12,6 +12,10 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+# Global state store for sticky include/exclude lists, keyed by coder.uuid
+# This ensures skill state survives SkillsManager re-creation within the same coder session
+_skill_state_store: Dict[str, Dict[str, Any]] = {}
+
 
 @dataclass
 class SkillMetadata:
@@ -72,6 +76,49 @@ class SkillsManager:
 
         # Track which skills have been loaded via load_skill()
         self._loaded_skills: set[str] = set()
+
+        # Restore state from global store (sticky across SkillsManager recreation)
+        if not self._restore_state():
+            # First time initialization - save initial state from config
+            self._save_state()
+
+    def _save_state(self):
+        """Save current mutable state to the global skill state store.
+
+        This allows state to persist across SkillsManager re-creation
+        within the same coder session.
+        """
+        if not self.coder or not getattr(self.coder, "uuid", None):
+            return
+
+        _skill_state_store[self.coder.uuid] = {
+            "include_list": self.include_list.copy() if self.include_list is not None else None,
+            "exclude_list": self.exclude_list.copy(),
+            "loaded_skills": self._loaded_skills.copy(),
+        }
+
+    def _restore_state(self) -> bool:
+        """Restore mutable state from the global skill state store if available.
+
+        Returns:
+            True if state was restored, False otherwise.
+        """
+
+        if not self.coder or not getattr(self.coder, "uuid", None):
+            return False
+
+        state = _skill_state_store.get(self.coder.uuid)
+
+        if state is None:
+            return False
+
+        self.include_list = (
+            state["include_list"].copy() if state["include_list"] is not None else None
+        )
+        self.exclude_list = state["exclude_list"].copy()
+        self._loaded_skills = state["loaded_skills"].copy()
+
+        return True
 
     def find_skills(self, reload: bool = False) -> List[SkillMetadata]:
         """
@@ -397,6 +444,9 @@ class SkillsManager:
                 # Add to loaded skills set
                 self._loaded_skills.add(skill_name)
 
+                # Persist state to global store
+                self._save_state()
+
                 result = f"Skill '{skill_name}' loaded successfully."
 
                 # Show skill summary
@@ -434,7 +484,238 @@ class SkillsManager:
         # Remove from loaded skills set
         self._loaded_skills.remove(skill_name)
 
+        # Persist state to global store
+        self._save_state()
+
         return f"Skill '{skill_name}' removed successfully."
+
+    def include_skill(self, skill_name: str) -> str:
+        """
+        Add a skill to the include list (whitelist), making only this skill visible.
+        This method controls which skills are discoverable via find_skills().
+
+        Args:
+            skill_name: Name of the skill to include
+
+        Returns:
+            Success or error message
+        """
+        if not skill_name:
+            return "Error: Skill name is required."
+
+        # Check if coder is available
+        if not self.coder:
+            return "Error: Skills manager not connected to a coder instance."
+
+        # Check if we're in agent mode
+        if not hasattr(self.coder, "edit_format") or self.coder.edit_format != "agent":
+            return "Error: Skill inclusion is only available in agent mode."
+
+        # Find the skill to verify it exists
+        skills = self.find_skills(reload=True)
+        skill_found = any(skill.name == skill_name for skill in skills)
+
+        if not skill_found:
+            # The skill might already be filtered out by the include/exclude lists.
+            # Check if it exists in any directory by scanning without filters.
+            original_include = self.include_list
+            original_exclude = self.exclude_list
+            self.include_list = None
+            self.exclude_list = set()
+            all_skills = self.find_skills(reload=True)
+            self.include_list = original_include
+            self.exclude_list = original_exclude
+            skill_found = any(skill.name == skill_name for skill in all_skills)
+
+        if not skill_found:
+            return f"Error: Skill '{skill_name}' not found in configured directories."
+
+        # Ensure include_list is initialized
+        if self.include_list is None:
+            self.include_list = set()
+        self.include_list.add(skill_name)
+
+        # Also remove from exclude_list if present
+        if skill_name in self.exclude_list:
+            self.exclude_list.discard(skill_name)
+
+        # Persist state to global store
+        self._save_state()
+
+        # Clear caches so find_skills reflects the change
+        self.hot_reload()
+
+        return f"Skill '{skill_name}' has been included (whitelisted)."
+
+    def exclude_skill(self, skill_name: str) -> str:
+        """
+        Add a skill to the exclude list (blacklist), hiding it from discovery.
+        This method controls which skills are hidden via find_skills().
+
+        Args:
+            skill_name: Name of the skill to exclude
+
+        Returns:
+            Success or error message
+        """
+        if not skill_name:
+            return "Error: Skill name is required."
+
+        # Check if coder is available
+        if not self.coder:
+            return "Error: Skills manager not connected to a coder instance."
+
+        # Check if we're in agent mode
+        if not hasattr(self.coder, "edit_format") or self.coder.edit_format != "agent":
+            return "Error: Skill exclusion is only available in agent mode."
+
+        # Find the skill to verify it exists
+        skills = self.find_skills(reload=True)
+        skill_found = any(skill.name == skill_name for skill in skills)
+
+        if not skill_found:
+            # The skill might already be filtered out by include/exclude lists.
+            # Check if it exists in any directory by scanning without filters.
+            original_include = self.include_list
+            original_exclude = self.exclude_list
+            self.include_list = None
+            self.exclude_list = set()
+            all_skills = self.find_skills(reload=True)
+            self.include_list = original_include
+            self.exclude_list = original_exclude
+            skill_found = any(skill.name == skill_name for skill in all_skills)
+
+        if not skill_found:
+            return f"Error: Skill '{skill_name}' not found in configured directories."
+
+        # Add to exclude_list
+        self.exclude_list.add(skill_name)
+
+        # Also remove from include_list if present
+        if self.include_list and skill_name in self.include_list:
+            self.include_list.discard(skill_name)
+            # If include_list is now empty, reset to None (no whitelist filtering)
+            if not self.include_list:
+                self.include_list = None
+
+        # Also remove from loaded_skills if present, since it won't be visible
+        if skill_name in self._loaded_skills:
+            self._loaded_skills.discard(skill_name)
+
+        # Persist state to global store
+        self._save_state()
+
+        # Clear caches so find_skills reflects the change
+        self.hot_reload()
+
+        return f"Skill '{skill_name}' has been excluded (blacklisted)."
+
+    def get_all_skills_info(self) -> List[Dict[str, Any]]:
+        """
+        Get detailed information about all skills across all directories,
+        including their current state (included, excluded, loaded) and file paths.
+
+        This bypasses include/exclude filters to give a complete picture.
+
+        Returns:
+            List of dicts with keys: name, description, path, license, allowed_tools,
+            status ("included", "excluded", "visible"), loaded, has_references,
+            has_scripts, has_assets, has_evals
+        """
+        # Save current filter state
+        original_include = self.include_list
+        original_exclude = self.exclude_list
+
+        # Scan without filters to find all skills
+        self.include_list = None
+        self.exclude_list = set()
+        all_skills = self.find_skills(reload=True)
+
+        # Restore original filter state
+        self.include_list = original_include
+        self.exclude_list = original_exclude
+
+        # Also restore the cache to reflect the actual filters
+        self.hot_reload()
+
+        result = []
+        for meta in all_skills:
+            skill_name = meta.name
+
+            # Determine status
+            if original_include is not None and skill_name in original_include:
+                status = "included"
+            elif skill_name in original_exclude:
+                status = "excluded"
+            else:
+                status = "visible"
+
+            # Check if loaded
+            is_loaded = skill_name in self._loaded_skills
+
+            skill_content = self._skills_cache.get(skill_name)
+            has_references = bool(skill_content and skill_content.references)
+            has_scripts = bool(skill_content and skill_content.scripts)
+            has_assets = bool(skill_content and skill_content.assets)
+            has_evals = bool(skill_content and skill_content.evals)
+
+            info = {
+                "name": skill_name,
+                "description": meta.description,
+                "path": str(meta.path),
+                "license": meta.license,
+                "allowed_tools": meta.allowed_tools,
+                "status": status,
+                "loaded": is_loaded,
+                "has_references": has_references,
+                "has_scripts": has_scripts,
+                "has_assets": has_assets,
+                "has_evals": has_evals,
+            }
+            result.append(info)
+
+        return result
+
+    def get_skills_list_formatted(self) -> str:
+        """
+        Get a human-readable table of all skills with their states and paths.
+
+        Returns:
+            Formatted string listing all skills with state and path info
+        """
+        all_skills = self.get_all_skills_info()
+
+        if not all_skills:
+            return "No skills found in the configured directories."
+
+        # Calculate column widths
+        name_width = max(len(s["name"]) for s in all_skills)
+        name_width = max(name_width, len("Skill Name"))
+
+        status_width = max(len(s["status"]) for s in all_skills)
+        status_width = max(status_width, len("Status"))
+
+        result = f"Found {len(all_skills)} skill(s) in configured directories:\n\n"
+
+        # Header
+        header = f"  {'Skill Name'.ljust(name_width)}  {'Status'.ljust(status_width)}  Loaded  Path"
+        result += header + "\n"
+        result += "-" * len(header) + "\n"
+
+        for skill in all_skills:
+            name = skill["name"].ljust(name_width)
+            status = skill["status"].ljust(status_width)
+            loaded = "Yes" if skill["loaded"] else "No"
+            path = skill["path"]
+            result += f"  {name}  {status}  {loaded:<5}  {path}\n"
+
+        result += "\n"
+        result += "Status meanings:\n"
+        result += "  included  - Skill is whitelisted (skill available for discovery/loading)\n"
+        result += "  excluded  - Skill is blacklisted (hidden from discovery)\n"
+        result += "  loaded    - Whether the skill content has been loaded via load_skill\n"
+
+        return result
 
     @classmethod
     def skill_summary_loader(
