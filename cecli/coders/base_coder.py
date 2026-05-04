@@ -140,6 +140,12 @@ class Coder:
     partial_response_tool_calls = []
     commit_before_message = []
     message_cost = 0.0
+    total_tokens_sent = 0
+    total_tokens_received = 0
+    total_cached_tokens = 0
+    message_tokens_sent = 0
+    message_tokens_received = 0
+    message_cached_tokens = 0
     add_cache_headers = False
     cache_warming_thread = None
     num_cache_warming_pings = 0
@@ -228,6 +234,7 @@ class Coder:
                 ignore_mentions=from_coder.ignore_mentions,
                 total_tokens_sent=from_coder.total_tokens_sent,
                 total_tokens_received=from_coder.total_tokens_received,
+                total_cached_tokens=from_coder.total_cached_tokens,
                 file_watcher=from_coder.file_watcher,
                 mcp_manager=from_coder.mcp_manager,
                 uuid=from_coder.uuid,
@@ -317,6 +324,7 @@ class Coder:
         ignore_mentions=None,
         total_tokens_sent=0,
         total_tokens_received=0,
+        total_cached_tokens=0,
         file_watcher=None,
         auto_copy_context=False,
         auto_accept_architect=True,
@@ -332,6 +340,7 @@ class Coder:
     ):
         # initialize from args.map_cache_dir
         self.interrupt_event = asyncio.Event()
+        self.coroutines = coroutines
         self.uuid = generate_unique_id()
         if uuid:
             self.uuid = uuid
@@ -390,8 +399,10 @@ class Coder:
         self.total_cost = total_cost
         self.total_tokens_sent = total_tokens_sent
         self.total_tokens_received = total_tokens_received
+        self.total_cached_tokens = total_cached_tokens
         self.message_tokens_sent = 0
         self.message_tokens_received = 0
+        self.message_cached_tokens = 0
 
         self.token_profiler = TokenProfiler(
             enable_printing=nested.getter(self.args, "show_speed", False)
@@ -1133,8 +1144,9 @@ class Coder:
                     "other_files": other_files,
                     "mentioned_fnames": mentioned_fnames,
                     "all_abs_files": all_abs_files,
-                    "read_only_count": len(set(self.abs_read_only_fnames)) + len(
-                        set(self.abs_read_only_stubs_fnames)
+                    "read_only_count": (
+                        len(set(self.abs_read_only_fnames))
+                        + len(set(self.abs_read_only_stubs_fnames))
                     ),
                 }
             )
@@ -1379,11 +1391,6 @@ class Coder:
             except (SwitchCoderSignal, SystemExit):
                 # Re-raise SwitchCoder to be handled by outer try block
                 raise
-            except KeyboardInterrupt:
-                # Handle keyboard interrupt gracefully
-                self.io.set_placeholder("")
-                self.io.stop_spinner()
-                self.keyboard_interrupt()
             finally:
                 # Signal tasks to stop
                 self.input_running = False
@@ -1463,10 +1470,6 @@ class Coder:
 
                 await asyncio.sleep(0.1)  # Small yield to prevent tight loop
 
-            except KeyboardInterrupt:
-                self.io.set_placeholder("")
-                self.keyboard_interrupt()
-                await self.io.stop_task_streams()
             except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
@@ -2192,6 +2195,8 @@ class Coder:
         # Notify IO that LLM processing is starting
         self.io.llm_started()
 
+        ConversationService.get_manager(self).flush_queue()
+
         if inp:
             # Make sure current coder actually has control of conversation system
             ConversationService.get_chunks(self).initialize_conversation_system()
@@ -2274,7 +2279,14 @@ class Coder:
                         self.io.tool_error(err_msg)
 
                     self.io.tool_output(f"Retrying in {retry_delay:.1f} seconds...")
-                    await asyncio.sleep(retry_delay)
+
+                    _res, interrupted_sleep = await coroutines.interruptible(
+                        asyncio.sleep(retry_delay), self.interrupt_event
+                    )
+                    if interrupted_sleep:
+                        interrupted = True
+                        break
+
                     continue
                 except (KeyboardInterrupt, asyncio.CancelledError):
                     interrupted = True
@@ -2641,10 +2653,18 @@ class Coder:
                             all_results_content.append("Tool Request Aborted.")
                             continue
 
-                        call_result = await experimental_mcp_client.call_openai_tool(
-                            session=session,
-                            openai_tool=new_tool_call,
+                        async def do_tool_call():
+                            return await experimental_mcp_client.call_openai_tool(
+                                session=session,
+                                openai_tool=new_tool_call,
+                            )
+
+                        call_result, interrupted = await coroutines.interruptible(
+                            do_tool_call(), self.interrupt_event
                         )
+
+                        if interrupted:
+                            raise KeyboardInterrupt("Tool call interrupted")
 
                         content_parts = []
                         if call_result.content:
@@ -2690,6 +2710,9 @@ class Coder:
                         }
                     )
 
+                except KeyboardInterrupt:
+                    self.io.tool_warning(f"Tool call {tool_call.function.name} interrupted.")
+                    raise
                 except Exception as e:
                     tool_error = f"Error executing tool call {tool_call.function.name}: \n{e}"
                     self.io.tool_warning(
@@ -2706,6 +2729,9 @@ class Coder:
                 tool_responses.append(
                     {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
                 )
+        except asyncio.CancelledError:
+            # Re-raise CancelledError to ensure the task cancellation propagates
+            raise
         except Exception as e:
             connection_error = f"Could not connect to server {server.name}\n{e}"
             self.io.tool_warning(connection_error)
@@ -2741,37 +2767,31 @@ class Coder:
             if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
                 return False
 
-            # 5. Execute tools
-            tool_execution_task = asyncio.create_task(self._execute_tool_groups(tool_groups))
-            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
+        # 5. Execute tools
+        self.interrupt_event.clear()
 
-            tool_responses_by_server = {}
-            try:
-                done, pending = await asyncio.wait(
-                    {tool_execution_task, interrupt_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+        tool_responses_by_server = {}
+        try:
+            tool_responses_by_server, interrupted = await coroutines.interruptible(
+                self._execute_tool_groups(tool_groups),
+                self.interrupt_event
+            )
 
-                if interrupt_task in done:
-                    tool_execution_task.cancel()
-                    try:
-                        await tool_execution_task
-                    except asyncio.CancelledError:
-                        pass
-                    self.io.tool_warning("Tool execution interrupted.")
-                    return False
-
-                if tool_execution_task in done:
-                    tool_responses_by_server = tool_execution_task.result()
-
-            except asyncio.CancelledError:
-                self.io.tool_warning("Tool execution cancelled.")
+            if interrupted:
+                self.io.tool_warning("Tool execution interrupted.")
                 return False
-            if self.io.group_responses.get("Run MCP Tools"):
-                self.globally_approved_tool_calls = True
+
+        except asyncio.CancelledError:
+            self.io.tool_warning("Tool execution cancelled.")
+            return False
+
+        if self.io.group_responses.get("Run MCP Tools"):
+            self.globally_approved_tool_calls = True
+
+        try:
+            return tool_responses_by_server
         finally:
             self.globally_approved_tool_calls = False
-
         # 6. Add responses to conversation (re-prefixing if necessary)
         tool_responses = []
         for server, server_responses in tool_responses_by_server.items():
@@ -3081,7 +3101,7 @@ class Coder:
         self.token_profiler.start()
 
         try:
-            completion_task = asyncio.create_task(
+            completion_coro = asyncio.create_task(
                 model.send_completion(
                     messages,
                     functions,
@@ -3089,25 +3109,16 @@ class Coder:
                     self.temperature,
                     # This could include any tools, but for now it is just MCP tools
                     tools=tools,
-                    override_kwargs=self.model_kwargs,
+                    override_kwargs=self.model_kwargs.copy(),
+                    interrupt_event=self.interrupt_event,
                 )
             )
-            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
 
-            done, pending = await asyncio.wait(
-                {completion_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
+            (hash_object, completion), interrupted = await coroutines.interruptible(
+                completion_coro, self.interrupt_event
             )
-
-            if interrupt_task in done:
-                completion_task.cancel()
-                try:
-                    await completion_task
-                except asyncio.CancelledError:
-                    pass
+            if interrupted:
                 raise KeyboardInterrupt
-
-            hash_object, completion = completion_task.result()
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
             if not isinstance(completion, ModelResponse):
@@ -3539,10 +3550,13 @@ class Coder:
         if completion and hasattr(completion, "usage") and completion.usage is not None:
             prompt_tokens = completion.usage.prompt_tokens
             completion_tokens = completion.usage.completion_tokens
-            cache_hit_tokens = getattr(completion.usage, "prompt_cache_hit_tokens", 0) or getattr(
-                completion.usage, "cache_read_input_tokens", 0
+            cache_hit_tokens = (
+                getattr(completion.usage, "prompt_cache_hit_tokens", 0)
+                or getattr(completion.usage, "cache_read_input_tokens", 0)
+                or 0
             )
-            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0)
+            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0) or 0
+            self.message_cached_tokens += cache_hit_tokens
 
             if hasattr(completion.usage, "cache_read_input_tokens") or hasattr(
                 completion.usage, "cache_creation_input_tokens"
@@ -3575,8 +3589,22 @@ class Coder:
             tokens_report, self.message_tokens_sent, self.message_tokens_received
         )
 
+        total_combined_tokens = (
+            self.total_tokens_sent
+            + self.total_tokens_received
+            + self.message_tokens_sent
+            + self.message_tokens_received
+        )
+        total_combined_cached = self.total_cached_tokens + self.message_cached_tokens
+
+        total_stats = f"{format_tokens(total_combined_tokens)}"
+        if total_combined_cached:
+            total_stats += f"/{format_tokens(total_combined_cached)}"
+
+        total_stats += " ↑↓"
+
         if not self.get_active_model().info.get("input_cost_per_token"):
-            self.usage_report = tokens_report
+            self.usage_report = tokens_report + "\n" + total_stats
             return
 
         try:
@@ -3593,11 +3621,8 @@ class Coder:
         self.total_cost += cost
         self.message_cost += cost
 
-        total_combined_tokens = (
-            self.total_tokens_sent + self.total_tokens_received + prompt_tokens + completion_tokens
-        )
         cost_report = (
-            f"${self.format_cost(self.message_cost)} • {format_tokens(total_combined_tokens)} ↑↓"
+            f"${self.format_cost(self.message_cost)} • {total_stats}"
             f" ${self.format_cost(self.total_cost)}"
         )
 
@@ -3655,6 +3680,7 @@ class Coder:
 
         self.total_tokens_sent += self.message_tokens_sent
         self.total_tokens_received += self.message_tokens_received
+        self.total_cached_tokens += self.message_cached_tokens
 
         if self.tui and self.tui():
             self.tui().update_cost(self.usage_report.replace("\n", " "))
@@ -3665,6 +3691,7 @@ class Coder:
         self.message_cost = 0.0
         self.message_tokens_sent = 0
         self.message_tokens_received = 0
+        self.message_cached_tokens = 0
 
     def get_multi_response_content_in_progress(self, final=False):
         cur = self.multi_response_content or ""
@@ -3766,7 +3793,7 @@ class Coder:
             self.check_for_dirty_commit(path)
             return True
 
-        if self.repo and self.repo.git_ignored_file(path):
+        if self.repo and self.repo.git_ignored_file(path) and not self.add_gitignore_files:
             self.io.tool_warning(f"Skipping edits to {path} that matches gitignore spec.")
             return
 
@@ -3785,7 +3812,8 @@ class Coder:
                 # actually already part of the repo.
                 # But let's only add if we need to, just to be safe.
                 if need_to_add:
-                    self.repo.repo.git.add(full_path)
+                    if not (self.add_gitignore_files and self.repo.git_ignored_file(path)):
+                        self.repo.repo.git.add(full_path)
 
             self.abs_fnames.add(full_path)
             self.check_added_files()
@@ -3799,7 +3827,8 @@ class Coder:
             return
 
         if need_to_add:
-            self.repo.repo.git.add(full_path)
+            if not (self.add_gitignore_files and self.repo.git_ignored_file(path)):
+                self.repo.repo.git.add(full_path)
 
         self.abs_fnames.add(full_path)
         self.check_added_files()
@@ -4046,7 +4075,10 @@ class Coder:
         return edits
 
     def local_agent_folder(self, path):
-        os.makedirs(f".cecli/agents/{GLOBAL_DATE}/{self.uuid}", exist_ok=True)
+        os.makedirs(
+            self.abs_root_path(f".cecli/agents/{GLOBAL_DATE}/{self.uuid}"),
+            exist_ok=True,
+        )
 
         stripped = path.lstrip("/")
         return f".cecli/agents/{GLOBAL_DATE}/{self.uuid}/{stripped}"

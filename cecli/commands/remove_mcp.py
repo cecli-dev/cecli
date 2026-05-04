@@ -6,7 +6,7 @@ from cecli.commands.utils.helpers import format_command_result
 
 class RemoveMcpCommand(BaseCommand):
     NORM_NAME = "remove-mcp"
-    DESCRIPTION = "Remove a MCP server by name"
+    DESCRIPTION = "Remove a MCP server by name, or use '*' to remove all"
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
@@ -20,26 +20,58 @@ class RemoveMcpCommand(BaseCommand):
             )
 
         server_names = args.strip().split()
+
         results = []
-        for server_name in server_names:
-            was_disconnected = await coder.mcp_manager.disconnect_server(server_name)
+        servers_to_disconnect = []
+
+        # Handle '*' wildcard to disconnect all servers
+        if server_names == ["*"]:
+            connected = [s for s in coder.mcp_manager.servers if s.is_connected]
+
+            if not connected:
+                results.append("No MCP servers connected, nothing to remove.")
+            else:
+                servers_to_disconnect.extend(connected)
+        else:
+            for server_name in server_names:
+                servers_to_disconnect.append(server_name)
+
+        # Early exit if nothing to process
+        if not servers_to_disconnect and results:
+            return format_command_result(io, cls.NORM_NAME, "", "\n".join(results))
+
+        # Process disconnections with interrupt support
+        for item in servers_to_disconnect:
+            server_name = item.name if hasattr(item, "name") else item
+
+            coder.interrupt_event.clear()
+
+            was_disconnected, interrupted = await coder.coroutines.interruptible(
+                coder.mcp_manager.disconnect_server(server_name),
+                coder.interrupt_event,
+            )
+
+            if interrupted:
+                io.tool_warning(f"MCP disconnection interrupted: {server_name}")
+                results.append(f"Interrupted: {server_name}")
+                continue
+
             if was_disconnected:
                 results.append(f"Removed server: {server_name}")
             else:
                 results.append(f"Unable to remove server: {server_name}")
 
-        try:
-            return format_command_result(io, cls.NORM_NAME, "\n".join(results))
-        finally:
-            from . import SwitchCoderSignal
+        io.tool_output("\n".join(results))
 
-            raise SwitchCoderSignal(
-                edit_format=coder.edit_format,
-                summarize_from_coder=False,
-                from_coder=coder,
-                show_announcements=True,
-                mcp_manager=coder.mcp_manager,
-            )
+        from . import SwitchCoderSignal
+
+        raise SwitchCoderSignal(
+            edit_format=coder.edit_format,
+            summarize_from_coder=False,
+            from_coder=coder,
+            show_announcements=True,
+            mcp_manager=coder.mcp_manager,
+        )
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
@@ -59,7 +91,8 @@ class RemoveMcpCommand(BaseCommand):
         help_text = super().get_help()
         help_text += "\nUsage:\n"
         help_text += "  /remove-mcp <mcp-name>...  # Remove one or more mcps by name\n"
+        help_text += "  /remove-mcp *              # Remove all connected mcps\n"
         help_text += "\nExamples:\n"
         help_text += "  /remove-mcp context7  # Remove the context7 mcp\n"
         help_text += "  /remove-mcp github context7  # Remove both github and context7 mcps\n"
-        help_text += "\nThis command removes one or more MCP servers by name.\n"
+        help_text += "  /remove-mcp *          # Remove all connected mcps\n"

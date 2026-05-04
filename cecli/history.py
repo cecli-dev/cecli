@@ -136,28 +136,11 @@ class ChatSummary:
         raise ValueError(err)
 
     async def summarize_all_as_text(self, messages, prompt, max_tokens=None):
-        content = ""
-        for msg in messages:
-            role = msg["role"].upper()
-            if role not in ("USER", "ASSISTANT"):
-                continue
-            if not msg.get("content"):
-                continue
-            content += f"# {role}\n"
-            content += msg["content"]
-            if not content.endswith("\n"):
-                content += "\n"
-
-        summarize_messages = [
-            dict(role="system", content=prompt),
-            dict(role="user", content=content),
-        ]
+        messages.append(dict(role="user", content=prompt))
 
         for model in self.models:
             try:
-                summary = await model.simple_send_with_retries(
-                    summarize_messages, max_tokens=max_tokens
-                )
+                summary = await model.simple_send_with_retries(messages, max_tokens=max_tokens)
                 if summary is not None:
                     return summary
             except Exception as e:

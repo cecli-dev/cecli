@@ -1,6 +1,5 @@
 """Tests for base hook classes."""
 
-
 import pytest
 
 from cecli.hooks import BaseHook, CommandHook, HookType

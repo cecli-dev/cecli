@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import oslex
-from grep_ast import TreeContext, filename_to_lang
-from grep_ast.tsl import get_parser  # noqa: E402
 
 from cecli.dump import dump  # noqa: F401
+from cecli.helpers.grep_ast import TreeContext, filename_to_lang
+from cecli.helpers.grep_ast.tsl import get_parser  # noqa: E402
 from cecli.run_cmd import run_cmd_subprocess  # noqa: F401
 
 # tree_sitter is throwing a FutureWarning

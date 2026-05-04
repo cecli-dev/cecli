@@ -1,21 +1,21 @@
 repos:
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 9.0.0a3
     hooks:
       - id: isort
         args: ["--profile", "black"]
   - repo: https://github.com/psf/black
-    rev: 23.3.0
+    rev: 26.3.1
     hooks:
       - id: black
         args: ["--line-length", "100", "--preview"]
   - repo: https://github.com/pycqa/flake8
-    rev: 7.1.0
+    rev: 7.3.0
     hooks:
       - id: flake8
         args: ["--show-source"]
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.6
+    rev: v2.4.2
     hooks:
       - id: codespell
         args: ["--skip", "cecli/website/docs/languages.md"]

@@ -12,7 +12,11 @@ class Tool(BaseTool):
         "type": "function",
         "function": {
             "name": "CommandInteractive",
-            "description": "Execute a shell command interactively.",
+            "description": (
+                "Execute a shell command interactively."
+                " Useful when you need the user to provide inputs like passwords"
+                " or navigating terminal interfaces."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

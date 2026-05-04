@@ -107,6 +107,12 @@ class Tool(BaseTool):
             return "Error: 'command' must be provided."
 
         # Check for implicit background (trailing & on Linux)
+        if ".cecli/agents" in command:
+            return (
+                "Error: Do not attempt to access internal files with "
+                "standard cli tools. Please use the tools you have been provided."
+            )
+
         if not background and command.strip().endswith("&"):
             background = True
             command = command.strip()[:-1].strip()
@@ -222,6 +228,15 @@ class Tool(BaseTool):
         start_time = time.time()
 
         while True:
+            if coder.interrupt_event.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                BackgroundCommandManager.stop_background_command(command_key)
+                return "Command execution interrupted by user."
+
             # Check if process has completed
             exit_code = process.poll()
             if exit_code is not None:
@@ -231,11 +246,28 @@ class Tool(BaseTool):
                 # Format output
                 output_content = output or ""
                 output_limit = coder.large_file_token_threshold
-                if coder.context_management_enabled and len(output_content) > output_limit:
+                if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
+                    # Save full output to paginated files instead of truncating
+                    folder_path, file_list, alias_paths = (
+                        BackgroundCommandManager.save_paginated_output(
+                            output=output_content,
+                            command_key=command_key,
+                            page_size=output_limit,
+                            abs_root_path_func=coder.abs_root_path,
+                            local_agent_folder_func=coder.local_agent_folder,
+                        )
+                    )
+                    # Build a summary with full file list
+                    total_size = len(output_content)
+                    alias_list_str = "\n".join(f"  - {a}" for a in alias_paths)
                     output_content = (
-                        output_content[:output_limit]
-                        + f"\n... (output truncated at {output_limit} characters, based on"
-                        " large_file_token_threshold)"
+                        f"[Large Response ({total_size} characters). "
+                        "Output saved to paginated files.]\n"
+                        f"File Aliases (for use with ContextManager):\n{alias_list_str}\n"
+                        "Use the `ContextManager` tool to view these files."
+                        "Do not use standard cli tools to view these files."
+                        "Remove them from context after taking note of the relevant information "
+                        "in the output to prevent overfilling stale context."
                     )
 
                 # Remove from background tracking since it's done
@@ -300,11 +332,28 @@ class Tool(BaseTool):
         # Format the output for the result message
         output_content = combined_output or ""
         output_limit = coder.large_file_token_threshold
-        if coder.context_management_enabled and len(output_content) > output_limit:
+        if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
+            # Generate a unique key for file naming
+            fg_key = BackgroundCommandManager._generate_command_key(command_string)
+            # Save full output to paginated files instead of truncating
+            folder_path, file_list, alias_paths = BackgroundCommandManager.save_paginated_output(
+                output=output_content,
+                command_key=fg_key,
+                page_size=output_limit,
+                abs_root_path_func=coder.abs_root_path,
+                local_agent_folder_func=coder.local_agent_folder,
+            )
+            # Build a summary with full file list
+            total_size = len(output_content)
+            alias_list_str = "\n".join(f"  - {a}" for a in alias_paths)
             output_content = (
-                output_content[:output_limit]
-                + f"\n... (output truncated at {output_limit} characters, based on"
-                " large_file_token_threshold)"
+                f"[Large Response ({total_size} characters). "
+                "Output saved to paginated files.]\n"
+                f"File Aliases (for use with ContextManager):\n{alias_list_str}\n"
+                "Use the `ContextManager` tool to view these files."
+                "Do not use standard cli tools to view these files."
+                "Remove them from context after taking note of the relevant information "
+                "in the output to prevent overfilling stale context."
             )
 
         if tui:

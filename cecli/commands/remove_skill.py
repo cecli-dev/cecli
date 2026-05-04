@@ -39,7 +39,6 @@ class RemoveSkillCommand(BaseCommand):
         for skill_name in skill_names:
             # Use the instance method on skills_manager
             result = coder.skills_manager.remove_skill(skill_name)
-            io.tool_output(result)
             results.append(result)
 
         return format_command_result(io, "remove-skill", "\n".join(results))

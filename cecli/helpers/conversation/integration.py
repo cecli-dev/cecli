@@ -1,4 +1,5 @@
 import json
+import random
 import weakref
 from typing import Any, Dict, List
 from uuid import UUID
@@ -17,6 +18,7 @@ class ConversationChunks:
     def __init__(self, coder):
         self.coder = weakref.ref(coder)
         self.uuid = coder.uuid
+        self._last_clear_count = 0
 
     @classmethod
     def get_instance(cls, coder) -> "ConversationChunks":
@@ -93,7 +95,9 @@ class ConversationChunks:
         ):
             msg = dict(
                 role="user",
-                content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder),
+                content=self._shuffle_reminders(
+                    coder.fmt_system_prompt(coder.gpt_prompts.system_reminder)
+                ),
             )
             ConversationService.get_manager(coder).add_message(
                 message_dict=msg,
@@ -102,6 +106,62 @@ class ConversationChunks:
                 force=True,
                 mark_for_delete=0,
             )
+
+    def add_randomized_cta(self) -> None:
+        coder = self.get_coder()
+        if not coder:
+            return
+
+        message = random.choice(
+            [
+                "Given the above, please call any tools necessary to make progress on your task",
+                (
+                    "Based on the information provided, please execute the appropriate tools to"
+                    " move the task forward."
+                ),
+                "With this context in mind, please proceed with your work.",
+                (
+                    "In light of the above, please utilize the required tools to continue with this"
+                    " request."
+                ),
+                (
+                    "Continue making progress. If you have reached the goal, summarize the results."
+                    " Otherwise, call the next necessary tool."
+                ),
+                (
+                    "Please use the proper tools to fulfill the next steps of this task based on"
+                    " the current data."
+                ),
+                (
+                    "You’ve got what you need, please invoke the right tools to keep making"
+                    " progress towards our goal."
+                ),
+                (
+                    "Considering what we've established, please use the available tools to complete"
+                    " the current objective."
+                ),
+                (
+                    "Given this information, please use the available tools to proceed with the"
+                    " assignment."
+                ),
+                "Please take the next logical steps to make headway on this task.",
+            ]
+        )
+
+        msg = dict(
+            role="user",
+            content="\n\n" + message,
+        )
+
+        ConversationService.get_manager(coder).add_message(
+            message_dict=msg,
+            tag=MessageTag.REMINDER,
+            hash_key=("main", "randomized_cta"),
+            force=True,
+            mark_for_delete=0,
+            promotion=2 * ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
+            mark_for_demotion=1,
+        )
 
     def cleanup_files(self) -> None:
         """
@@ -153,7 +213,11 @@ class ConversationChunks:
         if diff_count > 0 and other_count > 0 and diff_count / other_count > 20:
             should_clear = True
 
-        if should_clear:
+        self._last_clear_count += 1
+
+        if should_clear and self._last_clear_count >= 10:
+            self._last_clear_count = 0
+
             # Clear all diff messages
             ConversationService.get_manager(coder).clear_tag(MessageTag.DIFFS)
             ConversationService.get_manager(coder).clear_tag(MessageTag.FILE_CONTEXTS)
@@ -203,6 +267,43 @@ class ConversationChunks:
                 ConversationService.get_manager(coder).remove_message_by_hash_key(
                     image_assistant_hash_key
                 )
+
+        # Clean up stale file_context messages
+        # If a file has 3 or more file_context_user messages, remove all but the most recent
+        # (and their corresponding assistant messages) to prevent excessive stale context
+        file_context_messages = ConversationService.get_manager(coder).get_tag_messages(
+            MessageTag.FILE_CONTEXTS
+        )
+
+        # Group user file_context messages by file path
+        user_msgs_by_file: Dict[str, List[int]] = {}
+        user_msg_indices: List[int] = []
+        for msg_idx, msg in enumerate(file_context_messages):
+            if msg.hash_key and len(msg.hash_key) == 3 and msg.hash_key[0] == "file_context_user":
+                file_path = msg.hash_key[1]
+                if file_path not in user_msgs_by_file:
+                    user_msgs_by_file[file_path] = []
+                user_msgs_by_file[file_path].append(msg_idx)
+                user_msg_indices.append(msg_idx)
+
+        # For files with 3+ user messages, keep only the last one
+        hash_keys_to_remove: set = set()
+        for file_path, indices in user_msgs_by_file.items():
+            if len(indices) >= 3:
+                # Keep the last one (most recent in sorted order)
+                older_indices = indices[:-1]
+                for old_idx in older_indices:
+                    old_msg = file_context_messages[old_idx]
+                    content_hash = old_msg.hash_key[2]
+                    # Mark the user message for removal
+                    hash_keys_to_remove.add(("file_context_user", file_path, content_hash))
+                    # Mark the corresponding assistant message for removal
+                    hash_keys_to_remove.add(("file_context_assistant", file_path, content_hash))
+
+        if hash_keys_to_remove:
+            ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(
+                lambda hash_key: hash_key in hash_keys_to_remove
+            )
 
         ConversationService.get_manager(coder).clear_tag(MessageTag.RULES)
 
@@ -387,7 +488,7 @@ class ConversationChunks:
                 dict(role="user", content=repo_content),
                 dict(
                     role="assistant",
-                    content="Ok, I won't try and edit those files without asking first.",
+                    content="Thank you, these files will help with navigating the codebase.",
                 ),
             ]
 
@@ -528,7 +629,7 @@ class ConversationChunks:
                 # Add assistant message with file path as hash_key
                 assistant_msg = {
                     "role": "assistant",
-                    "content": "I understand, thank you for sharing the file contents.",
+                    "content": f"Thank you for sharing the file contents for {rel_fname}.",
                 }
                 ConversationService.get_manager(coder).add_message(
                     message_dict=assistant_msg,
@@ -628,7 +729,7 @@ class ConversationChunks:
             # Create assistant message
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the file contents.",
+                "content": f"Thank you for sharing the file contents for {rel_fname}.",
             }
 
             # Determine tag based on editability
@@ -718,34 +819,21 @@ class ConversationChunks:
 
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the prefixed file contents.",
+                "content": f"Thank you for sharing the prefixed file contents for {rel_fname}.",
             }
 
             # Add to conversation manager
-            ConversationService.get_manager(coder).add_message(
+            content_hash = xxhash.xxh3_128_hexdigest(context_content.encode("utf-8"))
+            ConversationService.get_manager(coder).queue_message(
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_user", file_path),
-                force=True,
-                promotion=(
-                    ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE
-                    if promote_messages
-                    else None
-                ),
-                mark_for_demotion=1 if promote_messages else None,
+                hash_key=("file_context_user", file_path, content_hash),
             )
 
-            ConversationService.get_manager(coder).add_message(
+            ConversationService.get_manager(coder).queue_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_assistant", file_path),
-                force=True,
-                promotion=(
-                    ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE
-                    if promote_messages
-                    else None
-                ),
-                mark_for_demotion=1 if promote_messages else None,
+                hash_key=("file_context_assistant", file_path, content_hash),
             )
 
     def reset(self) -> None:
@@ -902,6 +990,35 @@ class ConversationChunks:
                 hash_key=("post_message", block_type),
                 force=True,
             )
+
+    def _shuffle_reminders(self, content: str) -> str:
+        """
+        If the string is a critical_reminders block, shuffle all bulleted points
+        to prevent the model from developing 'boilerplate blindness.'
+        """
+        if not content.strip().startswith('<context name="critical_reminders">'):
+            return content
+
+        lines = content.splitlines()
+
+        # 1. Identify indices of lines starting with a hyphen (and the content itself)
+        # We use strip() to handle indentation within the XML block
+        list_info = [(i, line) for i, line in enumerate(lines) if line.strip().startswith("-")]
+
+        if not list_info:
+            return content
+
+        # 2. Extract and shuffle the list items
+        indices = [item[0] for item in list_info]
+        bullet_contents = [item[1] for item in list_info]
+        random.shuffle(bullet_contents)
+
+        # 3. Reconstruct the block by placing shuffled items back into the original indices
+        new_lines = list(lines)
+        for index, shuffled_text in zip(indices, bullet_contents):
+            new_lines[index] = shuffled_text
+
+        return "\n".join(new_lines)
 
     def debug_print_conversation_state(self) -> None:
         """

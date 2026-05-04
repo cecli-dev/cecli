@@ -4,6 +4,7 @@ from pathlib import Path
 
 import oslex
 
+from cecli.helpers.hashline import strip_hashline
 from cecli.run_cmd import run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -108,7 +109,7 @@ class Tool(BaseTool):
 
         all_results = []
         for search_op in searches:
-            pattern = search_op.get("pattern")
+            pattern = strip_hashline(search_op.get("pattern"))
             file_pattern = search_op.get("file_pattern", "*")
             directory = search_op.get("directory", search_op.get("path", "."))
             use_regex = search_op.get("use_regex", False)

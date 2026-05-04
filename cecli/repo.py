@@ -348,12 +348,28 @@ class GitRepo:
             cmd.append("--no-verify")
         if fnames:
             fnames = [str(self.abs_root_path(fn)) for fn in fnames]
+            added_fnames = []
             for fname in fnames:
                 try:
+                    # Check if file is git-ignored before trying to add
+                    if (
+                        coder
+                        and hasattr(coder, "add_gitignore_files")
+                        and coder.add_gitignore_files
+                    ):
+                        rel_fname = self.get_rel_fname(fname)
+                        if self.git_ignored_file(rel_fname):
+                            # Skip git-ignored files when add_gitignore_files is enabled
+                            continue
                     self.repo.git.add(fname)
+                    added_fnames.append(fname)
                 except ANY_GIT_ERROR as err:
                     self.io.tool_error(f"Unable to add {fname}: {err}")
-            cmd += ["--"] + fnames
+            if added_fnames:
+                cmd += ["--"] + added_fnames
+            else:
+                # No files to commit (all were git-ignored or failed to add)
+                return
         else:
             cmd += ["-a"]
 
@@ -392,6 +408,12 @@ class GitRepo:
         except (ValueError, OSError):
             return self.repo.git_dir
 
+    def get_rel_fname(self, fname):
+        try:
+            return os.path.relpath(fname, self.root)
+        except ValueError:
+            return fname
+
     async def get_commit_message(self, diffs, context, user_language=None):
         diffs = "# Diffs:\n" + diffs
 
@@ -428,7 +450,14 @@ class GitRepo:
             if max_tokens and num_tokens > max_tokens:
                 continue
 
-            commit_message = await model.simple_send_with_retries(messages)
+            commit_message = await model.simple_send_with_retries(
+                messages,
+                override_kwargs={
+                    "reasoning_effort": None,
+                    "thinking": None,
+                    "drop_params": True,
+                },
+            )
             if commit_message:
                 break  # Found a model that could generate the message
 

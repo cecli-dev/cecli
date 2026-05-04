@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+import platform
 import queue
 import time
 from functools import lru_cache
@@ -105,7 +106,10 @@ class TUI(App):
             show=True,
         )
         self.bind(
-            self._encode_keys(self.get_keys_for("cancel")), "noop", description="Cancel", show=True
+            self._encode_keys(self.get_keys_for("cancel")),
+            "interrupt",
+            description="Cancel",
+            show=True,
         )
         self.bind(
             self._encode_keys(self.get_keys_for("editor")),
@@ -358,6 +362,11 @@ class TUI(App):
             self._mouse_hold_timer.stop()
             self._mouse_hold_timer = None
         self.update_key_hints(generating=self._currently_generating)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Handle mouse move events to prevent strange characters on Windows."""
+        if platform.system() == "Windows":
+            event.stop()
 
     def _show_select_hint(self) -> None:
         """Show the shift+drag to select hint."""

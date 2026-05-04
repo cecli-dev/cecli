@@ -4,6 +4,7 @@ import pyperclip
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers.conversation import ConversationService, MessageTag
 
 
 class CopyContextCommand(BaseCommand):
@@ -13,13 +14,13 @@ class CopyContextCommand(BaseCommand):
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         """Execute the copy-context command with given parameters."""
-        chunks = coder.format_chat_chunks()
+        manager = ConversationService.get_manager(coder)
 
         markdown = ""
 
-        # Only include specified chunks in order
-        for messages in [chunks.repo, chunks.readonly_files, chunks.chat_files]:
-            for msg in messages:
+        # Only include specified chunks in order using conversation tags
+        for tag in [MessageTag.REPO, MessageTag.READONLY_FILES, MessageTag.CHAT_FILES]:
+            for msg in manager.get_messages_dict(tag=tag):
                 # Only include user messages
                 if msg["role"] != "user":
                     continue

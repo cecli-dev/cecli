@@ -31,7 +31,7 @@ class Tool(BaseTool):
     }
 
     @classmethod
-    def execute(cls, coder, path=None, directory=None, **kwargs):
+    def execute(cls, coder, path=None, **kwargs):
         """
         List files in directory and optionally add some to context.
 
@@ -39,7 +39,7 @@ class Tool(BaseTool):
         similar to how a developer would explore directories.
         """
         # Handle both positional and keyword arguments for backward compatibility
-        dir_path = path or directory or "."
+        dir_path = path or "."
 
         try:
             # Create an absolute path from the provided relative path
@@ -104,10 +104,10 @@ class Tool(BaseTool):
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
 
         # Output the directory parameter with the requested format
-        directory = params.get("directory", "")
+        directory = params.get("path", "")
         if directory:
             # Format as "ls: • directory"
-            formatted_query = f"{color_start}directory:{color_end} {directory}"
+            formatted_query = f"{color_start}path:{color_end} {directory}"
             coder.io.tool_output(formatted_query)
             coder.io.tool_output("")
 

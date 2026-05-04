@@ -5,20 +5,24 @@ from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
+cwd = os.getcwd()
+
 try:
     import cymbal
 
     CYMBAL_AVAILABLE = True
 except ImportError:
     CYMBAL_AVAILABLE = False
+finally:
+    os.chdir(cwd)
 
 
 class Tool(BaseTool):
-    NORM_NAME = "exploresymbols"
+    NORM_NAME = "explorecode"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ExploreSymbols",
+            "name": "ExploreCode",
             "description": (
                 "Search, investigate, and find references to symbols using the Cymbal code indexing"
                 " library. This is the preferred tool for analyzing code structure."
@@ -95,14 +99,12 @@ class Tool(BaseTool):
             repo_path = getattr(coder, "root", ".")
 
             try:
-                # If we can't get a db_path or it doesn't exist, index it.
-                if not os.path.exists(c.db_path):
-                    c.index(repo_path)
+                # Always index to ensure we have the latest data
+                c.index(repo_path)
             except Exception as e:
                 error_msg = f"Failed to index repository: {str(e)}"
                 coder.io.tool_error(error_msg)
                 return f"Error: {error_msg}"
-
             all_results = []
             all_failed_queries = []
             total_successful_queries = 0
@@ -117,11 +119,8 @@ class Tool(BaseTool):
                         results = c.search(symbol, limit=limit)
                         all_results.append(cls._format_search_results(results, symbol))
                     elif action == "investigate":
-                        # Parse symbol for file hint format: {file}:{symbol} or {package}.{symbol}
                         symbol_name = symbol
                         file_hint = ""
-
-                        # Check for file:symbol format (e.g., "config.go:Config")
                         if ":" in symbol:
                             parts = symbol.split(":", 1)
                             if len(parts) == 2:
@@ -135,7 +134,6 @@ class Tool(BaseTool):
                             )
                         except Exception as e:
                             if "multiple matches" in str(e).lower():
-                                # Fallback to search to show locations
                                 results = c.search(symbol_name, limit=10)
                                 locations = "\n".join(
                                     [f"- {r['file']}:{r['start_line']}" for r in results]
@@ -176,8 +174,11 @@ class Tool(BaseTool):
             return "\n\n" + "=" * 40 + "\n\n".join(all_results)
 
         except Exception as e:
-            coder.io.tool_error(f"Error in ExploreSymbols: {str(e)}")
+            coder.io.tool_error(f"Error in ExploreCode: {str(e)}")
             return f"Error: {str(e)}"
+        finally:
+            if "c" in locals():
+                c.close()
 
     @classmethod
     def _format_search_results(cls, results, symbol):
@@ -187,14 +188,18 @@ class Tool(BaseTool):
 
         formatted = [f"Found {len(results)} symbols matching '{symbol}':"]
         for i, result in enumerate(results[:15], 1):
-            # Extract symbol attributes (adjust based on actual cymbal result structure)
-            # Extract symbol attributes from dictionary
             name = result.get("name", "Unknown")
             kind = result.get("kind", "unknown")
-            file = result.get("file", "Unknown")
+            file = result.get("rel_path") or result.get("file", "Unknown")
             start_line = result.get("start_line", 0)
+            signature = result.get("signature", "")
+            parent = result.get("parent")
 
-            formatted.append(f"{i}. {name} ({kind}) at {file}:{start_line}")
+            location = f"{file}:{start_line}"
+            if parent:
+                location = f"{location} (in {parent})"
+
+            formatted.append(f"{i}. {name}{signature} ({kind}) at {location}")
 
         if len(results) > 15:
             formatted.append(f"... and {len(results) - 15} more results")
@@ -207,17 +212,33 @@ class Tool(BaseTool):
         if not investigation:
             return f"No information found for symbol '{symbol}'"
 
+        # Handle nested structure if present
+        if "results" in investigation and "result" in investigation["results"]:
+            investigation = investigation["results"]["result"]
+
         formatted = [f"Investigation of symbol '{symbol}':"]
 
         # Extract definition information
         definition = investigation.get("symbol")
         if definition:
             def_name = definition.get("name", symbol)
-            def_file = definition.get("file", "Unknown")
+            def_file = definition.get("rel_path") or definition.get("file", "Unknown")
             def_line = definition.get("start_line", 0)
             def_kind = definition.get("kind", "unknown")
-            formatted.append(f"Definition: {def_name} ({def_kind}) at {def_file}:{def_line}")
+            def_sig = definition.get("signature", "")
+            formatted.append(
+                f"Definition: {def_name}{def_sig} ({def_kind}) at {def_file}:{def_line}"
+            )
 
+        # Source code snippet
+        source = investigation.get("source")
+        if source:
+            formatted.append("\nSource Code:")
+            formatted.append("```python")
+            formatted.append(source.strip())
+            formatted.append("```")
+
+        # References
         references = investigation.get("refs", [])
         ref_count = len(references) if references else 0
         formatted.append(f"\nReferences found: {ref_count}")
@@ -225,12 +246,25 @@ class Tool(BaseTool):
         if references and ref_count > 0:
             formatted.append("Top references:")
             for i, ref in enumerate(references[:10], 1):
-                ref_file = ref.get("file", "Unknown")
+                ref_file = ref.get("rel_path") or ref.get("file", "Unknown")
                 ref_line = ref.get("line", 0)
                 formatted.append(f"{i}. {ref_file}:{ref_line}")
 
             if ref_count > 10:
                 formatted.append(f"... and {ref_count - 10} more references")
+
+        # Impact / Callers
+        impact = investigation.get("impact", [])
+        if impact:
+            formatted.append("\nImpact (Callers):")
+            for i, imp in enumerate(impact[:10], 1):
+                imp_file = imp.get("rel_path") or imp.get("file", "Unknown")
+                imp_line = imp.get("line", 0)
+                imp_caller = imp.get("caller", "unknown")
+                formatted.append(f"{i}. {imp_caller} at {imp_file}:{imp_line}")
+
+            if len(impact) > 10:
+                formatted.append(f"... and {len(impact) - 10} more callers")
 
         return "\n".join(formatted)
 
@@ -242,11 +276,15 @@ class Tool(BaseTool):
 
         formatted = [f"Found {len(references)} references to '{symbol}':"]
         for i, ref in enumerate(references[:15], 1):
-            # Extract reference attributes from dictionary
-            file = ref.get("file", "Unknown")
+            file = ref.get("rel_path") or ref.get("file", "Unknown")
             line = ref.get("line", 0)
+            context = ref.get("context", [])
 
             formatted.append(f"{i}. {file}:{line}")
+            if context:
+                formatted.append("   Context:")
+                for line_text in context:
+                    formatted.append(f"     {line_text.strip()}")
 
         if len(references) > 15:
             formatted.append(f"... and {len(references) - 15} more references")
@@ -255,7 +293,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for ExploreSymbols tool."""
+        """Format output for ExploreCode tool."""
         color_start, color_end = color_markers(coder)
 
         try:
@@ -266,8 +304,6 @@ class Tool(BaseTool):
 
         # Output header
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
-
-        # Output each query with the requested format
         queries = params.get("queries", [])
         if queries:
             coder.io.tool_output("")

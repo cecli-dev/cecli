@@ -25,6 +25,7 @@ class ConversationManager:
         self._tag_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._ALL_MESSAGES_CACHE_KEY = "__all__"
         self.DEFAULT_TAG_PROMOTION_VALUE: int = 999
+        self._queue: List[Dict[str, Any]] = []
 
     @classmethod
     def get_instance(cls, coder) -> "ConversationManager":
@@ -192,6 +193,33 @@ class ConversationManager:
             self._tag_cache.pop(tag.value, None)
             self._tag_cache.pop(self._ALL_MESSAGES_CACHE_KEY, None)
             return message
+
+    def queue_message(self, **kwargs) -> None:
+        """
+        Queue an add_message() call for later insertion.
+
+        Accepts the same keyword arguments as add_message()
+        and stores them in an internal queue to be flushed
+        later via flush_queue().
+        """
+        self._queue.append(kwargs)
+
+    def flush_queue(self) -> List[Any]:
+        """
+        Flush all queued add_message() calls.
+
+        Calls add_message() for each set of kwargs in the
+        internal queue, then clears the queue.
+
+        Returns:
+            List of BaseMessage instances returned by add_message()
+        """
+        results = []
+        while self._queue:
+            kwargs = self._queue.pop(0)
+            result = self.add_message(**kwargs)
+            results.append(result)
+        return results
 
     def base_sort(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """

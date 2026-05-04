@@ -16,20 +16,29 @@ from cecli.tools.utils.helpers import (
 )
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
+VALID_OPERATIONS = {"replace", "delete", "insert"}
+OPERATION_NOUNS = {
+    "replace": "replacement",
+    "delete": "deletion",
+    "insert": "insertion",
+}
+
 
 class Tool(BaseTool):
-    NORM_NAME = "replacetext"
+    NORM_NAME = "edittext"
     TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ReplaceText",
+            "name": "EditText",
             "description": (
-                "Replace text in one or more files. Can handle an array of up to 10 edits across"
-                " multiple files. Each edit must include its own file_path. Use hashline ranges"
-                " with the start_line and end_line parameters with format"
-                ' "{4 char hash}" (without the braces). For empty files, use "@000" as the hashline'
-                " references."
+                "Edit text in one or more files using hashline markers. "
+                "Supports replace, delete, and insert operations in a single call. "
+                "Can handle an array of up to 10 edits across multiple files. "
+                "Each edit must include its own file_path and operation type. "
+                "Use hashline ranges with the start_line and end_line parameters with format "
+                '"{4 char hash}" (without the braces). For empty files, use "@000" as the hashline '
+                "references."
             ),
             "parameters": {
                 "type": "object",
@@ -43,12 +52,27 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "description": "Required file path for this specific edit.",
                                 },
-                                "replace_text": {"type": "string"},
+                                "operation": {
+                                    "type": "string",
+                                    "enum": ["replace", "delete", "insert"],
+                                    "description": (
+                                        "The type of operation: 'replace' (replace range with"
+                                        " text), 'delete' (remove range), or 'insert' (insert text"
+                                        " after start_line). Defaults to 'replace'."
+                                    ),
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": (
+                                        "Text content for replace/insert operations. "
+                                        "Not required for delete operations."
+                                    ),
+                                },
                                 "start_line": {
                                     "type": "string",
                                     "description": (
-                                        'Hashline format for start line: "{4 char hash}" (without'
-                                        " the braces)"
+                                        'Hashline format for start line: "{4 char hash}" (without '
+                                        "the braces)"
                                     ),
                                 },
                                 "end_line": {
@@ -59,11 +83,12 @@ class Tool(BaseTool):
                                     ),
                                 },
                             },
-                            "required": ["file_path", "replace_text", "start_line", "end_line"],
+                            "required": ["file_path"],
                         },
                         "description": "Array of edits to apply.",
                     },
                     "change_id": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": False},
                 },
                 "required": ["edits"],
             },
@@ -76,19 +101,20 @@ class Tool(BaseTool):
         coder,
         edits=None,
         change_id=None,
+        dry_run=False,
         **kwargs,
     ):
         """
-        Replace text in one or more files. Can handle single edit or array of edits across multiple files.
+        Edit text in one or more files. Supports replace, delete, and insert operations.
+        Can handle single edit or array of edits across multiple files.
         Each edit object must include its own file_path.
         """
-
         if not coder.edit_allowed:
             raise ToolError(
-                "Please call `ShowContext` first to make sure edits are appropriately scoped"
+                "Please call `ReadRange` first to make sure edits are appropriately scoped"
             )
 
-        tool_name = "ReplaceText"
+        tool_name = "EditText"
         try:
             # 1. Validate edits parameter
             if not isinstance(edits, list):
@@ -129,30 +155,64 @@ class Tool(BaseTool):
 
                     for edit_index, edit in file_edits:
                         try:
-                            edit_replace_text = strip_hashline(edit.get("replace_text"))
+                            operation = edit.get("operation", "replace")
+                            if operation not in VALID_OPERATIONS:
+                                raise ToolError(
+                                    f"Edit {edit_index + 1}: Invalid operation '{operation}'. "
+                                    "Must be 'replace', 'delete', or 'insert'"
+                                )
+
+                            edit_text_raw = edit.get("text")
+                            edit_text = (
+                                strip_hashline(edit_text_raw) if edit_text_raw is not None else None
+                            )
                             edit_start_line = edit.get("start_line")
                             edit_end_line = edit.get("end_line")
 
-                            if edit_replace_text is None:
-                                raise ToolError(
-                                    f"Edit {edit_index + 1} missing required replace_text parameter"
-                                )
+                            # Validate required fields based on operation type
+                            if operation in ("replace", "insert"):
+                                if edit_text is None:
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: 'text' parameter is required for "
+                                        f"'{operation}' operation"
+                                    )
+                            if operation in ("replace", "delete"):
+                                if edit_start_line is None:
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: 'start_line' parameter is required"
+                                        f" for '{operation}' operation"
+                                    )
+                                if edit_end_line is None:
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: 'end_line' parameter is required "
+                                        f"for '{operation}' operation"
+                                    )
+                            if operation == "insert":
+                                if edit_start_line is None:
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: 'start_line' parameter is required"
+                                        " for 'insert' operation"
+                                    )
+                                # For insert, end_line defaults to start_line
+                                edit_end_line = edit_end_line or edit_start_line
 
-                            # Add operation to batch
-                            operations.append(
-                                {
-                                    "start_line_hash": edit_start_line,
-                                    "end_line_hash": edit_end_line,
-                                    "operation": "replace",
-                                    "text": edit_replace_text,
-                                }
-                            )
+                            # Build operation dict for apply_hashline_operations
+                            op_dict = {
+                                "start_line_hash": edit_start_line,
+                                "end_line_hash": edit_end_line,
+                                "operation": operation,
+                            }
+                            if edit_text is not None:
+                                op_dict["text"] = edit_text
+
+                            operations.append(op_dict)
 
                             # Create metadata for this edit
                             metadata = {
+                                "operation": operation,
                                 "start_line": edit_start_line,
                                 "end_line": edit_end_line,
-                                "replace_text": edit_replace_text,
+                                "text": edit_text,
                             }
                             file_metadata.append(metadata)
 
@@ -189,6 +249,23 @@ class Tool(BaseTool):
                     if original_content == new_content or file_successful_edits == 0:
                         continue
 
+                    # Handle dry run
+                    if dry_run:
+                        dry_run_message = (
+                            f"Dry run: Would apply {file_successful_edits} edit(s) "
+                            f"in {file_path_key}"
+                        )
+                        if file_failed_edits:
+                            dry_run_message += f" ({len(file_failed_edits)} failed)"
+                        all_results.append(
+                            {
+                                "file_path": file_path_key,
+                                "dry_run": True,
+                                "dry_run_message": dry_run_message,
+                            }
+                        )
+                        continue
+
                     # Apply Change
                     metadata = {
                         "edits": file_metadata,
@@ -196,14 +273,13 @@ class Tool(BaseTool):
                         "failed_edits": file_failed_edits if file_failed_edits else None,
                     }
 
-                    # Apply the change (common path for both hashline and non-hashline cases)
                     final_change_id = apply_change(
                         coder,
                         abs_path,
                         rel_path,
                         original_content,
                         new_content,
-                        "replacetext",
+                        "edittext",
                         metadata,
                         change_id,
                     )
@@ -228,20 +304,31 @@ class Tool(BaseTool):
                         all_failed_edits.append(f"Edit {edit_index + 1}: {str(e)}")
                     continue
 
+            # If dry run, return all results
+            if dry_run:
+                dry_run_messages = "\n".join(r.get("dry_run_message", "") for r in all_results)
+                return format_tool_result(
+                    coder,
+                    tool_name,
+                    "",
+                    dry_run=True,
+                    dry_run_message=dry_run_messages or "Dry run: No changes would be made",
+                )
+
             # 4. Check if any edits succeeded overall
             if total_successful_edits == 0:
                 coder.edit_allowed = True
                 error_msg = "No edits were successfully applied:\n" + "\n".join(all_failed_edits)
                 raise ToolError(error_msg)
 
-            # 6. Format and return result
+            # 5. Format and return result
             # Log failed edit messages to console for visibility
             if all_failed_edits:
                 for failed_msg in all_failed_edits:
                     coder.io.tool_error(failed_msg)
 
             if files_processed == 1:
-                # Single file case for backward compatibility
+                # Single file case
                 result = all_results[0]
                 success_message = (
                     f"Applied {result['successful_edits']} edits in {result['file_path']}"
@@ -272,11 +359,9 @@ class Tool(BaseTool):
             )
 
         except ToolError as e:
-            # Handle errors raised by utility functions or explicitly raised here
             coder.edit_allowed = False
             return handle_tool_error(coder, tool_name, e, add_traceback=False)
         except Exception as e:
-            # Handle unexpected errors
             coder.edit_allowed = False
             return handle_tool_error(coder, tool_name, e)
 
@@ -294,7 +379,7 @@ class Tool(BaseTool):
         # Group edits by file_path for display
         edits_by_file = {}
 
-        for i, edit in enumerate(params["edits"]):
+        for i, edit in enumerate(params.get("edits", [])):
             edit_file_path = edit.get("file_path")
             if edit_file_path not in edits_by_file:
                 edits_by_file[edit_file_path] = []
@@ -309,44 +394,59 @@ class Tool(BaseTool):
                 coder.io.tool_output("")
 
             for edit_index, edit in file_edits:
-                # Show diff for this edit using hashline diff
-                replace_text = strip_hashline(edit.get("replace_text", ""))
+                operation = edit.get("operation", "replace")
+
+                if len(params.get("edits", [])) > 1:
+                    coder.io.tool_output(
+                        f"{color_start}{OPERATION_NOUNS[operation]}_{edit_index + 1}:{color_end}"
+                    )
+                else:
+                    coder.io.tool_output(f"{color_start}{OPERATION_NOUNS[operation]}:{color_end}")
+
+                text = strip_hashline(edit.get("text", ""))
                 start_line = edit.get("start_line")
                 end_line = edit.get("end_line")
+                # Show output based on operation type
+                if operation == "replace":
+                    # Show diff for replace operations
+                    diff_output = ""
 
-                # Try to read the file to get original content for diff
-                diff_output = ""
+                    if file_path_key and start_line and end_line:
+                        try:
+                            abs_path = coder.abs_root_path(file_path_key)
+                            original_content = coder.io.read_text(abs_path)
 
-                if file_path_key and start_line and end_line:
-                    try:
-                        # Try to read the file
-                        abs_path = coder.abs_root_path(file_path_key)
-                        original_content = coder.io.read_text(abs_path)
+                            if original_content is not None:
+                                diff_output = get_hashline_diff(
+                                    original_content=strip_hashline(original_content),
+                                    start_line_hash=start_line,
+                                    end_line_hash=end_line,
+                                    operation="replace",
+                                    text=strip_hashline(text),
+                                )
+                        except HashlineError as e:
+                            diff_output = f"Hashline verification failed: {str(e)}"
+                        except Exception:
+                            pass
 
-                        if original_content is not None:
-                            # Generate diff using get_hashline_diff
-                            diff_output = get_hashline_diff(
-                                original_content=strip_hashline(original_content),
-                                start_line_hash=start_line,
-                                end_line_hash=end_line,
-                                operation="replace",
-                                text=strip_hashline(replace_text),
-                            )
-                    except HashlineError as e:
-                        # If hashline verification fails, show the error
-                        diff_output = f"Hashline verification failed: {str(e)}"
-                    except Exception:
-                        # If we can't read the file or generate diff, continue without it
-                        pass
+                    if diff_output:
+                        coder.io.tool_output(diff_output)
+                        coder.io.tool_output("")
 
-                # Only show diff section if we have diff output
-                if diff_output:
-                    if len(params["edits"]) > 1:
-                        coder.io.tool_output(f"{color_start}diff_{edit_index + 1}:{color_end}")
-                    else:
-                        coder.io.tool_output(f"{color_start}diff:{color_end}")
+                elif operation == "insert":
+                    # Show inserted text
+                    if text:
+                        coder.io.tool_output(text)
+                        coder.io.tool_output("")
 
-                    coder.io.tool_output(diff_output)
+                elif operation == "delete":
+                    # Show deletion summary
+                    range_info = (
+                        f"Deleted {start_line} - {end_line}"
+                        if start_line and end_line
+                        else "specified range"
+                    )
+                    coder.io.tool_output(range_info)
                     coder.io.tool_output("")
 
         tool_footer(coder=coder, tool_response=tool_response)
