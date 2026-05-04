@@ -3508,10 +3508,12 @@ class Coder:
         if completion and hasattr(completion, "usage") and completion.usage is not None:
             prompt_tokens = completion.usage.prompt_tokens
             completion_tokens = completion.usage.completion_tokens
-            cache_hit_tokens = getattr(completion.usage, "prompt_cache_hit_tokens", 0) or getattr(
-                completion.usage, "cache_read_input_tokens", 0
+            cache_hit_tokens = (
+                getattr(completion.usage, "prompt_cache_hit_tokens", 0)
+                or getattr(completion.usage, "cache_read_input_tokens", 0)
+                or 0
             )
-            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0)
+            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0) or 0
             self.message_cached_tokens += cache_hit_tokens
 
             if hasattr(completion.usage, "cache_read_input_tokens") or hasattr(
