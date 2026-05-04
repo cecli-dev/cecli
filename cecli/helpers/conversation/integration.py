@@ -268,6 +268,43 @@ class ConversationChunks:
                     image_assistant_hash_key
                 )
 
+        # Clean up stale file_context messages
+        # If a file has 3 or more file_context_user messages, remove all but the most recent
+        # (and their corresponding assistant messages) to prevent excessive stale context
+        file_context_messages = ConversationService.get_manager(coder).get_tag_messages(
+            MessageTag.FILE_CONTEXTS
+        )
+
+        # Group user file_context messages by file path
+        user_msgs_by_file: Dict[str, List[int]] = {}
+        user_msg_indices: List[int] = []
+        for msg_idx, msg in enumerate(file_context_messages):
+            if msg.hash_key and len(msg.hash_key) == 3 and msg.hash_key[0] == "file_context_user":
+                file_path = msg.hash_key[1]
+                if file_path not in user_msgs_by_file:
+                    user_msgs_by_file[file_path] = []
+                user_msgs_by_file[file_path].append(msg_idx)
+                user_msg_indices.append(msg_idx)
+
+        # For files with 3+ user messages, keep only the last one
+        hash_keys_to_remove: set = set()
+        for file_path, indices in user_msgs_by_file.items():
+            if len(indices) >= 3:
+                # Keep the last one (most recent in sorted order)
+                older_indices = indices[:-1]
+                for old_idx in older_indices:
+                    old_msg = file_context_messages[old_idx]
+                    content_hash = old_msg.hash_key[2]
+                    # Mark the user message for removal
+                    hash_keys_to_remove.add(("file_context_user", file_path, content_hash))
+                    # Mark the corresponding assistant message for removal
+                    hash_keys_to_remove.add(("file_context_assistant", file_path, content_hash))
+
+        if hash_keys_to_remove:
+            ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(
+                lambda hash_key: hash_key in hash_keys_to_remove
+            )
+
         ConversationService.get_manager(coder).clear_tag(MessageTag.RULES)
 
     def add_file_list_reminder(self) -> None:
@@ -786,20 +823,17 @@ class ConversationChunks:
             }
 
             # Add to conversation manager
+            content_hash = xxhash.xxh3_128_hexdigest(context_content.encode("utf-8"))
             ConversationService.get_manager(coder).queue_message(
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_user", file_path),
-                force=True,
-                update_timestamp=False,
+                hash_key=("file_context_user", file_path, content_hash),
             )
 
             ConversationService.get_manager(coder).queue_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_assistant", file_path),
-                force=True,
-                update_timestamp=False,
+                hash_key=("file_context_assistant", file_path, content_hash),
             )
 
     def reset(self) -> None:

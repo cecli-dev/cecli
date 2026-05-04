@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Dict
 
 from cecli.helpers.hashline import hashline, strip_hashline
 from cecli.tools.utils.base_tool import BaseTool
@@ -78,6 +79,7 @@ class Tool(BaseTool):
     }
 
     _last_invocation = {}  # file_path -> {start_idx, end_idx}
+    _last_read_turn: Dict[str, int] = {}  # abs_path -> turn_count when last read
 
     @classmethod
     def execute(cls, coder, show, **kwargs):
@@ -286,7 +288,15 @@ class Tool(BaseTool):
                 else:
                     already_up_to_date = False
 
-                ConversationService.get_files(coder).remove_file_messages(abs_path)
+                # Conditionally remove old file context messages
+                # If the file was last read >= 10 turns ago, keep old messages (allow coexistence)
+                # Otherwise, remove them to avoid duplicates
+                last_turn = cls._last_read_turn.get(abs_path)
+                if last_turn is None or coder.turn_count - last_turn < 10:
+                    ConversationService.get_files(coder).remove_file_messages(abs_path)
+
+                # Update the last read turn for this file
+                cls._last_read_turn[abs_path] = coder.turn_count
 
                 ConversationService.get_chunks(coder).add_file_context_messages()
 
