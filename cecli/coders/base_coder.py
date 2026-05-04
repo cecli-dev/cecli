@@ -339,6 +339,7 @@ class Coder:
     ):
         # initialize from args.map_cache_dir
         self.interrupt_event = asyncio.Event()
+        self.coroutines = coroutines
         self.uuid = generate_unique_id()
         if uuid:
             self.uuid = uuid
@@ -1380,11 +1381,6 @@ class Coder:
             except (SwitchCoderSignal, SystemExit):
                 # Re-raise SwitchCoder to be handled by outer try block
                 raise
-            except KeyboardInterrupt:
-                # Handle keyboard interrupt gracefully
-                self.io.set_placeholder("")
-                self.io.stop_spinner()
-                self.keyboard_interrupt()
             finally:
                 # Signal tasks to stop
                 self.input_running = False
@@ -1464,10 +1460,6 @@ class Coder:
 
                 await asyncio.sleep(0.1)  # Small yield to prevent tight loop
 
-            except KeyboardInterrupt:
-                self.io.set_placeholder("")
-                self.keyboard_interrupt()
-                await self.io.stop_task_streams()
             except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
@@ -1749,7 +1741,6 @@ class Coder:
         Console().show_cursor(True)
 
         self.io.tool_warning("\n\n^C KeyboardInterrupt")
-
         self.interrupt_event.set()
         self.last_keyboard_interrupt = time.time()
 
@@ -2272,9 +2263,16 @@ class Coder:
                         self.io.tool_error(err_msg)
 
                     self.io.tool_output(f"Retrying in {retry_delay:.1f} seconds...")
-                    await asyncio.sleep(retry_delay)
+
+                    _res, interrupted_sleep = await coroutines.interruptible(
+                        asyncio.sleep(retry_delay), self.interrupt_event
+                    )
+                    if interrupted_sleep:
+                        interrupted = True
+                        break
+
                     continue
-                except KeyboardInterrupt:
+                except (KeyboardInterrupt, asyncio.CancelledError):
                     interrupted = True
                     break
                 except FinishReasonLength:
@@ -2639,10 +2637,18 @@ class Coder:
                             all_results_content.append("Tool Request Aborted.")
                             continue
 
-                        call_result = await experimental_mcp_client.call_openai_tool(
-                            session=session,
-                            openai_tool=new_tool_call,
+                        async def do_tool_call():
+                            return await experimental_mcp_client.call_openai_tool(
+                                session=session,
+                                openai_tool=new_tool_call,
+                            )
+
+                        call_result, interrupted = await coroutines.interruptible(
+                            do_tool_call(), self.interrupt_event
                         )
+
+                        if interrupted:
+                            raise KeyboardInterrupt("Tool call interrupted")
 
                         content_parts = []
                         if call_result.content:
@@ -2688,6 +2694,9 @@ class Coder:
                         }
                     )
 
+                except KeyboardInterrupt:
+                    self.io.tool_warning(f"Tool call {tool_call.function.name} interrupted.")
+                    raise
                 except Exception as e:
                     tool_error = f"Error executing tool call {tool_call.function.name}: \n{e}"
                     self.io.tool_warning(
@@ -2704,6 +2713,9 @@ class Coder:
                 tool_responses.append(
                     {"role": "tool", "tool_call_id": tool_call.id, "content": connection_error}
                 )
+        except asyncio.CancelledError:
+            # Re-raise CancelledError to ensure the task cancellation propagates
+            raise
         except Exception as e:
             connection_error = f"Could not connect to server {server.name}\n{e}"
             self.io.tool_warning(connection_error)
@@ -2738,7 +2750,15 @@ class Coder:
             return False
 
         # 5. Execute tools
-        tool_responses_by_server = await self._execute_tool_groups(tool_groups)
+        self.interrupt_event.clear()
+
+        tool_responses_by_server, interrupted = await coroutines.interruptible(
+            self._execute_tool_groups(tool_groups), self.interrupt_event
+        )
+
+        if interrupted:
+            self.io.tool_warning("Tool execution interrupted.")
+            return False
 
         # 6. Add responses to conversation (re-prefixing if necessary)
         tool_responses = []
@@ -3050,33 +3070,22 @@ class Coder:
         self.token_profiler.start()
 
         try:
-            completion_task = asyncio.create_task(
-                model.send_completion(
-                    messages,
-                    functions,
-                    self.stream,
-                    self.temperature,
-                    # This could include any tools, but for now it is just MCP tools
-                    tools=tools,
-                    override_kwargs=self.model_kwargs.copy(),
-                )
-            )
-            interrupt_task = asyncio.create_task(self.interrupt_event.wait())
-
-            done, pending = await asyncio.wait(
-                {completion_task, interrupt_task},
-                return_when=asyncio.FIRST_COMPLETED,
+            completion_coro = model.send_completion(
+                messages,
+                functions,
+                self.stream,
+                self.temperature,
+                # This could include any tools, but for now it is just MCP tools
+                tools=tools,
+                override_kwargs=self.model_kwargs.copy(),
+                interrupt_event=self.interrupt_event,
             )
 
-            if interrupt_task in done:
-                completion_task.cancel()
-                try:
-                    await completion_task
-                except asyncio.CancelledError:
-                    pass
+            (hash_object, completion), interrupted = await coroutines.interruptible(
+                completion_coro, self.interrupt_event
+            )
+            if interrupted:
                 raise KeyboardInterrupt
-
-            hash_object, completion = completion_task.result()
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
             if not isinstance(completion, ModelResponse):
@@ -3099,7 +3108,7 @@ class Coder:
                 self.token_profiler.on_error()
                 self.calculate_and_show_tokens_and_cost(messages, completion)
             raise
-        except KeyboardInterrupt as kbi:
+        except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
             self.keyboard_interrupt()
             raise kbi
         finally:

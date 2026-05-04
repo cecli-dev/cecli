@@ -19,7 +19,7 @@ from PIL import Image
 from cecli import __version__
 from cecli.dump import dump
 from cecli.exceptions import LiteLLMExceptions
-from cecli.helpers import nested
+from cecli.helpers import coroutines, nested
 from cecli.helpers.file_searcher import generate_search_path_list, handle_core_files
 from cecli.helpers.model_providers import ModelProviderManager
 from cecli.helpers.nested import deep_merge
@@ -1132,6 +1132,7 @@ class Model(ModelSettings):
         min_wait=0,
         max_wait=2,
         override_kwargs={},
+        interrupt_event=None,
     ):
         if os.environ.get("CECLI_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
@@ -1290,7 +1291,14 @@ class Model(ModelSettings):
                         return hash_object, self.model_error_response()
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
-                await asyncio.sleep(retry_delay)
+                if interrupt_event:
+                    _res, interrupted = await coroutines.interruptible(
+                        asyncio.sleep(retry_delay), interrupt_event
+                    )
+                    if interrupted:
+                        raise KeyboardInterrupt("Interrupted during retry sleep")
+                else:
+                    await asyncio.sleep(retry_delay)
                 continue
 
     async def simple_send_with_retries(

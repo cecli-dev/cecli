@@ -20,37 +20,58 @@ class RemoveMcpCommand(BaseCommand):
             )
 
         server_names = args.strip().split()
+
         results = []
+        servers_to_disconnect = []
 
         # Handle '*' wildcard to disconnect all servers
         if server_names == ["*"]:
             connected = [s for s in coder.mcp_manager.servers if s.is_connected]
+
             if not connected:
                 results.append("No MCP servers connected, nothing to remove.")
             else:
-                for server in connected:
-                    await coder.mcp_manager.disconnect_server(server.name)
-                    results.append(f"Removed server: {server.name}")
+                servers_to_disconnect.extend(connected)
         else:
             for server_name in server_names:
-                was_disconnected = await coder.mcp_manager.disconnect_server(server_name)
-                if was_disconnected:
-                    results.append(f"Removed server: {server_name}")
-                else:
-                    results.append(f"Unable to remove server: {server_name}")
+                servers_to_disconnect.append(server_name)
 
-        try:
-            return format_command_result(io, cls.NORM_NAME, "\n".join(results))
-        finally:
-            from . import SwitchCoderSignal
+        # Early exit if nothing to process
+        if not servers_to_disconnect and results:
+            return format_command_result(io, cls.NORM_NAME, "", "\n".join(results))
 
-            raise SwitchCoderSignal(
-                edit_format=coder.edit_format,
-                summarize_from_coder=False,
-                from_coder=coder,
-                show_announcements=True,
-                mcp_manager=coder.mcp_manager,
+        # Process disconnections with interrupt support
+        for item in servers_to_disconnect:
+            server_name = item.name if hasattr(item, "name") else item
+
+            coder.interrupt_event.clear()
+
+            was_disconnected, interrupted = await coder.coroutines.interruptible(
+                coder.mcp_manager.disconnect_server(server_name),
+                coder.interrupt_event,
             )
+
+            if interrupted:
+                io.tool_warning(f"MCP disconnection interrupted: {server_name}")
+                results.append(f"Interrupted: {server_name}")
+                continue
+
+            if was_disconnected:
+                results.append(f"Removed server: {server_name}")
+            else:
+                results.append(f"Unable to remove server: {server_name}")
+
+        io.tool_output("\n".join(results))
+
+        from . import SwitchCoderSignal
+
+        raise SwitchCoderSignal(
+            edit_format=coder.edit_format,
+            summarize_from_coder=False,
+            from_coder=coder,
+            show_announcements=True,
+            mcp_manager=coder.mcp_manager,
+        )
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:

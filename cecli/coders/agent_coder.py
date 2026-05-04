@@ -31,6 +31,8 @@ from cecli.utils import copy_tool_call, tool_call_to_dict
 
 from .base_coder import Coder
 
+from cecli.helpers.coroutines import interruptible  # isort:skip
+
 
 class AgentCoder(Coder):
     """Mode where the LLM autonomously manages which files are in context."""
@@ -304,8 +306,23 @@ class AgentCoder(Coder):
                 else:
                     all_results_content.append(f"Error: Unknown tool name '{tool_name}'")
                 if tasks:
-                    task_results = await asyncio.gather(*tasks)
-                    all_results_content.extend(str(res) for res in task_results)
+
+                    async def gather_and_await():
+                        return await asyncio.gather(*tasks, return_exceptions=True)
+
+                    task_results, interrupted = await interruptible(
+                        gather_and_await(), self.interrupt_event
+                    )
+
+                    if interrupted:
+                        self.io.tool_warning("Tool execution interrupted.")
+                        all_results_content.append("Tool execution interrupted by user.")
+                    elif task_results:
+                        for res in task_results:
+                            if isinstance(res, Exception):
+                                all_results_content.append(f"Error in tool execution: {res}")
+                            else:
+                                all_results_content.append(str(res))
 
                 if not await HookIntegration.call_post_tool_hooks(
                     self, tool_name, args_string, "\n\n".join(all_results_content)
@@ -396,7 +413,11 @@ class AgentCoder(Coder):
 """)
                 return f"Error executing tool call {tool_name}: {e}"
 
-        return await _exec_async()
+        result, interrupted = await interruptible(_exec_async(), self.interrupt_event)
+
+        if interrupted:
+            return "Tool execution interrupted by user."
+        return result
 
     def _calculate_context_block_tokens(self, force=False):
         """
