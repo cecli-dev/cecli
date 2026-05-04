@@ -1740,7 +1740,7 @@ class Coder:
         # Ensure cursor is visible on exit
         Console().show_cursor(True)
 
-        self.io.tool_warning("\n\n^C KeyboardInterrupt")
+        self.io.tool_warning("^C KeyboardInterrupt")
         self.interrupt_event.set()
         self.last_keyboard_interrupt = time.time()
 
