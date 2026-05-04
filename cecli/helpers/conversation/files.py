@@ -436,16 +436,18 @@ class ConversationFiles:
 
         # Generate hashline representations for each range
         context_parts = []
+        content_lines = content.splitlines()
+
         for i, (start_line, end_line) in enumerate(ranges):
             # Note: hashline uses 1-based line numbers, so no conversion needed
             start_line_adj = max(1, start_line)
-            end_line_adj = min(len(content.splitlines()), end_line)
+            end_line_adj = min(len(content_lines), end_line)
 
             if start_line_adj > end_line_adj:
                 continue
 
             # Extract lines for this range (0-based indexing for list)
-            lines = content.splitlines()[start_line_adj - 1 : end_line_adj]
+            lines = content_lines[start_line_adj - 1 : end_line_adj]
 
             # Generate hashline representation using the hashline() function
             # Join lines back with newlines for hashline()
@@ -469,14 +471,16 @@ class ConversationFiles:
         # Remove from numbered contexts
         self._numbered_contexts.pop(abs_fname, None)
 
-        # Remove using hash key (file_context, abs_fname)
+        # Remove using hash key pattern matching for file_context messages
         coder = self.get_coder()
         if coder:
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_user", abs_fname)
-            )
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_assistant", abs_fname)
+            ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(
+                lambda hash_key: (
+                    isinstance(hash_key, tuple)
+                    and len(hash_key) in (2, 3)
+                    and hash_key[0] in ("file_context_user", "file_context_assistant")
+                    and hash_key[1] == abs_fname
+                )
             )
 
     def remove_file_messages(self, file_path: str) -> None:
@@ -488,14 +492,16 @@ class ConversationFiles:
         """
         abs_fname = os.path.abspath(file_path)
 
-        # Remove using hash key (file_context, abs_fname)
+        # Remove using hash key pattern matching for file_context messages
         coder = self.get_coder()
         if coder:
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_user", abs_fname)
-            )
-            ConversationService.get_manager(coder).remove_message_by_hash_key(
-                ("file_context_assistant", abs_fname)
+            ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(
+                lambda hash_key: (
+                    isinstance(hash_key, tuple)
+                    and len(hash_key) in (2, 3)
+                    and hash_key[0] in ("file_context_user", "file_context_assistant")
+                    and hash_key[1] == abs_fname
+                )
             )
 
     def clear_all_numbered_contexts(self) -> None:

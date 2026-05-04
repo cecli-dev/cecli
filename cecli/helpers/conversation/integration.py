@@ -18,6 +18,7 @@ class ConversationChunks:
     def __init__(self, coder):
         self.coder = weakref.ref(coder)
         self.uuid = coder.uuid
+        self._last_clear_count = 0
 
     @classmethod
     def get_instance(cls, coder) -> "ConversationChunks":
@@ -212,7 +213,11 @@ class ConversationChunks:
         if diff_count > 0 and other_count > 0 and diff_count / other_count > 20:
             should_clear = True
 
-        if should_clear:
+        self._last_clear_count += 1
+
+        if should_clear and self._last_clear_count >= 10:
+            self._last_clear_count = 0
+
             # Clear all diff messages
             ConversationService.get_manager(coder).clear_tag(MessageTag.DIFFS)
             ConversationService.get_manager(coder).clear_tag(MessageTag.FILE_CONTEXTS)
@@ -262,6 +267,43 @@ class ConversationChunks:
                 ConversationService.get_manager(coder).remove_message_by_hash_key(
                     image_assistant_hash_key
                 )
+
+        # Clean up stale file_context messages
+        # If a file has 3 or more file_context_user messages, remove all but the most recent
+        # (and their corresponding assistant messages) to prevent excessive stale context
+        file_context_messages = ConversationService.get_manager(coder).get_tag_messages(
+            MessageTag.FILE_CONTEXTS
+        )
+
+        # Group user file_context messages by file path
+        user_msgs_by_file: Dict[str, List[int]] = {}
+        user_msg_indices: List[int] = []
+        for msg_idx, msg in enumerate(file_context_messages):
+            if msg.hash_key and len(msg.hash_key) == 3 and msg.hash_key[0] == "file_context_user":
+                file_path = msg.hash_key[1]
+                if file_path not in user_msgs_by_file:
+                    user_msgs_by_file[file_path] = []
+                user_msgs_by_file[file_path].append(msg_idx)
+                user_msg_indices.append(msg_idx)
+
+        # For files with 3+ user messages, keep only the last one
+        hash_keys_to_remove: set = set()
+        for file_path, indices in user_msgs_by_file.items():
+            if len(indices) >= 3:
+                # Keep the last one (most recent in sorted order)
+                older_indices = indices[:-1]
+                for old_idx in older_indices:
+                    old_msg = file_context_messages[old_idx]
+                    content_hash = old_msg.hash_key[2]
+                    # Mark the user message for removal
+                    hash_keys_to_remove.add(("file_context_user", file_path, content_hash))
+                    # Mark the corresponding assistant message for removal
+                    hash_keys_to_remove.add(("file_context_assistant", file_path, content_hash))
+
+        if hash_keys_to_remove:
+            ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(
+                lambda hash_key: hash_key in hash_keys_to_remove
+            )
 
         ConversationService.get_manager(coder).clear_tag(MessageTag.RULES)
 
@@ -587,7 +629,7 @@ class ConversationChunks:
                 # Add assistant message with file path as hash_key
                 assistant_msg = {
                     "role": "assistant",
-                    "content": "I understand, thank you for sharing the file contents.",
+                    "content": f"Thank you for sharing the file contents for {rel_fname}.",
                 }
                 ConversationService.get_manager(coder).add_message(
                     message_dict=assistant_msg,
@@ -687,7 +729,7 @@ class ConversationChunks:
             # Create assistant message
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the file contents.",
+                "content": f"Thank you for sharing the file contents for {rel_fname}.",
             }
 
             # Determine tag based on editability
@@ -777,22 +819,21 @@ class ConversationChunks:
 
             assistant_msg = {
                 "role": "assistant",
-                "content": "I understand, thank you for sharing the prefixed file contents.",
+                "content": f"Thank you for sharing the prefixed file contents for {rel_fname}.",
             }
 
             # Add to conversation manager
+            content_hash = xxhash.xxh3_128_hexdigest(context_content.encode("utf-8"))
             ConversationService.get_manager(coder).queue_message(
                 message_dict=user_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_user", file_path),
-                force=True,
+                hash_key=("file_context_user", file_path, content_hash),
             )
 
             ConversationService.get_manager(coder).queue_message(
                 message_dict=assistant_msg,
                 tag=MessageTag.FILE_CONTEXTS,
-                hash_key=("file_context_assistant", file_path),
-                force=True,
+                hash_key=("file_context_assistant", file_path, content_hash),
             )
 
     def reset(self) -> None:

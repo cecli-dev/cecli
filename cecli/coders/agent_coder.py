@@ -31,6 +31,8 @@ from cecli.utils import copy_tool_call, tool_call_to_dict
 
 from .base_coder import Coder
 
+from cecli.helpers.coroutines import interruptible  # isort:skip
+
 
 class AgentCoder(Coder):
     """Mode where the LLM autonomously manages which files are in context."""
@@ -42,6 +44,9 @@ class AgentCoder(Coder):
     stop_on_empty = False
 
     def __init__(self, *args, **kwargs):
+        if kwargs.get("uuid", None):
+            self.uuid = kwargs.get("uuid")
+
         self.recently_removed = {}
         self.tool_usage_history = []
         self.loaded_custom_tools = []
@@ -55,7 +60,7 @@ class AgentCoder(Coder):
             "commandinteractive",
             "explorecode",
             "ls",
-            "getlines",
+            "readrange",
             "grep",
             "thinking",
             "updatetodolist",
@@ -301,8 +306,23 @@ class AgentCoder(Coder):
                 else:
                     all_results_content.append(f"Error: Unknown tool name '{tool_name}'")
                 if tasks:
-                    task_results = await asyncio.gather(*tasks)
-                    all_results_content.extend(str(res) for res in task_results)
+
+                    async def gather_and_await():
+                        return await asyncio.gather(*tasks, return_exceptions=True)
+
+                    task_results, interrupted = await interruptible(
+                        gather_and_await(), self.interrupt_event
+                    )
+
+                    if interrupted:
+                        self.io.tool_warning("Tool execution interrupted.")
+                        all_results_content.append("Tool execution interrupted by user.")
+                    elif task_results:
+                        for res in task_results:
+                            if isinstance(res, Exception):
+                                all_results_content.append(f"Error in tool execution: {res}")
+                            else:
+                                all_results_content.append(str(res))
 
                 if not await HookIntegration.call_post_tool_hooks(
                     self, tool_name, args_string, "\n\n".join(all_results_content)
@@ -393,7 +413,11 @@ class AgentCoder(Coder):
 """)
                 return f"Error executing tool call {tool_name}: {e}"
 
-        return await _exec_async()
+        result, interrupted = await interruptible(_exec_async(), self.interrupt_event)
+
+        if interrupted:
+            return "Tool execution interrupted by user."
+        return result
 
     def _calculate_context_block_tokens(self, force=False):
         """
@@ -995,7 +1019,7 @@ I will proceed based on the tool results and updated context.""")
             context_parts.append("\n\n")
             context_parts.append("## File Editing Tools Disabled")
             context_parts.append(
-                "File editing tools are currently disabled.Use `GetLines` to determine the"
+                "File editing tools are currently disabled.Use `ReadRange` to determine the"
                 " current hashline prefixes needed to perform an edit and activate them when you"
                 " are ready to edit a file."
             )

@@ -106,7 +106,10 @@ class TUI(App):
             show=True,
         )
         self.bind(
-            self._encode_keys(self.get_keys_for("cancel")), "noop", description="Cancel", show=True
+            self._encode_keys(self.get_keys_for("cancel")),
+            "interrupt",
+            description="Cancel",
+            show=True,
         )
         self.bind(
             self._encode_keys(self.get_keys_for("editor")),

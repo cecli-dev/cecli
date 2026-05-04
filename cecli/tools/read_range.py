@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Dict
 
 from cecli.helpers.hashline import hashline, strip_hashline
 from cecli.tools.utils.base_tool import BaseTool
@@ -13,11 +14,11 @@ from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 
 
 class Tool(BaseTool):
-    NORM_NAME = "getlines"
+    NORM_NAME = "readrange"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "GetLines",
+            "name": "ReadRange",
             "description": (
                 "Get hashline prefixes of content between start and end patterns in files."
                 " Accepts an array of `show` objects, each with file_path, start_text,"
@@ -78,6 +79,7 @@ class Tool(BaseTool):
     }
 
     _last_invocation = {}  # file_path -> {start_idx, end_idx}
+    _last_read_turn: Dict[str, int] = {}  # abs_path -> turn_count when last read
 
     @classmethod
     def execute(cls, coder, show, **kwargs):
@@ -87,8 +89,8 @@ class Tool(BaseTool):
         Accepts an array of show operations to perform.
         Uses utility functions for path resolution and error handling.
         """
-        tool_name = "GetLines"
-        already_up_to_date = False
+        tool_name = "ReadRange"
+        already_up_to_date = None
 
         try:
             # 1. Validate show parameter
@@ -277,10 +279,24 @@ class Tool(BaseTool):
                     abs_path
                 )
 
-                if original_context_content and original_context_content == new_context_content:
+                if (
+                    original_context_content
+                    and original_context_content == new_context_content
+                    and already_up_to_date is not False
+                ):
                     already_up_to_date = True
                 else:
+                    already_up_to_date = False
+
+                # Conditionally remove old file context messages
+                # If the file was last read >= 10 turns ago, keep old messages (allow coexistence)
+                # Otherwise, remove them to avoid duplicates
+                last_turn = cls._last_read_turn.get(abs_path)
+                if last_turn is None or coder.turn_count - last_turn < 10:
                     ConversationService.get_files(coder).remove_file_messages(abs_path)
+
+                # Update the last read turn for this file
+                cls._last_read_turn[abs_path] = coder.turn_count
 
                 ConversationService.get_chunks(coder).add_file_context_messages()
 
@@ -290,8 +306,8 @@ class Tool(BaseTool):
             if already_up_to_date:
                 coder.io.tool_output("File contents already up to date")
                 return (
-                    "File contents already up to date."
-                    " Do not call `GetLines` again with these parameters until you edit the file."
+                    "Lines already up to date in context for these files."
+                    " Do not call `ReadRange` again with these parameters again unless you edit the relevant files."
                 )
             else:
                 coder.io.tool_output(f"✅ Successfully retrieved context for {len(show)} file(s)")
@@ -306,7 +322,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for GetLines tool."""
+        """Format output for ReadRange tool."""
         color_start, color_end = color_markers(coder)
 
         try:

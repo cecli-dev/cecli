@@ -15,36 +15,36 @@ class Tool(BaseTool):
         "function": {
             "name": "ContextManager",
             "description": (
-                "Manage multiple files in the chat context: remove, editable, view, and create."
+                "Manage multiple files in the chat context: add, read_only, create, and remove."
                 " Accepts arrays of file paths for each operation."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "remove": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of file paths to remove from context.",
-                    },
-                    "editable": {
+                    "add": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of file paths to make editable. Limit to at most 2 at a time."
+                            "List of file paths to add to context. Limit to at most 2 at a time."
                         ),
                     },
-                    "view": {
+                    "read_only": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of file paths to view (add as read-only). Limit to at most 2 at a"
-                            " time."
+                            "List of file paths to add as read-only. "
+                            "Limit to at most 2 at a time."
                         ),
                     },
                     "create": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "List of file paths to create.",
+                    },
+                    "remove": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of file paths to remove from context.",
                     },
                 },
                 "additionalProperties": False,
@@ -54,7 +54,7 @@ class Tool(BaseTool):
     }
 
     @classmethod
-    def execute(cls, coder, remove=None, editable=None, view=None, create=None, **kwargs):
+    def execute(cls, coder, remove=None, add=None, read_only=None, create=None, **kwargs):
         """Perform batch operations on the coder's context.
 
         Parameters
@@ -63,7 +63,7 @@ class Tool(BaseTool):
             The active coder handling file context.
         remove: list[str] | None
             Files to remove from the context.
-        editable: list[str] | None
+        add: list[str] | None
             Files to promote to editable status.
         view: list[str] | None
             Files to add as read-only view.
@@ -71,8 +71,8 @@ class Tool(BaseTool):
             Files to create and make editable.
         """
         remove_files = sorted(parse_arg_as_list(remove), key=cls._natural_sort_key)
-        editable_files = sorted(parse_arg_as_list(editable), key=cls._natural_sort_key)
-        view_files = sorted(parse_arg_as_list(view), key=cls._natural_sort_key)
+        editable_files = sorted(parse_arg_as_list(add), key=cls._natural_sort_key)
+        view_files = sorted(parse_arg_as_list(read_only), key=cls._natural_sort_key)
         create_files = sorted(parse_arg_as_list(create), key=cls._natural_sort_key)
 
         if not remove_files and not editable_files and not view_files and not create_files:

@@ -25,14 +25,17 @@ from .diff import DiffCommand
 from .drop import DropCommand
 from .editor import EditCommand, EditorCommand
 from .editor_model import EditorModelCommand
+from .exclude_skill import ExcludeSkillCommand
 from .exit import ExitCommand
 from .git import GitCommand
 from .hashline import HashlineCommand
 from .help import HelpCommand
 from .history_search import HistorySearchCommand
 from .hooks import HooksCommand
+from .include_skill import IncludeSkillCommand
 from .lint import LintCommand
 from .list_sessions import ListSessionsCommand
+from .list_skills import ListSkillsCommand
 from .load import LoadCommand
 from .load_hook import LoadHookCommand
 from .load_mcp import LoadMcpCommand
@@ -102,14 +105,17 @@ CommandRegistry.register(DropCommand)
 CommandRegistry.register(EditCommand)
 CommandRegistry.register(EditorCommand)
 CommandRegistry.register(EditorModelCommand)
+CommandRegistry.register(ExcludeSkillCommand)
 CommandRegistry.register(ExitCommand)
 CommandRegistry.register(GitCommand)
 CommandRegistry.register(HashlineCommand)
 CommandRegistry.register(HelpCommand)
 CommandRegistry.register(HistorySearchCommand)
 CommandRegistry.register(HooksCommand)
+CommandRegistry.register(IncludeSkillCommand)
 CommandRegistry.register(LintCommand)
 CommandRegistry.register(ListSessionsCommand)
+CommandRegistry.register(ListSkillsCommand)
 CommandRegistry.register(LoadCommand)
 CommandRegistry.register(LoadHookCommand)
 CommandRegistry.register(LoadMcpCommand)
@@ -172,6 +178,7 @@ __all__ = [
     "EditCommand",
     "EditorCommand",
     "EditorModelCommand",
+    "ExcludeSkillCommand",
     "ExitCommand",
     "expand_subdir",
     "format_command_result",
@@ -182,8 +189,10 @@ __all__ = [
     "HelpCommand",
     "HistorySearchCommand",
     "HookCommand",
+    "IncludeSkillCommand",
     "LintCommand",
     "ListSessionsCommand",
+    "ListSkillsCommand",
     "LoadCommand",
     "LoadHookCommand",
     "LoadMcpCommand",

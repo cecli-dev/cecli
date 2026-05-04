@@ -228,6 +228,15 @@ class Tool(BaseTool):
         start_time = time.time()
 
         while True:
+            if coder.interrupt_event.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                BackgroundCommandManager.stop_background_command(command_key)
+                return "Command execution interrupted by user."
+
             # Check if process has completed
             exit_code = process.poll()
             if exit_code is not None:

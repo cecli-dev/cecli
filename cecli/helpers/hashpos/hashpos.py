@@ -26,6 +26,54 @@ class HashPos:
         a2 = (line_idx * 59 + 31) % 63
         return (a1 << 6) | a2
 
+    def _spread_bits(self, x: int) -> int:
+        """
+        Spreads 12 bits of x into 24 bits by inserting a 0 between each bit.
+        Input:  000000000000abcdefghijkl (12 bits)
+        Output: 0a0b0c0d0e0f0g0h0i0j0k0l (24 bits)
+        """
+        x &= 0xFFF  # Ensure we only have 12 bits
+        # Shift bits by 8, mask keeps the blocks separated
+        # x starts: 000000000000 abcdefgh ijkl
+        x = (x | (x << 8)) & 0x00FF00FF  # 0000abcd efgh0000 00000000 ijkl...
+        # Shift by 4, then 2, then 1 to create 1-bit gaps
+        x = (x | (x << 4)) & 0x0F0F0F0F
+        x = (x | (x << 2)) & 0x33333333
+        x = (x | (x << 1)) & 0x55555555  # Result: 0a0b0c0d0e0f0g0h0i0j0k0l
+        return x
+
+    def _compact_bits(self, x: int) -> int:
+        """
+        The inverse of spread: pulls every other bit back together.
+        Input:  0a0b0c0d0e0f0g0h0i0j0k0l (24 bits)
+        Output: 000000000000abcdefghijkl (12 bits)
+        """
+        x &= 0x55555555  # Mask to ensure we only look at the "active" bits
+        x = (x | (x >> 1)) & 0x33333333
+        x = (x | (x >> 2)) & 0x0F0F0F0F
+        x = (x | (x >> 4)) & 0x00FF00FF
+        x = (x | (x >> 8)) & 0x0000FFFF  # Result: abcdefghijkl
+        return x
+
+    def _interleave(self, content: int, anchor: int) -> int:
+        """
+        Weaves content and anchor bits together.
+        Content bits occupy the 'odd' positions, Anchor bits occupy the 'even'.
+        """
+        # Spread content bits and shift by 1 to put them in positions 1, 3, 5...
+        # Spread anchor bits and leave them in positions 0, 2, 4...
+        return (self._spread_bits(content) << 1) | self._spread_bits(anchor)
+
+    def _deinterleave(self, mixed: int) -> tuple[int, int]:
+        """
+        Extracts content and anchor bits from a 24-bit interleaved integer.
+        """
+        # To get content: shift right by 1, then compact
+        content = self._compact_bits(mixed >> 1)
+        # To get anchor: just compact (the mask inside _compact_bits handles the rest)
+        anchor = self._compact_bits(mixed)
+        return content, anchor
+
     def generate_private_id(self, text: str) -> str:
         bits = self._get_content_bits(text)
         return f"{bits:03x}"
@@ -33,9 +81,7 @@ class HashPos:
     def generate_public_id(self, text: str, line_idx: int) -> str:
         content_bits = self._get_content_bits(text)
         anchor_bits = self._get_anchor_bits(line_idx)
-        # Apply modular offset to content bits using anchor bits
-        offset_content = (content_bits + anchor_bits) & 0xFFF
-        packed = (offset_content << 12) | anchor_bits
+        packed = self._interleave(content_bits, anchor_bits)
 
         res = ""
         for _ in range(4):
@@ -48,11 +94,7 @@ class HashPos:
         for i, char in enumerate(public_id):
             packed |= self.B64.index(char) << (6 * i)
 
-        offset_content = (packed >> 12) & 0xFFF
-        anchor_bits = packed & 0xFFF
-        # Reverse the modular offset to recover original content bits
-        content_bits = (offset_content - anchor_bits) & 0xFFF
-        return content_bits, anchor_bits
+        return self._deinterleave(packed)
 
     def format_content(self, use_private_ids: bool = False, start_line: int = 1) -> str:
         formatted_lines = []

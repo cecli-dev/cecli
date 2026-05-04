@@ -1247,6 +1247,9 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
             if switch.kwargs.get("show_announcements") is False:
                 coder.suppress_announcements_for_next_prompt = True
 
+        except KeyboardInterrupt:
+            coder.keyboard_interrupt()
+            continue
         except SystemExit:
             sys.settrace(None)
             await coder.auto_save_session(force=True)
