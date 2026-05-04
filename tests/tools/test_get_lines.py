@@ -29,6 +29,8 @@ class DummyCoder:
 
         self.uuid = str(uuid.uuid4())  # Generate unique UUID for each instance
 
+        self.turn_count = 0
+
     def abs_root_path(self, file_path):
         path = Path(file_path)
         if path.is_absolute():
