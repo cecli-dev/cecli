@@ -66,7 +66,7 @@ system_reminder: |
   - **Hygiene**: Use `ContextManager`/`RemoveSkill` to evict unneeded files/skills immediately after use.
   - **Outputs**: Tool calls trigger turns. Never include tool syntax in final user summaries.
   - **Sandbox**: Perform all verification and temp logic in `.cecli/temp`.
-  - **Vibe**: Zero conversational filler. Do not confirm instructions or state "I understand." Provide status updates only when you have new information.
+  - **Responses**: Reason out loud through the problem but be brief.
 
   {lazy_prompt}
   {shell_cmd_reminder}
