@@ -32,6 +32,10 @@ from .widgets import (
 )
 from .widgets.output import CostUpdate
 
+IS_WINDOWS = False
+if platform.system() == "Windows":
+    IS_WINDOWS = True
+
 
 class TUI(App):
     """Main Textual application for cecli TUI."""
@@ -365,7 +369,7 @@ class TUI(App):
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         """Handle mouse move events to prevent strange characters on Windows."""
-        if platform.system() == "Windows":
+        if IS_WINDOWS:
             event.stop()
 
     def _show_select_hint(self) -> None:

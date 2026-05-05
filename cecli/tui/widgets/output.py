@@ -156,8 +156,9 @@ class OutputContainer(RichLog):
                 for wrapped in wrapped_line.split("\n"):
                     if wrapped.strip():
                         self.output(
-                            f"[bold medium_spring_green]{escape(wrapped)}[/bold"
-                            " medium_spring_green]"
+                            "[bold medium_spring_green]"
+                            f"{escape(wrapped)}"
+                            "[/bold medium_spring_green]"
                         )
 
         self.scroll_end(animate=False)
@@ -175,7 +176,7 @@ class OutputContainer(RichLog):
         if dim:
             start = "[dim]"
             end = "[/dim]"
-            text = Padding(f"{start}{text}{end}", (0, 0, 0, 2))
+            text = Padding(f"{start}{escape(text)}{end}", (0, 0, 0, 2))
 
         self.set_last_write_type("system")
         self.output(text)
