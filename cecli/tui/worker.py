@@ -79,6 +79,8 @@ class CoderWorker:
                         )
                     except RuntimeError:
                         pass  # Loop already stopped
+                    except KeyboardInterrupt:
+                        pass  # Loop already stopped
 
                 self.loop.close()
         except Exception:
@@ -180,6 +182,11 @@ class CoderWorker:
                 self.loop.call_soon_threadsafe(self.loop.stop)
             except RuntimeError:
                 # Loop may already be closed
+                pass
+            except KeyboardInterrupt:
+                # An interrupt was not caught within the async run loop.
+                # We'll just pass to allow the thread to exit gracefully
+                # without a scary traceback.
                 pass
             except KeyboardInterrupt:
                 # An interrupt was not caught within the async run loop.
