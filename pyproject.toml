@@ -44,6 +44,9 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["cecli*", "bright_vision_core*"]
 
+[tools.uv]
+exclude-newer = "2d"
+
 [build-system]
 requires = ["setuptools>=68", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
