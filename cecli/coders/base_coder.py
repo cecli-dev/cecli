@@ -1693,13 +1693,27 @@ class Coder(metaclass=UsageMeta):
         inp = inp.strip()
 
         if self.commands.is_command(inp):
+            run_kwargs = {}
             if inp[0] in "!":
-                inp = f"/run {inp[1:]}"
+                # Count and strip all leading exclamation marks
+                # "!command" -> normal execution
+                # "!!command" -> suppress adding output to chat
+                # "!!!command" -> background/obstructive mode (TUI suspended)
+                num_marks = 0
+                while num_marks < len(inp) and inp[num_marks] == "!":
+                    num_marks += 1
+                command_text = inp[num_marks:]
+                inp = f"/run {command_text}"
+                if num_marks >= 3:
+                    run_kwargs["background"] = True
+                    run_kwargs["suppress_add"] = True
+                elif num_marks == 2:
+                    run_kwargs["suppress_add"] = True
 
             if self.commands.is_run_command(inp):
                 self.commands.cmd_running_event.clear()  # Command is running
 
-            return await self.commands.run(inp, coder=self)
+            return await self.commands.run(inp, coder=self, **run_kwargs)
 
         await self.check_for_file_mentions(inp)
         inp = await self.check_for_urls(inp)
