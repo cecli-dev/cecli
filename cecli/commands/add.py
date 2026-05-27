@@ -13,6 +13,15 @@ from cecli.commands.utils.helpers import (
 from cecli.utils import is_image_file, run_fzf
 
 
+def _is_chat_attachment_staging_path(rel_norm: str) -> bool:
+    """
+    Host UIs (e.g. desktop IDEs) stage chat uploads under ``.<app>/attachments/``.
+    Do not offer to create missing paths there via ``/add`` — re-attach in the UI instead.
+    """
+    parts = rel_norm.replace("\\", "/").strip("/").split("/")
+    return len(parts) >= 2 and parts[0].startswith(".") and parts[1] == "attachments"
+
+
 class AddCommand(BaseCommand):
     NORM_NAME = "add"
     DESCRIPTION = "Add files to the chat so cecli can edit them or review them in detail"
@@ -71,19 +80,25 @@ class AddCommand(BaseCommand):
             if len(confirm_fname) > 64:
                 confirm_fname = f".../{os.path.basename(confirm_fname)}"
 
-            # Check if the path matches any exempt-path regex patterns
+            try:
+                rel_norm = os.path.relpath(fname, coder.root).replace("\\", "/")
+            except ValueError:
+                rel_norm = str(fname).replace("\\", "/")
+
             exempt_paths = getattr(coder.args, "exempt_paths", None) or []
-            if exempt_paths:
-                try:
-                    rel_norm = os.path.relpath(fname, coder.root).replace("\\", "/")
-                except ValueError:
-                    rel_norm = str(fname).replace("\\", "/")
-                if any(re.search(p, rel_norm) for p in exempt_paths):
-                    io.tool_error(
-                        f"Path '{confirm_fname}' matches an exempt-path pattern. "
-                        "Skipping file creation."
-                    )
-                    continue
+            if exempt_paths and any(re.search(p, rel_norm) for p in exempt_paths):
+                io.tool_error(
+                    f"Path '{confirm_fname}' matches an exempt-path pattern. "
+                    "Skipping file creation."
+                )
+                continue
+
+            if _is_chat_attachment_staging_path(rel_norm):
+                io.tool_error(
+                    f"Attachment not found: {confirm_fname}. "
+                    "Re-attach the file in chat instead of using /add on a staging path."
+                )
+                continue
 
             if await io.confirm_ask(
                 f"No files matched '{confirm_fname}'. Do you want to create this file?"

@@ -248,6 +248,19 @@ class TestCommands(TestCase):
         self.assertEqual(len(coder.abs_fnames), 0)
         self.assertFalse(staging.exists())
 
+    async def test_cmd_add_skips_create_on_attachment_staging_path(self):
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        from cecli.coders import Coder
+
+        coder = await Coder.create(self.GPT35, None, io)
+        commands = Commands(io, coder)
+
+        staging = Path(".cecli/attachments/missing.png")
+        commands.execute("add", str(staging))
+
+        self.assertEqual(len(coder.abs_fnames), 0)
+        self.assertFalse(staging.exists())
+
     async def test_cmd_add_drop_directory(self):
         # Initialize the Commands and InputOutput objects
         io = InputOutput(pretty=False, fancy_input=False, yes=False)
