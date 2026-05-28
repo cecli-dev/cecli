@@ -350,6 +350,12 @@ class RepoMap:
             "has_chat_files": bool(chat_files),
         }
 
+    def _resolve_abs_fname(self, fname: str) -> str:
+        """Normalize repo file paths for existence checks and tag parsing."""
+        if os.path.isabs(fname):
+            return os.path.normpath(fname)
+        return os.path.normpath(os.path.join(self.root, fname))
+
     def get_rel_fname(self, fname):
         try:
             return os.path.relpath(fname, self.root)
@@ -757,8 +763,9 @@ class RepoMap:
                 else:
                     self.io.update_spinner(f"{UPDATING_REPO_MAP_MESSAGE}: {fname}")
 
+            abs_fname = self._resolve_abs_fname(fname)
             try:
-                file_ok = os.path.isfile(fname)
+                file_ok = os.path.isfile(abs_fname)
             except OSError:
                 file_ok = False
 
@@ -768,11 +775,12 @@ class RepoMap:
                     self.warned_files.add(fname)
                     if skipped_missing <= 2:
                         self.io.tool_warning(
-                            f"Repo-map skipping missing file: {fname}"
+                            f"Repo-map skipping missing file: {abs_fname}"
                             " (removed on disk or not yet written)."
                         )
                 continue
 
+            fname = abs_fname
             # dump(fname)
             rel_fname = self.get_rel_fname(fname)
             current_pers = 0.0  # Start with 0 personalization score
