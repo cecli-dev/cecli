@@ -1,6 +1,50 @@
+import json
+
 from cecli.tools.utils.base_tool import BaseTool
-from cecli.tools.utils.helpers import ToolError, format_tool_result, handle_tool_error
+from cecli.tools.utils.helpers import (
+    ToolError,
+    format_tool_result,
+    handle_tool_error,
+    normalize_json_array,
+)
 from cecli.tools.utils.output import tool_footer, tool_header
+
+
+def coerce_task_item(item) -> dict:
+    """Coerce one task entry to a dict; JSON strings fall back to plain task text on parse failure."""
+    if isinstance(item, dict):
+        return item
+    if isinstance(item, str):
+        text = item.strip()
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return {"task": str(item), "done": False, "current": False}
+    return {"task": str(item), "done": False, "current": False}
+
+
+def normalize_task_items(tasks) -> list[dict]:
+    """Accept tasks as list, dict, JSON string, or list of JSON strings (LLM quirk)."""
+    normalized = normalize_json_array(tasks, param_name="tasks", allow_empty=True)
+    return [coerce_task_item(item) for item in normalized]
+
+
+def format_task_lines(tasks) -> tuple[list[str], list[str]]:
+    """Return (done_tasks, remaining_tasks) display lines for todo items."""
+    done_tasks: list[str] = []
+    remaining_tasks: list[str] = []
+    for task_item in normalize_task_items(tasks):
+        if task_item.get("done", False):
+            done_tasks.append(f"✓ {task_item['task']}")
+        elif task_item.get("current", False):
+            remaining_tasks.append(f"→ {task_item['task']}")
+        else:
+            remaining_tasks.append(f"○ {task_item['task']}")
+    return done_tasks, remaining_tasks
 
 
 class Tool(BaseTool):
@@ -68,32 +112,11 @@ class Tool(BaseTool):
         """
         tool_name = "UpdateTodoList"
         try:
-            # Define the todo file path
             todo_file_path = coder.local_agent_folder("todo.txt")
             abs_path = coder.abs_root_path(todo_file_path)
 
-            # Format tasks into string
-            done_tasks = []
-            remaining_tasks = []
+            done_tasks, remaining_tasks = format_task_lines(tasks)
 
-            for task_item in tasks:
-                if not isinstance(task_item, dict):
-                    task_item = {
-                        "task": str(task_item),
-                        "done": False,
-                        "current": False,
-                    }
-
-                if task_item.get("done", False):
-                    done_tasks.append(f"✓ {task_item['task']}")
-                else:
-                    # Check if this is the current task
-                    if task_item.get("current", False):
-                        remaining_tasks.append(f"→ {task_item['task']}")
-                    else:
-                        remaining_tasks.append(f"○ {task_item['task']}")
-
-            # Build formatted content
             content_lines = []
             if done_tasks:
                 content_lines.append("Done:")
@@ -104,20 +127,17 @@ class Tool(BaseTool):
                 content_lines.append("Remaining:")
                 content_lines.extend(remaining_tasks)
 
-            # Remove trailing empty line if present
             if content_lines and content_lines[-1] == "":
                 content_lines.pop()
 
             content = "\n".join(content_lines)
 
-            # Get existing content if appending
             existing_content = ""
             import os
 
             if os.path.isfile(abs_path):
                 existing_content = coder.io.read_text(abs_path) or ""
 
-            # Prepare new content
             if append:
                 if existing_content and not existing_content.endswith("\n"):
                     existing_content += "\n"
@@ -125,14 +145,12 @@ class Tool(BaseTool):
             else:
                 new_content = content
 
-            # Check if content exceeds 4096 characters and warn
             if len(new_content) > 4096:
                 coder.io.tool_warning(
                     "⚠️ Todo list content exceeds 4096 characters. Consider summarizing the plan"
                     " before proceeding."
                 )
 
-            # Check if content actually changed
             if existing_content == new_content:
                 coder.io.tool_warning("No changes made: new content is identical to existing")
                 return (
@@ -140,7 +158,6 @@ class Tool(BaseTool):
                     "Please make progress implementing the plan instead of updating it."
                 )
 
-            # Handle dry run
             if dry_run:
                 action = "append to" if append else "replace"
                 dry_run_message = f"Dry run: Would {action} todo list in {todo_file_path}."
@@ -148,17 +165,14 @@ class Tool(BaseTool):
                     coder, tool_name, "", dry_run=True, dry_run_message=dry_run_message
                 )
 
-            # Apply change
             metadata = {
                 "append": append,
                 "existing_length": len(existing_content),
                 "new_length": len(new_content),
             }
 
-            # Write the file directly since it's a special file
             coder.io.write_text(abs_path, new_content)
 
-            # Track the change
             final_change_id = coder.change_tracker.track_change(
                 file_path=todo_file_path,
                 change_type="updatetodolist",
@@ -170,7 +184,6 @@ class Tool(BaseTool):
 
             coder.coder_edited_files.add(todo_file_path)
 
-            # Format and return result
             action = "appended to" if append else "updated"
             success_message = f"Successfully {action} todo list"
             return format_tool_result(
@@ -187,41 +200,25 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        import json
-
-        from cecli.tools.utils.output import color_markers
-
-        color_start, color_end = color_markers(coder)
-
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
 
-        # Parse the parameters to display formatted todo list
-        params = json.loads(tool_response.function.arguments)
+        try:
+            params = json.loads(tool_response.function.arguments)
+        except json.JSONDecodeError:
+            coder.io.tool_error("Invalid Tool JSON")
+            tool_footer(coder=coder, tool_response=tool_response)
+            return
+
         tasks = params.get("tasks", [])
 
         if tasks:
-            # Format tasks for display
-            done_tasks = []
-            remaining_tasks = []
+            try:
+                done_tasks, remaining_tasks = format_task_lines(tasks)
+            except ToolError as err:
+                coder.io.tool_error(str(err))
+                tool_footer(coder=coder, tool_response=tool_response)
+                return
 
-            for task_item in tasks:
-                if not isinstance(task_item, dict):
-                    task_item = {
-                        "task": str(task_item),
-                        "done": False,
-                        "current": False,
-                    }
-
-                if task_item.get("done", False):
-                    done_tasks.append(f"✓ {task_item['task']}")
-                else:
-                    # Check if this is the current task
-                    if task_item.get("current", False):
-                        remaining_tasks.append(f"→ {task_item['task']}")
-                    else:
-                        remaining_tasks.append(f"○ {task_item['task']}")
-
-            # Display formatted todo list
             if done_tasks:
                 coder.io.tool_output("Done:")
                 for task in done_tasks:
