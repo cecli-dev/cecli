@@ -98,7 +98,29 @@ def test_grep_format_output_empty_searches_does_not_crash_tool_footer():
         mcp_server=SimpleNamespace(name="Local"),
         tool_response=tool_response,
     )
-    assert coder.io.tool_error.called
+    assert not coder.io.tool_error.called
+
+
+def test_grep_format_output_malformed_string_searches_does_not_crash():
+    """Local models sometimes double-encode searches as an unparseable JSON string."""
+    coder = SimpleNamespace(
+        io=SimpleNamespace(tool_error=Mock(), tool_output=Mock(), tool_warning=Mock()),
+        verbose=False,
+        pretty=False,
+        tui=lambda: None,
+    )
+    tool_response = SimpleNamespace(
+        function=SimpleNamespace(
+            name="Grep",
+            arguments='{"searches": "[{\\"file_pattern>\\nCOPYING"}',
+        ),
+    )
+    GrepTool.format_output(
+        coder,
+        mcp_server=SimpleNamespace(name="Local"),
+        tool_response=tool_response,
+    )
+    assert not coder.io.tool_error.called
 
 
 def test_try_join_char_split_json_array_reconstructs_array():

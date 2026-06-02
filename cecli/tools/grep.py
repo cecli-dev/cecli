@@ -4,6 +4,7 @@ from pathlib import Path
 
 import oslex
 
+from cecli.helpers import responses
 from cecli.helpers.hashline import strip_hashline
 from cecli.run_cmd import run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
@@ -84,6 +85,29 @@ class Tool(BaseTool):
             return None, None
 
     @classmethod
+    def _coerce_searches(cls, searches) -> list[dict]:
+        """Normalize ``searches`` for UI display (local models often double-encode)."""
+        if isinstance(searches, str):
+            parsed = responses.try_parse_json_value(searches)
+            if isinstance(parsed, list):
+                searches = parsed
+            elif isinstance(parsed, dict):
+                searches = [parsed]
+            else:
+                return []
+        if not isinstance(searches, list):
+            return []
+        out: list[dict] = []
+        for item in searches:
+            if isinstance(item, dict):
+                out.append(item)
+            elif isinstance(item, str):
+                parsed = responses.try_parse_json_value(item)
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+        return out
+
+    @classmethod
     def execute(
         cls,
         coder,
@@ -97,6 +121,10 @@ class Tool(BaseTool):
         if not isinstance(searches, list):
             # Handle legacy single-search call if necessary, or just error
             return "Error: 'searches' parameter must be an array."
+
+        searches = cls._coerce_searches(searches)
+        if not searches:
+            return "Error: 'searches' parameter must be a non-empty array of search objects."
 
         repo = coder.repo
         if not repo:
@@ -236,16 +264,15 @@ class Tool(BaseTool):
         """Format output for Grep tool."""
         color_start, color_end = color_markers(coder)
 
-        try:
-            params = json.loads(tool_response.function.arguments)
-        except json.JSONDecodeError:
-            coder.io.tool_error("Invalid Tool JSON")
+        params = responses.parse_tool_arguments(tool_response.function.arguments or "")
+        if "@error" in params:
+            coder.io.tool_error(f"Invalid Tool JSON: {params['@error']}")
             return
 
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
 
         # Output each search operation with the requested format
-        searches = params.get("searches", [])
+        searches = cls._coerce_searches(params.get("searches", []))
         if searches:
             coder.io.tool_output("")
             for i, search_op in enumerate(searches):
