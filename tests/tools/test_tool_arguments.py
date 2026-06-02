@@ -223,6 +223,18 @@ def test_normalize_json_array_empty_list_with_allow_empty():
     assert normalize_json_array([], param_name="items", allow_empty=True) == []
 
 
+def test_normalize_json_array_lenient_unescaped_tasks():
+    """UpdateTodoList tasks with unescaped inner JSON quotes (local qwen)."""
+    raw = (
+        '[{"done": true, "task": "Explore project structure"}, '
+        '{"done": false, "task": "Review curl-reference-code"}]'
+    )
+    result = normalize_json_array(raw, param_name="tasks")
+    assert len(result) == 2
+    assert result[0]["done"] is True
+    assert "Explore" in result[0]["task"]
+
+
 def test_extract_tools_from_content_json_with_arguments_key():
     """Standard tool calls with 'arguments' key should be extracted."""
     content = '{"name": "ls", "arguments": {"path": "."}}'

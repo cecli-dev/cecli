@@ -365,10 +365,20 @@ def normalize_json_array(value, *, param_name: str = "items", allow_empty: bool 
             raise ToolError(f"{param_name} array cannot be empty")
         parsed = responses.try_parse_json_value(text)
         if parsed is None:
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError as err:
-                raise ToolError(f"Invalid {param_name} parameter JSON: {err}") from err
+            lenient = responses.try_parse_lenient_task_array(text)
+            if lenient is not None:
+                parsed = lenient
+            else:
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as err:
+                    raise ToolError(f"Invalid {param_name} parameter JSON: {err}") from err
+        if isinstance(parsed, dict) and "tasks" in parsed and param_name == "tasks":
+            nested = responses.try_parse_lenient_task_array(parsed)
+            if nested is not None:
+                parsed = nested
+            elif isinstance(parsed["tasks"], str):
+                parsed = responses.try_parse_json_value(parsed["tasks"]) or parsed["tasks"]
         value = parsed
 
     if isinstance(value, dict):

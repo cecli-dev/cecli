@@ -492,6 +492,44 @@ def _repair_local_model_json_text(text: str) -> str:
     return repaired
 
 
+def try_parse_lenient_task_array(text) -> list[dict] | None:
+    """
+    Parse UpdateTodoList ``tasks`` when the model emits unescaped inner JSON quotes.
+
+    Example::
+        [{"done": true, "task": "Explore crates"}, {"done": false, "task": "Review curl"}]
+    """
+    if isinstance(text, dict):
+        if "tasks" in text:
+            text = text["tasks"]
+        elif "done" in text and "task" in text:
+            return [text]
+        else:
+            return None
+    if not isinstance(text, str):
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+    if raw.startswith('"') and raw.endswith('"') and "[{" in raw:
+        raw = raw[1:-1]
+    if "}{" in raw:
+        merged = merge_glued_json_objects(utils.split_concatenated_json(raw))
+        if merged and "tasks" in merged:
+            raw = str(merged["tasks"])
+    if not raw.lstrip().startswith("["):
+        return None
+    pattern = re.compile(
+        r'\{\s*"done"\s*:\s*(true|false)\s*,\s*"task"\s*:\s*"((?:\\.|[^"\\])*)"\s*\}',
+        re.IGNORECASE,
+    )
+    rows = [
+        {"done": m.group(1).lower() == "true", "task": m.group(2).replace('\\"', '"')}
+        for m in pattern.finditer(raw)
+    ]
+    return rows if rows else None
+
+
 def _parse_bracket_arguments(payload_str: str) -> dict:
     """Parse multiple arguments from a bracket-style payload.
 
