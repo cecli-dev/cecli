@@ -1,5 +1,4 @@
-import json
-
+from cecli.helpers import responses
 from cecli.helpers.hashline import (
     ContentHashError,
     apply_hashline_operations,
@@ -12,6 +11,7 @@ from cecli.tools.utils.helpers import (
     apply_change,
     format_tool_result,
     handle_tool_error,
+    normalize_json_array,
     validate_file_for_edit,
 )
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -97,6 +97,23 @@ class Tool(BaseTool):
     }
 
     @classmethod
+    def _coerce_edits(cls, edits) -> list[dict]:
+        """Normalize ``edits`` for display (local models often double-encode arrays)."""
+        try:
+            normalized = normalize_json_array(edits, param_name="edits", allow_empty=True)
+        except ToolError:
+            return []
+        out: list[dict] = []
+        for item in normalized:
+            if isinstance(item, dict):
+                out.append(item)
+            elif isinstance(item, str):
+                parsed = responses.try_parse_json_value(item)
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+        return out
+
+    @classmethod
     def execute(
         cls,
         coder,
@@ -117,9 +134,7 @@ class Tool(BaseTool):
 
         tool_name = "EditText"
         try:
-            # 1. Validate edits parameter
-            if not isinstance(edits, list):
-                raise ToolError("edits parameter must be an array")
+            edits = normalize_json_array(edits, param_name="edits")
 
             if len(edits) == 0:
                 raise ToolError("edits array cannot be empty")
@@ -127,6 +142,10 @@ class Tool(BaseTool):
             # 2. Group edits by file_path
             edits_by_file = {}
             for i, edit in enumerate(edits):
+                if not isinstance(edit, dict):
+                    raise ToolError(
+                        f"Edit {i + 1} must be an object, got {type(edit).__name__}"
+                    )
                 edit_file_path = edit.get("file_path")
                 if edit_file_path is None:
                     raise ToolError(f"Edit {i + 1} missing required file_path parameter")
@@ -370,17 +389,20 @@ class Tool(BaseTool):
     def format_output(cls, coder, mcp_server, tool_response):
         color_start, color_end = color_markers(coder)
 
-        try:
-            params = json.loads(tool_response.function.arguments)
-        except json.JSONDecodeError:
-            coder.io.tool_error("Invalid Tool JSON")
+        params = responses.parse_tool_arguments(tool_response.function.arguments or "")
+        if "@error" in params:
+            coder.io.tool_error(f"Invalid Tool JSON: {params['@error']}")
+            return
 
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)
 
         # Group edits by file_path for display
         edits_by_file = {}
+        edits = cls._coerce_edits(params.get("edits", []))
 
-        for i, edit in enumerate(params.get("edits", [])):
+        for i, edit in enumerate(edits):
+            if not isinstance(edit, dict):
+                continue
             edit_file_path = edit.get("file_path")
             if edit_file_path not in edits_by_file:
                 edits_by_file[edit_file_path] = []
@@ -397,7 +419,7 @@ class Tool(BaseTool):
             for edit_index, edit in file_edits:
                 operation = edit.get("operation", "replace")
 
-                if len(params.get("edits", [])) > 1:
+                if len(edits) > 1:
                     coder.io.tool_output(
                         f"{color_start}{OPERATION_NOUNS[operation]}_{edit_index + 1}:{color_end}"
                     )

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from cecli.tools.utils.helpers import handle_tool_error, normalize_json_array
+from cecli.tools.utils.helpers import ToolError, handle_tool_error, normalize_json_array
 from cecli.tools.utils.output import print_tool_response
 
 
@@ -82,6 +82,10 @@ class BaseTool(ABC):
                     )
                     return handle_tool_error(coder, tool_name, ValueError(error_msg))
 
+        for param in cls.LIST_PARAMS:
+            if param in params:
+                params[param] = normalize_json_array(params[param], param_name=param)
+
         # Check for repeated invocations if TRACK_INVOCATIONS is enabled
         if cls.TRACK_INVOCATIONS:
             tool_name = None
@@ -122,10 +126,6 @@ class BaseTool(ABC):
                         coder, tool_name, ValueError(error_msg), add_traceback=False
                     )
 
-            for param in cls.LIST_PARAMS:
-                if param in params:
-                    params[param] = normalize_json_array(params[param], param_name=param)
-
             # Add current invocation to history (keeping only last 3)
             if params:
                 cls._invocations[tool_name].append((current_params_tuple, params))
@@ -134,6 +134,9 @@ class BaseTool(ABC):
 
         try:
             return cls.execute(coder, **params)
+        except ToolError as e:
+            tool_name = (cls.SCHEMA or {}).get("function", {}).get("name", cls.__name__)
+            return handle_tool_error(coder, tool_name, e, add_traceback=False)
         except Exception as e:
             return handle_tool_error(coder, cls.SCHEMA.get("function").get("name"), e)
 
