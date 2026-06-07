@@ -154,6 +154,10 @@ class Tool(BaseTool):
                     )
                     continue
 
+                # Models sometimes pass line numbers as int; coerce before str ops.
+                range_start = str(range_start)
+                range_end = str(range_end)
+
                 if range_start.count("\n") > 4 or range_end.count("\n") > 4:
                     error_outputs.append(
                         cls.format_error(
@@ -849,6 +853,9 @@ class Tool(BaseTool):
     @classmethod
     def format_error(cls, coder, error_text, file_path, range_start, range_end, operation_index):
         """Format error output for the ReadRange tool."""
+
+        range_start = str(range_start or "")
+        range_end = str(range_end or "")
 
         # Truncate range_start to first line with ellipsis if multiline
         start_line = (range_start or "N/A").split("\n")[0]
