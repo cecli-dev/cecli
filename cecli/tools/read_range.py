@@ -140,6 +140,10 @@ class Tool(BaseTool):
                     )
                     continue
 
+                # Models sometimes pass line numbers as int; coerce before str ops.
+                start_text = str(start_text)
+                end_text = str(end_text)
+
                 if start_text.count("\n") > 4 or end_text.count("\n") > 4:
                     error_outputs.append(
                         cls.format_error(
@@ -609,8 +613,8 @@ class Tool(BaseTool):
             coder.io.tool_output("")
             for i, show_op in enumerate(show_ops):
                 file_path = show_op.get("file_path", "")
-                start_text = strip_hashline(show_op.get("start_text", "")).strip()
-                end_text = strip_hashline(show_op.get("end_text", "")).strip()
+                start_text = strip_hashline(str(show_op.get("start_text", ""))).strip()
+                end_text = strip_hashline(str(show_op.get("end_text", ""))).strip()
 
                 # Format as "show: • file_path • start_text • end_text • padding"
                 formatted_query = (
@@ -627,6 +631,8 @@ class Tool(BaseTool):
         """Format error output for the ReadRange tool."""
 
         # Truncate start_text to first line with ellipsis if multiline
+        start_text = str(start_text or "")
+        end_text = str(end_text or "")
         start_line = (start_text or "N/A").split("\n")[0]
         if start_text and start_text.count("\n") > 0:
             start_line = start_line + " ..."
