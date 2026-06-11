@@ -128,20 +128,34 @@ class Tool(BaseTool):
 
                 # Validate arguments for this operation
                 if not is_provided(start_text) or not is_provided(end_text):
-                    error_outputs.append(
-                        cls.format_error(
-                            coder,
-                            (
-                                f"Show operation {show_index + 1}: Provide both 'start_text' and"
-                                " 'end_text'."
-                            ),
-                            file_path,
-                            start_text,
-                            end_text,
-                            show_index,
+                    # Auto-fallback: if the file is in editable context and markers are
+                    # missing/junk, show the whole file instead of erroring.
+                    abs_fnames = getattr(coder, "abs_fnames", set())
+                    abs_ro = getattr(coder, "abs_read_only_fnames", set())
+                    try:
+                        abs_path_check = coder.abs_root_path(file_path) if file_path else None
+                    except Exception:
+                        abs_path_check = None
+                    if abs_path_check and (
+                        abs_path_check in abs_fnames or abs_path_check in abs_ro
+                    ):
+                        start_text = "@000"
+                        end_text = "000@"
+                    else:
+                        error_outputs.append(
+                            cls.format_error(
+                                coder,
+                                (
+                                    f"Show operation {show_index + 1}: Provide both 'start_text' and"
+                                    " 'end_text'."
+                                ),
+                                file_path,
+                                start_text,
+                                end_text,
+                                show_index,
+                            )
                         )
-                    )
-                    continue
+                        continue
 
                 if start_text.count("\n") > 4 or end_text.count("\n") > 4:
                     error_outputs.append(
