@@ -139,20 +139,34 @@ class Tool(BaseTool):
 
                 # Validate arguments for this operation
                 if not is_provided(range_start) or not is_provided(range_end):
-                    error_outputs.append(
-                        cls.format_error(
-                            coder,
-                            (
-                                f"read operation {read_index + 1}: Provide both 'range_start' and"
-                                " 'range_end'."
-                            ),
-                            file_path,
-                            range_start,
-                            range_end,
-                            read_index,
+                    # Auto-fallback: if the file is in editable context and markers are
+                    # missing/junk, show the whole file instead of erroring.
+                    abs_fnames = getattr(coder, "abs_fnames", set())
+                    abs_ro = getattr(coder, "abs_read_only_fnames", set())
+                    try:
+                        abs_path_check = coder.abs_root_path(file_path) if file_path else None
+                    except Exception:
+                        abs_path_check = None
+                    if abs_path_check and (
+                        abs_path_check in abs_fnames or abs_path_check in abs_ro
+                    ):
+                        range_start = "@000"
+                        range_end = "000@"
+                    else:
+                        error_outputs.append(
+                            cls.format_error(
+                                coder,
+                                (
+                                    f"read operation {read_index + 1}: Provide both 'range_start' and"
+                                    " 'range_end'."
+                                ),
+                                file_path,
+                                range_start,
+                                range_end,
+                                read_index,
+                            )
                         )
-                    )
-                    continue
+                        continue
 
                 # Models sometimes pass line numbers as int; coerce before str ops.
                 range_start = str(range_start)
