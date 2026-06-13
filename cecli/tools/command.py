@@ -287,8 +287,8 @@ class Tool(BaseTool):
                 # Remove from background tracking since it's done
                 BackgroundCommandManager.stop_background_command(command_key)
 
-                # Output to TUI console if TUI exists (same logic as _execute_foreground)
-                if coder.tui and coder.tui():
+                # Emit output to frontend (tool card collapsible output)
+                if output_content.strip():
                     coder.io.tool_output(output_content, type="tool-result")
 
                 if exit_code == 0:

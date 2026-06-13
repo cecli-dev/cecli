@@ -80,6 +80,8 @@ class Tool(BaseTool):
                     f"📋 Listed {len(contents)} file(s) in '{dir_path}'", type="tool-result"
                 )
                 sorted_contents = sorted(contents)
+                # Emit full listing for frontend tool card (collapsible output)
+                coder.io.tool_output("\n".join(sorted_contents))
                 if len(sorted_contents) > 10:
                     return (
                         f"Found {len(sorted_contents)} files: {', '.join(sorted_contents[:10])}..."
