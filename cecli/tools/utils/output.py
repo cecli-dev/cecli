@@ -2,6 +2,27 @@ import json
 import re
 
 
+def emit_execute_result_to_ui(coder, result, *, max_lines: int = 200) -> None:
+    """
+    Mirror tool ``execute()`` return text to ``tool_output`` for headless UI consumers
+    (e.g. BrightVision chat tool cards). Skips Textual TUI sessions.
+    """
+    if coder.tui and coder.tui():
+        return
+    text = ("" if result is None else str(result)).strip()
+    if not text:
+        return
+    if text.startswith("Error:") and "\n" not in text and len(text) < 400:
+        return
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        body = "\n".join(lines[:max_lines])
+        body += f"\n… ({len(lines) - max_lines} more lines)"
+    else:
+        body = text
+    coder.io.tool_output(body)
+
+
 def print_tool_response(coder, mcp_server, tool_response, params=None):
     """
     Format the output for display.

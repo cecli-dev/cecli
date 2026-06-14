@@ -14,6 +14,7 @@ from cecli.tools.validations import ToolValidations
 class Tool(BaseTool):
     NORM_NAME = "command"
     TRACK_INVOCATIONS = False
+    SKIP_EXECUTE_RESULT_UI = True
     SCHEMA = {
         "type": "function",
         "function": {
