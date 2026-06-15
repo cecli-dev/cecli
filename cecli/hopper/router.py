@@ -93,7 +93,7 @@ _FAST_CONTEXT_OUTPUT_RESERVE = 2_048
 # Intent signals (case-insensitive word boundaries).
 _THINK_PATTERNS = re.compile(
     r"\b("
-    r"architect(?:ure|ural)?|refactor|rewrite|migrate|migration|"
+    r"architecture|architectural|architect|refactor|rewrite|migrate|migration|"
     r"race\s+condition|deadlock|concurrency|distributed|microservice|"
     r"security|vulnerability|root\s+cause|design\s+review|"
     r"performance|scalability|profil(?:e|ing)|"
