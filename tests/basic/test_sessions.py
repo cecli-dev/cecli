@@ -73,7 +73,7 @@ def session_manager(mock_coder):
 async def test_load_session_quiet_skips_tool_error_on_invalid_json(
     session_manager, mock_coder, tmp_path
 ):
-    """BrightVision auto-load uses quiet=True when restore is best-effort."""
+    """Headless hosts may auto-load with quiet=True when restore is best-effort."""
     session_dir = tmp_path / ".cecli" / "sessions"
     os.makedirs(session_dir, exist_ok=True)
     mock_coder.abs_root_path.side_effect = lambda x: str(tmp_path / x)
