@@ -8,10 +8,9 @@ from typing import Any
 import pytest
 
 from cecli.hopper.router import (
-    preload_priority_list,
     _strip_ollama_prefix,
+    preload_priority_list,
 )
-
 
 # ---------------------------------------------------------------------------
 # Mock Ollama client
@@ -100,7 +99,7 @@ async def test_preload_vram_budget_stops_when_exceeded():
     """When cumulative VRAM exceeds budget, stop preloading remaining models."""
     client = MockOllamaClient(
         model_sizes={
-            "model-a:7b": 4_000_000_000,   # 4 GB
+            "model-a:7b": 4_000_000_000,  # 4 GB
             "model-b:13b": 8_000_000_000,  # 8 GB
             "model-c:32b": 18_000_000_000,  # 18 GB
         }
@@ -110,9 +109,7 @@ async def test_preload_vram_budget_stops_when_exceeded():
     # So model-a fits, model-b does NOT fit, stop.
     budget = 11_000_000_000
 
-    result = await preload_priority_list(
-        priority, ollama_client=client, vram_budget_bytes=budget
-    )
+    result = await preload_priority_list(priority, ollama_client=client, vram_budget_bytes=budget)
 
     assert result == ["model-a:7b"]
     # Only model-a was actually preloaded (generate called)
@@ -132,9 +129,7 @@ async def test_preload_vram_budget_all_fit():
     priority = ["model-a:7b", "model-b:7b"]
     budget = 10_000_000_000  # 10 GB — both fit
 
-    result = await preload_priority_list(
-        priority, ollama_client=client, vram_budget_bytes=budget
-    )
+    result = await preload_priority_list(priority, ollama_client=client, vram_budget_bytes=budget)
 
     assert result == ["model-a:7b", "model-b:7b"]
     assert len(client.generate_calls) == 2
@@ -152,9 +147,7 @@ async def test_preload_vram_unknown_size_proceeds():
     priority = ["model-a:7b", "model-b:unknown"]
     budget = 5_000_000_000  # 5 GB
 
-    result = await preload_priority_list(
-        priority, ollama_client=client, vram_budget_bytes=budget
-    )
+    result = await preload_priority_list(priority, ollama_client=client, vram_budget_bytes=budget)
 
     # Both preloaded — model-b has no size info, so budget check skipped for it
     assert result == ["model-a:7b", "model-b:unknown"]
@@ -226,9 +219,7 @@ async def test_preload_show_failure_skips_budget_check():
     priority = ["model-a:7b"]
     budget = 1_000  # Tiny budget — but show fails, so budget check skipped
 
-    result = await preload_priority_list(
-        priority, ollama_client=client, vram_budget_bytes=budget
-    )
+    result = await preload_priority_list(priority, ollama_client=client, vram_budget_bytes=budget)
 
     assert result == ["model-a:7b"]
 

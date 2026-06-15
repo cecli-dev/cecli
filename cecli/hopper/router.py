@@ -33,6 +33,7 @@ def set_static_vram_bytes_resolver(fn: Callable[[str], int | None] | None) -> No
     global _static_vram_bytes_resolver
     _static_vram_bytes_resolver = fn
 
+
 RouteRole = Literal["fast", "code", "think"]
 RouteTier = Literal["fast", "heavy", "code", "think"]
 
@@ -178,7 +179,12 @@ def resolve_tier_models(pool: list[ModelPoolEntry], tier: RouteRole) -> list[Mod
     Models with priority_rank=None are sorted after those with a rank.
     """
     filtered = [e for e in pool if e.enabled and e.tier == tier]
-    filtered.sort(key=lambda e: (e.priority_rank is None, e.priority_rank if e.priority_rank is not None else 0))
+    filtered.sort(
+        key=lambda e: (
+            e.priority_rank is None,
+            e.priority_rank if e.priority_rank is not None else 0,
+        )
+    )
     return filtered
 
 
@@ -273,15 +279,12 @@ async def preload_priority_list(
 
         model_size: int | None = None
         if vram_budget_bytes is not None:
-            model_size = await _get_model_size_for_budget(
-                raw_tag, ollama_client=ollama_client
-            )
+            model_size = await _get_model_size_for_budget(raw_tag, ollama_client=ollama_client)
             if model_size is not None:
                 if cumulative_vram + model_size > vram_budget_bytes:
                     deferred = [t.strip() for t in priority_list[idx:] if t.strip()]
                     logger.info(
-                        "VRAM budget exceeded (%.1f MB used of %.1f MB). "
-                        "Deferring models: %s",
+                        "VRAM budget exceeded (%.1f MB used of %.1f MB). " "Deferring models: %s",
                         cumulative_vram / (1024 * 1024),
                         vram_budget_bytes / (1024 * 1024),
                         deferred,
@@ -340,9 +343,9 @@ async def warmup_keep_alive(
 def _strip_ollama_prefix(tag: str) -> str:
     """Remove ``ollama_chat/`` or ``ollama/`` prefix from a model tag."""
     if tag.startswith("ollama_chat/"):
-        return tag[len("ollama_chat/"):]
+        return tag[len("ollama_chat/") :]
     if tag.startswith("ollama/"):
-        return tag[len("ollama/"):]
+        return tag[len("ollama/") :]
     return tag
 
 
@@ -627,7 +630,9 @@ def resolve_provider_prefix(backend: str) -> str:
     return _BACKEND_PROVIDER_PREFIXES.get((backend or "").strip().lower(), "ollama_chat/")
 
 
-def inject_backend_extra_params(backend: str, extra_params: dict[str, object] | None) -> dict[str, object]:
+def inject_backend_extra_params(
+    backend: str, extra_params: dict[str, object] | None
+) -> dict[str, object]:
     """Merge ``LITELLM_EXTRA_PARAMS`` for non-Ollama backends.
 
     Ollama uses its own env wiring; other backends may need auth headers or base URLs
@@ -701,9 +706,7 @@ class ModelRouterConfig:
                 if tier is None:
                     continue
                 raw_rank = item.get("priority_rank")
-                priority_rank: int | None = (
-                    int(raw_rank) if raw_rank is not None else None
-                )
+                priority_rank: int | None = int(raw_rank) if raw_rank is not None else None
                 pool.append(
                     ModelPoolEntry(
                         model=str(item.get("model") or ""),
@@ -721,9 +724,7 @@ class ModelRouterConfig:
                     )
                 )
         fallback_fast = str(raw.get("fast_model") or "").strip()
-        fallback_code = (
-            str(raw.get("code_model") or raw.get("heavy_model") or "").strip() or None
-        )
+        fallback_code = str(raw.get("code_model") or raw.get("heavy_model") or "").strip() or None
         fallback_think = str(raw.get("think_model") or "").strip() or None
         session_code = fallback_code or fallback_fast or ""
         if pool:
@@ -762,9 +763,7 @@ class ModelRouterConfig:
             token_fast_max=int(raw.get("token_fast_max") or 4_096),
             token_heavy_min=int(raw.get("token_heavy_min") or 12_000),
             keep_alive_fast=raw.get("keep_alive_fast", 300),
-            keep_alive_heavy=normalize_keep_alive_for_tier(
-                "code", raw.get("keep_alive_heavy", -1)
-            ),
+            keep_alive_heavy=normalize_keep_alive_for_tier("code", raw.get("keep_alive_heavy", -1)),
             escalate_on_failure=bool(raw.get("escalate_on_failure", True)),
             prefer_think=bool(
                 raw.get("prefer_think")
@@ -912,7 +911,8 @@ def _apply_multi_model_routing(
 
     if pool and _has_multi_model_tier(pool, role):
         chosen_model, is_swap = pick_tier_model(
-            pool, role,
+            pool,
+            role,
             resident_models=resident_models,
             require_vision=require_vision,
             context_tokens=context_tokens,
@@ -1001,7 +1001,8 @@ def classify_prompt(
     # Common kwargs for all _apply_multi_model_routing calls in this function.
     def _route(role: RouteRole, model: str, *, reasons: list[str]) -> RouteDecision:
         return _apply_multi_model_routing(
-            role, model,
+            role,
+            model,
             router=router,
             display_tokens=display_tokens,
             reasons=reasons,
@@ -1057,7 +1058,11 @@ def classify_prompt(
             pool = router.model_pool
             if pool:
                 fast_models = resolve_tier_models(pool, "fast")
-                fast_fits = [m for m in fast_models if m.max_context is not None and m.max_context >= context_tokens]
+                fast_fits = [
+                    m
+                    for m in fast_models
+                    if m.max_context is not None and m.max_context >= context_tokens
+                ]
                 if fast_fits:
                     # A fast model with sufficient context exists — stay in fast tier
                     reasons.append(

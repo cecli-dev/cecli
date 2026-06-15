@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from cecli.hopper.router import ModelPoolEntry, ModelRouterConfig, RouteDecision
 from cecli.hopper.apply import (
     apply_hopper_extra_params,
     apply_route_to_coder,
     apply_thinking_extra_params,
     merge_extra_params,
 )
+from cecli.hopper.router import ModelPoolEntry, ModelRouterConfig, RouteDecision
 
 
 def test_apply_thinking_extra_params_sets_bool():

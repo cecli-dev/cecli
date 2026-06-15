@@ -574,7 +574,6 @@ def test_from_payload_no_prefer_think_when_code_first():
     assert cfg.prefer_think is False
 
 
-
 def test_router_lane_fast_prompt_routes_fast_with_think_enabled():
     """E2E router lane contract (regression for e2e/router-llm.spec.ts).
 

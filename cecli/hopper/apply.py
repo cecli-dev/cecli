@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from cecli import models
-
 from cecli.hopper.router import (
     ModelRouterConfig,
     RouteDecision,
@@ -70,9 +69,7 @@ def apply_route_to_coder(coder, decision: RouteDecision, router: ModelRouterConf
     new_model = models.Model(decision.model_name, from_model=prev)
     role = decision.role or normalize_route_role(decision.tier) or "code"
     pool_entry = (
-        find_pool_entry(router.model_pool, decision.model_name, role)
-        if router.model_pool
-        else None
+        find_pool_entry(router.model_pool, decision.model_name, role) if router.model_pool else None
     )
     apply_hopper_extra_params(
         new_model,

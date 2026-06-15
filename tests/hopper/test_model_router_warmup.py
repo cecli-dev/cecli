@@ -9,7 +9,6 @@ import pytest
 
 from cecli.hopper.router import warmup_keep_alive
 
-
 # ---------------------------------------------------------------------------
 # Mock Ollama client
 # ---------------------------------------------------------------------------
@@ -129,9 +128,7 @@ async def test_warmup_uses_keep_alive_minus_one():
 @pytest.mark.asyncio
 async def test_warmup_all_failures_returns_empty():
     """When all models fail, returns empty list."""
-    client = MockOllamaClient(
-        failing_models={"model-a:7b", "model-b:7b"}
-    )
+    client = MockOllamaClient(failing_models={"model-a:7b", "model-b:7b"})
     priority = ["model-a:7b", "model-b:7b"]
 
     result = await warmup_keep_alive(priority, ollama_client=client)
