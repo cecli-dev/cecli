@@ -171,3 +171,28 @@ def test_import_agent_plan_merges_done_into_preserved_tasks_md():
     assert "REQ-001" in item.tasks_md
     assert item.checklist[0].done is True
     assert len(item.checklist) == 2
+
+
+def test_workspace_todos_update_materializes_checklist(tmp_path: Path):
+    from cecli.spec.todos import WorkspaceTodos
+
+    api = WorkspaceTodos(tmp_path)
+    store = api.load()
+    item = TodoItem(
+        id="t1",
+        title="Feature",
+        tasks_md="",
+        checklist=[],
+        created_at=_now_iso(),
+        updated_at=_now_iso(),
+    )
+    store.todos.append(item)
+    api.save(store)
+
+    updated, _ = api.update(
+        item.id,
+        tasks_md="- [ ] 1. Scaffold lib/ (depends: none)\n- [x] 2. Add tests\n",
+    )
+    assert len(updated.checklist) == 2
+    assert updated.checklist[0].done is False
+    assert updated.checklist[1].done is True
