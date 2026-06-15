@@ -261,6 +261,8 @@ def resolve_flutter_executable() -> str | None:
 def build_workspace_snapshot_lines(workspace: str | Path) -> list[str]:
     root = Path(workspace).resolve()
     lines = ["## Workspace snapshot (verified on disk — do **not** ls to rediscover)"]
+    from cecli.spec.pubspec_repair import pubspec_repair_snapshot_lines
+
     pubspec = root / "pubspec.yaml"
     if pubspec.is_file():
         lines.append("- `pubspec.yaml` — present")
@@ -275,6 +277,7 @@ def build_workspace_snapshot_lines(workspace: str | Path) -> list[str]:
         preview = ", ".join(f"`{f}`" for f in files[:8])
         extra = f" (+{len(files) - 8} more)" if len(files) > 8 else ""
         lines.append(f"- `{sub}/` — {len(files)} file(s): {preview}{extra}")
+    lines.extend(pubspec_repair_snapshot_lines(root))
     return lines
 
 

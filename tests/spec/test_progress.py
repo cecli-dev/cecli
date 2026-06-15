@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from cecli.spec.agent_todos import (
     AgentTodoRow,
     import_agent_plan_store,
-    rows_to_tasks_md,
 )
 from cecli.spec.progress import (
     checklist_from_agent_rows,
@@ -34,7 +35,7 @@ def test_merge_agent_progress_into_tasks_md_preserves_rich_text():
     tasks_md = (
         "## Implementation tasks\n\n"
         "- [ ] 1. Wire API for REQ-001 (depends: none)\n"
-        "  - verify: `python -c \"import api\"`\n"
+        '  - verify: `python -c "import api"`\n'
         "- [ ] 2. Add tests for REQ-002 (depends: 1)\n"
     )
     rows = [
@@ -83,11 +84,7 @@ def test_implementation_steps_prefers_checklist():
 
 def test_next_open_implementation_step_after_completed():
     item = _item(
-        tasks_md=(
-            "- [x] 1. Done\n"
-            "- [ ] 2. Next\n"
-            "- [ ] 3. Later\n"
-        ),
+        tasks_md=("- [x] 1. Done\n" "- [ ] 2. Next\n" "- [ ] 3. Later\n"),
     )
     nxt = next_open_implementation_step(item, after="1")
     assert nxt is not None

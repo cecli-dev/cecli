@@ -76,7 +76,7 @@ def merge_agent_progress_into_tasks_md(tasks_md: str, rows: list[AgentTodoRow]) 
         if not m:
             out.append(line)
             continue
-        indent, _mark, body = m.group(1), m.group(2), m.group(3).strip()
+        indent, body = m.group(1), m.group(3).strip()
         step = checklist_step_prefix(body)
         new_done = None
         if step and step in done_by_step:
@@ -127,9 +127,7 @@ def materialize_checklist_from_tasks_md(item: TodoItem) -> list[ChecklistItem]:
     parsed = rows_from_tasks_md(item.tasks_md or "")
     if not parsed:
         return list(item.checklist or [])
-    rows = [
-        AgentTodoRow(text=row.text, done=row.done, current=row.current) for row in parsed
-    ]
+    rows = [AgentTodoRow(text=row.text, done=row.done, current=row.current) for row in parsed]
     return checklist_from_agent_rows(rows, prior=item.checklist or [])
 
 
