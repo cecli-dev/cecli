@@ -520,6 +520,10 @@ class WorkspaceTodos:
             item.design = design
         if tasks_md is not None:
             item.tasks_md = tasks_md
+            if tasks_md.strip() and not any(c.text.strip() for c in item.checklist):
+                from cecli.spec.progress import materialize_checklist_from_tasks_md
+
+                item.checklist = materialize_checklist_from_tasks_md(item)
         if depends_on is not None:
             item.depends_on = [d.strip() for d in depends_on if str(d).strip()]
         if branch is not None:

@@ -354,24 +354,32 @@ def import_agent_plan_store(
 
     rows = _recover_char_split_agent_rows(rows)
 
-    checklist = [
-        ChecklistItem(id=uuid.uuid4().hex[:8], text=row.text, done=row.done) for row in rows
-    ]
-    tasks_md = rows_to_tasks_md(rows)
+    incoming_tasks_md = rows_to_tasks_md(rows)
+    from cecli.spec.progress import (
+        checklist_from_agent_rows,
+        merge_agent_progress_into_tasks_md,
+    )
+
+    target = _resolve_target_task(store, target_todo_id)
+
+    def _apply_rows_to_item(task: TodoItem) -> None:
+        task.checklist = checklist_from_agent_rows(rows, prior=task.checklist)
+        if preserve_spec_tasks_md_on_agent_import(task, incoming_tasks_md):
+            task.tasks_md = merge_agent_progress_into_tasks_md(task.tasks_md, rows)
+        else:
+            task.tasks_md = incoming_tasks_md
+
     any_open = any(not row.done for row in rows)
     status: str = "in_progress" if any_open else "done"
     now = _now_iso()
 
-    target = _resolve_target_task(store, target_todo_id)
     if target:
         target.title = (
             plan_title_from_rows(rows)
             if target.title in (AGENT_PLAN_TITLE, "Untitled")
             else target.title
         )
-        target.checklist = checklist
-        if not preserve_spec_tasks_md_on_agent_import(target, tasks_md):
-            target.tasks_md = tasks_md
+        _apply_rows_to_item(target)
         if target.status not in ("done", "cancelled"):
             target.status = status  # type: ignore[assignment]
         target.updated_at = now
@@ -392,9 +400,7 @@ def import_agent_plan_store(
     title = plan_title_from_rows(rows)
     if existing:
         existing.title = title
-        existing.checklist = checklist
-        if not preserve_spec_tasks_md_on_agent_import(existing, tasks_md):
-            existing.tasks_md = tasks_md
+        _apply_rows_to_item(existing)
         existing.status = status  # type: ignore[assignment]
         existing.updated_at = now
         _ensure_agent_link(existing, agent_todo_relpath)
@@ -403,13 +409,14 @@ def import_agent_plan_store(
         item = TodoItem(
             id=uuid.uuid4().hex,
             title=title,
-            tasks_md=tasks_md,
+            tasks_md=incoming_tasks_md,
             status=status,  # type: ignore[arg-type]
             links=[AGENT_PLAN_LINK],
-            checklist=checklist,
+            checklist=checklist_from_agent_rows(rows),
             created_at=now,
             updated_at=now,
         )
+        _apply_rows_to_item(item)
         _ensure_agent_link(item, agent_todo_relpath)
         store.todos.insert(0, item)
         store.active_id = item.id
