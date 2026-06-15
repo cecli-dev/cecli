@@ -38,7 +38,11 @@ def cmd_materialize(workspace: Path, todo_id: str | None) -> int:
         print("Nothing to materialize (no numbered steps in tasks_md).", file=sys.stderr)
         return 1
     updated, _ = api.update(item.id, checklist=checklist)
-    print(json.dumps({"todo_id": updated.id, "checklist": [asdict(c) for c in updated.checklist]}, indent=2))
+    print(
+        json.dumps(
+            {"todo_id": updated.id, "checklist": [asdict(c) for c in updated.checklist]}, indent=2
+        )
+    )
     return 0
 
 
@@ -121,7 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("sync-agent", help="Import agent todo.txt into workspace Tasks")
 
     p_pub = sub.add_parser("repair-pubspec", help="Detect or add missing Dart pub dependencies")
-    p_pub.add_argument("--apply", action="store_true", help="Run flutter pub add or edit pubspec.yaml")
+    p_pub.add_argument(
+        "--apply", action="store_true", help="Run flutter pub add or edit pubspec.yaml"
+    )
 
     return parser
 

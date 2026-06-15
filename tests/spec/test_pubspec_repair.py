@@ -48,7 +48,9 @@ def test_repair_dry_run_lists_missing(tmp_path: Path):
         encoding="utf-8",
     )
     (tmp_path / "lib").mkdir()
-    (tmp_path / "lib" / "a.dart").write_text("import 'package:provider/provider.dart';\n", encoding="utf-8")
+    (tmp_path / "lib" / "a.dart").write_text(
+        "import 'package:provider/provider.dart';\n", encoding="utf-8"
+    )
     result = repair_pubspec_dependencies(tmp_path, apply=False)
     assert "provider" in result.missing
     assert result.applied is False
