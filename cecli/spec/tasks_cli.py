@@ -15,6 +15,7 @@ from cecli.spec.progress import (
     next_open_implementation_step,
 )
 from cecli.spec.pubspec_repair import repair_pubspec_dependencies
+from cecli.spec.steering import scaffold_steering_files, scan_steering_files
 from cecli.spec.todos import WorkspaceTodos
 
 
@@ -87,6 +88,33 @@ def cmd_sync_agent(workspace: Path) -> int:
     return 0
 
 
+def _steering_payload(snapshot) -> dict:
+    return {
+        "has_content": snapshot.has_content,
+        "file_count": snapshot.file_count,
+        "main": asdict(snapshot.main) if snapshot.main else None,
+        "fragments": [asdict(fragment) for fragment in snapshot.fragments],
+    }
+
+
+def cmd_steering_scan(workspace: Path) -> int:
+    snapshot = scan_steering_files(workspace)
+    print(json.dumps(_steering_payload(snapshot), indent=2))
+    return 0
+
+
+def cmd_steering_scaffold(workspace: Path) -> int:
+    created = scaffold_steering_files(workspace)
+    snapshot = scan_steering_files(workspace)
+    print(
+        json.dumps(
+            {"created": created, **_steering_payload(snapshot)},
+            indent=2,
+        )
+    )
+    return 0
+
+
 def cmd_repair_pubspec(workspace: Path, *, apply: bool) -> int:
     result = repair_pubspec_dependencies(workspace, apply=apply)
     print(
@@ -129,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply", action="store_true", help="Run flutter pub add or edit pubspec.yaml"
     )
 
+    p_steer = sub.add_parser("steering", help="Project steering files (.cecli/STEERING.md)")
+    steer_sub = p_steer.add_subparsers(dest="steering_cmd", required=True)
+    steer_sub.add_parser("scan", help="List steering markdown files as JSON")
+    steer_sub.add_parser("scaffold", help="Create STEERING.md template when missing")
+
     return parser
 
 
@@ -148,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_sync_agent(workspace)
     if args.command == "repair-pubspec":
         return cmd_repair_pubspec(workspace, apply=args.apply)
+    if args.command == "steering":
+        if args.steering_cmd == "scan":
+            return cmd_steering_scan(workspace)
+        if args.steering_cmd == "scaffold":
+            return cmd_steering_scaffold(workspace)
+        parser.error(f"unknown steering command: {args.steering_cmd}")
     parser.error(f"unknown command: {args.command}")
     return 2
 

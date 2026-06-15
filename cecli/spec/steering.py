@@ -3,7 +3,29 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+
+STEERING_MAIN_RELPATH = ".cecli/STEERING.md"
+STEERING_FRAGMENTS_DIR_RELPATH = ".cecli/steering"
+
+DEFAULT_STEERING_TEMPLATE = """\
+# Project steering
+
+Rules the spec agent and implementation turns should follow across **all** tasks in this repo.
+
+## Stack & conventions
+
+- Language / framework:
+- Test command:
+- Avoid:
+
+## Spec discipline
+
+- EARS: ### REQ-NNN with **WHEN** … **THE** system **SHALL** …
+- Keep design and tasks_md aligned with every REQ id.
+- Do not mark implementation done until requirements pass EARS lint.
+"""
 
 SPEC_FOCUS_INSTRUCTIONS = """\
 ## Spec-focus mode (BrightVision)
@@ -40,6 +62,76 @@ IMPLEMENTATION_TOOL_HINTS = """\
 - **Do not** run `flutter test` via Command — BrightVision runs it at end of implement turns.
 - When EditText errors, read the error, **ReadRange**, retry one file; do not assume success from assistant prose alone.
 """
+
+
+@dataclass(frozen=True)
+class SteeringFileRecord:
+    relpath: str
+    size_bytes: int
+    nonempty: bool
+
+
+@dataclass(frozen=True)
+class SteeringFilesSnapshot:
+    main: SteeringFileRecord | None
+    fragments: tuple[SteeringFileRecord, ...]
+
+    @property
+    def has_content(self) -> bool:
+        if self.main and self.main.nonempty:
+            return True
+        return any(fragment.nonempty for fragment in self.fragments)
+
+    @property
+    def file_count(self) -> int:
+        count = 0
+        if self.main and self.main.nonempty:
+            count += 1
+        count += sum(1 for fragment in self.fragments if fragment.nonempty)
+        return count
+
+
+def _steering_file_record(root: Path, relpath: str) -> SteeringFileRecord | None:
+    path = root / relpath
+    if not path.is_file():
+        return None
+    try:
+        size_bytes = path.stat().st_size
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return SteeringFileRecord(
+        relpath=relpath.replace("\\", "/"),
+        size_bytes=size_bytes,
+        nonempty=bool(text),
+    )
+
+
+def scan_steering_files(workspace: str | Path) -> SteeringFilesSnapshot:
+    """List ``.cecli/STEERING.md`` and ``.cecli/steering/*.md`` with sizes."""
+    root = Path(workspace).resolve()
+    main = _steering_file_record(root, STEERING_MAIN_RELPATH)
+    fragments: list[SteeringFileRecord] = []
+    frag_dir = root / ".cecli" / "steering"
+    if frag_dir.is_dir():
+        for path in sorted(frag_dir.glob("*.md")):
+            rel = str(path.relative_to(root)).replace("\\", "/")
+            record = _steering_file_record(root, rel)
+            if record is not None:
+                fragments.append(record)
+    return SteeringFilesSnapshot(main=main, fragments=tuple(fragments))
+
+
+def scaffold_steering_files(workspace: str | Path) -> list[str]:
+    """Create ``.cecli/STEERING.md`` from template when missing. Returns new relpaths."""
+    root = Path(workspace).resolve()
+    created: list[str] = []
+    main_path = root / ".cecli" / "STEERING.md"
+    if not main_path.is_file():
+        main_path.parent.mkdir(parents=True, exist_ok=True)
+        main_path.write_text(DEFAULT_STEERING_TEMPLATE, encoding="utf-8")
+        created.append(STEERING_MAIN_RELPATH)
+    return created
 
 
 def load_steering_markdown(workspace: str | Path) -> str:
