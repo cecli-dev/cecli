@@ -479,6 +479,29 @@ def session_agent_todo_relpath(session: AgentTodoSession) -> str:
     return session.coder.local_agent_folder("todo.txt")
 
 
+def _resolve_agent_todo_pull_relpath(
+    api: WorkspaceTodos,
+    store: TodoStore,
+    session: AgentTodoSession,
+) -> str:
+    """Prefer the active task's linked agent todo over this session's stale copy."""
+    session_relpath = session_agent_todo_relpath(session)
+    active = api.find(store, store.active_id) if store.active_id else None
+    if active:
+        linked = parse_agent_todo_link(active.links)
+        if linked:
+            linked_path = api.root / linked
+            if linked_path.is_file():
+                return linked.replace("\\", "/")
+    session_path = api.root / session_relpath
+    if session_path.is_file():
+        return session_relpath
+    latest = find_latest_agent_todo_txt(api.root)
+    if latest:
+        return str(latest.relative_to(api.root)).replace("\\", "/")
+    return session_relpath
+
+
 def try_import_agent_plan_for_workspace(
     workspace_dir: str | Path,
     *,
@@ -507,12 +530,13 @@ def sync_session_agent_todos(
     Returns ``(store, sanitize_warnings)``.
     """
     api = WorkspaceTodos(session.coder.root)
-    relpath = session_agent_todo_relpath(session)
+    session_relpath = session_agent_todo_relpath(session)
     store = api.load()
     warnings: list[str] = []
 
     if pull:
-        path = api.root / relpath
+        pull_relpath = _resolve_agent_todo_pull_relpath(api, store, session)
+        path = api.root / pull_relpath
         if path.is_file():
             rows = parse_agent_todo_txt(path.read_text(encoding="utf-8"))
             if rows and sanitize is not None:
@@ -528,14 +552,14 @@ def sync_session_agent_todos(
                     store,
                     rows,
                     target_todo_id=store.active_id,
-                    agent_todo_relpath=relpath,
+                    agent_todo_relpath=pull_relpath,
                 )
 
     if push_active and store.active_id:
         item = api.find(store, store.active_id)
         if item:
-            export_todo_item_to_agent(api.root, relpath, item)
-            _ensure_agent_link(item, relpath)
+            export_todo_item_to_agent(api.root, session_relpath, item)
+            _ensure_agent_link(item, session_relpath)
             item.updated_at = _now_iso()
 
     api.save(store)
