@@ -189,6 +189,17 @@ Format example:
 - [ ] 2. Add an HTTP test asserting 200 and a JSON body — _Requirements: REQ-001_ (depends: 1)
 """
 
+_TASKS_EXAMPLE_COMPACT = """\
+Format example (copy this shape exactly):
+
+- [ ] 1. Add the health route — _Requirements: REQ-001_ (depends: none)
+- [ ] 2. Add an HTTP test — _Requirements: REQ-001_ (depends: 1)
+"""
+
+
+def _tasks_example() -> str:
+    return _TASKS_EXAMPLE_COMPACT if compact_spec_gen_enabled() else _TASKS_EXAMPLE
+
 _ALL_EXAMPLE = """\
 Format example (structure only; replace with the real feature):
 
@@ -394,7 +405,7 @@ def build_generate_message(
             existing_tasks=_optional_existing_block("implementation tasks draft", item.tasks_md),
             ears_context=ears_context,
             depth=_tasks_depth(),
-        ) + (_tasks_format() + "\n" + _TASKS_EXAMPLE)
+        ) + (_tasks_format() + "\n" + _tasks_example())
     existing = ""
     if item and (item.requirements or item.design or item.tasks_md):
         existing = (

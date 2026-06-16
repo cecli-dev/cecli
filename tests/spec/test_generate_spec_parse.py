@@ -13,6 +13,7 @@ from cecli.spec.generate import parse_generated_layers
 from cecli.spec.layers import (
     assess_spec_richness,
     normalize_spec_layer_traceability,
+    normalize_tasks_md_numbering,
 )
 
 
@@ -84,6 +85,32 @@ class TestGenerateSpecParse(unittest.TestCase):
         }
         out = normalize_spec_layer_traceability(merged)
         self.assertIn("REQ-001", out["design"])
+
+    def test_normalize_numbered_tasks_from_plain_bullets(self):
+        tasks = "- [ ] Implement health route\n- [ ] Add HTTP test\n"
+        out = normalize_tasks_md_numbering(tasks)
+        self.assertRegex(out, r"1\.\s+Implement")
+        self.assertRegex(out, r"2\.\s+Add HTTP")
+        ok, issues = assess_generated_spec_layers(
+            "### REQ-001\n**WHEN** x\n**THE** system **SHALL** a.\n",
+            "## Overview\nREQ-001",
+            out,
+        )
+        self.assertTrue(ok, issues)
+
+    def test_normalize_tasks_via_traceability_helper(self):
+        layers = {
+            "requirements": "### REQ-001\n**WHEN** x\n**THE** system **SHALL** a.\n",
+            "design": "## Overview\nHTTP API only.",
+            "tasks_md": "- Implement endpoint\n- Add test\n",
+        }
+        out = normalize_spec_layer_traceability(layers)
+        ok, issues = assess_generated_spec_layers(
+            out["requirements"],
+            out["design"],
+            out["tasks_md"],
+        )
+        self.assertTrue(ok, issues)
 
 
 if __name__ == "__main__":
