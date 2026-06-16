@@ -200,6 +200,7 @@ Format example (copy this shape exactly):
 def _tasks_example() -> str:
     return _TASKS_EXAMPLE_COMPACT if compact_spec_gen_enabled() else _TASKS_EXAMPLE
 
+
 _ALL_EXAMPLE = """\
 Format example (structure only; replace with the real feature):
 
