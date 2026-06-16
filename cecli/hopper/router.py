@@ -615,6 +615,7 @@ class RouteTurnContext:
 
 _BACKEND_PROVIDER_PREFIXES: dict[str, str] = {
     "ollama": "ollama_chat/",
+    "lmstudio": "openai/",
     "vllm": "openai/",
     "tgi": "openai/",
     "llamacpp": "openai/",
