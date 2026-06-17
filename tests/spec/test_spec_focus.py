@@ -7,6 +7,7 @@ import unittest
 
 from cecli.spec.focus import (
     build_user_message_with_spec_context,
+    should_inject_task_context,
     spec_focus_preamble_applies,
     spec_focus_requested,
     todo_has_spec_content,
@@ -173,6 +174,50 @@ class TestSpecFocusGating(unittest.TestCase):
             self.assertIn("Continue (trimmed", text)
             self.assertNotIn("Spec-focus mode (BrightVision)", text)
             self.assertNotIn("Implementation turn (tools)", text)
+
+    def test_agent_continuation_skips_full_task_inject(self):
+        item = _item(requirements="### REQ-001\n**WHEN** open **THE** UI **SHALL** show revert")
+        self.assertFalse(
+            should_inject_task_context(
+                focus_requested=True,
+                item=item,
+                inject_todo_spec=True,
+                agent_continuation=True,
+            )
+        )
+
+    def test_resume_implement_skips_full_task_inject(self):
+        item = _item(requirements="### REQ-001\n**WHEN** x **THE** y **SHALL** z")
+        self.assertFalse(
+            should_inject_task_context(
+                focus_requested=True,
+                item=item,
+                inject_todo_spec=True,
+                message="/agent Continue the active task from where you stopped.",
+            )
+        )
+
+    def test_resume_implement_injects_open_tasks_excerpt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks = (
+                "- [ ] 1. Scaffold workspace (`package.json`)\n"
+                "- [ ] 2. Add domain (`packages/domain/src/index.ts`)\n"
+            )
+            item = _item(
+                requirements="### REQ-001\n**WHEN** x **THE** y **SHALL** z", tasks_md=tasks
+            )
+            store = TodoStore(version=1, active_id=item.id, todos=[item])
+            text, _, _ = build_user_message_with_spec_context(
+                tmp,
+                "/agent Continue the active task from where you stopped.",
+                item=item,
+                store=store,
+                focus_requested=True,
+                inject_todo_spec=False,
+            )
+            self.assertIn("Open implementation tasks (resume)", text)
+            self.assertIn("package.json", text)
+            self.assertNotIn("Requirements (summary)", text)
 
     def test_inject_without_preamble_when_layers_empty(self):
         with tempfile.TemporaryDirectory() as tmp:

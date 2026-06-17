@@ -8,10 +8,9 @@ from pathlib import Path
 from cecli.spec.implement import build_implement_workspace_block
 from cecli.spec.steering import (
     IMPLEMENTATION_TOOL_HINTS,
-    SCAFFOLD_MISSING_HINT,
+    SCAFFOLD_HINT,
     SPEC_FOCUS_INSTRUCTIONS,
     build_spec_focus_preamble,
-    workspace_lib_missing,
 )
 from cecli.spec.todos import (
     TodoItem,
@@ -85,8 +84,14 @@ def should_inject_task_context(
     focus_requested: bool,
     item: TodoItem | None,
     inject_todo_spec: bool,
+    agent_continuation: bool = False,
+    message: str | None = None,
 ) -> bool:
     if item is None:
+        return False
+    if agent_continuation:
+        return False
+    if message and _is_resume_implement_message(message):
         return False
     if inject_todo_spec:
         return True
@@ -137,6 +142,8 @@ def build_user_message_with_spec_context(
         focus_requested=focus_requested,
         item=item,
         inject_todo_spec=inject_todo_spec,
+        agent_continuation=agent_continuation,
+        message=message,
     ):
         assert item is not None
         turn_todo_id = item.id
@@ -154,8 +161,14 @@ def build_user_message_with_spec_context(
             if not agent_continuation:
                 blocks.append(build_spec_focus_preamble(workspace))
                 blocks.append(IMPLEMENTATION_TOOL_HINTS.strip())
-                if workspace_lib_missing(workspace):
-                    blocks.append(SCAFFOLD_MISSING_HINT.strip())
+                blocks.append(SCAFFOLD_HINT.strip())
+            if _is_resume_implement_message(message) and item is not None:
+                from cecli.spec.todos import _implementation_tasks_for_inject
+
+                blocks.append(
+                    "## Open implementation tasks (resume)\n"
+                    + _implementation_tasks_for_inject(item, max_open=4)
+                )
             checklist = item.checklist if item is not None else []
             blocks.append(
                 build_implement_workspace_block(

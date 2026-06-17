@@ -38,17 +38,13 @@ You are in **spec-focus**: work on the active task's requirements, design, and i
 - Do not mark implementation done until requirements pass EARS lint (WHEN/SHALL, no duplicate REQ ids).
 """
 
-SCAFFOLD_MISSING_HINT = """\
-## Workspace state (read before exploring)
+SCAFFOLD_HINT = """\
+## Scaffolding (this turn)
 
-`lib/` does **not** exist yet — scaffolding tasks (e.g. **1.1**, **1.2**) are incomplete.
-Do **not** repeat `ls` on `lib/` or `test/`. Use **ContextManager** to create directories/files,
-then **ReadRange** + **EditText**. If the active task is **1.3+**, complete **1.1** first.
+Use **ContextManager create** for **missing** paths **named in the checklist** (add on missing files is upgraded to create).
+Then **ReadRange** + **EditText** on **one** target file. **No ls.**
+Do not edit or ReadRange paths **not named** in the current checklist item.
 """
-
-
-def workspace_lib_missing(workspace: str | Path) -> bool:
-    return not (Path(workspace).resolve() / "lib").is_dir()
 
 
 IMPLEMENTATION_TOOL_HINTS = """\

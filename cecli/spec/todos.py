@@ -251,6 +251,29 @@ def format_todo_context_light(item: TodoItem, *, store: TodoStore | None = None)
 
 
 _IMPLEMENT_DESIGN_MAX_CHARS = int(os.environ.get("BV_IMPLEMENT_DESIGN_MAX_CHARS", "4000"))
+_IMPLEMENT_TASKS_MAX_OPEN = int(os.environ.get("BV_IMPLEMENT_TASKS_MAX_OPEN", "12"))
+
+
+def _implementation_tasks_for_inject(item: TodoItem, *, max_open: int | None = None) -> str:
+    """Open checklist steps only — full tasks_md can be 20k+ tokens on local models."""
+    from cecli.spec.progress import implementation_steps
+
+    limit = max_open if max_open is not None else _IMPLEMENT_TASKS_MAX_OPEN
+    steps = implementation_steps(item)
+    open_steps = [s for s in steps if not s.done and s.step_id]
+    if not open_steps:
+        return _layer_or_placeholder(item.tasks_md, "(No implementation tasks yet.)")
+    shown = open_steps[: max(1, limit)]
+    lines: list[str] = []
+    for step in shown:
+        cur = " **(current)**" if step.current else ""
+        lines.append(f"- [ ] {step.step_id} {step.text.strip()}{cur}")
+    hidden = len(open_steps) - len(shown)
+    if hidden:
+        lines.append(
+            f"\n… {hidden} more open implementation step(s) — full list in Tasks / `.cecli/specs/`."
+        )
+    return "\n".join(lines)
 
 
 def _truncate_spec_layer(text: str, *, max_chars: int, label: str) -> str:
@@ -317,7 +340,7 @@ def format_todo_context_implement(item: TodoItem, *, store: TodoStore | None = N
         _truncate_spec_layer(item.design, max_chars=_IMPLEMENT_DESIGN_MAX_CHARS, label="design"),
         "",
         "## Implementation tasks",
-        _layer_or_placeholder(item.tasks_md, "(No implementation tasks yet.)"),
+        _implementation_tasks_for_inject(item),
     ]
     if item.checklist:
         _append_checklist_block(lines, item.checklist)

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from cecli.spec.agent_todos import AgentTodoRow
 from cecli.spec.implement import (
     build_implement_workspace_block,
+    build_workspace_snapshot_lines,
     checklist_step_prefix,
     dart_test_paths_for_focus,
     deliverable_paths_exist,
@@ -26,6 +27,8 @@ class TestImplementWorkspace(unittest.TestCase):
     def test_paths_from_checklist_text(self):
         text = "1.2 Implement NetworkInterceptor in lib/core/network/"
         assert paths_from_checklist_text(text) == ["lib/core/network"]
+        nested = "1. Scaffold `client/package.json` and root `package.json`"
+        assert paths_from_checklist_text(nested) == ["client/package.json", "package.json"]
 
     def test_deliverable_paths_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,20 +79,34 @@ class TestImplementWorkspace(unittest.TestCase):
         )
         self.assertEqual(focus.text, checklist[0].text)
 
-    def test_test_paths_for_focus_matches_name(self):
+    def test_test_paths_for_focus_requires_named_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            (root / "pubspec.yaml").write_text("name: x\n", encoding="utf-8")
+            test_path = root / "test" / "core" / "network" / "network_interceptor_test.dart"
+            test_path.parent.mkdir(parents=True)
+            test_path.write_text("", encoding="utf-8")
+            focus = ChecklistItem(
+                id="c1",
+                text="1.3 Write unit tests in `test/core/network/network_interceptor_test.dart`",
+                done=False,
+            )
+            paths = dart_test_paths_for_focus(root, focus)
+            self.assertEqual(paths, ["test/core/network/network_interceptor_test.dart"])
+
+    def test_test_paths_for_focus_ignores_unnamed_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pubspec.yaml").write_text("name: x\n", encoding="utf-8")
             test_dir = root / "test" / "core" / "network"
             test_dir.mkdir(parents=True)
             (test_dir / "network_interceptor_test.dart").write_text("", encoding="utf-8")
-            (test_dir / "other_test.dart").write_text("", encoding="utf-8")
             focus = ChecklistItem(
                 id="c1", text="1.3 Write unit tests for NetworkInterceptor", done=False
             )
-            paths = dart_test_paths_for_focus(root, focus)
-            self.assertIn("test/core/network/network_interceptor_test.dart", paths)
+            self.assertEqual(dart_test_paths_for_focus(root, focus), [])
 
-    def test_snapshot_lists_lib_and_test(self):
+    def test_snapshot_lists_top_level_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "pubspec.yaml").write_text("name: x\n", encoding="utf-8")
@@ -101,22 +118,23 @@ class TestImplementWorkspace(unittest.TestCase):
             (test / "a_test.dart").write_text("", encoding="utf-8")
             checklist = [
                 ChecklistItem(
-                    id="c1", text="1.3 Write unit tests for NetworkInterceptor", done=False
+                    id="c1",
+                    text="1.3 Write unit tests in `test/core/network/a_test.dart`",
+                    done=False,
                 ),
             ]
             block = build_implement_workspace_block(
                 root,
                 checklist,
                 resume=True,
-                active_task_title="1.3 Write unit tests for NetworkInterceptor",
+                active_task_title="1.3 Write unit tests in `test/core/network/a_test.dart`",
             )
             self.assertIn("Workspace snapshot", block)
-            self.assertIn("lib/core/network/a.dart", block)
+            self.assertIn("`lib/`", block)
+            self.assertIn("`test/`", block)
+            self.assertNotIn("lib/core/network/a.dart", block)
             self.assertIn("test/core/network/a_test.dart", block)
-            self.assertIn("1.3 Write unit tests", block)
-            self.assertIn("Do not batch UpdateTodoList", block)
             self.assertIn("flutter test", block)
-            self.assertNotIn("1.2 Implement NetworkInterceptor", block)
 
     def test_continuation_block_is_trimmed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,6 +198,46 @@ class TestImplementWorkspace(unittest.TestCase):
     @patch("cecli.spec.implement.shutil.which", return_value="/opt/flutter/bin/flutter")
     def test_resolve_flutter_executable(self, _which):
         self.assertEqual(resolve_flutter_executable(), "/opt/flutter/bin/flutter")
+
+    def test_snapshot_top_level_is_factual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "alpha").mkdir()
+            (root / "notes.txt").write_text("hello", encoding="utf-8")
+            lines = build_workspace_snapshot_lines(root)
+            blob = "\n".join(lines)
+            self.assertIn("Top level", blob)
+            self.assertIn("`alpha/`", blob)
+            self.assertIn("`notes.txt`", blob)
+
+    def test_scaffold_step_uses_checklist_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checklist = [
+                ChecklistItem(
+                    id="c1",
+                    text="1. Scaffold the workspace (`package.json`)",
+                    done=False,
+                ),
+            ]
+            block = build_implement_workspace_block(root, checklist, resume=False)
+            self.assertIn("package.json", block)
+            self.assertIn("ContextManager create", block)
+
+    def test_no_path_checklist_points_at_implementation_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checklist = [
+                ChecklistItem(
+                    id="c1",
+                    text="1. Scaffold the monorepo workspace and shared tooling",
+                    done=False,
+                ),
+            ]
+            block = build_implement_workspace_block(root, checklist, resume=False)
+            self.assertIn("names **no file paths**", block)
+            self.assertIn("Implementation tasks", block)
+            self.assertIn("orientation only", block)
 
 
 if __name__ == "__main__":
