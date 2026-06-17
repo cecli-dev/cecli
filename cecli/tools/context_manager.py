@@ -94,7 +94,7 @@ class Tool(BaseTool):
                 "You must specify at least one of: remove, editable, view, create, or stop"
             )
 
-        coder.io.tool_output("⛭ Modifying Context", type="tool-result")
+        coder.io.tool_output("⚙️ Modifying Context.")
         messages = []
 
         for f in create_files:
@@ -104,7 +104,15 @@ class Tool(BaseTool):
         for f in view_files:
             messages.append(cls._view(coder, f))
         for f in editable_files:
-            messages.append(cls._editable(coder, f))
+            try:
+                abs_path = coder.abs_root_path(f)
+            except Exception:
+                abs_path = None
+            if abs_path is not None and not os.path.isfile(abs_path):
+                coder.io.tool_output(f"ℹ️ `{f}` missing on disk — using **create** instead of add")
+                messages.append(cls._create(coder, f))
+            else:
+                messages.append(cls._editable(coder, f))
         for key in stop_keys:
             messages.append(cls._stop_command(coder, key))
 
@@ -169,7 +177,7 @@ class Tool(BaseTool):
                 removed = True
 
             if not removed:
-                coder.io.tool_output(f"⚠ File '{file_path}' not in context", type="tool-result")
+                coder.io.tool_output(f"⚠️ File '{file_path}' not in context")
                 return f"File not in context: {file_path}"
 
             coder.recently_removed[rel_path] = {"removed_at": time.time()}
@@ -178,7 +186,7 @@ class Tool(BaseTool):
                 ConversationService.get_chunks(coder).defer_removal(abs_path)
                 ConversationService.get_chunks(coder).defer_removal(rel_path)
 
-            coder.io.tool_output(f"✗ Removed '{file_path}' from context", type="tool-result")
+            coder.io.tool_output(f"🗑️ Removed '{file_path}' from context")
             return (
                 f"Removed: {file_path}\n"
                 "Old file contents may remain visible. This is an acceptable system behavior."
@@ -195,9 +203,7 @@ class Tool(BaseTool):
                 command_key
             )
             if success:
-                coder.io.tool_output(
-                    f"✗ Stopped background command '{command_key}'", type="tool-result"
-                )
+                coder.io.tool_output(f"🛑 Stopped background command '{command_key}'")
                 return (
                     f"Background command stopped: {command_key}\n"
                     f"Exit code: {exit_code}\n"
@@ -205,8 +211,7 @@ class Tool(BaseTool):
                 )
             else:
                 coder.io.tool_output(
-                    f"⚠ Background command '{command_key}' not found or not running",
-                    type="tool-result",
+                    f"⚠️ Background command '{command_key}' not found or not running"
                 )
                 return f"Command not found or not running: {command_key}"
         except Exception as e:
@@ -219,12 +224,10 @@ class Tool(BaseTool):
         try:
             abs_path = cls._resolve_file_path(coder, file_path)
             if abs_path in coder.abs_fnames:
-                coder.io.tool_output(
-                    f"🗀 File '{file_path}' is already editable", type="tool-result"
-                )
+                coder.io.tool_output(f"📝 File '{file_path}' is already editable")
                 return f"Already editable: {file_path}"
             if not os.path.isfile(abs_path):
-                coder.io.tool_output(f"⚠ File '{file_path}' not found on disk", type="tool-result")
+                coder.io.tool_output(f"⚠️ File '{file_path}' not found on disk")
                 return f"File not found: {file_path}"
             was_read_only = False
             if abs_path in coder.abs_read_only_fnames:
@@ -232,14 +235,10 @@ class Tool(BaseTool):
                 was_read_only = True
             coder.abs_fnames.add(abs_path)
             if was_read_only:
-                coder.io.tool_output(
-                    f"🗀 Moved '{file_path}' from read-only to editable", type="tool-result"
-                )
+                coder.io.tool_output(f"📝 Moved '{file_path}' from read-only to editable")
                 return f"Made editable (moved): {file_path}"
             else:
-                coder.io.tool_output(
-                    f"🗀 Added '{file_path}' directly to editable context", type="tool-result"
-                )
+                coder.io.tool_output(f"📝 Added '{file_path}' directly to editable context")
                 return f"Made editable (added): {file_path}"
         except Exception as e:
             coder.io.tool_error(f"Error making editable '{file_path}': {str(e)}")
@@ -263,11 +262,13 @@ class Tool(BaseTool):
 
             # Check if file already exists
             if os.path.exists(abs_path):
-                coder.io.tool_output(f"⚠ File '{file_path}' already exists", type="tool-result")
+                coder.io.tool_output(f"⚠️ File '{file_path}' already exists")
                 return f"File already exists: {file_path}"
 
             # Create parent directories if they don't exist
-            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+            parent = os.path.dirname(abs_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
 
             # Create an empty file
             with open(abs_path, "w", encoding="utf-8"):
@@ -276,9 +277,7 @@ class Tool(BaseTool):
             # Add the file to editable context
             coder.abs_fnames.add(abs_path)
 
-            coder.io.tool_output(
-                f"🗀 Created '{file_path}' and made it editable", type="tool-result"
-            )
+            coder.io.tool_output(f"📝 Created '{file_path}' and made it editable")
             return f"Created and made editable: {file_path}"
 
         except Exception as e:
