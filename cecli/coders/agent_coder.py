@@ -779,6 +779,12 @@ class AgentCoder(Coder):
                                 all_results_content.append(f"Error in tool execution: {res}")
                             else:
                                 all_results_content.append(str(res))
+                                if not getattr(tool_module, "SKIP_EXECUTE_RESULT_UI", False):
+                                    from cecli.tools.utils.output import (
+                                        emit_execute_result_to_ui,
+                                    )
+
+                                    emit_execute_result_to_ui(self, res)
 
                 if not await HookIntegration.call_post_tool_hooks(
                     self, tool_name, args_string, "\n\n".join(all_results_content)

@@ -203,28 +203,6 @@ class Tool(BaseTool):
 
         final_message = "\n\n".join(all_results)
 
-        if coder.tui and coder.tui():
-            # For the UI, show a summary to avoid cluttering the terminal
-            ui_summaries = []
-            for search_op, result in zip(searches, all_results):
-                pattern = search_op.get("pattern")
-                if "No matches found" in result:
-                    ui_summaries.append(f"✗ No matches found for '{pattern}'.")
-                elif "Error" in result:
-                    ui_summaries.append(f"✗ Error searching for '{pattern}'.")
-                else:
-                    # Count lines in the output to give a sense of scale
-                    # The result string contains the matches in a code block
-                    match_count = (
-                        result.count("\n") - 2
-                    )  # Subtracting for the markdown block markers
-                    if match_count < 0:
-                        match_count = 0
-                    ui_summaries.append(f"✓ Matches found for '{pattern}'.")
-
-            ui_message = "\n".join(ui_summaries)
-            coder.io.tool_output(ui_message, type="tool-result")
-
         return final_message
 
     @classmethod
