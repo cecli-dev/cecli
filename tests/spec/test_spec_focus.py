@@ -164,9 +164,13 @@ class TestSpecFocusGating(unittest.TestCase):
                 ),
             ]
             store = TodoStore(version=1, active_id=item.id, todos=[item])
+            agent_msg = (
+                "/agent Implement only implementation task 2: "
+                "Implement auth token helper in `src/auth/token.ts` (depends: 1)."
+            )
             text, preamble, tid = build_user_message_with_spec_context(
                 tmp,
-                "/agent Implement only implementation task 2: Implement auth token helper in `src/auth/token.ts` (depends: 1).",
+                agent_msg,
                 item=item,
                 store=store,
                 focus_requested=False,
