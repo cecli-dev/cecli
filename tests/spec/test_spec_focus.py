@@ -146,6 +146,64 @@ class TestSpecFocusGating(unittest.TestCase):
             self.assertIn("EditText", text)
             self.assertIn("Workspace snapshot", text)
 
+    def test_tasks_tab_implement_injects_workspace_without_spec_focus_toggle(self):
+        """Production path: inject_todo_spec=True, focus_requested=False (Tasks → Implement)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            item = _item(
+                requirements="### REQ-001\n**WHEN** x **THE** system **SHALL** y",
+                design="Overview",
+                tasks_md="- [ ] 2. Implement auth token helper in `src/auth/token.ts` (depends: 1)",
+            )
+            item = migrate_todo_layers(item)
+            item.checklist = [
+                ChecklistItem(id="c1", text="1. Review layout (depends: none)", done=False),
+                ChecklistItem(
+                    id="c2",
+                    text="2. Implement auth token helper in `src/auth/token.ts` (depends: 1)",
+                    done=False,
+                ),
+            ]
+            store = TodoStore(version=1, active_id=item.id, todos=[item])
+            text, preamble, tid = build_user_message_with_spec_context(
+                tmp,
+                "/agent Implement only implementation task 2: Implement auth token helper in `src/auth/token.ts` (depends: 1).",
+                item=item,
+                store=store,
+                focus_requested=False,
+                inject_todo_spec=True,
+            )
+            self.assertFalse(preamble)
+            self.assertEqual(tid, item.id)
+            self.assertIn("Workspace snapshot", text)
+            self.assertIn("Implementation turn (tools)", text)
+            self.assertNotIn("Spec-focus mode (BrightVision)", text)
+            self.assertIn("ContextManager create", text)
+
+    def test_resume_injects_workspace_without_reinject_or_spec_focus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = _item(
+                requirements="### REQ-001\n**WHEN** x **THE** system **SHALL** y",
+                tasks_md="- [x] 1. Create handler\n- [ ] 2. Add tests",
+            )
+            item = migrate_todo_layers(item)
+            item.checklist = [
+                ChecklistItem(id="c1", text="1. Create handler", done=True),
+                ChecklistItem(id="c2", text="2. Add tests", done=False),
+            ]
+            store = TodoStore(version=1, active_id=item.id, todos=[item])
+            text, preamble, tid = build_user_message_with_spec_context(
+                tmp,
+                "/agent Continue the active task from where you stopped.",
+                item=item,
+                store=store,
+                focus_requested=False,
+                inject_todo_spec=False,
+            )
+            self.assertFalse(preamble)
+            self.assertIsNone(tid)
+            self.assertIn("Workspace snapshot", text)
+            self.assertNotIn("[Active task:", text)
+
     def test_implement_turn_detects_agent_prefix(self):
         from cecli.spec.focus import is_implement_turn_message
 
