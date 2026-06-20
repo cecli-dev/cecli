@@ -323,3 +323,53 @@ def test_sync_session_pull_prefers_linked_agent_todo_over_stale_session_copy(tmp
     merged = store2.todos[0]
     assert "- [x] 1. Wire generate-spec" in merged.tasks_md
     assert merged.checklist[0].done is True
+
+
+def test_sync_skips_pull_when_workspace_tasks_empty(tmp_path: Path):
+    class FakeCoder:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def local_agent_folder(self, name: str) -> str:
+            return f".cecli/agents/2026-06-03/session-a/{name}"
+
+    class FakeSession:
+        def __init__(self, root: Path):
+            self.coder = FakeCoder(root)
+
+    session = FakeSession(tmp_path)
+    todo_path = tmp_path / session.coder.local_agent_folder("todo.txt")
+    todo_path.parent.mkdir(parents=True, exist_ok=True)
+    todo_path.write_text(
+        "Remaining:\n→ Resurrect me\n",
+        encoding="utf-8",
+    )
+    api = WorkspaceTodos(tmp_path)
+    api.save(api.load())
+
+    store, warnings = sync_session_agent_todos(session, pull=True, push_active=False)
+    assert store.todos == []
+    assert any("Skipped agent todo sync" in w for w in warnings)
+
+
+def test_clear_session_agent_todo_file(tmp_path: Path):
+    from cecli.spec.agent_todos import clear_session_agent_todo_file
+
+    class FakeCoder:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def local_agent_folder(self, name: str) -> str:
+            return f".cecli/agents/2026-06-03/session-a/{name}"
+
+    class FakeSession:
+        def __init__(self, root: Path):
+            self.coder = FakeCoder(root)
+
+    session = FakeSession(tmp_path)
+    todo_path = tmp_path / session.coder.local_agent_folder("todo.txt")
+    todo_path.parent.mkdir(parents=True, exist_ok=True)
+    todo_path.write_text("Remaining:\n→ stale\n", encoding="utf-8")
+    assert clear_session_agent_todo_file(session) is True
+    assert not todo_path.is_file()
+    assert clear_session_agent_todo_file(session) is False

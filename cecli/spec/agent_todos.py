@@ -514,6 +514,16 @@ def try_import_agent_plan_for_workspace(
         return None
 
 
+def clear_session_agent_todo_file(session: AgentTodoSession) -> bool:
+    """Remove this session's agent ``todo.txt`` so deleted Tasks are not resurrected on sync."""
+    api = WorkspaceTodos(session.coder.root)
+    path = api.root / session_agent_todo_relpath(session)
+    if not path.is_file():
+        return False
+    path.unlink()
+    return True
+
+
 def sync_session_agent_todos(
     session: AgentTodoSession,
     *,
@@ -548,12 +558,18 @@ def sync_session_agent_todos(
                 if warnings:
                     path.write_text(format_agent_todo_txt(rows) + "\n", encoding="utf-8")
             if rows:
-                store = import_agent_plan_store(
-                    store,
-                    rows,
-                    target_todo_id=store.active_id,
-                    agent_todo_relpath=pull_relpath,
-                )
+                if not store.todos and not store.active_id:
+                    warnings.append(
+                        "Skipped agent todo sync — workspace Tasks are empty "
+                        "(clear session todo or create a task first)."
+                    )
+                else:
+                    store = import_agent_plan_store(
+                        store,
+                        rows,
+                        target_todo_id=store.active_id,
+                        agent_todo_relpath=pull_relpath,
+                    )
 
     if push_active and store.active_id:
         item = api.find(store, store.active_id)
