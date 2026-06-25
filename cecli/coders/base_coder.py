@@ -3002,12 +3002,22 @@ class Coder(metaclass=UsageMeta):
                             continue
 
                         async def do_tool_call():
+                            nonlocal session
                             from litellm import experimental_mcp_client
 
-                            return await experimental_mcp_client.call_openai_tool(
-                                session=session,
-                                openai_tool=new_tool_call,
-                            )
+                            try:
+                                return await experimental_mcp_client.call_openai_tool(
+                                    session=session,
+                                    openai_tool=new_tool_call,
+                                )
+                            except Exception as e:
+                                if server.is_session_expired_error(e):
+                                    session = await server.reconnect()
+                                    return await experimental_mcp_client.call_openai_tool(
+                                        session=session,
+                                        openai_tool=new_tool_call,
+                                    )
+                                raise
 
                         call_result, interrupted = await coroutines.interruptible(
                             do_tool_call(), self.interrupt_event

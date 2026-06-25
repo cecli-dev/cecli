@@ -305,6 +305,23 @@ class AgentCoder(Coder):
                 call_result = await litellm.experimental_mcp_client.call_openai_tool(
                     session=session, openai_tool=tool_call_dict
                 )
+            except Exception as e:
+                if server.is_session_expired_error(e):
+                    try:
+                        session = await server.reconnect()
+                        call_result = await litellm.experimental_mcp_client.call_openai_tool(
+                            session=session, openai_tool=tool_call_dict
+                        )
+                    except Exception as retry_exc:
+                        self.io.tool_warning(
+                            f"Executing {tool_name} on {server.name} failed after reconnect:\n"
+                            f"Error: {retry_exc}"
+                        )
+                        return f"Error executing tool call {tool_name}: {retry_exc}"
+                else:
+                    self.io.tool_warning(f"Executing {tool_name} on {server.name} failed:\nError: {e}")
+                    return f"Error executing tool call {tool_name}: {e}"
+            try:
                 content_parts = []
                 if call_result.content:
                     for item in call_result.content:

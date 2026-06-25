@@ -130,6 +130,49 @@ class McpServer:
             finally:
                 self.session = None
 
+    async def reconnect(self):
+        """Disconnect and reconnect, establishing a fresh session.
+
+        Used when the server has invalidated the current session (e.g., after
+        a server restart), as indicated by an HTTP 404 response per the MCP
+        protocol specification.
+
+        Returns:
+            ClientSession: The new active session
+        """
+        if self.io:
+            self.io.tool_warning(
+                f"MCP session expired for {self.name}, reconnecting..."
+            )
+        await self.disconnect()
+        self.exit_stack = AsyncExitStack()
+        return await self.connect()
+
+    @staticmethod
+    def is_session_expired_error(exc):
+        """Check if an exception indicates an expired MCP session (HTTP 404).
+
+        Per the MCP specification, when a server terminates a session it
+        responds with HTTP 404 Not Found.  The client MUST then start a new
+        session by sending a new InitializeRequest.
+
+        Args:
+            exc: The exception to check
+
+        Returns:
+            bool: True if the error indicates a 404 session expiry
+        """
+        import httpx
+
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
+            return True
+
+        # Some transports wrap the status in the exception message
+        exc_str = str(exc).lower()
+        if "404" in exc_str and ("session" in exc_str or "not found" in exc_str):
+            return True
+
+        return False
 
 class HttpBasedMcpServer(McpServer):
     """Base class for HTTP-based MCP servers (HTTP streaming and SSE)."""
