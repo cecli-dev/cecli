@@ -21,7 +21,7 @@ def is_provided(value, *, treat_zero_as_missing=False):
     """
     if value is None:
         return False
-    if isinstance(value, str) and value == "":
+    if isinstance(value, str) and value.strip().lower() in ("", "n/a", "null", "none"):
         return False
     if treat_zero_as_missing and isinstance(value, (int, float)) and value == 0:
         return False
