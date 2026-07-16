@@ -28,7 +28,7 @@ class TestSpinnerOption:
 
     def test_spinner_enabled_by_default(self, mock_io, mock_model):
         """GitRepo defaults to show_spinner=True."""
-        repo = GitRepo(mock_io, models=[mock_model], fnames=[])
+        repo = GitRepo(mock_io, models=[mock_model], fnames=[], git_dname=".")
         assert repo.show_spinner is True
 
     def test_spinner_disabled_when_false(self, mock_io, mock_model):
