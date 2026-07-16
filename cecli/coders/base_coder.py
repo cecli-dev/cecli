@@ -576,7 +576,7 @@ class Coder(metaclass=UsageMeta):
                     fnames,
                     None,
                     models=main_model.commit_message_models(),
-                    show_spinner=args.spinner,
+                    show_spinner=nested.getter(self.args, "spinner", True),
                 )
             except FileNotFoundError:
                 pass
