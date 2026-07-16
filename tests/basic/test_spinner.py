@@ -20,6 +20,13 @@ def mock_model():
     model.name = "test-model"
     model.system_prompt_prefix = None
     model.send_completion = MagicMock(return_value=MagicMock(choices=[MagicMock(message=MagicMock(content="test commit"))]))
+    model.token_count = MagicMock(return_value=10)
+    model.info = {"max_input_tokens": 100000}
+    model.simple_send_with_retries = MagicMock(return_value="test commit")
+
+    async def _async_simple_send(*args, **kwargs):
+        return "test commit"
+    model.simple_send_with_retries = _async_simple_send
     return model
 
 
@@ -33,19 +40,21 @@ class TestSpinnerOption:
 
     def test_spinner_disabled_when_false(self, mock_io, mock_model):
         """GitRepo respects show_spinner=False."""
-        repo = GitRepo(mock_io, models=[mock_model], fnames=[], show_spinner=False)
+        repo = GitRepo(mock_io, models=[mock_model], fnames=[], git_dname=".", show_spinner=False)
         assert repo.show_spinner is False
 
-    def test_spinner_started_during_commit_message(self, mock_io, mock_model):
+    @pytest.mark.asyncio
+    async def test_spinner_started_during_commit_message(self, mock_io, mock_model):
         """When show_spinner=True, start_spinner is called during get_commit_message."""
-        repo = GitRepo(mock_io, models=[mock_model], fnames=[], show_spinner=True)
-        repo.get_commit_message("some diff", "some context")
+        repo = GitRepo(mock_io, models=[mock_model], fnames=[], git_dname=".", show_spinner=True)
+        await repo.get_commit_message("some diff", "some context")
         mock_io.start_spinner.assert_called()
 
-    def test_spinner_not_started_when_disabled(self, mock_io, mock_model):
+    @pytest.mark.asyncio
+    async def test_spinner_not_started_when_disabled(self, mock_io, mock_model):
         """When show_spinner=False, start_spinner is never called during get_commit_message."""
-        repo = GitRepo(mock_io, models=[mock_model], fnames=[], show_spinner=False)
-        repo.get_commit_message("some diff", "some context")
+        repo = GitRepo(mock_io, models=[mock_model], fnames=[], git_dname=".", show_spinner=False)
+        await repo.get_commit_message("some diff", "some context")
         mock_io.start_spinner.assert_not_called()
 
 
@@ -56,7 +65,7 @@ class TestSpinnerArgParsing:
         """The default value for --spinner should be True."""
         from cecli.args import get_parser
 
-        parser = get_parser()
+        parser = get_parser(default_config_files=[], git_root=None)
         args = parser.parse_args([])
         assert args.spinner is True
 
@@ -64,7 +73,7 @@ class TestSpinnerArgParsing:
         """Passing --spinner explicitly sets spinner to True."""
         from cecli.args import get_parser
 
-        parser = get_parser()
+        parser = get_parser(default_config_files=[], git_root=None)
         args = parser.parse_args(["--spinner"])
         assert args.spinner is True
 
@@ -72,7 +81,7 @@ class TestSpinnerArgParsing:
         """Passing --no-spinner sets spinner to False."""
         from cecli.args import get_parser
 
-        parser = get_parser()
+        parser = get_parser(default_config_files=[], git_root=None)
         args = parser.parse_args(["--no-spinner"])
         assert args.spinner is False
 
