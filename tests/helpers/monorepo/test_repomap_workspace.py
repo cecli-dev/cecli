@@ -17,7 +17,7 @@ def mock_workspace(tmp_path):
     # Project 1
     p1_dir = workspace_root / "p1" / "main"
     p1_dir.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=p1_dir, check=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=p1_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=p1_dir, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=p1_dir, check=True)
     (p1_dir / "file1.py").write_text("def func1(): pass")
@@ -27,7 +27,7 @@ def mock_workspace(tmp_path):
     # Project 2
     p2_dir = workspace_root / "p2" / "main"
     p2_dir.mkdir(parents=True)
-    subprocess.run(["git", "init"], cwd=p2_dir, check=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=p2_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=p2_dir, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=p2_dir, check=True)
     (p2_dir / "file2.py").write_text("def func2(): pass")

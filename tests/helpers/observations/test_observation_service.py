@@ -67,6 +67,7 @@ async def test_compact_context_with_observations():
     coder.context_compaction_summary_tokens = 100
     coder.last_user_message = "Last user msg"
     coder.io = MagicMock()
+    coder.args = {}
 
     # Mock observation manager with some observations
     obs_manager = ObservationService.get_instance(coder)
@@ -138,6 +139,7 @@ async def test_compact_context_with_observations_integration():
     coder.context_compaction_summary_tokens = 100
     coder.last_user_message = "Last user msg"
     coder.io = MagicMock()
+    coder.args = {}
 
     # Mock observation manager with some observations
     obs_manager = ObservationService.get_instance(coder)

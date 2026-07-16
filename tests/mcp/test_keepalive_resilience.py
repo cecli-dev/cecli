@@ -117,7 +117,7 @@ class TestKeepaliveResilience:
         with patch("asyncio.sleep", side_effect=mock_sleep):
             await server.connect()
             # Yield control to the keepalive task multiple times
-            for _ in range(30):
+            for _ in range(200):
                 await original_sleep(0)
 
         await server.disconnect()
