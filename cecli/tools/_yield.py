@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-from cecli.helpers.threading import ThreadSafeEvent
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -18,10 +17,7 @@ class Tool(BaseTool):
         "type": "function",
         "function": {
             "name": "Yield",
-            "description": (
-                "Yield control to subagents, to await their results or back to the user,"
-                " indicating all sub-goals are complete."
-            ),
+            "description": "Yield control back to the user, indicating all sub-goals are complete.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -53,6 +49,12 @@ class Tool(BaseTool):
         response = ToolResponse(cls.NORM_NAME)
 
         if coder:
+            reject = getattr(coder, "reject_yield", None)
+            if callable(reject):
+                blocked = reject(coder, **kwargs)
+                if blocked:
+                    return blocked
+
             # Check for active child sub-agents and await their tasks before finishing
             try:
                 agent_service = AgentService.get_instance(coder)
@@ -72,7 +74,7 @@ class Tool(BaseTool):
                     # the interrupt event, avoiding nested asyncio.wait() calls.
                     interrupt_event = coder.interrupt_event
                     if interrupt_event is None:
-                        interrupt_event = ThreadSafeEvent()
+                        interrupt_event = asyncio.Event()
 
                     interrupt_task = asyncio.create_task(interrupt_event.wait())
                     pending = set(active_tasks) | {interrupt_task}
