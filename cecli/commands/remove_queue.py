@@ -26,13 +26,13 @@ class RemoveQueueCommand(BaseCommand):
         # Sad path: coder.commands is None
         if not coder.commands:
             return format_command_result(
-                io, cls.NORM_NAME, error="Command system not available. Cannot remove from queue."
+                io, cls.NORM_NAME, "", error="Command system not available. Cannot remove from queue."
             )
 
         # Sad path: empty queue
         if coder.commands._get_queue_length() == 0:
             return format_command_result(
-                io, cls.NORM_NAME, error="Queue is empty. Nothing to remove."
+                io, cls.NORM_NAME, "", error="Queue is empty. Nothing to remove."
             )
 
         # Handle wildcard: clear entire queue
@@ -46,19 +46,20 @@ class RemoveQueueCommand(BaseCommand):
         if args and args.strip():
             try:
                 index = int(args.strip()) - 1  # Convert to 0-based
-            except ValueError:
                 return format_command_result(
                     io,
                     cls.NORM_NAME,
+                    "",
                     error=f"Invalid index: '{args.strip()}'. Please provide a number or '*'.",
                 )
 
             item = coder.commands._remove_from_queue(index)
+            queue_len = coder.commands._get_queue_length()
             if item is None:
-                queue_len = coder.commands._get_queue_length()
                 return format_command_result(
                     io,
                     cls.NORM_NAME,
+                    "",
                     error=f"Index {args.strip()} is out of range. Queue has {queue_len} item(s).",
                 )
 
