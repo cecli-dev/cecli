@@ -301,7 +301,7 @@ class TestQueueCommand:
         """ITC-02: /queue with empty args shows usage/help and does not enqueue."""
         result = await QueueCommand.execute(mock_io, mock_coder, "")
 
-        assert "Usage" in result or "Error" in result
+        assert "Error" in result
         assert len(mock_coder.commands.prompt_queue) == 0
 
     @pytest.mark.asyncio
@@ -309,7 +309,7 @@ class TestQueueCommand:
         """ITC-03: /queue with no args shows usage/help and does not enqueue."""
         result = await QueueCommand.execute(mock_io, mock_coder, None)
 
-        assert "Usage" in result or "Error" in result
+        assert "Error" in result
         assert len(mock_coder.commands.prompt_queue) == 0
 
     @pytest.mark.asyncio
@@ -435,7 +435,7 @@ class TestRemoveQueueCommand:
 
         result = await RemoveQueueCommand.execute(mock_io, mock_coder, "")
 
-        assert "Usage" in result or "index" in result.lower()
+        assert "Error" in result or "Usage" in result
 
     @pytest.mark.asyncio
     async def test_itc_14_remove_invalid_index_non_integer(self, mock_io, populated_queue):
