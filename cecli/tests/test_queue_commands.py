@@ -435,7 +435,12 @@ class TestRemoveQueueCommand:
 
         result = await RemoveQueueCommand.execute(mock_io, mock_coder, "")
 
-        assert "Error" in result or "Usage" in result
+        # Interactive mode shows queue list and prompt, returns success status
+        assert result == "Successfully executed remove-queue."
+        mock_io.tool_output.assert_called()
+        calls = [str(call) for call in mock_io.tool_output.call_args_list]
+        output_text = " ".join(calls)
+        assert "Queued prompts:" in output_text or "Enter index" in output_text
 
     @pytest.mark.asyncio
     async def test_itc_14_remove_invalid_index_non_integer(self, mock_io, populated_queue):
