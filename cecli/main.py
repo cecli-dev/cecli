@@ -101,6 +101,54 @@ def convert_yaml_to_json_string(value):
     return value
 
 
+def merge_cli_agent_config(args, parser, argv):
+    """
+    Deep-merge the config-file/env agent-config into the CLI agent-config so
+    CLI values override individual keys while keys provided by other sources
+    (e.g. tools_paths, skills_paths) are preserved instead of being discarded
+    wholesale when --agent-config is passed on the CLI.
+
+    configargparse discards config-file values for options that are also given
+    on the command line, so without this merge a CLI --agent-config silently
+    drops every agent-config key that lives only in .cecli.conf.yml.
+    """
+    if getattr(args, "agent_config", None) is None:
+        return args
+    try:
+        from cecli.helpers.nested import deep_merge
+
+        cli_ac = json.loads(args.agent_config)
+        if not isinstance(cli_ac, dict):
+            return args
+
+        # Re-parse argv with --agent-config removed so configargparse recovers
+        # the value it discarded from config files / env vars (CLI not present).
+        base_argv = []
+        i = 0
+        while i < len(argv):
+            tok = argv[i]
+            if tok == "--agent-config":
+                i += 2  # skip the flag and its value
+                continue
+            if tok.startswith("--agent-config="):
+                i += 1
+                continue
+            base_argv.append(tok)
+            i += 1
+
+        base_args, _ = parser.parse_known_args(base_argv)
+        file_ac = getattr(base_args, "agent_config", None)
+        if isinstance(file_ac, str):
+            # configargparse hands back Python-literal strings (e.g.
+            # "{'a': 1}") for YAML dict values; normalize to a JSON dict.
+            file_ac = json.loads(convert_yaml_to_json_string(file_ac))
+        if isinstance(file_ac, dict) and file_ac:
+            args.agent_config = json.dumps(deep_merge(file_ac, cli_ac))
+    except Exception:
+        pass
+    return args
+
+
 def check_config_files_for_yes(config_files):
     found = False
     for config_file in config_files:
@@ -546,6 +594,9 @@ async def main_async(argv=None, input=None, output=None, force_git_root=None, re
 
     if hasattr(args, "agent_config") and args.agent_config is not None:
         args.agent_config = convert_yaml_to_json_string(args.agent_config)
+        # CLI --agent-config should deep-merge with (not replace) the
+        # agent-config from .cecli.conf.yml so file-only keys are preserved.
+        merge_cli_agent_config(args, parser, argv)
     if hasattr(args, "tui_config") and args.tui_config is not None:
         args.tui_config = convert_yaml_to_json_string(args.tui_config)
     if hasattr(args, "mcp_servers") and args.mcp_servers is not None:
