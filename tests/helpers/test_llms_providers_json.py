@@ -27,6 +27,7 @@ RESOURCE_FILE = "providers.json"
 EXPECTED_FAMILIES = {
     "chatgpt": "responses",  # ChatGPT subscription routes via /v1/responses
     "bedrock": "bedrock",  # AWS Bedrock Converse wire
+    "github_copilot": "responses",  # Copilot routes non-Claude models via /v1/responses
 }
 
 

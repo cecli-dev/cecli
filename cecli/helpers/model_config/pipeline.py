@@ -225,43 +225,49 @@ def _find_record(sources, model_name, provider, route):
 
     Lookup order:
         1. Exact match on the full model name.
-        2. Exact match on the route (name after the provider prefix).
-        3. Progressively shortened routes, preferring newer model families
+        2. Exact match on same-provider route families, progressively shortened
            (``gpt-5.6-luna`` -> ``gpt-5.6`` -> ``gpt-5`` -> ``gpt``).
+        3. Exact match on the bare route and its families when there is no
+           provider prefix, or when a bare record is provider-neutral or has
+           the same provider.
         4. Closest same-provider match by longest shared route prefix.
     """
     if not sources:
         return None
 
-    for key in _candidate_keys(model_name, route, provider):
+    for key, is_bare in _candidate_keys(model_name, route, provider):
         record = _lookup_entry(sources, key)
 
-        if record:
+        if record and (
+            not is_bare
+            or not record.get("litellm_provider")
+            or record.get("litellm_provider") == provider
+        ):
             return record
 
     return _closest_provider_match(sources, provider, route)
 
 
 def _candidate_keys(model_name, route, provider):
-    """Ordered lookup keys: full name, same-provider families, route, bare families.
+    """Return ordered ``(key, is_bare)`` lookup candidates.
 
-    Same-provider family candidates come before the bare route so a provider
-    prefix is never silently dropped for a bare (possibly different-provider)
-    record, e.g. ``github_copilot/gpt-5.6-luna`` should resolve to the
-    ``github_copilot/gpt-5`` family rather than the bare ``gpt-5.6-luna``
-    (openai) record.
+    Provider-scoped candidates always precede bare candidates. For explicitly
+    prefixed models, callers must reject bare records that declare another
+    provider, so a provider prefix is never silently dropped. Provider-neutral
+    bare records remain compatible, and unprefixed model names keep their
+    existing bare lookup behavior.
     """
-    keys = [model_name]
+    keys = [(model_name, False)]
     shortened = _shorten_route(route) if provider and route else []
 
     if provider and route:
-        keys.extend(f"{provider}/{candidate}" for candidate in shortened)
+        keys.extend((f"{provider}/{candidate}", False) for candidate in shortened)
 
     if route and route != model_name:
-        keys.append(route)
+        keys.append((route, True))
 
     if provider and route:
-        keys.extend(shortened)
+        keys.extend((candidate, True) for candidate in shortened)
 
     return keys
 

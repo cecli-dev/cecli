@@ -67,6 +67,13 @@ def test_route_match_without_provider_prefix():
     assert config["llm"]["litellm_provider"] == "openai"
 
 
+def test_bare_model_uses_bare_provider_record():
+    metadata = {"claude-sonnet-5": _record(litellm_provider="anthropic")}
+    config = get_default_config("claude-sonnet-5", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "anthropic"
+
+
 def test_family_fallback_to_newer_family():
     metadata = {"gpt-5": _record()}
     config = get_default_config("openai/gpt-5.6-luna", [metadata])
@@ -639,6 +646,16 @@ def test_provider_prefix_keeps_provider_on_family_fallback():
         "gpt-5.6-luna": _record(litellm_provider="openai"),
     }
     config = get_default_config("github_copilot/gpt-5.6-luna", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "github_copilot"
+
+
+def test_copilot_claude_fallback_skips_bare_anthropic_record():
+    metadata = {
+        "claude-sonnet-5": _record(litellm_provider="anthropic"),
+        "github_copilot/claude-sonnet-4": _record(litellm_provider="github_copilot"),
+    }
+    config = get_default_config("github_copilot/claude-sonnet-5", [metadata])
 
     assert config["llm"]["litellm_provider"] == "github_copilot"
 

@@ -183,6 +183,11 @@
     ],
     "display_name": "gradient_ai"
   },
+  "github_copilot": {
+    "api_base": "https://api.githubcopilot.com",
+    "api_key_env": [],
+    "display_name": "github_copilot"
+  },
   "groq": {
     "api_base": "https://api.groq.com/openai/v1",
     "api_key_env": [

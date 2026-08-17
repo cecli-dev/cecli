@@ -347,11 +347,10 @@ def test_resolve_model_config_uses_session_endpoint(auth, tmp_path):
 def test_resolve_model_config_claude_family_messages(auth, tmp_path):
     _seed_api_key(tmp_path)
 
-    # github_copilot/claude-sonnet-4.5 is the bundled copilot record; the
-    # bare claude-sonnet-5 key resolves to the anthropic provider.
-    resolved = llms_config.resolve_model_config("github_copilot/claude-sonnet-4.5")
+    resolved = llms_config.resolve_model_config("github_copilot/claude-sonnet-5")
 
     assert resolved["provider"] == "github_copilot"
+    assert resolved["api_base"] == "https://tenant.githubcopilot.com"
     assert resolved["family"] == "messages"
 
 

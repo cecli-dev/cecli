@@ -1062,6 +1062,12 @@ class Model(ModelSettings):
             provider = pieces[0]
         else:
             provider = None
+        if provider == "github_copilot":
+            from cecli.helpers.llms.providers.github_copilot import copilot_api_key
+
+            if copilot_api_key():
+                return dict(keys_in_environment=["github_copilot"], missing_keys=[])
+            return dict(keys_in_environment=False, missing_keys=[])
         keymap = dict(
             openrouter="OPENROUTER_API_KEY",
             openai="OPENAI_API_KEY",
