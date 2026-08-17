@@ -1627,9 +1627,9 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             inactive_servers = []
             for server in connected_servers:
                 name = server.name
-                if incl and name not in incl:
+                if incl and name.lower() not in incl:
                     inactive_servers.append(name)
-                elif name in excl:
+                elif name.lower() in excl:
                     inactive_servers.append(name)
                 else:
                     active_servers.append(name)

@@ -565,11 +565,19 @@ class AgentService:
         )
 
         if agent_config:
+            # Reset the per-instance tool/server filters so AgentCoder.post_init()
+            # rebuilds them from *this* sub-agent's own agent-config (tools_includelist/
+            # excludelist, servers_includelist/excludelist) instead of inheriting the
+            # parent's filters verbatim. Deliberately do NOT reset mcp_manager here:
+            # doing so used to discard the parent's already-connected MCP servers and
+            # replace them with a brand new, empty manager, making it impossible for a
+            # sub-agent's servers_includelist to ever match anything. Leaving mcp_manager
+            # unset lets it inherit from from_coder (see Coder.create()) so the same
+            # connected MCP servers remain available and can then be filtered.
             kwargs.update(
                 dict(
                     registered_tools=None,
                     registered_servers=None,
-                    mcp_manager=None,
                 )
             )
 
