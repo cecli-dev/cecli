@@ -63,25 +63,29 @@ class BaseTool(ABC):
                 required_params = function_schema["parameters"]["required"]
                 properties = function_schema["parameters"].get("properties", {})
 
-                # Auto-correction: If a required parameter is missing but it's an array,
-                # and the current params look like a single item of that array, wrap it.
-                if len(required_params) == 1:
-                    missing_param = required_params[0]
-                    if missing_param not in params and params:
-                        param_schema = properties.get(missing_param, {})
-                        if param_schema.get("type") == "array":
-                            params = {missing_param: [params]}
+                # Auto-correction: fix common shape mistakes (a bare array or
+                # a single item of that array sent directly as the whole
+                # arguments, instead of wrapped under the expected key) BEFORE
+                # checking for missing required parameters. Otherwise a
+                # recoverable shape (e.g. a bare `[...]` array) gets rejected
+                # before it has a chance to be normalized.
+                params = ToolValidations._basic_validations(params, cls.SCHEMA)
 
                 # Auto-correction: If a required parameter is present but is a dict instead of an array
-                for param_name in required_params:
-                    if param_name in params:
-                        param_schema = properties.get(param_name, {})
-                        if param_schema.get("type") == "array" and isinstance(
-                            params[param_name], dict
-                        ):
-                            params[param_name] = [params[param_name]]
+                if isinstance(params, dict):
+                    for param_name in required_params:
+                        if param_name in params:
+                            param_schema = properties.get(param_name, {})
+                            if param_schema.get("type") == "array" and isinstance(
+                                params[param_name], dict
+                            ):
+                                params[param_name] = [params[param_name]]
 
-                missing_params = [param for param in required_params if param not in params]
+                missing_params = [
+                    param
+                    for param in required_params
+                    if not isinstance(params, dict) or param not in params
+                ]
                 if missing_params:
                     tool_name = function_schema.get("name", "Unknown Tool")
                     error_msg = (

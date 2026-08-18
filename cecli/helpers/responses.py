@@ -366,11 +366,18 @@ def unprefix_tool_call(tool_call):
     return server_name, result
 
 
-def parse_tool_arguments(args_string: str) -> dict:
+def parse_tool_arguments(args_string: str) -> dict | list:
     """Parse tool-call arguments, merging glued ``{…}{} {…}`` object fragments.
 
     Also unwraps a single ``arguments``/``parameters``/``params`` wrapper key
     that some models emit when mirroring the OpenAI wire format.
+
+    Returns a dict in almost all cases. A bare top-level JSON array (e.g. a
+    model emitting ``[...]`` directly as the arguments instead of wrapping it
+    under the tool's single required array parameter, as EditFile's `edits`
+    or ReadFile's `read`) is returned as-is rather than collapsed to ``{}``,
+    so ``BaseTool.process_response`` can still wrap it using the tool's
+    schema instead of silently losing the data.
     """
     text = (args_string or "").strip()
     if not text:
@@ -379,6 +386,8 @@ def parse_tool_arguments(args_string: str) -> dict:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
             return coerce_tool_structure(parsed)
+        if isinstance(parsed, list):
+            return parsed
     except json.JSONDecodeError:
         pass
 
@@ -393,12 +402,18 @@ def parse_tool_arguments(args_string: str) -> dict:
         lone = try_parse_json_value(chunks[0])
         if isinstance(lone, dict):
             return coerce_tool_structure(lone)
+        if isinstance(lone, list):
+            return lone
         try:
             json_string = json_repair.repair_json(chunks[0], ensure_ascii=False)
             single = json.loads(json_string)
         except json.JSONDecodeError as err:
             return {"@error": f"Malformed JSON arguments: {err}"}
-        return coerce_tool_structure(single) if isinstance(single, dict) else {}
+        if isinstance(single, dict):
+            return coerce_tool_structure(single)
+        if isinstance(single, list):
+            return single
+        return {}
 
     merged = merge_glued_json_objects(chunks)
 

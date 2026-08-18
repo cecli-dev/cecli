@@ -198,16 +198,28 @@ class ToolValidations:
 
         parameters = function_schema["parameters"]
         properties = parameters.get("properties", {})
+        required = parameters.get("required", [])
 
-        # Only auto-correct when there is exactly one property and it is an array
-        if len(properties) == 1:
+        # Determine the single array-typed parameter to auto-correct into,
+        # if any. Prefer the schema's `required` list (covers tools that also
+        # declare optional properties alongside their one required array,
+        # e.g. EditFile's optional `change_id`); fall back to "exactly one
+        # property total" when the schema doesn't declare `required` at all.
+        single_param_name = None
+        if len(required) == 1:
+            single_param_name = required[0]
+        elif not required and len(properties) == 1:
             single_param_name = next(iter(properties.keys()))
-            param_schema = properties[single_param_name]
+
+        if single_param_name is not None:
+            param_schema = properties.get(single_param_name, {})
             if param_schema.get("type") == "array":
-                # Case 1: LLM emitted the array directly (bare list)
+                # Case 1: LLM emitted the array directly (bare list) → wrap
+                # it as-is under the expected key, don't nest it again.
                 if isinstance(params, list):
                     return {single_param_name: params}
-                # Case 2: LLM emitted a dict missing the expected key → wrap it
+                # Case 2: LLM emitted a single item of the array directly
+                # as a dict, missing the expected wrapper key → wrap it.
                 if isinstance(params, dict) and single_param_name not in params:
                     return {single_param_name: [params]}
 
