@@ -6,7 +6,7 @@ Extends cecli’s existing **clone** workspace mode (`repo:` URLs under `~/.cecl
 
 ## Motivation
 
-IDE clients (e.g. BrightVision) open a **primary git repo** but need agent context across **sibling repos** without cloning into `~/.cecli/workspaces/`. Submodule-only setups are a different layout; this PR adds an explicit, reviewable config surface.
+IDE clients (e.g. desktop agents with a primary git root) open a **primary git repo** but need agent context across **sibling repos** without cloning into `~/.cecli/workspaces/`. Submodule-only setups are a different layout; this PR adds an explicit, reviewable config surface.
 
 ## Config
 
