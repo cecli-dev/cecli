@@ -227,6 +227,50 @@ mcp-servers:
       ]
 ```
 
+### Build Remote Agent (phone pairing)
+
+Pair a phone running [Build Remote Agent](https://grokbuildremote.com/) to this
+cecli session. Protocol `gbr/1`. Install `gbr-agent` v0.6.0+, run
+`gbr-agent pair` (QR + 8-char code) then `gbr-agent run`. The phone is
+spectator + veto — it does not replace cecli. Independent product; not
+affiliated with xAI or SpaceX.
+
+Attach only `http://127.0.0.1:8788` or MCP stdio `gbr-mcp`. Never put mailbox
+keys in this file.
+
+```yaml
+mcp-servers:
+  mcpServers:
+    gbr:
+      transport: stdio
+      command: node
+      args:
+        - GrokBuildRemote-Agents/mcp/gbr-mcp/bin/gbr-mcp.js
+```
+
+Point `args` at the absolute path of `bin/gbr-mcp.js` after:
+
+```bash
+curl -fsSL https://grokbuildremote.com/install.sh | bash   # Windows: irm https://grokbuildremote.com/install.ps1 | iex
+gbr-agent version    # need v0.6.0+
+gbr-agent pair && gbr-agent run
+git clone https://github.com/LinespottingOrg/GrokBuildRemote-Agents.git
+cd GrokBuildRemote-Agents/mcp/gbr-mcp && npm install
+```
+
+HTTP loopback is also valid:
+
+```yaml
+mcp-servers:
+  mcpServers:
+    gbr:
+      transport: http
+      url: http://127.0.0.1:8788
+      keepalive_interval: 60
+```
+
+See [Pair a phone with Build Remote Agent](gbr.md) for the full pair/run loop.
+
 ### You.com Search (Paid Service)
 
 You.com MCP provides live web and news search with LLM-ready results, useful when the model needs current information — release notes, library docs, error messages — beyond its training cutoff, and as the search complement to `/web` (search first, then scrape the best result).
