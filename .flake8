@@ -1,3 +1,5 @@
 [flake8]
 ignore = E203,W503
 max-line-length = 120
+per-file-ignores =
+    cecli/spec/runtime.py:E704
