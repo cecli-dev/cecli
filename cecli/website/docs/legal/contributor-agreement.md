@@ -1,23 +1,11 @@
 
 Individual Contributor License Agreement
 
-Thank you for your interest in cecli AI LLC ("cecli AI").
-To clarify the intellectual property license
-granted with Contributions from any person or entity, cecli AI
-must have on file a signed Contributor License Agreement ("CLA")
-from each Contributor, indicating agreement with the license
-terms below. This agreement is for your protection as a Contributor
-as well as the protection of cecli AI and its users. It does not
-change your rights to use your own Contributions for any other purpose.
+Thank you for your interest in cecli AI LLC ("cecli AI"). To clarify the intellectual property license granted with Contributions from any person or entity, cecli AI must have on file a signed Contributor License Agreement ("CLA") from each Contributor, indicating agreement with the license terms below. This agreement is for your protection as a Contributor as well as the protection of cecli AI and its users. It does not change your rights to use your own Contributions for any other purpose.
 
-Please complete and sign this Agreement. Read this document carefully
-before signing and keep a copy for your records.
+Please complete and sign this Agreement. Read this document carefully before signing and keep a copy for your records.
 
-You accept and agree to the following terms and conditions for Your
-Contributions (present and future) that you submit to cecli AI.
-Except for the license granted herein to cecli AI and recipients
-of software distributed by cecli AI, You reserve all right, title,
-and interest in and to Your Contributions.
+You accept and agree to the following terms and conditions for Your Contributions (present and future) that you submit to cecli AI. Except for the license granted herein to cecli AI and recipients of software distributed by cecli AI, You reserve all right, title, and interest in and to Your Contributions.
 
 1. Definitions.
 

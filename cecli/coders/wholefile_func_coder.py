@@ -113,7 +113,11 @@ class WholeFileFunctionCoder(Coder):
         return "\n".join(show_diff)
 
     async def _update_files(self):
-        name = self.partial_response_function_call.get("name")
+        function_call = self.partial_response_function_call
+        if isinstance(function_call, dict):
+            name = function_call.get("name")
+        else:
+            name = getattr(function_call, "name", None)
         if name and name != "write_file":
             raise ValueError(f'Unknown function_call name="{name}", use name="write_file"')
 

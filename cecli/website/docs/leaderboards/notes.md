@@ -7,11 +7,7 @@ nav_order: 800
 
 ## Notes on pricing
 
-All pricing information is the cost to run the benchmark at the time it was
-run.
-Providers change their pricing and sometimes introduce entirely novel pricing structures.
-Pricing is provided on a *best efforts* basis, and may not always be current
-or fully accurate.
+All pricing information is the cost to run the benchmark at the time it was run. Providers change their pricing and sometimes introduce entirely novel pricing structures. Pricing is provided on a *best efforts* basis, and may not always be current or fully accurate.
 
 ## Notes on benchmarking results
 
@@ -23,15 +19,6 @@ The key benchmarking results are:
 
 ## Notes on the edit format
 
-cecli uses different "edit formats" to collect code edits from different LLMs.
-The "whole" format is the easiest for an LLM to use, but it uses a lot of tokens
-and may limit how large a file can be edited.
-Models which can use one of the diff formats are much more efficient,
-using far fewer tokens.
-Models that use a diff-like format are able to 
-edit larger files with less cost and without hitting token limits.
+Cecli uses different "edit formats" to collect code edits from different LLMs. The "whole" format is the easiest for an LLM to use, but it uses a lot of tokens and may limit how large a file can be edited. Models which can use one of the diff formats are much more efficient, using far fewer tokens. Models that use a diff-like format are able to edit larger files with less cost and without hitting token limits.
 
-cecli is configured to use the best edit format for the popular OpenAI and Anthropic models
-and the [other models recommended on the LLM page](/docs/llms.html).
-For lesser known models cecli will default to using the "whole" editing format
-since it is the easiest format for an LLM to use.
+Cecli is configured to use the best edit format for the popular OpenAI and Anthropic models and the [other models recommended on the LLM page](../llms.html). For lesser known models cecli will default to using the "whole" editing format since it is the easiest format for an LLM to use.

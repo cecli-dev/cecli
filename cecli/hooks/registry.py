@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from cecli.decoding import safe_open
 from cecli.helpers.plugin_manager import load_module
 
 from .base import BaseHook, CommandHook
@@ -112,7 +113,7 @@ class HookRegistry:
             return []
 
         try:
-            with open(config_file, "r") as f:
+            with safe_open(config_file, "r") as f:
                 config = yaml.safe_load(f)
         except (yaml.YAMLError, IOError) as e:
             print(f"Warning: Could not load hook config from {config_file}: {e}")
@@ -149,7 +150,6 @@ class HookRegistry:
                             loaded_hooks.append(hook.name)
                         else:
                             print(f"Warning: Could not register hook '{hook.name}': {e}")
-                        print(f"Warning: Could not register hook '{hook.name}': {e}")
 
         return loaded_hooks
 

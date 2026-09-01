@@ -5,12 +5,13 @@ nav_order: 500
 
 # OpenRouter
 
-cecli can connect to [models provided by OpenRouter](https://openrouter.ai/models?o=top-weekly):
-You'll need an [OpenRouter API key](https://openrouter.ai/keys).
+Cecli can connect to [models provided by OpenRouter](https://openrouter.ai/models?o=top-weekly): You'll need an [OpenRouter API key](https://openrouter.ai/keys).
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 
@@ -34,25 +35,18 @@ cecli --list-models openrouter/
 
 In particular, many cecli users access Sonnet via OpenRouter:
 
-{: .tip }
-If you get errors, check your
-[OpenRouter privacy settings](https://openrouter.ai/settings/privacy).
-Be sure to "enable providers that may train on inputs"
-to allow use of all models.
+> **Tip:** If you get errors, check your [OpenRouter privacy settings](https://openrouter.ai/settings/privacy). Be sure to "enable providers that may train on inputs" to allow use of all models.
 
 ## Controlling provider selection
 
-OpenRouter often has multiple providers serving each model.
-You can control which OpenRouter providers are used for your requests in two ways:
+OpenRouter often has multiple providers serving each model. You can control which OpenRouter providers are used for your requests in two ways:
 
 1. By "ignoring" certain providers in your
-[OpenRouter account settings](https://openrouter.ai/settings/preferences).
-This disables those named providers across all the models that you access via OpenRouter.
+[OpenRouter account settings](https://openrouter.ai/settings/preferences). This disables those named providers across all the models that you access via OpenRouter.
 
 2. By configuring "provider routing" in a `.cecli.model.settings.yml` file.
 
-Place that file in your home directory or the root of your git project, with
-entries like this:
+Place that file in your home directory or the root of your git project, with entries like this:
 
 ```yaml
 - name: openrouter/anthropic/claude-3.7-sonnet
@@ -71,8 +65,4 @@ entries like this:
 
 See [OpenRouter's provider routing docs](https://openrouter.ai/docs/provider-routing) for full details on these settings.
 
-See [Advanced model settings](https://cecli.dev/docs/config/adv-model-settings.html#model-settings)
-for more details about model settings files. 
-
-
-
+See [Advanced model settings](../config/adv-model-settings.html#advanced-model-settings-model-settings) for more details about model settings files.

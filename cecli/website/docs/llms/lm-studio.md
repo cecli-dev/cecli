@@ -5,11 +5,13 @@ nav_order: 400
 
 # LM Studio
 
-cecli can connect to models served by LM Studio.
+Cecli can connect to models served by LM Studio.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API key and endpoint:
 
@@ -34,6 +36,4 @@ cd /to/your/project
 cecli --model lm_studio/<your-model-name>
 ```
 
-See the [model warnings](warnings.html)
-section for information on warnings which will occur
-when working with models that cecli is not familiar with.
+See the [model warnings](warnings.html) section for information on warnings which will occur when working with models that cecli is not familiar with.

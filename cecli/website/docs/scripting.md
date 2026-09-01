@@ -4,15 +4,13 @@ nav_order: 400
 description: You can script cecli via the command line or python.
 ---
 
-# Scripting cecli
+# Scripting Cecli
 
 You can script cecli via the command line or python.
 
 ## Command line
 
-cecli takes a `--message` argument, where you can give it a natural language instruction.
-It will do that one thing, apply the edits to the files and then exit.
-So you could do:
+Cecli takes a `--message` argument, where you can give it a natural language instruction. It will do that one thing, apply the edits to the files and then exit. So you could do:
 
 ```bash
 cecli --message "make a script that prints hello" hello.js
@@ -26,9 +24,7 @@ for FILE in *.py ; do
 done
 ```
 
-Use `cecli --help` to see all the 
-[command line options](/docs/config/options.html),
-but these are useful for scripting:
+Use `cecli --help` to see all the [command line options](config/options.html), but these are useful for scripting:
 
 ```
 --stream, --no-stream
@@ -82,9 +78,7 @@ coder.run("/tokens")
 
 ```
 
-See the
-[Coder.create() and Coder.__init__() methods](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py)
-for all the supported arguments.
+See the [Coder.create() and Coder.__init__() methods](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py) for all the supported arguments.
 
 It can also be helpful to set the equivalent of `--yes` by doing this:
 
@@ -95,6 +89,4 @@ io = InputOutput(yes=True)
 coder = Coder.create(model=model, fnames=fnames, io=io)
 ```
 
-{: .note }
-The python scripting API is not officially supported or documented,
-and could change in future releases without providing backwards compatibility.
+> **Note:** The python scripting API is not officially supported or documented, and could change in future releases without providing backwards compatibility.

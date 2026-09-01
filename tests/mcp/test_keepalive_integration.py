@@ -68,10 +68,18 @@ class TestKeepaliveWithMockServer:
         running_mock_server.set_status(500)
 
         # Wait for failed ping
-        await asyncio.sleep(1.2)
+        # Wait for failed ping with polling for cross-platform reliability
+        for _ in range(30):  # 30 * 0.2s = 6s timeout
+            if inspector.get_state(server) == ConnectionState.UNHEALTHY:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            pytest.fail(
+                f"Server did not become UNHEALTHY after failures, state was "
+                f"{inspector.get_state(server).name}"
+            )
 
         # Should transition to UNHEALTHY
-        assert inspector.get_state(server) == ConnectionState.UNHEALTHY
         assert inspector.get_failed_pings(server) == 1
 
         await server.disconnect()
@@ -115,14 +123,33 @@ class TestKeepaliveWithMockServer:
 
         # Cause a failure
         running_mock_server.set_status(500)
-        await asyncio.sleep(1.2)
+        for _ in range(30):  # 30 * 0.2s = 6s timeout
+            if inspector.get_state(server) == ConnectionState.UNHEALTHY:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            pytest.fail(
+                f"Server did not become UNHEALTHY after failures, state was "
+                f"{inspector.get_state(server).name}"
+            )
         assert inspector.get_state(server) == ConnectionState.UNHEALTHY
 
         # Restore success
         running_mock_server.set_status(200)
-        await asyncio.sleep(1.2)
+        for _ in range(30):  # 30 * 0.2s = 6s timeout
+            if inspector.get_state(server) == ConnectionState.CONNECTED:
+                break
+            await asyncio.sleep(0.2)
+        else:
+            pytest.fail(
+                f"Server did not become CONNECTED after success, state was "
+                f"{inspector.get_state(server).name}"
+            )
 
         # Should be back to CONNECTED
+
+        # Brief cooldown after state transition
+        await asyncio.sleep(0.2)
         assert inspector.get_state(server) == ConnectionState.CONNECTED
         assert inspector.get_failed_pings(server) == 0
 

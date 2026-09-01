@@ -8,6 +8,7 @@ Construction strategies for FileSystemService.
 import hashlib
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from .ignore import FileIgnoreFilter
@@ -110,41 +111,82 @@ class ScandirBuilder:
     @staticmethod
     def collect(
         root: str,
-        ignore_filter: FileIgnoreFilter | None = None,
+        ignore_filter: "FileIgnoreFilter | None" = None,
+        max_files: int = 65536,  # 2^14 hard limit
+        max_depth: int = 5,  # 5 levels deep limit
     ) -> list[str]:
         """
-        Walk filesystem collecting files relative to root.
-
-        Prunes ignored directories during walk (never descends into them),
-        avoiding wasted I/O on subtrees like ``node_modules/``.
-
-        Args:
-            root: Root directory to scan
-            ignore_filter: Optional ignore rules for filtering
-
-        Returns:
-            Sorted list of root-relative paths (POSIX-style)
+        Walk filesystem collecting files relative to root using Breadth-First Search.
+        Highly optimized: lazy iteration, single-pass evaluation, and raw string paths.
         """
+        start_time = time.monotonic()
+
         paths = []
-        root_path = Path(root).resolve()
 
-        for dirpath, dirnames, filenames in os.walk(root_path):
-            rel_dir = os.path.relpath(dirpath, root)
+        # Only use pathlib for initial resolution, then stick to raw strings for speed
+        root_path_obj = Path(root).resolve()
+        root_path_str = str(root_path_obj)
 
-            # Prune ignored directories in-place (os.walk obeys this)
-            if ignore_filter:
-                dirnames[:] = [
-                    d
-                    for d in dirnames
-                    if not ignore_filter.is_dir_ignored(os.path.join(rel_dir, d))
-                ]
+        path_parts = [part.lower() for part in root_path_obj.parts]
+        is_subfolder_of_user = "home" in path_parts[:-1] or "users" in path_parts[:-1]
 
-            for filename in filenames:
-                rel_path = os.path.join(rel_dir, filename) if rel_dir != "." else filename
-                if ignore_filter and ignore_filter.is_file_ignored(rel_path):
-                    continue
-                # Normalize to POSIX-style paths
-                paths.append(rel_path.replace(os.sep, "/"))
+        # Queue: (absolute_path_string, relative_posix_path, current_depth)
+        dirs_to_scan = [(root_path_str, ".", 0)]
+        path_count = 0
+
+        while dirs_to_scan:
+            if time.monotonic() - start_time > 120:
+                break
+
+            next_dirs = []
+
+            for current_path, rel_dir, depth in dirs_to_scan:
+                try:
+                    # Keep it as an iterator; do NOT cast to list()
+                    with os.scandir(current_path) as it:
+                        file_count = 0
+
+                        # Single pass through the directory contents
+                        for entry in it:
+                            # --- Handle Directories ---
+                            if entry.is_dir(follow_symlinks=False):
+                                if depth < max_depth:
+                                    child_rel_path = (
+                                        entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
+                                    )
+
+                                    if ignore_filter and ignore_filter.is_dir_ignored(
+                                        child_rel_path
+                                    ):
+                                        continue
+
+                                    # Append the raw string path, avoiding slow pathlib instantiations
+                                    next_dirs.append((entry.path, child_rel_path, depth + 1))
+
+                            # --- Handle Files ---
+                            elif entry.is_file(follow_symlinks=False):
+                                # Short-circuit if we hit the 256 file cap (saves ignore_filter overhead)
+                                if not is_subfolder_of_user and file_count >= 256:
+                                    continue
+
+                                child_rel_path = (
+                                    entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
+                                )
+
+                                if ignore_filter and ignore_filter.is_file_ignored(child_rel_path):
+                                    continue
+
+                                paths.append(child_rel_path)
+                                file_count += 1
+                                path_count += 1
+
+                                # Global safety hard-stop
+                                if not is_subfolder_of_user and path_count >= max_files:
+                                    return sorted(paths)
+                except (PermissionError, OSError, TimeoutError):
+                    continue  # Skip folders we don't have read access to
+
+            dirs_to_scan = next_dirs
 
         return sorted(paths)
 

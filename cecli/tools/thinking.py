@@ -1,6 +1,7 @@
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 
@@ -34,8 +35,10 @@ class Tool(BaseTool):
         A place to allow the model to record freeform text as it
         iterates over tools to ideally help it guide itself to a proper solution
         """
+        response = ToolResponse(cls.NORM_NAME)
         coder.io.tool_output("🧠 Thoughts recorded in context", type="tool-result")
-        return "🧠 Thoughts recorded in context. Please proceed with your task"
+        response.append_result("🧠 Thoughts recorded in context. Please proceed with your task")
+        return response
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):

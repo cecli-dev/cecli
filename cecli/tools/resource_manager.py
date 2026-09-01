@@ -7,15 +7,18 @@ from cecli.commands.utils.helpers import (
     iter_all_coders,
     update_server_registration,
 )
+from cecli.decoding import safe_open
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError, parse_arg_as_list
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 
 class Tool(BaseTool):
     NORM_NAME = "resourcemanager"
+    RESULT_TYPE = "list"
     SCHEMA = {
         "type": "function",
         "function": {
@@ -168,7 +171,7 @@ class Tool(BaseTool):
             )
 
         coder.io.tool_output("⛭ Modifying Context", type="tool-result")
-        messages = []
+        response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
 
         # Expand wildcards for MCP operations
         if "*" in load_mcp_servers and coder.mcp_manager:
@@ -196,23 +199,23 @@ class Tool(BaseTool):
         # included sets to explicit include lists.
         if load_mcp_servers and coder.mcp_manager:
             if isinstance(coder.mcp_manager.connected_servers, dict):
-                connected_names = set(coder.mcp_manager.connected_servers.keys())
+                connected_names = {k.lower() for k in coder.mcp_manager.connected_servers.keys()}
             else:
-                connected_names = {s.name for s in coder.mcp_manager.connected_servers}
+                connected_names = {s.name.lower() for s in coder.mcp_manager.connected_servers}
             if connected_names:
                 for c in iter_all_coders(coder):
                     if not c.registered_servers["included"]:
                         included = set(connected_names) - c.registered_servers["excluded"]
                         if c.edit_format in ("agent", "subagent"):
-                            included.add("Local")
+                            included.add("local")
                         c.registered_servers["included"] = included
 
         for f in create_files:
-            messages.append(cls._create(coder, f))
+            response.append_result(cls._create(coder, f))
         for f in remove_files:
-            messages.append(cls._remove(coder, f))
+            response.append_result(cls._remove(coder, f))
         for f in view_files:
-            messages.append(cls._view(coder, f))
+            response.append_result(cls._view(coder, f))
         for f in editable_files:
             try:
                 abs_path = coder.abs_root_path(f)
@@ -220,25 +223,25 @@ class Tool(BaseTool):
                 abs_path = None
             if abs_path is not None and not os.path.isfile(abs_path):
                 coder.io.tool_output(f"ℹ️ `{f}` missing on disk — using **create** instead of add")
-                messages.append(cls._create(coder, f))
+                response.append_result(cls._create(coder, f))
             else:
-                messages.append(cls._editable(coder, f))
+                response.append_result(cls._editable(coder, f))
         for key in stop_keys:
-            messages.append(cls._stop_command(coder, key))
+            response.append_result(cls._stop_command(coder, key))
         for skill_name in load_skill_names:
-            messages.append(cls._load_skill(coder, skill_name))
+            response.append_result(cls._load_skill(coder, skill_name))
         for skill_name in remove_skill_names:
-            messages.append(cls._remove_skill(coder, skill_name))
+            response.append_result(cls._remove_skill(coder, skill_name))
         for server_name in load_mcp_servers:
             result = await cls._load_mcp(coder, server_name)
-            messages.append(result)
+            response.append_result(result)
         for server_name in remove_mcp_servers:
             result = await cls._remove_mcp(coder, server_name)
-            messages.append(result)
+            response.append_result(result)
 
         for action_name in action_operations:
             result = await cls._list_mcp_servers(coder)
-            messages.append(result)
+            response.append_result(result)
 
         tui = getattr(coder, "tui", None)
         if tui and tui():
@@ -247,7 +250,7 @@ class Tool(BaseTool):
         coder.context_blocks_cache = {}
         coder.edit_allowed = True
 
-        return "\n".join(messages)
+        return response
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
@@ -408,7 +411,7 @@ class Tool(BaseTool):
             os.makedirs(os.path.dirname(abs_path), exist_ok=True)
 
             # Create an empty file
-            with open(abs_path, "w", encoding="utf-8"):
+            with safe_open(abs_path, "w"):
                 pass
 
             # Add the file to editable context
@@ -543,7 +546,7 @@ class Tool(BaseTool):
             if not coder.mcp_manager or not coder.mcp_manager.servers:
                 return "No MCP servers are configured."
 
-            if server_name == "Local":
+            if server_name.lower() == "local":
                 return "Cannot remove 'Local' server"
 
             server = coder.mcp_manager.get_server(server_name)

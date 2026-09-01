@@ -251,12 +251,23 @@ class InputArea(TextArea):
             self.post_message(self.CompletionDismiss())
 
         if self.app.is_key_for("cancel", event.key) and not self.selected_text:
-            event.stop()
-            event.prevent_default()
-            if self.text.strip():
-                self.save_to_history(self.text)
-            self.text = ""
+            # Check for selected text in the output first (SelectableRichLog)
+            selected = self.app.get_selected_log_text()
+            if selected:
+                self.app.copy_to_clipboard(selected)
+                event.stop()
+                event.prevent_default()
+            else:
+                event.stop()
+                event.prevent_default()
+                if self.text.strip():
+                    self.save_to_history(self.text)
+                self.text = ""
+
+            self.app.clear_selected_log_text()
             return
+        else:
+            self.app.clear_selected_log_text()
 
         if self.app.is_key_for("submit", event.key):
             # Submit message
@@ -350,6 +361,21 @@ class InputArea(TextArea):
         if self._cycling:
             return
 
+        # If user edits text while navigating history, save as new entry to prevent data loss
+        # This ensures pressing down arrow won't override their edited message.
+        # We detect user edits by comparing against the known history entry:
+        # if text matches history[_history_index], it's a programmatic navigation change;
+        # otherwise the user has typed something and we save the modified text.
+        if self._history_index != -1:
+            history = self._ensure_history_loaded()
+            is_navigating = (
+                self._history_index < len(history) and self.text == history[self._history_index]
+            )
+            if not is_navigating:
+                # exit history navigation so pressing down doesn't override the edited text
+                self._history_index = -1
+                self._saved_input = ""
+
         self._completion_prefix = self.text
 
         # Post TextChanged message for parent to handle
@@ -369,3 +395,22 @@ class InputArea(TextArea):
 
             if val.startswith("/") or "@" in val or possible_path or self.completion_active:
                 self.post_message(self.CompletionRequested(val))
+
+    def _refresh_size(self) -> None:
+        """Refresh size, clamping cursor to document bounds first.
+
+        Workaround for a Textual bug where undo of a multi-line paste leaves
+        cursor_location pointing to a line that no longer exists after undo,
+        causing a ValueError when _refresh_size triggers scroll_cursor_visible.
+        """
+        try:
+            doc_line_count = self.document.line_count
+            cursor_row, cursor_col = self.cursor_location
+            if cursor_row >= doc_line_count:
+                clamped_row = max(0, doc_line_count - 1)
+                line_text = self.document.get_line(clamped_row)
+                clamped_col = min(cursor_col, len(line_text))
+                self.cursor_location = (clamped_row, clamped_col)
+        except (ValueError, IndexError, AttributeError):
+            pass
+        super()._refresh_size()

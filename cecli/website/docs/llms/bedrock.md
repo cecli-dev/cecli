@@ -5,41 +5,28 @@ nav_order: 560
 
 # Amazon Bedrock
 
-cecli can connect to models provided by Amazon Bedrock.
-To configure cecli to use the Amazon Bedrock API, you need to set up your AWS credentials.
-This can be done using the AWS CLI or by setting environment variables.
+Cecli can connect to models provided by Amazon Bedrock. To configure cecli to use the Amazon Bedrock API, you need to set up your AWS credentials. This can be done using the AWS CLI or by setting environment variables.
 
 ## Select a Model from Amazon Bedrock
 
-Before you can use a model through Amazon Bedrock, you must "enable" the model under the **Model
-Access** screen in the AWS Management Console.
-To find the `Model ID`, open the **Model Catalog** area in the Bedrock console, select the model 
-you want to use, and the find the `modelId` property under the "Usage" heading.
+Before you can use a model through Amazon Bedrock, you must "enable" the model under the **Model Access** screen in the AWS Management Console. To find the `Model ID`, open the **Model Catalog** area in the Bedrock console, select the model you want to use, and the find the `modelId` property under the "Usage" heading.
 
 ### Bedrock Inference Profiles
 
-Amazon Bedrock has added support for a new feature called [cross-region "inference profiles."](https://aws.amazon.com/about-aws/whats-new/2024/09/amazon-bedrock-knowledge-bases-cross-region-inference/)
-Some models hosted in Bedrock _only_ support these inference profiles.
-If you're using one of these models, then you will need to use the `Inference Profile ID` 
-instead of the `Model ID` from the **Model Catalog** screen, in the AWS Management Console.
-For example, the Claude Sonnet 3.7 model, release in February 2025, exclusively supports
-inference through inference profiles. To use this model, you would use the 
-`us.anthropic.claude-3-7-sonnet-20250219-v1:0` Inference Profile ID.
-In the Amazon Bedrock console, go to Inference and Assessment ➡️ Cross-region Inference
-to find the `Inference Profile ID` value.
+Amazon Bedrock has added support for a new feature called [cross-region "inference profiles."](https://aws.amazon.com/about-aws/whats-new/2024/09/amazon-bedrock-knowledge-bases-cross-region-inference/) Some models hosted in Bedrock _only_ support these inference profiles. If you're using one of these models, then you will need to use the `Inference Profile ID` instead of the `Model ID` from the **Model Catalog** screen, in the AWS Management Console. For example, the Claude Sonnet 3.7 model, release in February 2025, exclusively supports inference through inference profiles. To use this model, you would use the `us.anthropic.claude-3-7-sonnet-20250219-v1:0` Inference Profile ID. In the Amazon Bedrock console, go to Inference and Assessment ➡️ Cross-region Inference to find the `Inference Profile ID` value.
 
-If you attempt to use a `Model ID` for a model that exclusively supports the Inference Profile
-feature, you will receive an error message like the following:
+If you attempt to use a `Model ID` for a model that exclusively supports the Inference Profile feature, you will receive an error message like the following:
 
-> litellm.BadRequestError: BedrockException - b'{"message":"Invocation of model ID
-anthropic.claude-3-7-sonnet-20250219-v1:0 with on-demand throughput isn\xe2\x80\x99t supported. Retry your
-request with the ID or ARN of an inference profile that contains this model."}'
+> BadRequestError: BedrockException - b'{"message":"Invocation of model ID
+anthropic.claude-3-7-sonnet-20250219-v1:0 with on-demand throughput isn\xe2\x80\x99t supported. Retry your request with the ID or ARN of an inference profile that contains this model."}'
 
 ## Installation and Configuration
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Next, configure your AWS credentials. This can be done using the AWS CLI or by setting environment variables.
 
@@ -68,8 +55,7 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_PROFILE=your-profile
 ```
 
-You can add these to your 
-[.env file](/docs/config/dotenv.html).
+You can add these to your [.env file](../config/dotenv.html).
 
 ### Set Environment Variables with PowerShell
 
@@ -80,7 +66,6 @@ $env:AWS_ACCESS_KEY_ID = 'your_access_key'
 $env:AWS_SECRET_ACCESS_KEY = 'your_secret_key'
 $env:AWS_REGION = 'us-west-2'   # Put whichever AWS region that you'd like, that the Bedrock service supports.
 ```
-
 
 ## Get Started
 
@@ -99,7 +84,6 @@ Sometimes it seems to help if you prefix the model name with "us.":
 cecli --model bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
 ```
 
-
 ## Available Models
 
 To see some models available via Bedrock, run:
@@ -110,23 +94,11 @@ cecli --list-models bedrock/
 
 Make sure you have access to these models in your AWS account before attempting to use them with cecli.
 
-## Install boto3
-You may need to install the `boto3` package.
+## AWS credentials
 
-```bash
-# If you installed with cecli-install or `uv tool`
-uv tool run --from cecli-dev pip install boto3
-
-# Or with pipx...
-pipx inject cecli-dev boto3
-
-# Or with pip
-pip install -U boto3
-```
+Cecli signs Bedrock requests itself (AWS SigV4) using the standard AWS credentials from your environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optionally `AWS_SESSION_TOKEN`), so the `boto3` package is not required.
 
 # More info
 
 For more information on Amazon Bedrock and its models, refer to the [official AWS documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html).
 
-Also, see the 
-[litellm docs on Bedrock](https://litellm.vercel.app/docs/providers/bedrock).

@@ -3,54 +3,21 @@ parent: More info
 nav_order: 200
 description: cecli supports pretty much all popular coding languages.
 ---
-# Supported languages
+# Supported Languages
 
-cecli should work well with most popular coding languages.
-This is because top LLMs are fluent in most mainstream languages,
-and familiar with popular libraries, packages and frameworks.
+Cecli should work well with most popular coding languages. This is because top LLMs are fluent in most mainstream languages, and familiar with popular libraries, packages and frameworks.
 
-cecli has specific support for linting many languages.
-By default, cecli runs the built in linter any time a file is edited.
-If it finds syntax errors, cecli will offer to fix them for you.
-This helps catch small code issues and quickly fix them.
+Cecli has specific support for linting many languages. By default, cecli runs the built in linter any time a file is edited. If it finds syntax errors, cecli will offer to fix them for you. This helps catch small code issues and quickly fix them.
 
-cecli also does code analysis to help
-the LLM navigate larger code bases by producing
-a [repository map](https://cecli.dev/docs/repomap.html).
-cecli can currently produce repository maps for many popular
-mainstream languages, listed below.
-
+Cecli also does code analysis to help the LLM navigate larger code bases by producing a [repository map](repomap.html). cecli can currently produce repository maps for many popular mainstream languages, listed below.
 
 ## How to add support for another language
 
-cecli should work quite well for other languages, even those
-without repo map or linter support.
-You should really try coding with cecli before
-assuming it needs better support for your language.
+Cecli should work quite well for other languages, even those without repo map or linter support. You should really try coding with cecli before assuming it needs better support for your language.
 
-That said, if cecli already has support for linting your language,
-then it should be possible to add repo map support.
-To build a repo map, cecli needs the `tags.scm` file
-from the given language's tree-sitter grammar.
-If you can find and share that file in a 
-[GitHub issue](https://github.com/cecli-dev/cecli/issues),
-then it may be possible to add repo map support.
+That said, if cecli already has support for linting your language, then it should be possible to add repo map support. To build a repo map, cecli needs the `tags.scm` file from the given language's tree-sitter grammar. If you can find and share that file in a [GitHub issue](https://github.com/cecli-dev/cecli/issues), then it may be possible to add repo map support.
 
-If cecli doesn't already support linting your language, 
-it will be more complicated to add support.
-cecli relies on
-[tree-sitter-language-pack](https://github.com/Goldziher/tree-sitter-language-pack)
-to provide pre-packaged versions of tree-sitter
-language parsers.
-This makes it easy for users to install cecli in many diverse environments.
-You probably need to work with that project to get your language
-supported, which will easily allow cecli to lint that language.
-For repo-map support, you will also need to find or create a `tags.scm` file.
-
-<!--[[[cog
-from cecli.repomap import get_supported_languages_md
-cog.out(get_supported_languages_md())
-]]]-->
+If cecli doesn't already support linting your language, it will be more complicated to add support. cecli relies on [tree-sitter-language-pack](https://github.com/Goldziher/tree-sitter-language-pack) to provide pre-packaged versions of tree-sitter language parsers. This makes it easy for users to install cecli in many diverse environments. You probably need to work with that project to get your language supported, which will easily allow cecli to lint that language. For repo-map support, you will also need to find or create a `tags.scm` file.
 
 | Language | File extension | Repo map | Linter |
 |:--------:|:--------------:|:--------:|:------:|
@@ -258,7 +225,3 @@ cog.out(get_supported_languages_md())
 | xml                  | .xsl                 |          |   ✓    |
 | yuck                 | .yuck                |          |   ✓    |
 | zig                  | .zig                 |    ✓     |   ✓    |
-
-<!--[[[end]]]-->
-
-

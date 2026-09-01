@@ -4,19 +4,17 @@ nav_order: 100
 description: How to configure a custom editor for cecli's /editor command
 ---
 
-# Editor configuration
+# Editor Configuration
 
-cecli allows you to configure your preferred text editor for use with the `/editor` command. The editor must be capable of running in "blocking mode", meaning the command line will wait until you close the editor before proceeding.
+Cecli allows you to configure your preferred text editor for use with the `/editor` command. The editor must be capable of running in "blocking mode", meaning the command line will wait until you close the editor before proceeding.
 
 ## Using `--editor`
 
-You can specify the text editor with the `--editor` switch or using
-`editor:` in cecli's
-[YAML config file](https://cecli.dev/docs/config/cecli_conf.html).
+You can specify the text editor with the `--editor` switch or using `editor:` in cecli's [YAML config file](conf.html).
 
 ## Environment variables
 
-cecli checks the following environment variables in order to determine which editor to use:
+Cecli checks the following environment variables in order to determine which editor to use:
 
 1. `CECLI_EDITOR`
 2. `VISUAL`

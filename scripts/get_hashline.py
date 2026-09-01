@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import traceback
 from pathlib import Path
 
 # Add the current directory to sys.path to allow importing from cecli
@@ -50,6 +51,7 @@ def main():
             print("\n\nSummary: No duplicate hash position hashes found.", file=sys.stderr)
 
     except Exception as e:
+        traceback.print_exc()
         print(f"Error reading file: {e}")
         sys.exit(1)
 

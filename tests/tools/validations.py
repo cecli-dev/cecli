@@ -311,6 +311,37 @@ class TestValidateParams:
         result = ToolValidations.validate_params(params, None)
         assert result == {"key": "value"}
 
+    def test_arguments_wrapper_string_value_unwrapped(self):
+        """A single top-level "arguments" wrapper (as JSON string) is unwrapped.
+
+        Mirrors the execution path (responses.parse_tool_arguments) so previews
+        resolve the same args that will actually run.
+        """
+        params = '{"arguments": "{"edits": [{"file_path": "a.txt"}]}"}'
+        result = ToolValidations.validate_params(
+            params,
+            {"edits": ["coerce_list"], "edits[]": ["coerce_dict"]},
+        )
+        assert result == {"edits": [{"file_path": "a.txt"}]}
+
+    def test_parameters_wrapper_dict_value_unwrapped(self):
+        """A single top-level "parameters" wrapper (as dict) is unwrapped."""
+        params = {"parameters": {"edits": [{"file_path": "a.txt"}]}}
+        result = ToolValidations.validate_params(
+            params,
+            {"edits": ["coerce_list"], "edits[]": ["coerce_dict"]},
+        )
+        assert result == {"edits": [{"file_path": "a.txt"}]}
+
+    def test_multi_key_params_not_unwrapped(self):
+        """Params with more than one key are never treated as a wrapper."""
+        params = {"edits": [{"file_path": "a.txt"}], "change_id": "x"}
+        result = ToolValidations.validate_params(
+            params,
+            {"edits": ["coerce_list"], "edits[]": ["coerce_dict"]},
+        )
+        assert result == {"edits": [{"file_path": "a.txt"}], "change_id": "x"}
+
     # ---- simple keys ----
 
     def test_simple_key_coerce_list(self):

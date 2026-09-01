@@ -16,7 +16,6 @@ class MainFooter(Static):
     # Right side info
     project_name = reactive("")
     git_branch = reactive("")
-    git_dirty = reactive(0)
     cost = reactive(0.0)
 
     # Spinner state
@@ -138,8 +137,6 @@ class MainFooter(Static):
 
         if self.git_branch:
             right.append(self.git_branch)
-            # if self.git_dirty:
-            #    right.append(f" +{self.git_dirty}")
             # right.append("  ")
 
         # Always show cost
@@ -168,10 +165,15 @@ class MainFooter(Static):
         self.cost = cost
         self.refresh()
 
-    def update_git(self, branch: str, dirty_count: int = 0):
+    def update_git(self, branch: str):
         """Update git status display."""
         self.git_branch = branch
-        self.git_dirty = dirty_count
+        self.refresh()
+
+    def update_info(self, project_name: str, branch: str):
+        """Update the project/root and git status display together."""
+        self.project_name = project_name
+        self.git_branch = branch
         self.refresh()
 
     def update_mode(self, mode: str):

@@ -4,23 +4,20 @@ nav_order: 700
 description: Add images and web pages to the cecli coding chat.
 ---
 
-# Images & web pages
+# Images & Web Pages
 
 You can add images and URLs to the cecli chat.
 
 ## Images
 
-cecli supports working with image files for many vision-capable models
-like GPT-4o and Claude 3.7 Sonnet.
-Adding images to a chat can be helpful in many situations:
+Cecli supports working with image files for many multi-modal models. Adding images to a chat can be helpful in many situations:
 
 - Add screenshots of web pages or UIs that you want cecli to build or modify.
 - Show cecli a mockup of a UI you want to build.
 - Screenshot an error message that is otherwise hard to copy & paste as text.
 - Etc.
 
-You can add images to the chat just like you would
-add any other file:
+You can add images to the chat just like you would add any other file:
 
 - Use `/add <image-filename>` from within the chat
 - Use `/paste` to paste an image from your clipboard into the chat.
@@ -28,8 +25,7 @@ add any other file:
 
 ## Web pages
 
-cecli can scrape the text from URLs and add it to the chat.
-This can be helpful to:
+Cecli can scrape the text from URLs and add it to the chat. This can be helpful to:
 
 - Include documentation pages for less popular APIs.
 - Include the latest docs for libraries or packages that are newer than the model's training cutoff date.

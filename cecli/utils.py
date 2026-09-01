@@ -4,13 +4,13 @@ import os
 import platform
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from cecli.dump import dump  # noqa: F401
-from cecli.waiting import Spinner
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp", ".pdf"}
 
@@ -127,7 +127,7 @@ class ChdirTemporaryDirectory(IgnorantTemporaryDirectory):
     def __enter__(self):
         res = super().__enter__()
         os.chdir(Path(self.temp_dir.name).resolve())
-        return res
+        return str(Path(res).resolve())
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.cwd:
@@ -299,18 +299,65 @@ def get_pip_install(args):
     return cmd
 
 
+def get_self_upgrade_command():
+    """Return the command used to upgrade cecli for the current install method."""
+    # pipx sets these environment variables inside each tool's venv
+    if os.environ.get("PIPX_VENV_DIR") or os.environ.get("PIPX_PACKAGE_DIR"):
+        return ["pipx", "upgrade", "cecli-dev"]
+
+    if _is_uv_tool_env():
+        return ["uv", "tool", "upgrade", "cecli-dev"]
+
+    return get_pip_install(["cecli-dev"])
+
+
+def _is_pip_install_command(cmd):
+    """Return True if cmd is a `python -m pip install ...` invocation."""
+    try:
+        i = cmd.index("-m")
+    except ValueError:
+        return False
+    return i + 2 < len(cmd) and cmd[i + 1] == "pip" and cmd[i + 2] == "install"
+
+
+def _is_uv_tool_env():
+    """Return True if running inside a `uv tool install` environment."""
+    cfg = Path(sys.prefix) / "pyvenv.cfg"
+    try:
+        if not (cfg.exists() and "uv = " in cfg.read_text(errors="replace")):
+            return False
+    except OSError:
+        return False
+
+    prefix = Path(sys.prefix)
+    tool_dir = os.environ.get("UV_TOOL_DIR")
+    if tool_dir:
+        try:
+            if prefix.is_relative_to(tool_dir):
+                return True
+        except (ValueError, OSError):
+            pass
+
+    # Default uv tool installs live under ".../uv/tools/<name>".
+    # A plain `uv venv` project venv does not have the uv/tools path parts.
+    return "uv" in prefix.parts and "tools" in prefix.parts
+
+
 def run_install(cmd):
     print()
     print("Installing:", printable_shell_command(cmd))
 
-    # First ensure pip is available
-    ensurepip_cmd = [sys.executable, "-m", "ensurepip", "--upgrade"]
-    try:
-        subprocess.run(ensurepip_cmd, capture_output=True, check=False)
-    except Exception:
-        pass  # Continue even if ensurepip fails
+    if _is_pip_install_command(cmd):
+        # First ensure pip is available
+        ensurepip_cmd = [sys.executable, "-m", "ensurepip", "--upgrade"]
+        try:
+            subprocess.run(ensurepip_cmd, capture_output=True, check=False)
+        except Exception:
+            pass  # Continue even if ensurepip fails
 
     try:
+        from cecli.waiting import Spinner
+
         output = []
         process = subprocess.Popen(
             cmd,
@@ -319,7 +366,7 @@ def run_install(cmd):
             text=True,
             bufsize=1,
             universal_newlines=True,
-            encoding=sys.stdout.encoding,
+            encoding=getattr(sys.stdout, "encoding", None) or "utf-8",
             errors="replace",
         )
         spinner = Spinner("Installing...")
@@ -384,15 +431,27 @@ def touch_file(fname):
         return False
 
 
-async def check_pip_install_extra(io, module, prompt, pip_install_cmd, self_update=False):
+async def check_pip_install_extra(
+    io, module, prompt, pip_install_cmd=None, self_update=False, cmd=None
+):
     if module:
-        try:
-            __import__(module)
-            return True
-        except (ImportError, ModuleNotFoundError, RuntimeError):
-            pass
+        for _attempt in range(2):
+            try:
+                __import__(module)
+                return True
+            except ssl.SSLError:
+                # OpenSSL CONF module lazy-init flake (WSL2 + OpenSSL 3.5 + Py3.14):
+                # the very first SSL context creation can fail with
+                # ``[CONF: MODULE_INITIALIZATION_ERROR]`` / "unknown error (0x0)",
+                # and a second attempt succeeds. Mirrors llms.runtime.make_client.
+                if _attempt == 0:
+                    continue
+                raise
+            except (ImportError, ModuleNotFoundError, RuntimeError):
+                break
 
-    cmd = get_pip_install(pip_install_cmd)
+    if cmd is None:
+        cmd = get_pip_install(pip_install_cmd or [])
 
     if prompt:
         io.tool_warning(prompt)
@@ -403,9 +462,13 @@ async def check_pip_install_extra(io, module, prompt, pip_install_cmd, self_upda
         print(printable_shell_command(cmd))  # plain print so it doesn't line-wrap
         return
 
-    if not await io.confirm_ask(
-        "Run pip install?", default="y", subject=printable_shell_command(cmd)
-    ):
+    run_prompt = "Run pip install?"
+    if cmd and cmd[0] == "uv":
+        run_prompt = "Run uv tool upgrade?"
+    elif cmd and cmd[0] == "pipx":
+        run_prompt = "Run pipx upgrade?"
+
+    if not await io.confirm_ask(run_prompt, default="y", subject=printable_shell_command(cmd)):
         return
 
     success, output = run_install(cmd)

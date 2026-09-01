@@ -4,9 +4,6 @@ excerpt: A quantitative comparison of the code editing capabilities of the new G
 highlight_image: /assets/benchmarks-1106.jpg
 nav_exclude: true
 ---
-{% if page.date %}
-<p class="post-date">{{ page.date | date: "%B %d, %Y" }}</p>
-{% endif %}
 
 # Code editing benchmarks for OpenAI's "1106" models
 
@@ -14,35 +11,13 @@ nav_exclude: true
 
 [![benchmark results](/assets/benchmarks-speed-1106.svg)](https://cecli.dev/assets/benchmarks-speed-1106.svg)
 
-[OpenAI just released new versions of GPT-3.5 and GPT-4](https://openai.com/blog/new-models-and-developer-products-announced-at-devday),
-and there's a lot
-of interest about their ability to code compared to the previous versions.
-With that in mind, I've been benchmarking the new models.
+[OpenAI just released new versions of GPT-3.5 and GPT-4](https://openai.com/blog/new-models-and-developer-products-announced-at-devday), and there's a lot of interest about their ability to code compared to the previous versions. With that in mind, I've been benchmarking the new models.
 
-[cecli](https://github.com/cecli-dev/cecli)
-is an open source command line chat tool that lets you work with GPT to edit
-code in your local git repo.
-To do this, cecli needs to be able to reliably recognize when GPT wants to edit
-your source code,
-determine which files it wants to modify
-and accurately apply the changes it's trying to make.
-Doing a good job on this "code editing" task requires a good LLM, good prompting and
-a good tool driving the interactions with the LLM.
+[cecli](https://github.com/cecli-dev/cecli) is an open source command line chat tool that lets you work with GPT to edit code in your local git repo. To do this, cecli needs to be able to reliably recognize when GPT wants to edit your source code, determine which files it wants to modify and accurately apply the changes it's trying to make. Doing a good job on this "code editing" task requires a good LLM, good prompting and a good tool driving the interactions with the LLM.
 
-cecli relies on a
-[code editing benchmark](https://cecli.dev/docs/benchmarks.html)
-to quantitatively evaluate
-performance
-whenever one of these things changes.
-For example,
-whenever I change cecli's prompting or the backend which drives LLM conversations,
-I run the benchmark to make sure these changes produce improvements (not regressions).
+Cecli relies on a [code editing benchmark](benchmarks.html) to quantitatively evaluate performance whenever one of these things changes. For example, whenever I change cecli's prompting or the backend which drives LLM conversations, I run the benchmark to make sure these changes produce improvements (not regressions).
 
-The benchmark uses cecli to try and complete
-[133 Exercism Python coding exercises](https://github.com/exercism/python).
-For each exercise, Exercism provides a starting python file with stubs for the needed functions,
-a natural language description of the problem to solve
-and a test suite to evaluate whether the coder has correctly solved the problem.
+The benchmark uses cecli to try and complete [133 Exercism Python coding exercises](https://github.com/exercism/python). For each exercise, Exercism provides a starting python file with stubs for the needed functions, a natural language description of the problem to solve and a test suite to evaluate whether the coder has correctly solved the problem.
 
 The benchmark gives cecli two tries to complete the task:
 
@@ -53,8 +28,7 @@ The benchmark gives cecli two tries to complete the task:
 
 ### gpt-4-1106-preview
 
-For now, I have only benchmarked the GPT-4 models using the `diff` edit method.
-This is the edit format that cecli uses by default with gpt-4.
+For now, I have only benchmarked the GPT-4 models using the `diff` edit method. This is the edit format that cecli uses by default with gpt-4.
 
 - The new `gpt-4-1106-preview` model seems **2-2.5X faster** than the June GPT-4 model.
 - **It seems better at producing correct code on the first try**. It gets
@@ -64,8 +38,7 @@ This is the edit format that cecli uses by default with gpt-4.
 
 ### gpt-3.5-turbo-1106
 
-I benchmarked the GPT-3.5 models with both the `whole` and `diff` edit format.
-None of the gpt-3.5 models seem able to effectively use the `diff` edit format, including the newest November (1106) model.
+I benchmarked the GPT-3.5 models with both the `whole` and `diff` edit format. None of the gpt-3.5 models seem able to effectively use the `diff` edit format, including the newest November (1106) model.
 
 The comments below only focus on comparing the `whole` edit format results:
 
@@ -73,20 +46,13 @@ The comments below only focus on comparing the `whole` edit format results:
 - The success rate after the first try of 42% is comparable to the previous June (0613) model. The new November and previous June models are both worse than the original March (0301) model's 50% result on the first try.
 - The new model's 56% success rate after the second try seems comparable to the original March model, and somewhat better than the June model's 50% score.
 
-
 ## Related reports
 
-This is one in a series of reports
-that use the cecli benchmarking suite to assess and compare the code
-editing capabilities of OpenAI's GPT models.
-You can review the other reports
-for additional information:
+This is one in a series of reports that use the cecli benchmarking suite to assess and compare the code editing capabilities of OpenAI's GPT models. You can review the other reports for additional information:
 
-- [GPT code editing benchmarks](https://cecli.dev/docs/benchmarks.html) evaluates the March and June versions of GPT-3.5 and GPT-4.
+- [GPT code editing benchmarks](benchmarks.html) evaluates the March and June versions of GPT-3.5 and GPT-4.
 - [Code editing speed benchmarks for OpenAI's "1106" models](https://cecli.dev/2023/11/06/benchmarks-speed-1106.html) compares the performance of the new GPT models.
-
 
 ## Updates
 
-Last updated 11/14/23.
-OpenAI has relaxed rate limits so these results are no longer considered preliminary.
+Last updated 11/14/23. OpenAI has relaxed rate limits so these results are no longer considered preliminary.

@@ -259,11 +259,11 @@ def get_copy_paste_coder_class(edit_format, main_model):
             ],
             created=int(time.time()),
             model=model.name,
-            usage={
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            },
+            usage=litellm.Usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            ),
         )
 
         kwargs = dict(model=model.name, messages=messages, stream=False)

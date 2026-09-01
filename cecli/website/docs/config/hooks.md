@@ -121,10 +121,7 @@ hooks:
 
 ## Hook Helpers
 
-The ``HookHelpers`` class provides a higher-level API for writing Python hooks.
-All helpers are accessed through a single import — ``from cecli.hooks import HookHelpers`` —
-giving you convenient access to conversation history, model calls, and sub-agent
-invocation from within any hook's ``execute()`` method.
+The ``HookHelpers`` class provides a higher-level API for writing Python hooks. All helpers are accessed through a single import — ``from cecli.hooks import HookHelpers`` — giving you convenient access to conversation history, model calls, and sub-agent invocation from within any hook's ``execute()`` method.
 
 ```python
 from cecli.hooks import BaseHook, HookHelpers
@@ -152,8 +149,7 @@ class MyHook(BaseHook):
 
 ### get_messages(coder, last_n=None, tag=None, reload=False)
 
-Retrieve messages from the agent's conversation history as a list of message
-dicts (``{"role": …, "content": …}``).
+Retrieve messages from the agent's conversation history as a list of message dicts (``{"role": …, "content": …}``).
 
 | Parameter | Description |
 |-----------|-------------|
@@ -164,8 +160,7 @@ dicts (``{"role": …, "content": …}``).
 
 ### append_message(coder, message_dict, tag="cur", **kwargs)
 
-Append a message to the agent's conversation history. The message will be
-visible to the LLM on the next turn. Returns the ``BaseMessage`` instance.
+Append a message to the agent's conversation history. The message will be visible to the LLM on the next turn. Returns the ``BaseMessage`` instance.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -176,8 +171,7 @@ visible to the LLM on the next turn. Returns the ``BaseMessage`` instance.
 
 ### call(coder, messages=None, prompt=None, system=None, model_name=None, max_tokens=None, **kwargs)
 
-Make a language model generation call (async). You can either pass a pre-built
-``messages`` list, or use ``prompt`` with an optional ``system`` preamble.
+Make a language model generation call (async). You can either pass a pre-built ``messages`` list, or use ``prompt`` with an optional ``system`` preamble.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -191,8 +185,7 @@ Make a language model generation call (async). You can either pass a pre-built
 
 ### call_subagent(coder, name, prompt, **kwargs)
 
-Invoke a registered sub-agent by name (async, blocking by default). Returns
-the sub-agent's summary string, or ``None`` on failure.
+Invoke a registered sub-agent by name (async, blocking by default). Returns the sub-agent's summary string, or ``None`` on failure.
 
 | Parameter | Description |
 |-----------|-------------|

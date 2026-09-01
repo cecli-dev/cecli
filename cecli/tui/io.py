@@ -1,31 +1,16 @@
 """TextualInputOutput - IO adapter for Textual TUI."""
 
 import asyncio
-import queue
 import time
 
 from rich.console import Console
 
+from cecli.helpers import queues
+from cecli.helpers.server import signals as server_signals
 from cecli.io import InputOutput, get_rel_fname
 
 
 class TextualInputOutput(InputOutput):
-
-    # Per-coder input queue registry
-    # Each IOProxy registers its own queue here so the TUI
-    # can push input directly to the correct coder.
-    _per_coder_queues: dict[str, "queue.Queue"] = {}
-
-    @classmethod
-    def register_coder_queue(cls, coder_uuid: str, q: "queue.Queue") -> None:
-        """Register a per-coder input queue."""
-        cls._per_coder_queues[coder_uuid] = q
-
-    @classmethod
-    def unregister_coder_queue(cls, coder_uuid: str) -> None:
-        """Unregister a per-coder input queue."""
-        cls._per_coder_queues.pop(coder_uuid, None)
-
     """InputOutput subclass that communicates with Textual TUI via queues."""
 
     def __init__(self, output_queue, input_queue, **kwargs):
@@ -68,10 +53,11 @@ class TextualInputOutput(InputOutput):
             ("Removing", "file_op"),
         ]
 
-        # Tool call buffering for styled panel rendering
-        self._tool_call_buffer = []
-        self._in_tool_call = False
-        self._expect_tool_result = False
+        # Tool call buffering for styled panel rendering — per-coder tracking
+        # Dicts keyed by coder_uuid to support simultaneous multi-coder streaming
+        self._tool_call_buffers: dict[str, list] = {}
+        self._in_tool_call: dict[str, bool] = {}
+        self._expect_tool_result: dict[str, bool] = {}
 
     def rule(self):
         pass
@@ -115,6 +101,13 @@ class TextualInputOutput(InputOutput):
         if coder_uuid:
             msg["coder_uuid"] = coder_uuid
         self.output_queue.put(msg)
+        server_signals.send_start_task(
+            self,
+            task_id=self.current_task_id,
+            title=title,
+            task_type=task_type,
+            coder_uuid=coder_uuid,
+        )
 
     def _get_tui_console(self):
         """Get or create console for TUI rendering."""
@@ -151,6 +144,7 @@ class TextualInputOutput(InputOutput):
         if coder_uuid:
             msg["coder_uuid"] = coder_uuid
         self.output_queue.put(msg)
+        server_signals.send_tool_output(self, text=text, msg_type="output", coder_uuid=coder_uuid)
 
     def stream_output(self, text, final=False, **kwargs):
         """Override stream_output to send streaming text to TUI.
@@ -170,6 +164,7 @@ class TextualInputOutput(InputOutput):
             self._streaming_response[coder_uuid] = True
             msg = {"type": "start_response", "coder_uuid": coder_uuid}
             self.output_queue.put(msg)
+            server_signals.send_start_response(self, coder_uuid=coder_uuid)
 
         # Stream the chunk
         if text:
@@ -180,6 +175,7 @@ class TextualInputOutput(InputOutput):
             if coder_uuid:
                 msg["coder_uuid"] = coder_uuid
             self.output_queue.put(msg)
+            server_signals.send_stream_chunk(self, text=text, coder_uuid=coder_uuid)
 
         # End response on final chunk
         # End response on final chunk — per-coder tracking
@@ -187,6 +183,7 @@ class TextualInputOutput(InputOutput):
             del self._streaming_response[coder_uuid]
             msg = {"type": "end_response", "coder_uuid": coder_uuid}
             self.output_queue.put(msg)
+            server_signals.send_end_response(self, coder_uuid=coder_uuid)
 
     def reset_streaming_response(self, **kwargs):
         """Reset streaming state between responses.
@@ -206,6 +203,7 @@ class TextualInputOutput(InputOutput):
                         "coder_uuid": coder_uuid,
                     }
                 )
+                server_signals.send_end_response(self, coder_uuid=coder_uuid)
         else:
             # Reset all remaining streams
             for uuid in list(self._streaming_response.keys()):
@@ -215,6 +213,7 @@ class TextualInputOutput(InputOutput):
                         "coder_uuid": uuid,
                     }
                 )
+                server_signals.send_end_response(self, coder_uuid=uuid)
             self._streaming_response.clear()
 
     def assistant_output(self, message, pretty=None, **kwargs):
@@ -238,16 +237,19 @@ class TextualInputOutput(InputOutput):
         if coder_uuid:
             start_msg["coder_uuid"] = coder_uuid
         self.output_queue.put(start_msg)
+        server_signals.send_start_response(self, coder_uuid=coder_uuid)
 
         chunk_msg = {"type": "stream_chunk", "text": message}
         if coder_uuid:
             chunk_msg["coder_uuid"] = coder_uuid
         self.output_queue.put(chunk_msg)
+        server_signals.send_stream_chunk(self, text=message, coder_uuid=coder_uuid)
 
         end_msg = {"type": "end_response"}
         if coder_uuid:
             end_msg["coder_uuid"] = coder_uuid
         self.output_queue.put(end_msg)
+        server_signals.send_end_response(self, coder_uuid=coder_uuid)
 
     def tool_output(self, *messages, **kwargs):
         """Override tool_output to detect task boundaries and queue output.
@@ -282,41 +284,45 @@ class TextualInputOutput(InputOutput):
     def _reroute_output(self, text, msg_type, **kwargs):
         # Handle tool call buffering for styled panel rendering
         coder_uuid = kwargs.get("coder_uuid", None)
+        key = coder_uuid if coder_uuid else "default"
 
         if msg_type == "Tool Call":
             # Start buffering a new tool call
-            self._in_tool_call = True
-            self._tool_call_buffer = [text]
+            self._in_tool_call[key] = True
+            self._tool_call_buffers[key] = [text]
             # Log to history
             self.append_chat_history(text, linebreak=True, blockquote=True)
             return True
         elif msg_type == "tool-footer":
             # End of tool call - flush buffer as styled panel
-            if self._in_tool_call and self._tool_call_buffer:
+            if self._in_tool_call.get(key, False) and self._tool_call_buffers.get(key):
                 msg = {
                     "type": "tool_call",
-                    "lines": self._tool_call_buffer,
+                    "lines": self._tool_call_buffers[key],
                 }
                 if coder_uuid:
                     msg["coder_uuid"] = coder_uuid
                 self.output_queue.put(msg)
+                server_signals.send_tool_call(
+                    self, lines=self._tool_call_buffers[key], coder_uuid=coder_uuid
+                )
                 # Expect a tool result next
-                self._expect_tool_result = True
-            self._in_tool_call = False
-            self._tool_call_buffer = []
+                self._expect_tool_result[key] = True
+            self._in_tool_call[key] = False
+            self._tool_call_buffers[key] = []
             return True
-        elif self._in_tool_call:
+        elif self._in_tool_call.get(key, False):
             # Add to tool call buffer
             if text.strip():
-                self._tool_call_buffer.append(text)
+                self._tool_call_buffers[key].append(text)
                 # Log to history
                 self.append_chat_history(text, linebreak=True, blockquote=True)
             return True
 
         # Check if this is a tool result (comes right after tool call)
-        if self._expect_tool_result and text.strip():
+        if self._expect_tool_result.get(key, False) and text.strip():
             if msg_type != "tool-result":
-                self._expect_tool_result = False
+                self._expect_tool_result[key] = False
             msg = {
                 "type": "tool_result",
                 "text": text,
@@ -324,6 +330,7 @@ class TextualInputOutput(InputOutput):
             if coder_uuid:
                 msg["coder_uuid"] = coder_uuid
             self.output_queue.put(msg)
+            server_signals.send_tool_result(self, text=text, coder_uuid=coder_uuid)
             # Log to history
             self.append_chat_history(text, linebreak=True, blockquote=True)
             return True
@@ -351,6 +358,7 @@ class TextualInputOutput(InputOutput):
                 "coder_uuid": coder_uuid,
             }
         )
+        server_signals.send_spinner(self, action="start", text=text, coder_uuid=coder_uuid)
 
         self.output_queue.put(
             {
@@ -360,6 +368,7 @@ class TextualInputOutput(InputOutput):
                 "text": "",
             }
         )
+        server_signals.send_spinner(self, action="update_suffix", text="", coder_uuid=coder_uuid)
 
     def update_spinner(self, text, **kwargs):
         """Override update_spinner to send updates to TUI.
@@ -381,6 +390,7 @@ class TextualInputOutput(InputOutput):
                 "coder_uuid": coder_uuid,
             }
         )
+        server_signals.send_spinner(self, action="update", text=text, coder_uuid=coder_uuid)
 
     def update_spinner_suffix(self, text=None, **kwargs):
         """Override update_spinner_suffix to send updates to TUI.
@@ -402,6 +412,7 @@ class TextualInputOutput(InputOutput):
                 "coder_uuid": coder_uuid,
             }
         )
+        server_signals.send_spinner(self, action="update_suffix", text=text, coder_uuid=coder_uuid)
 
     def stop_spinner(self, **kwargs):
         """Override stop_spinner to send stop state to TUI."""
@@ -411,6 +422,7 @@ class TextualInputOutput(InputOutput):
 
         # Send to TUI
         self.output_queue.put({"type": "spinner", "action": "stop", "coder_uuid": coder_uuid})
+        server_signals.send_spinner(self, action="stop", text="", coder_uuid=coder_uuid)
 
     def interrupt_input(self):
         self.interrupted = True
@@ -472,8 +484,9 @@ class TextualInputOutput(InputOutput):
             }
         )
 
-        # Wait for input from TUI (blocking in async context)
-        # We need to poll the queue since it's not async
+        # Wait for input from TUI. The per-coder and shared queues are
+        # thread-safe payloads; wait_for_input() blocks natively until a push
+        # wakes us, so no polling is required.
         while True:
             if hasattr(self, "file_watcher") and self.file_watcher:
                 if not self.file_watcher.is_running:
@@ -484,36 +497,38 @@ class TextualInputOutput(InputOutput):
                     cmd = self.file_watcher.process_changes()
                     return cmd
 
-            try:
-                # Non-blocking get with timeout
-                import queue
+            import queue
 
-                # Check all per-coder queues first (non-blocking)
-                for _uuid, _q in list(self._per_coder_queues.items()):
-                    try:
-                        result = _q.get_nowait()
-                        if "text" in result:
-                            user_input = result["text"]
-                            target_uuid = result.get("coder_uuid", _uuid)
-                            self.user_input(user_input)
-                            return user_input, target_uuid
-                    except queue.Empty:
-                        continue
-
-                # Fall back to shared queue (blocking with timeout)
-                result = self.input_queue.get(timeout=0.1)
+            # Check all per-coder queues first (non-blocking)
+            for _uuid, _q in list(queues._per_coder_queues.items()):
+                try:
+                    result = _q.get_nowait()
+                except queue.Empty:
+                    continue
 
                 if "text" in result:
                     user_input = result["text"]
-                    target_uuid = result.get("coder_uuid")
-
-                    # Log the input (same as parent)
+                    target_uuid = result.get("coder_uuid", _uuid)
                     self.user_input(user_input)
-
                     return user_input, target_uuid
+
+            # Fall back to shared queue (non-blocking)
+            try:
+                result = self.input_queue.get_nowait()
             except queue.Empty:
-                # No input yet, yield control
-                await asyncio.sleep(0.1)
+                result = None
+
+            if result is not None and "text" in result:
+                user_input = result["text"]
+                target_uuid = result.get("coder_uuid")
+
+                # Log the input (same as parent)
+                self.user_input(user_input)
+
+                return user_input, target_uuid
+
+            # Nothing available yet — block until the next push
+            await queues.wait_for_input()
 
     async def confirm_ask(
         self,
@@ -607,42 +622,42 @@ class TextualInputOutput(InputOutput):
                     }
                 )
 
-            # Wait for response from TUI
+            # Wait for response from TUI. Sweep the per-coder queues
+            # (non-blocking), then block natively until the next push.
             while True:
-                try:
-                    import queue
+                import queue
 
-                    # Check all per-coder queues first (non-blocking)
-                    for _uuid, _q in list(self._per_coder_queues.items()):
-                        try:
-                            result = _q.get_nowait()
-                            if "confirmed" in result:
-                                response = result["confirmed"]
+                for _uuid, _q in list(queues._per_coder_queues.items()):
+                    try:
+                        result = _q.get_nowait()
+                    except queue.Empty:
+                        continue
 
-                                # Handle special responses
-                                if response == "never":
-                                    self.never_prompts.add(question_id)
-                                    return False
-                                elif response == "tweak":
-                                    return "tweak"
-                                elif response == "all":
-                                    if group:
-                                        group.preference = "all"
-                                    if group_response:
-                                        self.group_responses[group_response] = True
-                                    return True
-                                elif response == "skip":
-                                    if group:
-                                        group.preference = "skip"
-                                    if group_response:
-                                        self.group_responses[group_response] = False
-                                    return False
-                                else:
-                                    return bool(response)
-                        except queue.Empty:
-                            continue
-                except queue.Empty:
-                    await asyncio.sleep(0.1)
+                    if "confirmed" in result:
+                        response = result["confirmed"]
+
+                        # Handle special responses
+                        if response == "never":
+                            self.never_prompts.add(question_id)
+                            return False
+                        elif response == "tweak":
+                            return "tweak"
+                        elif response == "all":
+                            if group:
+                                group.preference = "all"
+                            if group_response:
+                                self.group_responses[group_response] = True
+                            return True
+                        elif response == "skip":
+                            if group:
+                                group.preference = "skip"
+                            if group_response:
+                                self.group_responses[group_response] = False
+                            return False
+                        else:
+                            return bool(response)
+
+                await queues.wait_for_input()
         except asyncio.CancelledError:
             return False
 

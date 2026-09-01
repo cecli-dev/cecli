@@ -25,6 +25,19 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+import psutil
+
+# Track the initial baseline memory at module load time
+_BASELINE_MEM = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+
+
+def check_memory(label="Current"):
+    """Prints absolute memory usage and growth since the script started."""
+    current_mem = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+    growth = current_mem - _BASELINE_MEM
+    print(f"[{label}] Total: {current_mem:.2f} MB | Growth: +{growth:.2f} MB")
+
+
 # ── Optional dependency wrappers ──
 
 
@@ -262,61 +275,81 @@ class MemorySnapshot:
 
     # ── Report ──
 
-    def print_report(self) -> None:
-        """Print a human-readable memory report to stdout."""
-        print("=" * 70)
-        print("MemorySnapshot Report")
-        print(f"  Objects scanned : {len(self._all_objects):,}")
+    def print_report(self, out: Optional[Any] = None) -> None:
+        """Print a human-readable memory report to *out* (defaults to sys.stdout).
+
+        Passing a file-like object (e.g. ``io.StringIO``) allows callers to
+        capture the report as text instead of writing to the terminal.
+        """
+        if out is None:
+            out = sys.stdout
+
+        print("=" * 70, file=out)
+        print("MemorySnapshot Report", file=out)
+        print(f"  Objects scanned : {len(self._all_objects):,}", file=out)
         print(
-            f"  Deep sizes      : {'yes (pympler)' if self._has_pympler else 'no (sys.getsizeof)'}"
+            f"  Deep sizes      : {'yes (pympler)' if self._has_pympler else 'no (sys.getsizeof)'}",
+            file=out,
         )
-        print(f"  Guppy available  : {'yes' if self._has_guppy else 'no'}")
-        print("=" * 70)
+        print(f"  Guppy available  : {'yes' if self._has_guppy else 'no'}", file=out)
+        print("=" * 70, file=out)
 
         # 1. Largest objects
-        print("\n>> TOP 15 LARGEST OBJECTS (any type)")
-        print("  " + "-" * 60)
+        print("\n>> TOP 15 LARGEST OBJECTS (any type)", file=out)
+        print("  " + "-" * 60, file=out)
         for item in self.largest_objects(15):
-            print(f"  {item.size_kb:>10.1f} KB  {item.type_name:<15s}  {item.repr_str}")
+            print(
+                f"  {item.size_kb:>10.1f} KB  {item.type_name:<15s}  {item.repr_str}",
+                file=out,
+            )
 
         # 2. Largest dicts
-        print("\n>> LARGEST DICTS")
-        print("  " + "-" * 60)
+        print("\n>> LARGEST DICTS", file=out)
+        print("  " + "-" * 60, file=out)
         for item in self.largest_dicts(5):
             d = item.obj
             keys_preview = list(d.keys())[:5] if isinstance(d, dict) else []
-            print(f"  {item.size_kb:>10.1f} KB  dict[{len(d)} keys]  keys={keys_preview!r}")
+            print(
+                f"  {item.size_kb:>10.1f} KB  dict[{len(d)} keys]  keys={keys_preview!r}",
+                file=out,
+            )
 
         # 3. Largest lists
-        print("\n>> LARGEST LISTS")
-        print("  " + "-" * 60)
+        print("\n>> LARGEST LISTS", file=out)
+        print("  " + "-" * 60, file=out)
         for item in self.largest_lists(5):
             lst = item.obj
             first = lst[0] if lst else "empty"
-            print(f"  {item.size_kb:>10.1f} KB  list[{len(lst)} items]  first={first!r}")
+            print(
+                f"  {item.size_kb:>10.1f} KB  list[{len(lst)} items]  first={first!r}",
+                file=out,
+            )
 
         # 4. Largest class instances
-        print("\n>> LARGEST CLASS INSTANCES (custom)")
-        print("  " + "-" * 60)
+        print("\n>> LARGEST CLASS INSTANCES (custom)", file=out)
+        print("  " + "-" * 60, file=out)
         for item in self.largest_class_instances(n=10):
-            print(f"  {item.size_kb:>10.1f} KB  {item.type_name}")
+            print(f"  {item.size_kb:>10.1f} KB  {item.type_name}", file=out)
 
         # 5. Type summary
-        print("\n>> TYPE SUMMARY (total size per type)")
-        print("  " + "-" * 60)
+        print("\n>> TYPE SUMMARY (total size per type)", file=out)
+        print("  " + "-" * 60, file=out)
         for ts in self.type_summary(12):
-            print(f"  {ts.total_size_kb:>10.1f} KB  ({ts.count:>7,} objs)  {ts.type_name}")
+            print(
+                f"  {ts.total_size_kb:>10.1f} KB  ({ts.count:>7,} objs)  {ts.type_name}",
+                file=out,
+            )
 
         # 6. Guppy summary if available
         if self._has_guppy:
-            print("\n>> GUPPY HEAP SUMMARY")
-            print("  " + "-" * 60)
+            print("\n>> GUPPY HEAP SUMMARY", file=out)
+            print("  " + "-" * 60, file=out)
             summary = self.guppy_summary()
             if summary:
                 for line in summary.split("\n"):
-                    print(f"  {line}")
+                    print(f"  {line}", file=out)
 
-        print()
+        print(file=out)
 
     # ── Internal helpers ──
 

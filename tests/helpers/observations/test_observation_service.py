@@ -197,3 +197,50 @@ async def test_compact_context_with_observations_integration():
                 found = True
                 break
         assert found, "Expected summary with observations not found in queue_message calls"
+
+
+@pytest.mark.asyncio
+async def test_run_observation_uses_formatted_chat_chunks():
+    """run_observation builds its request from format_chat_chunks() output."""
+    coder = MagicMock()
+    coder.uuid = "test-uuid-run-observation"
+    coder.context_compaction_max_tokens = 60000
+    coder.io = MagicMock()
+    coder.gpt_prompts = MagicMock()
+    coder.gpt_prompts.observation_prompt = "Observation Prompt"
+    coder.summarizer = MagicMock()
+
+    def fake_summarize(messages, prompt, max_tokens=None, coder=None):
+        # Mirror ChatSummary.summarize_all_as_text: appends the prompt in place
+        messages.append(dict(role="user", content=prompt))
+        return "Observed!"
+
+    coder.summarizer.summarize_all_as_text = AsyncMock(side_effect=fake_summarize)
+    coder.summarizer.count_tokens.return_value = 10  # below reflection threshold
+
+    formatted = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "hello"},
+    ]
+    coder.format_chat_chunks = MagicMock(return_value=formatted)
+
+    manager = ObservationService.get_instance(coder)
+    await manager.run_observation([])
+
+    # The fully-formatted message dict is used to build the observation request
+    coder.format_chat_chunks.assert_called_once()
+    args, kwargs = coder.summarizer.summarize_all_as_text.call_args
+    sent_messages = args[0]
+
+    # The coder is forwarded so models.py's simple_send_with_retries can pull
+    # coder.get_tool_list() and keep the request prefix (messages + tools) stable
+    assert kwargs["coder"] is coder
+
+    # A copy is sent so the manager's cached dict is not polluted in place
+    assert sent_messages is not formatted
+    assert len(formatted) == 2
+    assert sent_messages[:2] == formatted
+
+    # The observation prompt is appended as the final user message
+    assert sent_messages[-1]["role"] == "user"
+    assert "Observation Prompt" in sent_messages[-1]["content"]

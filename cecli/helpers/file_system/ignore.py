@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pathspec
 
+from cecli.decoding import safe_open
+
 # Directories to always ignore (common noise sources)
 DEFAULT_IGNORE_DIRS = frozenset(
     {
@@ -59,7 +61,7 @@ class FileIgnoreFilter:
     def __init__(self, cecli_ignore_path: str | None = None):
         self.cecli_ignore_spec = None
         if cecli_ignore_path and Path(cecli_ignore_path).is_file():
-            with open(cecli_ignore_path) as f:
+            with safe_open(cecli_ignore_path) as f:
                 self.cecli_ignore_spec = pathspec.PathSpec.from_lines(
                     pathspec.patterns.GitWildMatchPattern, f
                 )

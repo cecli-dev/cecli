@@ -49,7 +49,7 @@ class RemoveMcpCommand(BaseCommand):
             server_name = item.name if hasattr(item, "name") else item
 
             # Never remove the "local" server
-            if server_name == "Local":
+            if server_name.lower() == "local":
                 results.append("Cannot remove 'Local' server")
                 continue
 

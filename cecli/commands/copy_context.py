@@ -16,6 +16,7 @@ class CopyContextCommand(BaseCommand):
     async def execute(cls, io, coder, args, **kwargs):
         """Execute the copy-context command with given parameters."""
         manager = ConversationService.get_manager(coder)
+        manager.flush_queue()
 
         markdown = ""
 

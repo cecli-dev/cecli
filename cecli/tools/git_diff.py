@@ -1,5 +1,6 @@
 from cecli.repo import ANY_GIT_ERROR
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.responses import ToolResponse
 
 
 class Tool(BaseTool):
@@ -31,8 +32,11 @@ class Tool(BaseTool):
         """
         Show the diff between the current working directory and a git branch or commit.
         """
+        response = ToolResponse(cls.NORM_NAME)
+
         if not coder.repo:
-            return "Not in a git repository."
+            response.append_result("Not in a git repository.")
+            return response
 
         try:
             if branch:
@@ -42,8 +46,11 @@ class Tool(BaseTool):
                 diff = coder.repo.diff_commits(False, "HEAD", None)
 
             if not diff:
-                return "No differences found."
-            return diff
+                response.append_result("No differences found.")
+                return response
+            response.append_result(diff)
+            return response
         except ANY_GIT_ERROR as e:
             coder.io.tool_error(f"Error running git diff: {e}")
-            return f"Error running git diff: {e}"
+            response.append_error(str(e))
+            return response

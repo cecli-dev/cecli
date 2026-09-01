@@ -3,6 +3,7 @@ import os
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 cwd = os.getcwd()
@@ -23,6 +24,7 @@ class Tool(BaseTool):
         "queries": ["coerce_list"],
         "queries[]": ["coerce_dict"],
     }
+    RESULT_TYPE = "list"
     SCHEMA = {
         "type": "function",
         "function": {
@@ -90,13 +92,15 @@ class Tool(BaseTool):
         Returns:
             str: Formatted results from the Cymbal operations.
         """
+        response = ToolResponse(cls.NORM_NAME, result_type="list")
         try:
             # Check if cymbal is available
             if not CYMBAL_AVAILABLE:
                 coder.io.tool_error(
                     "Cymbal library is not available. Please install it with: pip install py-cymbal"
                 )
-                return "Error: Cymbal library is not available"
+                response.append_error("Cymbal library is not available")
+                return response
 
             # Initialize Cymbal and index if necessary
             c = cymbal.Cymbal()
@@ -108,8 +112,8 @@ class Tool(BaseTool):
             except Exception as e:
                 error_msg = f"Failed to index repository: {str(e)}"
                 coder.io.tool_error(error_msg)
-                return f"Error: {error_msg}"
-            all_results = []
+                response.append_error(error_msg)
+                return response
             all_failed_queries = []
             total_successful_queries = 0
 
@@ -124,7 +128,8 @@ class Tool(BaseTool):
                         # Replace hyphens with underscores (common in code) and strip special chars.
                         safe_symbol = symbol.replace("-", "_") if symbol else symbol
                         results = c.search(safe_symbol, limit=limit)
-                        all_results.append(cls._format_search_results(results, symbol))
+                        results = cls._filter_gitignored(results, coder)
+                        response.append_result(content=cls._format_search_results(results, symbol))
                     elif action == "investigate":
                         symbol_name = symbol
                         file_hint = ""
@@ -139,27 +144,35 @@ class Tool(BaseTool):
 
                         try:
                             investigation = c.investigate(safe_name, file_hint)
-                            all_results.append(
-                                cls._format_investigation_results(investigation, symbol)
+                            investigation = cls._filter_investigation_gitignored(
+                                investigation, coder
+                            )
+                            response.append_result(
+                                content=cls._format_investigation_results(investigation, symbol)
                             )
                         except Exception as e:
                             if "multiple matches" in str(e).lower():
                                 results = c.search(symbol_name, limit=10)
-                                locations = "\n".join(
-                                    [f"- {r['file']}:{r['start_line']}" for r in results]
+                                response.append_result(
+                                    content=(
+                                        f"Error: Multiple matches found for '{symbol}'.\n"
+                                        f"Please use a more specific name or check the locations"
+                                        f" below:\n"
+                                        + "\n".join(
+                                            f"- {r.get('rel_path') or r.get('file', '')}:{r.get('start_line', 0)}"
+                                            for r in results
+                                        )
+                                    )
                                 )
-                                msg = (
-                                    f"Error: Multiple matches found for '{symbol}'.\nPlease use a"
-                                    " more specific name or check the locations"
-                                    f" below:\n{locations}"
-                                )
-                                all_results.append(msg)
                             else:
                                 raise e
                     elif action == "find_references":
                         safe_symbol = symbol.replace("-", "_") if symbol else symbol
                         references = c.find_references(safe_symbol, limit=limit)
-                        all_results.append(cls._format_reference_results(references, symbol))
+                        references = cls._filter_gitignored(references, coder)
+                        response.append_result(
+                            content=cls._format_reference_results(references, symbol)
+                        )
                     else:
                         all_failed_queries.append(
                             f"Error for symbol '{symbol}': Unknown action '{action}'"
@@ -174,22 +187,59 @@ class Tool(BaseTool):
                 error_msg = "No queries were successfully executed:\n" + "\n".join(
                     all_failed_queries
                 )
-                raise ToolError(error_msg)
+                response.append_error(error_msg)
+                return response
 
             if all_failed_queries:
                 for failed_msg in all_failed_queries:
                     coder.io.tool_error(failed_msg)
             else:
-                coder.io.tool_output("✓ All queries successful.", type="tool-result")
+                coder.io.tool_output("\u2713 All queries successful.", type="tool-result")
 
-            return "\n\n" + "=" * 40 + "\n\n".join(all_results)
+            return response
 
         except Exception as e:
             coder.io.tool_error(f"Error in ExploreCode: {str(e)}")
-            return f"Error: {str(e)}"
+            response.append_error(str(e))
+            return response
         finally:
             if "c" in locals():
                 c.close()
+
+    @classmethod
+    def _filter_gitignored(cls, results, coder):
+        """Filter out results whose file path is git-ignored."""
+
+        if not results or not hasattr(coder, "repo") or not coder.repo:
+            return results
+
+        filtered = []
+        for r in results:
+            file_path = r.get("rel_path") or r.get("file", "")
+            if not file_path:
+                filtered.append(r)
+                continue
+            if not coder.repo.git_ignored_file(file_path):
+                filtered.append(r)
+
+        return filtered
+
+    @classmethod
+    def _filter_investigation_gitignored(cls, investigation, coder):
+        """Filter git-ignored entries from an investigation result."""
+
+        if not investigation or not hasattr(coder, "repo") or not coder.repo:
+            return investigation
+
+        # Filter references
+        if "refs" in investigation:
+            investigation["refs"] = cls._filter_gitignored(investigation["refs"], coder)
+
+        # Filter impact/callers
+        if "impact" in investigation:
+            investigation["impact"] = cls._filter_gitignored(investigation["impact"], coder)
+
+        return investigation
 
     @classmethod
     def _format_search_results(cls, results, symbol):

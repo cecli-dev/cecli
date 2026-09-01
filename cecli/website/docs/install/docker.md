@@ -25,17 +25,9 @@ docker run \
 
 ## How to use it
 
-You should run the above commands from the root of your git repo,
-since the `--volume` arg maps your current directory into the
-docker container.
-Given that, you need to be in the root of your git repo for cecli to be able to
-see the repo and all its files.
+You should run the above commands from the root of your git repo, since the `--volume` arg maps your current directory into the docker container. Given that, you need to be in the root of your git repo for cecli to be able to see the repo and all its files.
 
-You should be sure your that
-git repo config contains your user name and email, since the
-docker container won't have your global git config.
-Run these commands while in your git repo, before
-you do the `docker run` command:
+You should be sure your that git repo config contains your user name and email, since the docker container won't have your global git config. Run these commands while in your git repo, before you do the `docker run` command:
 
 ```
 git config user.email "you@example.com"

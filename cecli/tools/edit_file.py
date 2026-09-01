@@ -1,20 +1,23 @@
+from cecli.helpers import nested
 from cecli.helpers.hashline import (
+    HASH_DELIMITER,
+    UNIQUE_HASH_DELIMITER,
     ContentHashError,
     apply_hashline_operations,
     get_hashline_diff,
-    normalize_hashline,
     resolve_content_to_hashline_ids,
     strip_hashline,
 )
+from cecli.helpers.hashpos.hashpos import HashPos
+from cecli.helpers.hashpos.transformations import resolve_at_l, strip_hashline_prefix
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
     ToolError,
     apply_change,
-    format_tool_result,
-    handle_tool_error,
     validate_file_for_edit,
 )
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 VALID_OPERATIONS = {"replace", "delete", "insert"}
@@ -27,6 +30,7 @@ OPERATION_NOUNS = {
 
 USER_EDIT_CATEGORIES = {
     "no_changes": "No Changes",
+    "not_applied": "Edit Not Applied",
     "syntax_errors": "Syntax Errors",
     "boundary_errors": "Boundary Resolution Error",
 }
@@ -34,6 +38,7 @@ USER_EDIT_CATEGORIES = {
 
 class Tool(BaseTool):
     NORM_NAME = "editfile"
+    RESULT_TYPE = "list"
     TRACK_INVOCATIONS = False
     VALIDATIONS = {
         "edits": ["coerce_list"],
@@ -44,13 +49,20 @@ class Tool(BaseTool):
         "function": {
             "name": "EditFile",
             "description": (
-                "Edit text in one or more files using content ID markers. "
-                "You can perform multiple 'replace' or 'delete' operations in a single call. "
-                "CRITICAL RULES: "
-                "1. Start and end content IDs are INCLUSIVE. Both will be modified or deleted. "
-                "2. Content IDs MUST include the `::` demarcator. "
-                "3. Edits within the same file MUST NOT be adjacent or overlapping. "
-                "4. For empty files, you MUST use '@000' as the content ID reference."
+                "Modify text in one or more files by targeting lines with their virtual identifiers "
+                "(as returned by ReadFile). You can batch multiple operations across files in one call."
+                ""
+                "Operations:"
+                "  - 'replace' — swap the targeted range with new text"
+                "  - 'delete' — remove the targeted range"
+                ""
+                "Start and end markers are inclusive: both referenced lines are modified or removed. "
+                f"Reference unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') by their exact text, and "
+                f"duplicate lines by their hashed prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}'); use "
+                "'@000' for empty files. Identifiers track content, so edits can re-prefix identical lines "
+                "elsewhere — re-read the file after editing for fresh identifiers. Multiple edits to one "
+                "file are applied bottom-to-top automatically; overlapping or contained ranges are merged "
+                "or rejected automatically."
             ),
             "parameters": {
                 "type": "object",
@@ -67,37 +79,41 @@ class Tool(BaseTool):
                                 "file_path": {
                                     "type": "string",
                                     "description": (
-                                        "The absolute or relative path to the file being edited."
+                                        "The file to edit, absolute or relative to the project root."
                                     ),
                                 },
                                 "operation": {
                                     "type": "string",
                                     "enum": ["replace", "delete"],
                                     "description": (
-                                        "Choose 'replace' to swap the ID range with new text, "
-                                        "or 'delete' to remove the ID range entirely."
+                                        "The kind of edit: 'replace' swaps the targeted range with new text, "
+                                        "'delete' removes it entirely."
                                     ),
                                 },
                                 "text": {
                                     "type": "string",
                                     "description": (
-                                        "The exact replacement text. If operation is 'delete', "
-                                        'this MUST be an empty string (""). '
-                                        "NEVER include content IDs in this text."
+                                        "The replacement text for 'replace'. "
+                                        "For 'delete' leave this as an empty string (\"\"). "
+                                        "Supplied as-is; do not include identifier prefixes."
                                     ),
                                 },
                                 "start_line": {
                                     "type": "string",
                                     "description": (
-                                        "The exact content ID and demarcator for the start of the edit "
-                                        "(e.g., 'abc::'). For empty files, use '@000'."
+                                        "The first line of the edit: "
+                                        "its exact text if unique, its hashed prefix "
+                                        f"(e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}') if duplicated, "
+                                        "or '@000' for empty files."
                                     ),
                                 },
                                 "end_line": {
                                     "type": "string",
                                     "description": (
-                                        "The exact content ID and demarcator for the end of the edit "
-                                        "(e.g., 'xyz::'). For empty files, use '@000'."
+                                        "The last line of the edit (inclusive): "
+                                        "its exact text if unique, its hashed "
+                                        f"prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}') if duplicated, "
+                                        "or '000@' for the end of the file."
                                     ),
                                 },
                             },
@@ -112,7 +128,9 @@ class Tool(BaseTool):
                     },
                     "change_id": {
                         "type": "string",
-                        "description": "Optional tracking ID for this batch of edits.",
+                        "description": (
+                            "Optional tracking ID for this batch of edits; returned in the result metadata."
+                        ),
                     },
                 },
                 "required": ["edits"],
@@ -137,7 +155,7 @@ class Tool(BaseTool):
         from cecli.helpers.conversation import ConversationService, MessageTag
 
         if not coder.edit_allowed:
-            ConversationService.get_manager(coder).add_message(
+            ConversationService.get_manager(coder).queue_message(
                 message_dict=dict(
                     role="user",
                     content=(
@@ -147,13 +165,10 @@ class Tool(BaseTool):
                 ),
                 tag=MessageTag.CUR,
                 hash_key=("edit_file", "reminder"),
-                promotion=ConversationService.get_manager(coder).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_delete=0,
-                mark_for_demotion=1,
-                force=True,
             )
 
-        tool_name = "EditFile"
+        # tool_name = "EditFile"
+        response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
         try:
             # 1. Validate edits parameter
             if not isinstance(edits, list):
@@ -176,6 +191,7 @@ class Tool(BaseTool):
             # 3. Process each file
             all_results = []
             all_failed_edits = []
+            skipped_file_failures = []
             total_successful_edits = 0
             files_processed = 0
 
@@ -184,6 +200,17 @@ class Tool(BaseTool):
                     # Validate file and get content
                     abs_path, rel_path, original_content = validate_file_for_edit(
                         coder, file_path_key
+                    )
+
+                    if abs_path:
+                        coder.file_read_cache.discard(abs_path)
+
+                    # Build HashPos index once per file for @L{num} resolution
+                    hp = HashPos(original_content or "")
+                    source_lines = (
+                        original_content.splitlines()
+                        if original_content and original_content.strip()
+                        else []
                     )
 
                     # Process all edits for this file using batch operations
@@ -202,27 +229,38 @@ class Tool(BaseTool):
                                 )
 
                             edit_file_raw = edit.get("text")
-                            edit_start_line = edit.get("start_line")
-                            edit_end_line = edit.get("end_line")
+                            edit_start_line = nested.getter(
+                                edit, ["start_line", "range_start", "line_start", "start"]
+                            )
+                            edit_end_line = nested.getter(
+                                edit, ["end_line", "range_end", "line_end", "end"]
+                            )
 
                             # ---------------------------------------------------------
                             # DEFENSIVE FALLBACKS
                             # ---------------------------------------------------------
 
-                            # 1. Handle missing text parameter by defaulting to empty string
-                            if edit_file_raw is None:
-                                edit_file_raw = ""
-
-                            # 2. Programmatically enforce @000 for empty files
+                            # 1. Programmatically enforce @000 for empty files
                             if not original_content or not original_content.strip():
                                 edit_start_line = "@000"
                                 edit_end_line = "@000"
 
-                            # 3. Auto-sanitize malformed boundaries (strip accidentally appended code)
-                            if isinstance(edit_start_line, str) and "::" in edit_start_line:
-                                edit_start_line = normalize_hashline(edit_start_line)
-                            if isinstance(edit_end_line, str) and "::" in edit_end_line:
-                                edit_end_line = normalize_hashline(edit_end_line)
+                            # Resolve @L{num} notation directly to content ID
+                            edit_start_line = cls._resolve_at_l_num(
+                                edit_start_line, hp, source_lines, file_path_key
+                            )
+                            edit_end_line = cls._resolve_at_l_num(
+                                edit_end_line, hp, source_lines, file_path_key
+                            )
+
+                            # Strip virtual prefixes from ReadFile output lines
+                            edit_start_line = cls._strip_readfile_prefix(edit_start_line)
+                            edit_end_line = cls._strip_readfile_prefix(edit_end_line)
+
+                            # Resolve remaining non-hashline content values to content IDs
+                            edit_start_line, edit_end_line = resolve_content_to_hashline_ids(
+                                original_content, edit_start_line, edit_end_line
+                            )
 
                             # ---------------------------------------------------------
 
@@ -235,18 +273,13 @@ class Tool(BaseTool):
 
                             edit_file = edit_file_raw
 
-                            # Try to resolve line content values to content IDs
-                            edit_start_line, edit_end_line = resolve_content_to_hashline_ids(
-                                original_content, edit_start_line, edit_end_line
-                            )
-
                             # Validate required fields based on operation type
-                            # (Note: The check for 'edit_file is None' will now be safely
-                            # bypassed because we defaulted it to "" above)
+                            # Missing text must not silently degrade into a delete
+                            # of the targeted range.
                             if operation in ("replace", "insert"):
-                                if edit_file is None:
+                                if edit_file_raw is None or edit_file_raw == "":
                                     raise ToolError(
-                                        f"Edit {edit_index + 1}: 'text' parameter is required for "
+                                        f"Edit {edit_index + 1}: non-empty 'text' parameter is required for "
                                         f"'{operation}' operation"
                                     )
                             if operation in ("replace", "delete"):
@@ -307,13 +340,24 @@ class Tool(BaseTool):
                         if new_content != original_content:
                             file_successful_edits += len(successful_ops)
                         else:
-                            # Be specific about why content didn't change
-                            if failed_ops:
+                            # Be specific about why content didn't change.
+                            # If no operation reached the apply stage, every edit
+                            # already failed validation and the per-edit failures
+                            # explain why; skip the generic no-change message.
+                            if operations and failed_ops:
+                                no_change_failures = all(
+                                    op.get("failure_type") == "no_change" for op in failed_ops
+                                )
+                                if no_change_failures:
+                                    raise ToolError(
+                                        "Invalid Edit - The requested edit matched the existing content; "
+                                        "no changes were applied. Adjust the replacement text or targeted range."
+                                    )
                                 error_details = "; ".join(op["error"] for op in failed_ops)
                                 raise ToolError(
                                     f"Invalid Edit - Review content ID bounds: {error_details}"
                                 )
-                            else:
+                            elif operations:
                                 raise ToolError(
                                     "Invalid Edit - Review content ID bounds - "
                                     "All edits resulted in unchanged content"
@@ -335,6 +379,8 @@ class Tool(BaseTool):
 
                     # Check if any changes were made for this file
                     if original_content == new_content or file_successful_edits == 0:
+                        if file_failed_edits:
+                            skipped_file_failures.append((file_path_key, file_failed_edits))
                         continue
 
                     # Handle dry run
@@ -383,35 +429,42 @@ class Tool(BaseTool):
                         }
                     )
                     total_successful_edits += file_successful_edits
-                    all_failed_edits.extend(file_failed_edits)
                     files_processed += 1
 
                 except Exception as e:
                     # Record all edits for this file as failed
+                    file_errors = []
+
                     for edit_index, _ in file_edits:
-                        all_failed_edits.append(
-                            f"Edit {edit_index + 1} - {cls._categorize_edit_error(str(e))}"
-                        )
+                        error_msg = f"Edit {edit_index + 1} - {cls._categorize_edit_error(str(e))}"
+                        file_errors.append(error_msg)
+                        all_failed_edits.append(error_msg)
+
+                    if file_errors:
+                        skipped_file_failures.append((file_path_key, file_errors))
                     continue
 
             # If dry run, return all results
             if dry_run:
                 dry_run_messages = "\n".join(r.get("dry_run_message", "") for r in all_results)
-                return format_tool_result(
-                    coder,
-                    tool_name,
-                    "",
-                    dry_run=True,
-                    dry_run_message=dry_run_messages or "Dry run: No changes would be made",
-                )
+                response.append_result(dry_run_messages or "Dry run: No changes would be made")
+
+                for file_path_key, failures in skipped_file_failures:
+                    response.append_error(
+                        f"Edits to {file_path_key} were not applied:\n" + "\n".join(failures)
+                    )
+                return response
 
             # 4. Check if any edits succeeded overall
             if total_successful_edits == 0:
                 coder.edit_allowed = True
                 error_msg = "No edits were successfully applied:\n" + "\n".join(all_failed_edits)
+                response.append_error(all_failed_edits)
                 raise ToolError(error_msg)
 
             # 5. Format and return result
+
+            cls.clear_invocation_cache()
 
             if files_processed == 1:
                 # Single file case
@@ -421,35 +474,54 @@ class Tool(BaseTool):
                 )
                 if result["failed_edits"]:
                     success_message += f" ({len(result['failed_edits'])} failed)"
-                    # Include failed edit details in message to LLM
                     success_message += "\nFailed edits:\n" + "\n".join(result["failed_edits"])
-                change_id_to_return = result.get("change_id")
-            else:
-                # Multiple files case
-                success_message = (
-                    f"Applied {total_successful_edits} edits across {files_processed} files"
+
+                response.append_result(
+                    content=f"\u2713 {success_message}",
+                    metadata={
+                        "change_id": result.get("change_id"),
+                        "file_path": result.get("file_path"),
+                        "successful_edits": result.get("successful_edits"),
+                        "failed_edits": result.get("failed_edits", []),
+                    },
                 )
-                if all_failed_edits:
-                    success_message += f" ({len(all_failed_edits)} failed)"
-                    # Include failed edit details in message to LLM
-                    success_message += "\nFailed edits:\n" + "\n".join(all_failed_edits)
-                change_id_to_return = None  # Multiple change IDs, can't return single one
+            else:
+                # Multiple files case — append per-file structured results
+                for result in all_results:
+                    per_file_message = (
+                        f"Applied {result['successful_edits']} edits in {result['file_path']}"
+                    )
+                    if result["failed_edits"]:
+                        per_file_message += f" ({len(result['failed_edits'])} failed)"
+                        per_file_message += "\nFailed edits:\n" + "\n".join(result["failed_edits"])
 
-            cls.clear_invocation_cache()
+                    response.append_result(
+                        content=f"\u2713 {per_file_message}",
+                        metadata={
+                            "change_id": result.get("change_id"),
+                            "file_path": result.get("file_path"),
+                            "successful_edits": result.get("successful_edits"),
+                            "failed_edits": result.get("failed_edits", []),
+                        },
+                    )
 
-            return format_tool_result(
-                coder,
-                tool_name,
-                success_message,
-                change_id=change_id_to_return,
-            )
+            # Surface failures from files whose edits were not applied at all,
+            # even when other files in the batch succeeded.
+            for file_path_key, failures in skipped_file_failures:
+                response.append_error(
+                    f"Edits to {file_path_key} were not applied:\n" + "\n".join(failures)
+                )
+
+            return response
 
         except ToolError as e:
             coder.edit_allowed = False
-            return handle_tool_error(coder, tool_name, e, add_traceback=False)
+            response.append_error(str(e))
+            return response
         except Exception as e:
             coder.edit_allowed = False
-            return handle_tool_error(coder, tool_name, e)
+            response.append_error(str(e))
+            return response
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
@@ -494,8 +566,10 @@ class Tool(BaseTool):
                     coder.io.tool_output(f"{color_start}{OPERATION_NOUNS[operation]}:{color_end}")
 
                 text = strip_hashline(edit.get("text", ""))
-                start_line = edit.get("start_line")
-                end_line = edit.get("end_line")
+                start_line = nested.getter(
+                    edit, ["start_line", "range_start", "line_start", "start"]
+                )
+                end_line = nested.getter(edit, ["end_line", "range_end", "line_end", "end"])
                 # Show output based on operation type
                 if operation in ("replace", "delete"):
                     # Show diff for replace operations
@@ -507,6 +581,24 @@ class Tool(BaseTool):
                             original_content = coder.io.read_text(abs_path)
 
                             if original_content is not None:
+                                # Mirror execute()'s preprocessing so the preview
+                                # resolves the same inputs execute accepts (@L{num}
+                                # line references and ReadFile virtual prefixes).
+                                hp = HashPos(original_content)
+                                source_lines = (
+                                    original_content.splitlines()
+                                    if original_content and original_content.strip()
+                                    else []
+                                )
+                                start_line = cls._resolve_at_l_num(
+                                    start_line, hp, source_lines, file_path_key
+                                )
+                                end_line = cls._resolve_at_l_num(
+                                    end_line, hp, source_lines, file_path_key
+                                )
+                                start_line = cls._strip_readfile_prefix(start_line)
+                                end_line = cls._strip_readfile_prefix(end_line)
+
                                 start_line, end_line = resolve_content_to_hashline_ids(
                                     original_content, start_line, end_line
                                 )
@@ -537,12 +629,41 @@ class Tool(BaseTool):
         tool_footer(coder=coder, tool_response=tool_response, params=params)
 
     @classmethod
+    def _resolve_at_l_num(cls, line_spec, hp, source_lines, file_path):
+        """Resolve @L{num} notation to a content ID using a pre-built HashPos index.
+
+        Returns the input unchanged if it's not an @L{num} spec.
+        Raises ToolError if the line number is out of range.
+        """
+
+        from cecli.tools.utils.helpers import ToolError
+
+        try:
+            return resolve_at_l(line_spec, hp, source_lines)
+
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+
+    @staticmethod
+    def _strip_readfile_prefix(value):
+        """Strip the virtual prefix from a ReadFile output line reference."""
+
+        return strip_hashline_prefix(value)
+
+    @classmethod
     def _categorize_edit_error(cls, error_msg: str) -> str:
         """Categorize an edit error message into a user-friendly display category."""
         error_lower = error_msg.lower()
 
         if "syntax error" in error_lower or "introduces new syntax" in error_lower:
             return USER_EDIT_CATEGORIES["syntax_errors"]
+
+        elif (
+            "not applied" in error_lower
+            or "superseded" in error_lower
+            or "contained within" in error_lower
+        ):
+            return f"{USER_EDIT_CATEGORIES['not_applied']}: {error_msg}"
 
         elif "hash" in error_lower or "content id" in error_lower or "not found" in error_lower:
             # Append the actual error string so the LLM can self-correct its specific mistake

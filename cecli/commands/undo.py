@@ -53,8 +53,12 @@ class UndoCommand(BaseCommand):
             )
             return format_command_result(io, "undo", "Commit has multiple parents")
 
-        prev_commit = last_commit.parents[0]
-        changed_files_last_commit = [item.a_path for item in last_commit.diff(prev_commit)]
+        prev_sha = last_commit.parents[0]
+        # Get list of files changed between parent and current commit
+        diff_output = coder.repo.repo.git.diff("--name-only", prev_sha, last_commit.hexsha)
+        changed_files_last_commit = (
+            [f for f in diff_output.splitlines() if f] if diff_output else []
+        )
 
         for fname in changed_files_last_commit:
             if coder.repo.repo.is_dirty(path=fname):
@@ -64,9 +68,12 @@ class UndoCommand(BaseCommand):
                 return format_command_result(io, "undo", f"File {fname} has uncommitted changes")
 
             # Check if the file was in the repo in the previous commit
+            # git ls-tree returns empty string if the file does not exist in that commit
             try:
-                prev_commit.tree[fname]
-            except KeyError:
+                tree_output = coder.repo.repo.git.ls_tree(prev_sha, "--", fname)
+                if not tree_output:
+                    raise KeyError
+            except (KeyError, ANY_GIT_ERROR):
                 io.tool_error(
                     f"The file {fname} was not in the repository in the previous commit. Cannot"
                     " undo safely."

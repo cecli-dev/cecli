@@ -8,281 +8,82 @@ has_children: true
 
 # LLM Leaderboards
 
-cecli excels with LLMs skilled at writing and *editing* code,
-and uses benchmarks to
-evaluate an LLM's ability to follow instructions and edit code successfully without
-human intervention.
-[Aider's polyglot benchmark](https://cecli.dev/2024/12/21/polyglot.html#the-polyglot-benchmark) tests LLMs on 225 challenging Exercism coding exercises across C++, Go, Java, JavaScript, Python, and Rust.
+Cecli excels with LLMs skilled at writing and *editing* code, and uses benchmarks to evaluate an LLM's ability to follow instructions and edit code successfully without human intervention. [Aider's polyglot benchmark](https://cecli.dev/2024/12/21/polyglot.html#the-polyglot-benchmark) tests LLMs on 225 challenging Exercism coding exercises across C++, Go, Java, JavaScript, Python, and Rust.
 
-<h2 id="leaderboard-title">cecli polyglot coding leaderboard</h2>
+## cecli polyglot coding leaderboard
 
-<div id="controls-container" style="display: flex; align-items: center; width: 100%; max-width: 800px; margin: 10px auto; gap: 10px; box-sizing: border-box; padding: 0 5px; position: relative;">
-  <input type="text" id="editSearchInput" placeholder="Search..." style="flex-grow: 1; padding: 8px; border: 1px solid var(--gray); border-radius: 4px;">
-  <div id="view-mode-toggle" style="display: inline-flex; border: 1px solid var(--gray); border-radius: 4px;">
-    <button id="mode-view-btn" class="mode-button active" data-mode="view" style="padding: 8px 8px; border: none; border-radius: 3px 0 0 3px; cursor: pointer; font-size: 14px; line-height: 1.5; min-width: 50px;">View</button>
-    <button id="mode-select-btn" class="mode-button" data-mode="select" style="padding: 8px 8px; border: none; background-color: rgba(173, 181, 189, 0.2); border-radius: 0; cursor: pointer; border-left: 1px solid var(--gray); font-size: 14px; line-height: 1.5; min-width: 50px;">Select</button>
-    <button id="mode-detail-btn" class="mode-button" data-mode="detail" style="padding: 8px 8px; border: none; background-color: rgba(173, 181, 189, 0.2); border-radius: 0 3px 3px 0; cursor: pointer; border-left: 1px solid var(--gray); font-size: 14px; line-height: 1.5; min-width: 50px;">Detail</button>
-  </div>
-<button id="close-controls-btn" style="width: 18px; height: 18px; padding: 0; border: 1px solid var(--gray); border-radius: 50%; background-color: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; margin-left: 4px; color: var(--gray);">×</button>
-</div>
+| Model | Percent correct | Cost | Correct edit format | Edit format |
+|---|---|---|---|---|
+| gpt-5 (high) | 88.0% | $29.08 | 91.6% | diff |
+| gpt-5 (medium) | 86.7% | $17.69 | 88.4% | diff |
+| o3-pro (high) | 84.9% | $146.32 | 97.8% | diff |
+| gemini-2.5-pro-preview-06-05 (32k think) | 83.1% | $49.88 | 99.6% | diff-fenced |
+| o3 (high) | 81.3% | $21.23 | 94.7% | diff |
+| gpt-5 (low) | 81.3% | $10.37 | 86.7% | diff |
+| grok-4 (high) | 79.6% | $59.62 | 97.3% | diff |
+| gemini-2.5-pro-preview-06-05 (default think) | 79.1% | $45.60 | 100.0% | diff-fenced |
+| o3 (high) + gpt-4.1 | 78.2% | $17.55 | 100.0% | architect |
+| Gemini 2.5 Pro Preview 05-06 | 76.9% | $37.41 | 97.3% | diff-fenced |
+| o3 | 76.9% | $13.75 | 93.8% | diff |
+| DeepSeek-V3.2-Exp (Reasoner) | 74.2% | $1.30 | 97.3% | diff |
+| Gemini 2.5 Pro Preview 03-25 | 72.9% |  | 92.4% | diff-fenced |
+| o4-mini (high) | 72.0% | $19.64 | 90.7% | diff |
+| claude-opus-4-20250514 (32k thinking) | 72.0% | $65.75 | 97.3% | diff |
+| DeepSeek R1 (0528) | 71.4% | $4.80 | 94.6% | diff |
+| claude-opus-4-20250514 (no think) | 70.7% | $68.63 | 98.7% | diff |
+| DeepSeek-V3.2-Exp (Chat) | 70.2% | $0.88 | 98.2% | diff |
+| claude-3-7-sonnet-20250219 (32k thinking tokens) | 64.9% | $36.83 | 97.8% | diff |
+| DeepSeek R1 + claude-3-5-sonnet-20241022 | 64.0% | $13.29 | 100.0% | architect |
+| o1-2024-12-17 (high) | 61.7% | $186.50 | 91.5% | diff |
+| claude-sonnet-4-20250514 (32k thinking) | 61.3% | $26.58 | 97.3% | diff |
+| o3-mini (high) | 60.4% | $18.16 | 93.3% | diff |
+| claude-3-7-sonnet-20250219 (no thinking) | 60.4% | $17.72 | 93.3% | diff |
+| Qwen3 235B A22B diff, no think, Alibaba API | 59.6% |  | 92.9% | diff |
+| Kimi K2 | 59.1% | $1.24 | 92.9% | diff |
+| DeepSeek R1 | 56.9% | $5.42 | 96.9% | diff |
+| claude-sonnet-4-20250514 (no thinking) | 56.4% | $15.82 | 98.2% | diff |
+| DeepSeek V3 (0324) | 55.1% | $1.12 | 99.6% | diff |
+| gemini-2.5-flash-preview-05-20 (24k think) | 55.1% | $8.56 | 95.6% | diff |
+| Quasar Alpha | 54.7% |  | 98.2% | diff |
+| o3-mini (medium) | 53.8% | $8.86 | 95.1% | diff |
+| Grok 3 Beta | 53.3% | $11.03 | 99.6% | diff |
+| Optimus Alpha | 52.9% |  | 97.3% | diff |
+| gpt-4.1 | 52.4% | $9.86 | 98.2% | diff |
+| claude-3-5-sonnet-20241022 | 51.6% | $14.41 | 99.6% | diff |
+| Grok 3 Mini Beta (high) | 49.3% | $0.73 | 99.6% | whole |
+| DeepSeek Chat V3 (prev) | 48.4% | $0.34 | 98.7% | diff |
+| gemini-2.5-flash-preview-04-17 (default) | 47.1% | $1.85 | 85.3% | diff |
+| chatgpt-4o-latest (2025-03-29) | 45.3% | $19.74 | 64.4% | diff |
+| gpt-4.5-preview | 44.9% | $183.18 | 97.3% | diff |
+| gemini-2.5-flash-preview-05-20 (no think) | 44.0% | $1.14 | 93.8% | diff |
+| gpt-oss-120b (high) | 41.8% | $0.74 | 79.1% | diff |
+| Qwen3 32B | 40.0% | $0.76 | 83.6% | diff |
+| gemini-exp-1206 | 38.2% |  | 98.2% | whole |
+| Gemini 2.0 Pro exp-02-05 | 35.6% |  | 100.0% | whole |
+| Grok 3 Mini Beta (low) | 34.7% | $0.79 | 100.0% | whole |
+| o1-mini-2024-09-12 | 32.9% | $18.58 | 96.9% | whole |
+| gpt-4.1-mini | 32.4% | $1.99 | 92.4% | diff |
+| claude-3-5-haiku-20241022 | 28.0% | $6.06 | 91.1% | diff |
+| chatgpt-4o-latest (2025-02-15) | 27.1% | $14.37 | 93.3% | diff |
+| QwQ-32B + Qwen 2.5 Coder Instruct | 26.2% |  | 100.0% | architect |
+| gpt-4o-2024-08-06 | 23.1% | $7.03 | 94.2% | diff |
+| gemini-2.0-flash-exp | 22.2% |  | 100.0% | whole |
+| qwen-max-2025-01-25 | 21.8% |  | 90.2% | diff |
+| QwQ-32B | 20.9% |  | 67.6% | diff |
+| gpt-4o-2024-11-20 | 18.2% | $6.74 | 95.1% | diff |
+| gemini-2.0-flash-thinking-exp-01-21 | 18.2% |  | 77.8% | diff |
+| DeepSeek Chat V2.5 | 17.8% | $0.51 | 92.9% | diff |
+| Qwen2.5-Coder-32B-Instruct | 16.4% |  | 99.6% | whole |
+| Llama 4 Maverick | 15.6% |  | 99.1% | whole |
+| yi-lightning | 12.9% |  | 92.9% | whole |
+| command-a-03-2025-quality | 12.0% |  | 99.6% | whole |
+| Codestral 25.01 | 11.1% | $1.98 | 100.0% | whole |
+| openhands-lm-32b-v0.1 | 10.2% |  | 95.1% | whole |
+| gpt-4.1-nano | 8.9% | $0.43 | 94.2% | whole |
+| Qwen2.5-Coder-32B-Instruct | 8.0% |  | 71.6% | diff |
+| gemma-3-27b-it | 4.9% |  | 100.0% | whole |
+| gpt-4o-mini-2024-07-18 | 3.6% | $0.32 | 100.0% | whole |
 
-<table style="width: 100%; max-width: 800px; margin: auto; border-collapse: collapse; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-size: 14px;">
-  <thead>
-    <tr>
-      <th style="padding: 8px; width: 40px; text-align: center; vertical-align: middle;">
-        <input type="checkbox" id="select-all-checkbox" style="display: none; cursor: pointer; vertical-align: middle;">
-      </th> <!-- Header checkbox added here -->
-      <th style="padding: 8px; text-align: left;">Model</th>
-      <th style="padding: 8px; text-align: center; width: 25%">Percent correct</th>
-      <th style="padding: 8px; text-align: center; width: 25%">Cost</th>
-      <th style="padding: 8px; text-align: center; width: 10%" class="col-conform">Correct edit format</th>
-      <th style="padding: 8px; text-align: left; width: 10%" class="col-edit-format">Edit Format</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% assign max_cost = 0 %}
-    {% for row in site.data.polyglot_leaderboard %}
-      {% if row.total_cost > max_cost %}
-        {% assign max_cost = row.total_cost %}
-      {% endif %}
-    {% endfor %}
-    {% if max_cost == 0 %}{% assign max_cost = 1 %}{% endif %}
-    {% assign edit_sorted = site.data.polyglot_leaderboard | sort: 'pass_rate_2' | reverse %}
-    {% for row in edit_sorted %} {% comment %} Add loop index for unique IDs {% endcomment %}
-      {% assign row_index = forloop.index0 %}
-      <tr id="main-row-{{ row_index }}">
-        <td style="padding: 8px; text-align: center; vertical-align: middle;">
-          <button class="toggle-details" data-target="details-{{ row_index }}" style="background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; vertical-align: middle;">▶</button>
-          <input type="checkbox" class="row-selector" data-row-index="{{ row_index }}" style="display: none; cursor: pointer; vertical-align: middle;">
-        </td>
-        <td style="padding: 8px;"><span>{{ row.model }}</span></td>
-        <td class="bar-cell">
-          <div class="bar-viz" style="width: {{ row.pass_rate_2 }}%; background-color: rgba(40, 167, 69, 0.3); border-right: 1px solid rgba(40, 167, 69, 0.5);"></div>
-          <span>{{ row.pass_rate_2 }}%</span>
-        </td>
-        <td class="bar-cell cost-bar-cell">
-          {% if row.total_cost > 0 %}
-          <div class="bar-viz cost-bar" data-cost="{{ row.total_cost }}" data-max-cost="{{ max_cost }}" style="width: 0%; background-color: rgba(13, 110, 253, 0.3); border-right: 1px solid rgba(13, 110, 253, 0.5);"></div>
-          {% endif %}
-          {% assign rounded_cost = row.total_cost | times: 1.0 | round: 2 %}
-          <span>{% if row.total_cost == 0 or rounded_cost == 0.00 %}{% else %}${{ rounded_cost }}{% endif %}</span>
-        </td>
-        <td style="padding: 8px; text-align: center;" class="col-conform"><span>{{ row.percent_cases_well_formed }}%</span></td>
-        <td style="padding: 8px;" class="col-edit-format"><span>{{ row.edit_format }}</span></td>
-      </tr>
-      <tr class="details-row" id="details-{{ row_index }}" style="display: none;">
-        <td colspan="7" style="padding: 15px; border-bottom: 1px solid var(--gray);">
-          <ul style="margin: 0; padding-left: 20px; list-style: none; border-bottom: 1px solid var(--gray);">
-            {% for pair in row %}
-              {% if pair[1] != "" and pair[1] != nil %}
-                <li><strong>
-                  {% if pair[0] == 'percent_cases_well_formed' %}
-                    Percent cases well formed
-                  {% else %}
-                    {{ pair[0] | replace: '_', ' ' | capitalize }}
-                  {% endif %}
-                  :</strong>
-                  {% if pair[0] == 'command' %}<code>{{ pair[1] }}</code>{% else %}{{ pair[1] }}{% endif %}
-                </li>
-              {% endif %}
-            {% endfor %}
-          </ul>
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+The full per-run details for each model (command, date, error counts, token usage, etc.) are maintained in [`cecli/website/_data/polyglot_leaderboard.yml`](https://github.com/cecli-dev/cecli/blob/main/cecli/website/_data/polyglot_leaderboard.yml) in the repository.
 
-<style>
-  #leaderboard-title {
-    margin-bottom: 20px; /* Add space below the title */
-  }
-  tr.selected {
-    color: var(--primary);
-  }
-  table {
-    table-layout: fixed;
-  }
-  thead {
-    border-top: 1px solid var(--gray); /* Add top border to header */
-  }
-  td, th {
-    border: none; /* Remove internal cell borders */
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    vertical-align: middle; /* Ensure consistent vertical alignment */
-  }
-  tbody tr {
-    height: 50px; /* Set a minimum height for all data rows */
-  }
-  td.col-command { /* Command column */
-    font-size: 12px; /* Keep font size adjustment for command column if desired, or remove */
-  }
-
-  /* Hide new columns first on smaller screens */
-  @media screen and (max-width: 991px) {
-    th.col-conform, td.col-conform,
-    th.col-edit-format, td.col-edit-format {
-      display: none;
-    }
-    /* Increase width of Percent correct and Cost columns when others are hidden */
-    th:nth-child(3), td:nth-child(3), /* Percent correct */
-    th:nth-child(4), td:nth-child(4) { /* Cost */
-      width: 33% !important; /* Override inline style */
-    }
-  }
-
-  /* Hide command column on even smaller screens */
-  @media screen and (max-width: 767px) {
-    th.col-command, td.col-command { /* Command column */
-      display: none;
-    }
-  }
-
-  /* --- Control Styles --- */
-  #controls-container {
-    margin-bottom: 20px; /* Add some space below controls */
-  }
-
-  #editSearchInput, #view-mode-select {
-    padding: 8px 12px; /* Consistent padding */
-    border: 1px solid var(--gray); /* Slightly softer border */
-    border-radius: 4px;
-    font-size: 14px; /* Match table font size */
-    height: 38px; /* Match height */
-    box-sizing: border-box; /* Include padding/border in height */
-  }
-
-
-  .bar-cell {
-    position: relative; /* Positioning context for the bar */
-    padding: 8px;
-    /* text-align: center; Removed */
-    overflow: hidden; /* Prevent bar from overflowing cell boundaries if needed */
-  }
-  .cost-bar-cell {
-    background-image: none; /* Remove default gradient for cost cells */
-  }
-  .percent-tick, .cost-tick {
-    position: absolute;
-    top: 50%;
-    transform: translateY(10px);
-    height: 8px; /* Short tick */
-    width: 1px;
-    background-color: rgba(173, 181, 189, 0.5);
-    z-index: 2; /* Above the bar but below the text */
-  }
-  .bar-viz {
-    position: absolute;
-    left: 0;
-    top: 50%; /* Position at the middle of the cell */
-    transform: translateY(-50%); /* Center the bar vertically */
-    z-index: 1; /* Above background, below ticks and text */
-    height: 36px;
-    border-radius: 0 2px 2px 0; /* Slightly rounded end corners */
-    /* Width and colors are set inline via style attribute */
-  }
-  /* Add a tooltip class for showing cost information on hover */
-  .cost-bar-cell:hover .bar-viz[style*="background-image"] {
-    animation: stripe-animation 2s linear infinite;
-  }
-  @keyframes stripe-animation {
-    0% { background-position: 0 0; }
-    100% { background-position: 20px 0; }
-  }
-  .bar-cell span {
-     position: absolute; /* Position relative to the cell */
-     left: 5px; /* Position slightly inside the left edge */
-     top: 50%; /* Center vertically */
-     transform: translateY(-50%); /* Adjust vertical centering */
-     z-index: 3; /* Ensure text is above everything else */
-     background-color: rgba(18, 18, 18, 0.7); /* Semi-transparent dark background */
-     padding: 0 4px; /* Add padding around the text */
-     border-radius: 3px; /* Rounded corners for the text background */
-     font-size: 14px; /* Adjust font size for the numbers */
-  }
-  .toggle-details {
-    color: var(--gray); /* Make toggle symbol more subtle */
-    transition: color 0.2s; /* Smooth transition on hover */
-  }
-
-
-  /* Style for selected rows */
-  tr.row-selected > td {
-    background-color: rgba(76, 110, 245, 0.2); /* Example light blue highlight */
-  }
-
-  /* Ensure checkbox is vertically aligned if needed */
-  .row-selector {
-    vertical-align: middle;
-  }
-
-  /* Hide rows not matching the filter */
-  tr.hidden-by-mode {
-      display: none !important; /* Use important to override other display styles if necessary */
-  }
-  tr.hidden-by-search {
-      display: none !important;
-  }
-
-  /* --- Mode Toggle Button Styles --- */
-  #view-mode-toggle {
-    height: 38px; /* Match input height */
-    box-sizing: border-box;
-    flex-shrink: 0; /* Prevent toggle from shrinking on small screens */
-  }
-  .mode-button {
-    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
-    white-space: nowrap; /* Prevent text wrapping */
-  }
-  .mode-button:not(.active) {
-    background-color: rgba(173, 181, 189, 0.2); /* Light grey background */
-    color: var(--gray); /* Dark grey text */
-  }
-  .mode-button:not(.active):hover {
-    background-color: rgba(173, 181, 189, 0.4); /* Slightly darker grey on hover */
-  }
-
-  /* Style for highlighted rows in view mode */
-  tr.view-highlighted > td {
-    background-color: rgba(255, 254, 245, 0.1); /* Very light yellow/cream */
-    /* Border moved to specific cell below */
-  }
-  /* Apply border and adjust padding ONLY for the first *visible* cell (Model name) in view mode */
-  tr.view-highlighted > td:nth-child(2) {
-     border-left: 4px solid rgba(255, 193, 7, 0.7); /* Warning yellow border */
-     /* Original padding is 8px. Subtract border width. */
-     padding-left: 4px;
-  }
-</style>
-
-<script>
-{% include leaderboard_table.js %}
-</script>
-
-<p class="post-date" style="margin-top: 20px;">
-By Paul Gauthier,
-last updated
-<!--[[[cog
-import subprocess
-import datetime
-
-files = [
-    'cecli/website/docs/leaderboards/index.md',
-    'cecli/website/_data/polyglot_leaderboard.yml',
-]
-
-def get_last_modified_date(file):
-    result = subprocess.run(['git', 'log', '-1', '--format=%ct', file], capture_output=True, text=True)
-    if result.returncode == 0:
-        timestamp = int(result.stdout.strip())
-        return datetime.datetime.fromtimestamp(timestamp)
-    return datetime.datetime.min
-
-mod_dates = [get_last_modified_date(file) for file in files]
-latest_mod_date = max(mod_dates)
-cog.out(f"{latest_mod_date.strftime('%B %d, %Y.')}")
-]]]-->
-November 20, 2025.
-<!--[[[end]]]-->
-</p>
+By Paul Gauthier, last updated November 20, 2025.

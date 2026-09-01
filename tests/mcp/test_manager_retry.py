@@ -15,13 +15,15 @@ Test categories:
 """
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp.types import Tool as McpTool
 
 from cecli.commands.core import SwitchCoderSignal
 from cecli.mcp.manager import McpServerManager
-from cecli.mcp.server import LocalServer, McpServer
+from cecli.mcp.server import LocalServer, McpServer, _get_mcp_major_version
 
 # ---------------------------------------------------------------------------
 # Fixtures (mirrors tests/mcp/test_manager.py for consistency)
@@ -62,24 +64,54 @@ def mock_local_server():
     return server
 
 
+def _mcp_tools_from_openai_schemas(schemas):
+    """Build mcp Tool objects from OpenAI function schema dicts (version-aware)."""
+    tools = []
+    for schema in schemas:
+        function = schema["function"]
+        if _get_mcp_major_version() >= 2:
+            tools.append(
+                McpTool(
+                    name=function["name"],
+                    description=function["description"],
+                    input_schema=function["parameters"],
+                )
+            )
+        else:
+            tools.append(
+                McpTool(
+                    name=function["name"],
+                    description=function["description"],
+                    inputSchema=function["parameters"],
+                )
+            )
+    return tools
+
+
 @pytest.fixture
 def mock_tools():
-    """Mock tool schemas returned by load_mcp_tools."""
+    """Expected OpenAI-format tool dicts stored by connect_server."""
     return [
         {
+            "type": "function",
             "function": {
                 "name": "test_tool",
                 "description": "A test tool",
-                "parameters": {},
-            }
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+                "strict": False,
+            },
         }
     ]
 
 
 @pytest.fixture
-def mock_session():
-    """Mock session object returned by server.connect()."""
-    return MagicMock()
+def mock_session(mock_tools):
+    """Mock session whose list_tools() yields mcp Tools matching mock_tools."""
+    session = MagicMock()
+    session.list_tools = AsyncMock(
+        return_value=SimpleNamespace(tools=_mcp_tools_from_openai_schemas(mock_tools))
+    )
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +172,8 @@ async def test_connect_server_retries_first_failure_succeeds_second(
     manager = McpServerManager(servers=[mock_server], io=mock_io)
     mock_server.connect.side_effect = [Exception("Connection failed"), mock_session]
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        with patch("asyncio.sleep") as mock_sleep:
-            result = await manager.connect_server("test-server")
+    with patch("asyncio.sleep") as mock_sleep:
+        result = await manager.connect_server("test-server")
 
     assert result is True
     assert mock_server.connect.call_count == 2
@@ -171,10 +201,8 @@ async def test_connect_server_retries_two_failures_succeeds_third(
         mock_session,
     ]
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        with patch("asyncio.sleep") as mock_sleep:
-            result = await manager.connect_server("test-server")
+    with patch("asyncio.sleep") as mock_sleep:
+        result = await manager.connect_server("test-server")
 
     assert result is True
     assert mock_server.connect.call_count == 3
@@ -448,15 +476,13 @@ async def test_connect_server_succeeds_first_attempt(mock_server, mock_tools, mo
     manager = McpServerManager(servers=[mock_server])
     mock_server.connect.return_value = mock_session
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        result = await manager.connect_server("test-server")
+    result = await manager.connect_server("test-server")
 
     assert result is True
     assert mock_server.connect.call_count == 1
     assert mock_server in manager._connected_servers
     assert manager._server_tools["test-server"] == mock_tools
-    mock_load_tools.assert_called_once_with(session=mock_session, format="openai")
+    mock_session.list_tools.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -469,17 +495,13 @@ async def test_from_servers_calls_connect_once(mock_server, mock_io, mock_tools,
     """TC-015: from_servers add_server_with_retry no longer has its own retry loop."""
     mock_server.connect.return_value = mock_session
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        manager = await McpServerManager.from_servers(
-            servers=[mock_server], io=mock_io, verbose=True
-        )
+    manager = await McpServerManager.from_servers(servers=[mock_server], io=mock_io, verbose=True)
 
     assert isinstance(manager, McpServerManager)
     assert manager._servers == [mock_server]
     assert mock_server in manager._connected_servers
     assert mock_server.connect.call_count == 1
-    mock_load_tools.assert_called_once()
+    mock_session.list_tools.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -521,11 +543,9 @@ async def test_load_mcp_command_benefits_from_retry(mock_server, mock_io, mock_t
     async def _connect_with_retry(name):
         # Simulate the retry happening inside connect_server
         mock_server.connect.side_effect = [Exception("Fail"), mock_session]
-        with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load:
-            mock_load.return_value = mock_tools
-            with patch("asyncio.sleep"):
-                manager = McpServerManager(servers=[mock_server], io=mock_io)
-                return await manager.connect_server(name)
+        with patch("asyncio.sleep"):
+            manager = McpServerManager(servers=[mock_server], io=mock_io)
+            return await manager.connect_server(name)
 
     coder.mcp_manager.connect_server = _connect_with_retry
     coder.mcp_manager.get_server = MagicMock(return_value=mock_server)
@@ -609,11 +629,9 @@ async def test_load_session_benefits_from_retry(mock_server, mock_io, mock_tools
     manager = McpServerManager(servers=[mock_server], io=mock_io)
     mock_server.connect.side_effect = [Exception("Fail"), mock_session]
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        with patch("asyncio.sleep"):
-            # Simulate what /load-session does: call connect_server for the MCP server
-            result = await manager.connect_server("test-server")
+    with patch("asyncio.sleep"):
+        # Simulate what /load-session does: call connect_server for the MCP server
+        result = await manager.connect_server("test-server")
 
     assert result is True
     assert mock_server.connect.call_count == 2
@@ -636,11 +654,9 @@ async def test_resource_manager_benefits_from_retry(mock_server, mock_io, mock_t
     # Simulate connect_server with retry (fail first, succeed second)
     async def _connect_with_retry(name):
         mock_server.connect.side_effect = [Exception("Fail"), mock_session]
-        with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load:
-            mock_load.return_value = mock_tools
-            with patch("asyncio.sleep"):
-                manager = McpServerManager(servers=[mock_server], io=mock_io)
-                return await manager.connect_server(name)
+        with patch("asyncio.sleep"):
+            manager = McpServerManager(servers=[mock_server], io=mock_io)
+            return await manager.connect_server(name)
 
     coder.mcp_manager.connect_server = _connect_with_retry
     coder.mcp_manager.get_server = MagicMock(return_value=mock_server)
@@ -667,9 +683,7 @@ async def test_regression_connect_server_success(mock_server, mock_tools, mock_s
     manager = McpServerManager(servers=[mock_server])
     mock_server.connect.return_value = mock_session
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        result = await manager.connect_server("test-server")
+    result = await manager.connect_server("test-server")
 
     assert result is True
     assert mock_server.connect.call_count == 1
@@ -772,17 +786,13 @@ async def test_regression_from_servers_creates_manager(
     """TC-027: Regression - from_servers creates manager with simplified add_server_with_retry."""
     mock_server.connect.return_value = mock_session
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.return_value = mock_tools
-        manager = await McpServerManager.from_servers(
-            servers=[mock_server], io=mock_io, verbose=True
-        )
+    manager = await McpServerManager.from_servers(servers=[mock_server], io=mock_io, verbose=True)
 
     assert isinstance(manager, McpServerManager)
     assert manager._servers == [mock_server]
     assert mock_server in manager._connected_servers
     assert mock_server.connect.call_count == 1
-    mock_load_tools.assert_called_once()
+    mock_session.list_tools.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -794,28 +804,30 @@ async def test_regression_from_servers_creates_manager(
 async def test_connect_server_retries_on_tool_loading_failure(
     mock_server, mock_io, mock_tools, mock_session
 ):
-    """TC-028: connect_server retries when connect() succeeds but load_mcp_tools() fails.
+    """TC-028: connect_server retries when connect() succeeds but list_tools() fails.
 
     In this scenario:
     - server.connect() succeeds (returns session)
-    - load_mcp_tools() fails on first call, succeeds on second
-    - The retry loop catches the exception from load_mcp_tools and retries
+    - list_tools() fails on first call, succeeds on second
+    - The retry loop catches the exception from list_tools and retries
     - server.connect() is called again on retry (it returns the same session)
-    - load_mcp_tools() is called twice total
+    - list_tools() is called twice total
     """
     manager = McpServerManager(servers=[mock_server], io=mock_io)
     mock_server.connect.return_value = mock_session
+    mock_session.list_tools.side_effect = [
+        Exception("Tool load failed"),
+        SimpleNamespace(tools=_mcp_tools_from_openai_schemas(mock_tools)),
+    ]
 
-    with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-        mock_load_tools.side_effect = [Exception("Tool load failed"), mock_tools]
-        with patch("asyncio.sleep") as mock_sleep:
-            result = await manager.connect_server("test-server")
+    with patch("asyncio.sleep") as mock_sleep:
+        result = await manager.connect_server("test-server")
 
     assert result is True
-    # connect() is called for each attempt (2 attempts: first fails at load_mcp_tools, second succeeds)
+    # connect() is called for each attempt (2 attempts: first fails at list_tools, second succeeds)
     assert mock_server.connect.call_count == 2
-    # load_mcp_tools() called twice: first fails, second succeeds
-    assert mock_load_tools.call_count == 2
+    # list_tools() called twice: first fails, second succeeds
+    assert mock_session.list_tools.call_count == 2
     # sleep called once (between attempt 1 and 2)
     assert mock_sleep.call_count == 1
     assert mock_sleep.call_args[0][0] == 1.0

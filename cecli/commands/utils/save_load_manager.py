@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import List
 
+from cecli.decoding import safe_open
+
 
 class SaveLoadManager:
     """Manager for saving and loading command files."""
@@ -35,7 +37,7 @@ class SaveLoadManager:
             # Ensure parent directory exists
             os.makedirs(filepath.parent, exist_ok=True)
 
-            with open(filepath, "w", encoding=self.io.encoding) as f:
+            with safe_open(filepath, "w") as f:
                 f.write("/drop\n")
                 # Write commands to add editable files
                 for fname in sorted(self.coder.abs_fnames):
@@ -68,7 +70,7 @@ class SaveLoadManager:
         filepath = self.resolve_filepath(filename)
 
         try:
-            with open(filepath, "r", encoding=self.io.encoding, errors="replace") as f:
+            with safe_open(filepath, "r", errors="replace") as f:
                 commands = f.readlines()
             return [
                 cmd.strip() for cmd in commands if cmd.strip() and not cmd.strip().startswith("#")

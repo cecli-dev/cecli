@@ -203,7 +203,7 @@ class Scraper:
         return content, mime_type
 
     def scrape_with_httpx(self, url):
-        import httpx
+        from cecli.http import httpx
 
         headers = {"User-Agent": f"Mozilla./5.0 ({coder_user_agent})"}
         try:

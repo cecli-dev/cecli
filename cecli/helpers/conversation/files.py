@@ -116,9 +116,7 @@ class ConversationFiles:
                 try:
                     content = coder.io.read_text(abs_fname, silent=True)
                     if coder.hashlines:
-                        content, json_str = hashline_formatted(
-                            content, file_name=abs_fname, partial=False, expanded=False
-                        )
+                        content, json_str = hashline_formatted(content, file_name=abs_fname)
                         self._file_json_contents[abs_fname] = json_str
                 except Exception:
                     content = ""  # Empty content for unreadable files
@@ -236,9 +234,7 @@ class ConversationFiles:
         try:
             current_content = coder.io.read_text(abs_fname, silent=True)
             if coder.hashlines:
-                current_content, _ = hashline_formatted(
-                    current_content, file_name=abs_fname, partial=False, expanded=False
-                )
+                current_content, _ = hashline_formatted(current_content, file_name=abs_fname)
         except Exception:
             return None
 
@@ -607,12 +603,30 @@ class ConversationFiles:
             ):
                 continue
 
-            _, json_str = hashline_formatted(
-                range_content,
+            # Hash the full content first so that adjacent-line hashes
+            # are computed with proper surrounding context from the complete
+            # file, then extract only the range's lines. This ensures content
+            # IDs are consistent with other tools (e.g., ReadFile) that hash
+            # the full file content.
+            full_prefixed, _ = hashline_formatted(
+                content,
                 file_name=abs_fname,
-                partial=True,
-                expanded=False,
-                start_line=start_line_adj,
+                total_lines=len(content_lines),
+                start_line=1,
+            )
+            prefixed_lines = full_prefixed.splitlines()
+            range_prefixed_lines = prefixed_lines[start_line_adj - 1 : end_line_adj]
+            range_prefixed_content = "\n".join(range_prefixed_lines)
+
+            json_str = json.dumps(
+                {
+                    "file_name": abs_fname,
+                    "start_line": start_line_adj,
+                    "end_line": end_line_adj,
+                    "total_lines": len(content_lines),
+                    "prefixed_contents": range_prefixed_content,
+                },
+                ensure_ascii=False,
             )
             results.append(json.loads(json_str))
 

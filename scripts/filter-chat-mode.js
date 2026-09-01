@@ -12,6 +12,9 @@
  * - An object where values are objects with a "mode" field
  * 
  * It will filter to keep only entries where "mode" === "chat"
+ * 
+ * After filtering, any models from cecli/resources/model-metadata.ext.json that
+ * are not already present in the source data are merged into the output.
  */
 
 const fs = require('fs');
@@ -110,7 +113,10 @@ function main() {
             ? sortObjectKeysTopLevel(filteredData) 
             : filteredData;
         
-        const outputJson = JSON.stringify(sortedData, null, 2);
+        // Merge in extension models not already present in the source data
+        const mergedData = mergeExtModels(sortedData, inputData);
+        
+        const outputJson = JSON.stringify(mergedData, null, 2);
         
         if (outputPath) {
             fs.writeFileSync(outputPath, outputJson, 'utf8');
@@ -130,6 +136,41 @@ function main() {
 
 if (require.main === module) {
     main();
+}
+
+/**
+ * Merge extension models into the filtered output.
+ * Adds every model from cecli/resources/model-metadata.ext.json whose key is not
+ * already present in the source data (the original input).
+ * @param {object} data - Filtered result object to merge into
+ * @param {object} sourceData - Original input data used as the reference for existing models
+ * @returns {object} - Merged result
+ */
+function mergeExtModels(data, sourceData) {
+    const extPath = path.resolve(__dirname, '..', 'cecli', 'resources', 'model-metadata.ext.json');
+    let extData;
+
+    try {
+        extData = JSON.parse(fs.readFileSync(extPath, 'utf8'));
+    } catch (error) {
+        throw new Error(`Failed to read extension models from ${extPath}: ${error.message}`);
+    }
+
+    if (typeof data !== 'object' || Array.isArray(data) ||
+        typeof sourceData !== 'object' || Array.isArray(sourceData) ||
+        typeof extData !== 'object' || Array.isArray(extData)) {
+        return data;
+    }
+
+    const merged = { ...data };
+
+    for (const [key, value] of Object.entries(extData)) {
+        if (!Object.prototype.hasOwnProperty.call(sourceData, key)) {
+            merged[key] = value;
+        }
+    }
+
+    return merged;
 }
 
 module.exports = { filterChatMode };

@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional
 import importlib_resources
 import yaml
 
+from cecli.decoding import safe_open
+
 
 class PromptObject:
     def __init__(self, prompts_dict):
@@ -48,7 +50,7 @@ class PromptRegistry:
 
                 file_path = os.path.abspath(file_name)
                 if os.path.exists(file_path):
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with safe_open(file_path, "r") as f:
                         file_content = f.read()
                     return yaml.safe_load(file_content) or {}
                 else:

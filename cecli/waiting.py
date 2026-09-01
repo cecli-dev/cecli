@@ -4,13 +4,13 @@
 A simple wrapper for rich.status to provide a spinner.
 """
 
-from rich.console import Console
-
 
 class Spinner:
     """A wrapper around rich.status.Status for displaying a spinner."""
 
     def __init__(self, text: str = "Waiting..."):
+        from rich.console import Console
+
         self.text = text
         self.console = Console()
         self.status = None

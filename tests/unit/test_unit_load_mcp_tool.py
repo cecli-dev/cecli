@@ -63,6 +63,7 @@ async def test_load_mcp_tool_success(mock_mcp_manager):
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = mock_mcp_manager
+    coder.registered_servers = {"included": set(), "excluded": set()}
 
     # Mock interruptible to return (await coro, False)
     async def mock_interruptible(coro, event):
@@ -74,7 +75,7 @@ async def test_load_mcp_tool_success(mock_mcp_manager):
     coder.registered_servers = {"included": set(), "excluded": set()}
     result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
 
-    assert "Loaded server: test-server" in result
+    assert "Loaded server: test-server" in str(result)
     mock_mcp_manager.connect_server.assert_awaited_once_with("test-server")
 
 
@@ -85,10 +86,11 @@ async def test_load_mcp_tool_non_existent(mock_mcp_manager):
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = mock_mcp_manager
+    coder.registered_servers = {"included": set(), "excluded": set()}
 
     result = await ResourceManagerTool.execute(coder, load_mcp=["non-existent-server"])
 
-    assert "MCP server non-existent-server does not exist." in result
+    assert "MCP server non-existent-server does not exist." in str(result)
     mock_mcp_manager.connect_server.assert_not_awaited()
 
 
@@ -98,22 +100,25 @@ async def test_load_mcp_tool_already_loaded(mock_mcp_manager):
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = mock_mcp_manager
+    coder.registered_servers = {"included": set(), "excluded": set()}
     # Pre-populate connected_servers
     server = mock_mcp_manager.get_server("test-server")
     coder.mcp_manager.connected_servers = {"test-server": server}
 
     result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
 
-    assert "Server already loaded: test-server" in result
+    assert "Server already loaded: test-server" in str(result)
     mock_mcp_manager.connect_server.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_load_mcp_tool_wildcard_and_duplicate_fix(mock_mcp_manager):
     """Test loading with wildcard and duplicate fix."""
+
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = mock_mcp_manager
+    coder.registered_servers = {"included": set(), "excluded": set()}
 
     # Mock interruptible to return (await coro, False)
     async def mock_interruptible(coro, event):
@@ -131,7 +136,7 @@ async def test_load_mcp_tool_wildcard_and_duplicate_fix(mock_mcp_manager):
 
     # Check results
     # Wildcard expansion skips already-connected servers; no "already loaded" message is produced
-    assert "Loaded server: server2" in result
+    assert "Loaded server: server2" in str(result)
     # Non-enabled servers are filtered out silently by wildcard expansion
 
     # Verify connect_server was called only once for server2

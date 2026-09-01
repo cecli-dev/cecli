@@ -5,6 +5,7 @@ from cecli.helpers.threading import ThreadSafeEvent
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,15 @@ class Tool(BaseTool):
                             "and returned to the parent agent."
                         ),
                     },
+                    "wait": {
+                        "type": "integer",
+                        "description": (
+                            "Optional time in seconds (between 15 and 120) to wait "
+                            "before returning. When provided, the tool simply sleeps "
+                            "for the specified duration and returns, "
+                            "allowing for other tasks to proceed."
+                        ),
+                    },
                 },
                 "required": [],
             },
@@ -49,7 +59,49 @@ class Tool(BaseTool):
 
         cls.clear_invocation_cache()
 
+        response = ToolResponse(cls.NORM_NAME)
+
         if coder:
+            wait = kwargs.get("wait")
+            if wait is not None and wait != "":
+                if isinstance(wait, bool):
+                    wait_seconds = 30
+                else:
+                    try:
+                        wait_seconds = int(wait)
+                    except (ValueError, TypeError):
+                        wait_seconds = 30
+
+                wait_seconds = max(15, min(120, wait_seconds))
+
+                # Plain wait — sleep for the requested duration without checking
+                # sub-agents or marking the task as finished.
+                interrupt_event = coder.interrupt_event
+                if interrupt_event is None:
+                    interrupt_event = ThreadSafeEvent()
+
+                interrupt_task = asyncio.create_task(interrupt_event.wait())
+                sleep_task = asyncio.create_task(asyncio.sleep(wait_seconds))
+                done, pending = await asyncio.wait(
+                    {sleep_task, interrupt_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                if interrupt_task in done:
+                    response.append_result(f"Wait interrupted after {wait_seconds} seconds.")
+                else:
+                    response.append_result(f"Waited for {wait_seconds} seconds.")
+
+                return response
+
+            waited_for_sub_agents = False
             # Check for active child sub-agents and await their tasks before finishing
             try:
                 agent_service = AgentService.get_instance(coder)
@@ -57,13 +109,16 @@ class Tool(BaseTool):
                 active_tasks = [
                     info.generate_task
                     for info in children
-                    if info.generate_task is not None and not info.generate_task.done()
+                    if not info.independent
+                    and info.generate_task is not None
+                    and not info.generate_task.done()
                 ]
 
                 if active_tasks:
                     coder.io.tool_warning(
                         f"Waiting for {len(active_tasks)} sub-agent(s) to complete before yielding..."
                     )
+                    waited_for_sub_agents = True
 
                     # Single asyncio.wait that includes both the sub-agent tasks and
                     # the interrupt event, avoiding nested asyncio.wait() calls.
@@ -88,10 +143,11 @@ class Tool(BaseTool):
                                     await t
                                 except (asyncio.CancelledError, Exception):
                                     pass
-                            return (
+                            response.append_result(
                                 "Yield interrupted while waiting for sub-agents. "
                                 "Sub-agent outputs above may be incomplete."
                             )
+                            return response
 
                         # Retrieve exceptions from completed sub-agent tasks so they
                         # are not silently lost.
@@ -155,10 +211,11 @@ class Tool(BaseTool):
                     await agent_service.reap_all_finished_agents(parent=coder)
                     # Don't mark as finished — the coder should review sub-agent
                     # outputs and decide how to proceed
-                    return (
+                    response.append_result(
                         "Sub-agents have finished. Please examine their output above "
                         "in order to decide how you will proceed."
                     )
+                    return response
             except Exception as e:
                 logger.warning("Error awaiting child sub-agents before yield: %s", e)
 
@@ -173,6 +230,21 @@ class Tool(BaseTool):
 
             # If this is a sub-agent, capture the summary for the parent
             summary = kwargs.get("summary", None)
+
+            # Fire memorizer with yield summary (skip if already a memorizer)
+            if (
+                not waited_for_sub_agents
+                and getattr(coder, "auto_memory", False)
+                and summary
+                and coder.turn_count >= 5
+            ):
+                agent_service = AgentService.get_instance(coder)
+                if agent_service.get_agent_name(coder) != "memorizer":
+                    from cecli.helpers.memory.utils import invoke_memorizer
+
+                    asyncio.create_task(
+                        invoke_memorizer(coder, additional_context=f"Yield summary: {summary}")
+                    )
             parent_uuid = coder.parent_uuid
             if parent_uuid:
                 try:
@@ -190,11 +262,14 @@ class Tool(BaseTool):
                 coder.files_edited_by_tools = set()
 
             if summary:
-                return f"Yielded. Summary: {summary}"
-            return "Yielded."
+                response.append_result(f"Yielded. Summary: {summary}")
+                return response
+            response.append_result("Yielded.")
+            return response
 
         # coder.io.tool_Error("Error: Could not mark agent task as finished")
-        return "Error: Could not yield control"
+        response.append_error("Could not yield control")
+        return response
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
@@ -210,6 +285,13 @@ class Tool(BaseTool):
         except ToolError:
             coder.io.tool_error("Invalid Tool JSON")
             return
+
+        wait = params.get("wait")
+        if wait:
+            coder.io.tool_output("")
+            coder.io.tool_output(f"{color_start}Wait:{color_end}")
+            coder.io.tool_output(f"{wait} seconds")
+            coder.io.tool_output("")
 
         summary = params.get("summary")
         if summary:

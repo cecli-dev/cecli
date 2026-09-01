@@ -35,7 +35,7 @@ class TestSkills:
         assert manager.directory_paths == [Path.home() / ".cecli" / "skills"]
         assert manager.include_list is None
         assert manager.exclude_list == set()
-        assert manager.git_root is None
+        assert manager.root is None
         # Test _loaded_skills is initialized as empty set
         assert manager._loaded_skills == set()
 
@@ -51,14 +51,24 @@ class TestSkills:
             ["/tmp/test"],
             include_list=["skill1", "skill2"],
             exclude_list=["skill3"],
-            git_root="/tmp",
+            root="/tmp",
         )
-        # "/tmp/test" + default home dir = 2 paths
-        assert len(manager.directory_paths) == 2
+        # "/tmp/test" + local default + default home dir = 3 paths
+        assert len(manager.directory_paths) == 3
+        assert Path("/tmp/test").resolve() in manager.directory_paths
+        assert (Path("/tmp") / ".cecli" / "skills").resolve() in manager.directory_paths
         assert manager.include_list == {"skill1", "skill2"}
         assert manager.exclude_list == {"skill3"}
-        assert manager.git_root == Path("/tmp").expanduser().resolve()
+        assert manager.root == Path("/tmp").expanduser().resolve()
         assert manager._loaded_skills == set()
+
+    def test_local_default_skills_dir(self):
+        """Local default {root}/.cecli/skills is included alongside global default."""
+        manager = SkillsManager([], root="/tmp/local-root")
+
+        paths = [str(p) for p in manager.directory_paths]
+        assert (Path("/tmp/local-root") / ".cecli" / "skills").resolve() in manager.directory_paths
+        assert str(Path.home() / ".cecli" / "skills") in paths
 
     def test_create_and_parse_skill(self):
         """Test creating a skill and parsing its metadata."""
@@ -164,15 +174,15 @@ Test content.
         assert len(paths) == 1
         assert paths[0] == Path(self.temp_dir).resolve()
 
-        # Test with relative path and git root
-        paths = SkillsManager.resolve_skill_directories(["./test-dir"], git_root=self.temp_dir)
+        # Test with relative path and root
+        paths = SkillsManager.resolve_skill_directories(["./test-dir"], root=self.temp_dir)
         # Should not resolve because directory doesn't exist
         assert len(paths) == 0
 
         # Create the directory and test again
         test_dir = Path(self.temp_dir) / "test-dir"
         test_dir.mkdir()
-        paths = SkillsManager.resolve_skill_directories(["./test-dir"], git_root=self.temp_dir)
+        paths = SkillsManager.resolve_skill_directories(["./test-dir"], root=self.temp_dir)
         assert len(paths) == 1
         assert paths[0] == test_dir.resolve()
 

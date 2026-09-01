@@ -15,7 +15,9 @@ class CopyCommand(BaseCommand):
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         # Get all messages from ConversationManager
-        all_messages = ConversationService.get_manager(coder).get_messages_dict()
+        manager = ConversationService.get_manager(coder)
+        manager.flush_queue()
+        all_messages = manager.get_messages_dict()
         assistant_messages = [msg for msg in reversed(all_messages) if msg["role"] == "assistant"]
 
         if not assistant_messages:

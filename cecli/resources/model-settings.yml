@@ -659,6 +659,240 @@
     max_tokens: 65536
   caches_by_default: true
 
+- name: opencode-go/deepseek-v4-flash
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  streaming: true
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/deepseek-v4-pro
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/glm-5
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/glm-5.1
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/glm-5.2
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/glm-5.3
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/gpt-5.6-luna
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/grok-4.5
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/hy3
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/hy3-preview
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/kimi-k2.5
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/kimi-k2.6
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/kimi-k2.7-code
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/kimi-k3
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/mimo-v2-omni
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/mimo-v2-pro
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/mimo-v2.5
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/mimo-v2.5-pro
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/minimax-m2.5
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/minimax-m2.7
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/minimax-m3
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/qwen3.5-plus
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/qwen3.6-plus
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/qwen3.7-max
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/qwen3.7-plus
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
+- name: opencode-go/qwen3.8-max
+  edit_format: diff
+  use_repo_map: true
+  use_temperature: false
+  editor_edit_format: editor-diff
+  accepts_settings: ["reasoning_effort"]
+  extra_params:
+    temperature: 0.0
+
 - name: openrouter/openai/gpt-4o
   edit_format: diff
   weak_model_name: openrouter/openai/gpt-4o-mini

@@ -1,26 +1,22 @@
 ---
 parent: Usage
 nav_order: 60
-description: Using the code, architect, ask and help chat modes.
+description: Using the code, architect, ask, help and agent modes.
 ---
 
-# Chat modes
+# Chat Modes
 
-cecli has a few different chat modes:
+Cecli has a few different chat modes:
 
 - `code` - cecli will make changes to your code to satisfy your requests.
 - `ask` - cecli will discuss your code and answer questions about it, but never make changes.
 - `architect` - Like code mode, cecli will change your files. An architect model will propose changes and an editor model will translate that proposal into specific file edits.
 - `help` - cecli will answer questions about cecli: usage, configuration, troubleshooting, etc.
+- `agent` - cecli will autonomously explore and modify your codebase using local tools, discovering and managing the relevant files itself.
 
-By default, cecli starts in "code" mode. As you are talking, you can
-send individual messages in a specific mode using 
-`/code`, `/architect`, `/ask`, and `/help` commands:
-Using these `/`-commands applies just to that particular message.
-Your next message will go back to the active mode (usually "code" mode by default).
+By default, cecli starts in "code" mode. As you are talking, you can send individual messages in a specific mode using `/code`, `/architect`, `/ask`, `/help`, and `/agent` commands: Using these `/`-commands applies just to that particular message. Your next message will go back to the active mode (usually "code" mode by default).
 
-You can switch the active mode in a sticky way
-with the `/chat-mode <mode>` command:
+You can switch the active mode in a sticky way with the `/chat-mode <mode>` command:
 
 ```
 /chat-mode code
@@ -29,16 +25,18 @@ with the `/chat-mode <mode>` command:
 /chat-mode help
 ```
 
+Note: agent mode is not a `/chat-mode` value — it is an operational mode you enter with `/agent` (or launch with `--agent`). See [Agent mode](#agent-mode) below.
+
 Or you can switch between coding modes using these commands without arguments:
 
 ```
 /code
 /architect
 /ask
+/agent
 ```
 
-Or you can launch cecli in one of the modes with the `--chat-mode <mode>` switch.
-There is also a special shortcut `--architect` to launch in `--chat-mode architect`.
+Or you can launch cecli in one of the modes with the `--chat-mode <mode>` switch. There is also a special shortcut `--architect` to launch in `--chat-mode architect`, and `--agent` to launch directly in agent mode.
 
 The cecli prompt will indicate the active mode:
 
@@ -46,30 +44,42 @@ The cecli prompt will indicate the active mode:
 > This is code mode.
 ask> This is ask mode.
 architect> This is architect mode.
+agent> This is agent mode.
 ```
 
+## Agent mode
+
+Agent mode is cecli's autonomous, tool-based operational mode. Instead of relying on traditional edit formats, the LLM works through a continuous loop of tool calls — discovering relevant files, analyzing them, making edits, and processing the results — until the task is complete or the iteration limit is reached.
+
+You can activate agent mode in several ways:
+
+- In the chat with `/agent`. This switches to agent mode temporarily to autonomously discover and manage relevant files, then returns to your original mode. For example: `/agent Fix this bug` or `/agent Add a new feature`.
+- On the command line with `--agent` (`cecli ... --agent`).
+- In your configuration files with `agent: true`.
+
+### What agent mode provides
+
+- **Autonomous file management**: cecli discovers and manages relevant files itself, rather than relying only on the files you explicitly add.
+- **Enhanced context management**: entering agent mode enables context management for large files, and you can tune it with `/context-management` and `/context-blocks`.
+- **Skills**: loading, including, excluding, and removing skills is only available in agent mode (`/load-skill`, `/include-skill`, `/exclude-skill`, `/remove-skill`).
+- **Sub-agents**: delegate sub-tasks to specialized sub-agents for parallel or focused work.
+- **Dedicated agent model**: choose a separate model for agent mode with `--agent-model` or `/agent-model`.
+
+Agent mode works well for open-ended requests such as "fix this bug" or "add a new feature", where the relevant files aren't obvious up front. See [Agent Mode](../config/agent-mode.html) for full configuration details, including the tool registry, context management, and orchestration settings.
 
 ## Ask/code workflow
 
 A recommended workflow is to bounce back and forth between `/ask` and `/code` modes.
 
-Use ask mode to discuss what you want to do, get suggestions or options from cecli
-and provide feedback on the approach.
-Once cecli understands the mission, switch to code mode to have it start editing
-your files.
-All the conversation and decision making from ask mode will
-help ensure that the correct code changes are performed.
+Use ask mode to discuss what you want to do, get suggestions or options from cecli and provide feedback on the approach. Once cecli understands the mission, switch to code mode to have it start editing your files. All the conversation and decision making from ask mode will help ensure that the correct code changes are performed.
 
-You can be very terse when you finally switch from ask to code mode.
-Saying something as simple as "go ahead" in code mode will
-have cecli execute on the plan you've been discussing.
+You can be very terse when you finally switch from ask to code mode. Saying something as simple as "go ahead" in code mode will have cecli execute on the plan you've been discussing.
 
-Here's an example with two ask mode messages to agree on the plan, 
-followed by two terse code mode messages to edit the code.
+Here's an example with two ask mode messages to agree on the plan, followed by two terse code mode messages to edit the code.
 
 ````
 ─────────────────────────────────────────────────────────────────────────────────────
-cecli v0.79.0
+cecli v1.0.0
 Model: gemini/gemini-2.5-pro-exp-03-25 with diff-fenced edit format
 
 > /ask What's the best thing to print if we're making a quick little demo program?
@@ -105,58 +115,32 @@ hello.py
 
 ````
 
-You can think of this ask/code workflow as a more fluid version of
-architect mode, but working just with one model the whole time.
+You can think of this ask/code workflow as a more fluid version of architect mode, but working just with one model the whole time.
 
 ## Architect mode and the editor model
 
 When you are in architect mode, cecli sends your requests to two models:
 
 1. First, it sends your request to the main model which will act as an architect
-to propose how to solve your coding request.
-The main model is configured with `/model` or `--model`.
+to propose how to solve your coding request. The main model is configured with `/model` or `--model`.
 
 2. cecli then sends another request to an "editor model",
-asking it to turn the architect's proposal into specific file editing instructions.
-cecli has built in defaults to select an editor model based on your main model.
-Or, you can choose a specific editor model with `--editor-model <model>`.
+asking it to turn the architect's proposal into specific file editing instructions. cecli has built in defaults to select an editor model based on your main model. Or, you can choose a specific editor model with `--editor-model <model>`.
 
-Certain LLMs aren't able to propose coding solutions *and*
-specify detailed file edits all in one go.
-For these models, architect mode can produce better results than code mode
-by pairing them
-with an editor model that is responsible for generating the file editing instructions.
-But this uses two LLM requests,
-which can take longer and increase costs.
+Certain LLMs aren't able to propose coding solutions *and* specify detailed file edits all in one go. For these models, architect mode can produce better results than code mode by pairing them with an editor model that is responsible for generating the file editing instructions. But this uses two LLM requests, which can take longer and increase costs.
 
-Architect mode is especially useful with OpenAI's o1 models, which are strong at
-reasoning but less capable at editing files.
-Pairing an o1 architect with an editor model like GPT-4o or Sonnet will
-give the best results.
+Architect mode is especially useful with OpenAI's o1 models, which are strong at reasoning but less capable at editing files. Pairing an o1 architect with an editor model like GPT-4o or Sonnet will give the best results.
 
-But architect mode can also be helpful when you use the same model
-as both the architect and the editor.
-Allowing the model two requests to solve the problem and edit the files
-can sometimes provide better results.
+But architect mode can also be helpful when you use the same model as both the architect and the editor. Allowing the model two requests to solve the problem and edit the files can sometimes provide better results.
 
-The editor model uses one of cecli's edit formats to let the LLM
-edit source files.
-cecli will pick a suitable edit format by default,
-but you can customize it with `--editor-edit-format <format>`.
-The 
-["editor-diff" and "editor-whole" edit formats](/docs/more/edit-formats.html#editor-diff-and-editor-whole)
-are the recommended edit formats when using architect mode.
-See this article on 
-[cecli's architect/editor mode](/2024/09/26/architect.html)
-for more details.
+The editor model uses one of cecli's edit formats to let the LLM edit source files. cecli will pick a suitable edit format by default, but you can customize it with `--editor-edit-format <format>`. The ["editor-diff" and "editor-whole" edit formats](../more/edit-formats.html#edit-formats-editor-diff-and-editor-whole) are the recommended edit formats when using architect mode. See this article on [cecli's architect/editor mode](https://cecli.dev/2024/09/26/architect.html) for more details.
 
 
 ## Examples
 
-<div class="chat-transcript" markdown="1">
 
 
-> cecli v0.47.1-dev  
+> cecli v1.0.0 
 > Models: claude-3-5-sonnet-20240620 with diff edit format  
 > Git repo: .git with 298 files  
 > Repo-map: using 1024 tokens  
@@ -168,8 +152,7 @@ This is collection of python functions that compute various math functions.
 
 #### /help How do I use cecli with ollama?
 
-Run `cecli --model ollama/<ollama-model>`.
-See these docs for more info: https://cecli.dev/docs/llms/ollama.html
+Run `cecli --model ollama/<ollama-model>`. See these docs for more info: https://cecli.dev/docs/llms/ollama/
 
 #### /code Add a function to calculate the factorial of a number
 
@@ -190,10 +173,7 @@ This function uses recursion to calculate the factorial. It's been added to your
 
 #### /architect Can we make this simpler?
 
-Yes, you could replace the `factorial()` function with a call to the `math.factorial()`
-builtin. 
-This way you don't have to maintain a custom factorial implementation,
-and the builtin function is well optimized.
+Yes, you could replace the `factorial()` function with a call to the `math.factorial()` builtin. This way you don't have to maintain a custom factorial implementation, and the builtin function is well optimized.
 
 ```python
 <<<<<<< SEARCH
@@ -206,6 +186,3 @@ def factorial(n):
 from math import factorial
 >>>>>>> REPLACE
 ```
-
-</div>
-

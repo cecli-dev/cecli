@@ -6,7 +6,7 @@ description: Session management utilities to save and load work across multiple 
 
 # Session Management
 
-cecli provides session management commands that allow you to save, load, and manage your chat sessions. This is particularly useful for:
+Cecli provides session management commands that allow you to save, load, and manage your chat sessions. This is particularly useful for:
 
 - Continuing work on complex projects across multiple sessions
 - Recreating specific development environments
@@ -18,7 +18,7 @@ cecli provides session management commands that allow you to save, load, and man
 Save the current chat session to a named file in `.cecli/sessions/`.
 
 ### Auto-Save and Auto-Load
-cecli can automatically save and load sessions using command line options:
+Cecli can automatically save and load sessions using command line options:
 
 **Auto-save:**
 ```bash

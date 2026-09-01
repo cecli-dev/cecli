@@ -26,4 +26,4 @@ def test_gitdiff_head_argument_includes_working_tree_changes():
 
         result = git_diff.Tool.execute(coder, branch="HEAD")
 
-        assert "updated" in result
+        assert "updated" in str(result)

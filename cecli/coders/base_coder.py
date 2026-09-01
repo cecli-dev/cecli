@@ -19,6 +19,8 @@ import weakref
 from collections import defaultdict
 from datetime import date, datetime
 
+import xxhash
+
 # Optional dependency: used to convert locale codes (eg ``en_US``)
 # into human-readable language names (eg ``English``).
 try:
@@ -34,11 +36,14 @@ from uuid import uuid4 as generate_unique_id
 import cecli.prompts.utils.system as prompts
 from cecli import __version__, models, urls, utils
 from cecli.commands import Commands, SwitchCoderSignal
+from cecli.decoding import safe_open
 from cecli.exceptions import LiteLLMExceptions
-from cecli.helpers import command_parser, coroutines, nested, responses
+from cecli.helpers import command_parser, command_queue, coroutines, nested, responses
 from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.file_system import FileSystemService
 from cecli.helpers.io_proxy import IOProxy
+from cecli.helpers.loop_detect import LoopDetectedError, LoopDetector
+from cecli.helpers.memory_control import trim_memory
 from cecli.helpers.observations.service import ObservationService
 from cecli.helpers.profiler import TokenProfiler
 from cecli.helpers.threading import ThreadSafeEvent
@@ -55,7 +60,7 @@ from cecli.reasoning_tags import (
     remove_reasoning_content,
     replace_reasoning_tags,
 )
-from cecli.repo import ANY_GIT_ERROR, GitRepo
+from cecli.repo import ANY_GIT_ERROR, GitRepoProxy
 from cecli.repomap import RepoMap
 from cecli.report import update_error_prefix
 from cecli.run_cmd import run_cmd_async
@@ -188,6 +193,8 @@ class Coder(metaclass=UsageMeta):
     abs_read_only_stubs_fnames = None
     abs_rules_fnames = None
     repo = None
+    root = "."
+    primary_root = None
     last_coder_commit_hash = None
     coder_edited_files = None
     last_asked_for_commit_time = 0
@@ -200,6 +207,7 @@ class Coder(metaclass=UsageMeta):
     max_reflections = 3
     num_tool_calls = 0
     max_tool_calls = 25
+    turn_count = 0
     edit_format = None
     file_diffs = True
     hashlines = False
@@ -207,6 +215,8 @@ class Coder(metaclass=UsageMeta):
     temperature = None
     auto_lint = True
     auto_test = False
+    auto_memory = True
+    _last_memory_invoke_time = 0.0
     test_cmd = None
     lint_outcome = None
     test_outcome = None
@@ -242,6 +252,9 @@ class Coder(metaclass=UsageMeta):
     model_kwargs = {}
     cost_multiplier = 1
     stop_on_empty = True
+    error_code = None
+    _output_loop_detected = False
+    _output_loop_message = ""
 
     # Task coordination state variables
     input_running = False
@@ -312,9 +325,11 @@ class Coder(metaclass=UsageMeta):
                 mcp_manager=from_coder.mcp_manager,
                 registered_tools=copy.deepcopy(from_coder.registered_tools),
                 registered_servers=copy.deepcopy(from_coder.registered_servers),
+                auto_memory=from_coder.auto_memory,
                 uuid=from_coder.uuid,
                 parent_uuid=from_coder.parent_uuid,
                 repo=from_coder.repo,
+                primary_root=from_coder.primary_root,
                 summarizer=from_coder.summarizer,
             )
             use_kwargs.update(update)  # override to complete the switch
@@ -341,6 +356,23 @@ class Coder(metaclass=UsageMeta):
                 # Preserve TUI ref in all child coders
                 if from_coder.tui:
                     res.tui = from_coder.tui
+
+                # Sub-agents get a dedicated, independent MCP manager so they
+                # can rebuild a custom tool list (their own LocalServer tools /
+                # filters) and be disconnected independently from the parent.
+                # The parent's server configs are copied into a fresh manager
+                # whose connections are created on this loop; the Local server
+                # is left to initialize_mcp_tools() so it is recreated from the
+                # sub-agent's filters.
+                if (
+                    from_coder.mcp_manager
+                    and res.uuid
+                    and res.parent_uuid
+                    and res.parent_uuid != res.uuid
+                ):
+                    res.mcp_manager = await from_coder.mcp_manager.spawn_child(
+                        io=IOProxy.unwrap(res.io)
+                    )
 
                 if res.mcp_manager:
                     # When switching to a non-agent coder, disconnect the "Local" MCP server
@@ -390,6 +422,7 @@ class Coder(metaclass=UsageMeta):
         done_messages=None,
         auto_lint=True,
         auto_test=False,
+        auto_memory=True,
         lint_cmds=None,
         test_cmd=None,
         coder_commit_hashes=None,
@@ -410,6 +443,7 @@ class Coder(metaclass=UsageMeta):
         auto_accept_architect=True,
         mcp_manager=None,
         enable_context_compaction=False,
+        max_compaction_retries=3,
         context_compaction_max_tokens=None,
         context_compaction_summary_tokens=8192,
         map_cache_dir=".",
@@ -420,6 +454,9 @@ class Coder(metaclass=UsageMeta):
         registered_servers=None,
         uuid: str = "",
         parent_uuid: str = "",
+        root=None,
+        primary_root=None,
+        init_metadata={},
     ):
         from cecli.helpers.agents.service import AgentService
 
@@ -437,14 +474,14 @@ class Coder(metaclass=UsageMeta):
             self._inherited_tools = True
 
         self.interrupt_event = ThreadSafeEvent()
-        self.uuid = str(generate_unique_id())
+        self.uuid = str(generate_unique_id()).split("-")[0]
         self.reflected_message = None
 
         if uuid:
-            self.uuid = str(uuid)
+            self.uuid = str(uuid).split("-")[0]
 
         if parent_uuid:
-            self.parent_uuid = str(parent_uuid)
+            self.parent_uuid = str(parent_uuid).split("-")[0]
 
         self.map_cache_dir = map_cache_dir
 
@@ -456,8 +493,12 @@ class Coder(metaclass=UsageMeta):
         self.abs_root_path_cache = {}
 
         self.auto_copy_context = auto_copy_context
-        self.security_config = security_config or {}
         self.auto_accept_architect = auto_accept_architect
+
+        try:
+            self.security_config = json.loads(security_config)
+        except (json.JSONDecodeError, TypeError):
+            self.security_config = {}
 
         self.ignore_mentions = ignore_mentions
         if not self.ignore_mentions:
@@ -471,6 +512,9 @@ class Coder(metaclass=UsageMeta):
         self.detect_urls = detect_urls
         self.args = args
 
+        # Init metadata should not persist between initializations
+        self.init_metadata = {}
+
         self.num_cache_warming_pings = num_cache_warming_pings
         self.mcp_manager = mcp_manager
         self.enable_context_compaction = enable_context_compaction
@@ -478,7 +522,10 @@ class Coder(metaclass=UsageMeta):
         self.context_compaction_current_ratio = 0
         self.context_compaction_max_tokens = context_compaction_max_tokens
         self.context_compaction_summary_tokens = context_compaction_summary_tokens
+        self.max_compaction_retries = max_compaction_retries
+
         self.max_reflections = nested.getter(self.args, "max_reflections", 3)
+        self.max_tool_calls = nested.getter(self.args, "max_tool_calls", 25)
 
         if not fnames:
             fnames = []
@@ -564,6 +611,15 @@ class Coder(metaclass=UsageMeta):
         self.commands = commands or Commands(self.io, self, args=args)
         self.commands.coder = self
 
+        # Prompt queue for CLI-33: in-memory FIFO queue for deferred prompt
+        # processing. The queue lives on the coder so primary agents and
+        # sub-agents each have their own independent queue, managed by
+        # cecli.helpers.command_queue.
+        self.prompt_queue = []
+        self._queue_counter = 0
+        self._queue_lock = threading.Lock()
+        self._processing_queue = False
+
         self.data_cache = {
             "repo": {"last_key": "", "read_only_count": None},
         }
@@ -571,10 +627,11 @@ class Coder(metaclass=UsageMeta):
         self.repo = repo
         if use_git and self.repo is None:
             try:
-                self.repo = GitRepo(
-                    self.io,
-                    fnames,
+                self.repo = GitRepoProxy.for_root(
                     None,
+                    self.io,
+                    fnames=fnames,
+                    git_dname=None,
                     models=main_model.commit_message_models(),
                 )
             except FileNotFoundError:
@@ -612,11 +669,46 @@ class Coder(metaclass=UsageMeta):
         if not self.repo:
             self.root = utils.find_common_root(self.abs_fnames)
 
-        # Initialize the FileSystemService singleton for all agents
-        FileSystemService.get_instance(
+        # Allow sub-agent classes to override the working root (multi-project workspaces).
+        if root is not None:
+            self.root = os.path.normpath(os.path.abspath(root))
+
+        # A sub-agent may operate on a different base path than its parent. In
+        # that case its repo must be scoped to *this* root (per-base-path),
+        # rather than inheriting the parent's repo, so the coder's repo/fs match
+        # its own root.
+        if use_git and self.repo is not None and os.path.normpath(self.repo.root) != self.root:
+            try:
+                self.repo = GitRepoProxy.for_root(
+                    self.root,
+                    self.io,
+                    fnames=[self.root],
+                    git_dname=None,
+                    models=main_model.commit_message_models(),
+                )
+            except FileNotFoundError:
+                self.repo = None
+
+        # Store the root of the primary coder so skills files, custom tools, and
+        # sub-agent paths can be resolved relative to the primary workspace even
+        # when this coder operates on a different base path.
+        self.primary_root = (
+            primary_root
+            if primary_root is not None
+            else getattr(self, "primary_root", None) or self.root
+        )
+
+        # Initialize the per-base-path FileSystemService for this coder
+        self.fs = FileSystemService.for_root(
             root=self.root if hasattr(self, "root") else ".",
             repo=self.repo if hasattr(self, "repo") else None,
         )
+
+        # Auto-return the per-root service (and its git repo) when the last
+        # coder sharing this base path is destroyed.
+        _fs_key = FileSystemService._normalize_root(self.root if hasattr(self, "root") else ".")
+        FileSystemService._inc_ref(_fs_key)
+        weakref.finalize(self, FileSystemService._release, _fs_key)
 
         if read_only_fnames:
             self.abs_read_only_fnames = set()
@@ -658,11 +750,7 @@ class Coder(metaclass=UsageMeta):
         has_map_prompt = nested.getter(self, "gpt_prompts.repo_content_prefix")
 
         if use_repo_map and self.repo and has_map_prompt:
-            repo_root = (
-                self.repo.workspace_path
-                if (self.repo and getattr(self.repo, "workspace_path", None))
-                else self.root
-            )
+            repo_root = self.root
             self.repo_map = RepoMap(
                 map_tokens,
                 self.map_cache_dir,
@@ -698,6 +786,7 @@ class Coder(metaclass=UsageMeta):
         self.setup_lint_cmds(lint_cmds)
         self.lint_cmds = lint_cmds
         self.auto_test = auto_test
+        self.auto_memory = auto_memory
         self.test_cmd = test_cmd
 
         # Clean up todo list file on startup; sessions will restore it when needed
@@ -827,12 +916,12 @@ class Coder(metaclass=UsageMeta):
         settings_items.append(f"{self.edit_format} (edit format)")
 
         # Thinking tokens
-        thinking_tokens = main_model.get_thinking_tokens()
+        thinking_tokens = self.get_active_model().get_thinking_tokens()
         if thinking_tokens:
             settings_items.append(f"{thinking_tokens} think tokens")
 
         # Reasoning effort
-        reasoning_effort = main_model.get_reasoning_effort()
+        reasoning_effort = self.get_active_model().get_reasoning_effort()
         if reasoning_effort:
             settings_items.append(f"reasoning {reasoning_effort}")
 
@@ -859,7 +948,7 @@ class Coder(metaclass=UsageMeta):
             rel_repo_dir = self.repo.get_rel_repo_dir()
             num_files = len(self.repo.get_tracked_files())
             env_items.append(f"{rel_repo_dir} ({num_files:,} files)")
-            if num_files > 1000:
+            if num_files > 1000 and self.verbose:
                 env_items.append(
                     "Warning: For large repos, consider using --subtree-only and .cecli.ignore"
                 )
@@ -994,6 +1083,25 @@ class Coder(metaclass=UsageMeta):
 
     fences = all_fences
     fence = fences[0]
+
+    def resolve_relative_to_primary_root(self, path: str) -> str:
+        """Resolve a path relative to the primary coder's root (falling back to self.root).
+
+        Used for skills files, custom tools, and sub-agent paths that are defined
+        relative to the primary workspace even when this coder operates on a
+        different base path.
+        """
+        if not path:
+            return path
+        if path.startswith("/"):
+            # POSIX-style absolute path (e.g. "/tmp/foo"). os.path.isabs()
+            # returns False for "/"-rooted paths on Windows, so guard here
+            # to avoid re-anchoring them onto the primary root.
+            return path
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        base = self.primary_root or self.root
+        return os.path.normpath(os.path.join(base, path))
 
     def show_pretty(self):
         if not self.pretty:
@@ -1415,7 +1523,7 @@ class Coder(metaclass=UsageMeta):
             if not mime_type:
                 continue
 
-            with open(fname, "rb") as image_file:
+            with safe_open(fname, "rb") as image_file:
                 encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
             image_url = f"data:{mime_type};base64,{encoded_string}"
             rel_fname = self.get_rel_fname(fname)
@@ -1726,6 +1834,7 @@ class Coder(metaclass=UsageMeta):
             except (SwitchCoderSignal, SystemExit):
                 raise
             except Exception as e:
+                self.error_code = 1
                 traceback_str = traceback.format_exc()
                 update_error_prefix(traceback_str)
 
@@ -1777,6 +1886,8 @@ class Coder(metaclass=UsageMeta):
             self.run_one_completed = True
             self.compact_context_completed = True
             self.io.stop_spinner()
+            # Trim memory in the background so it doesn't stall the event loop
+            coroutines.fire_and_forget(asyncio.to_thread(trim_memory))
 
     def copy_context(self):
         if self.auto_copy_context:
@@ -1859,6 +1970,16 @@ class Coder(metaclass=UsageMeta):
         if not self.commands.is_command(user_message):
             ConversationService.get_chunks(self).flush_removals()
             self.last_user_message = user_message
+            self.error_code = None
+            self.num_tool_calls = 0
+            # Trim memory in the background so it doesn't delay the response
+            coroutines.fire_and_forget(asyncio.to_thread(trim_memory))
+            # Fire memorizer after each user request
+            # if self.auto_memory and self.edit_format not in ["subagent"]:
+            #    from cecli.helpers.memory.utils import invoke_memorizer
+            #
+            #    context = "If the user has stated any preferences, please remember them"
+            #    asyncio.create_task(invoke_memorizer(self, additional_context=context))
 
         while True:
             self.reflected_message = None
@@ -1914,6 +2035,20 @@ class Coder(metaclass=UsageMeta):
                 break
 
             await self.auto_save_session(force=True)
+
+        # Move to the next queued prompt (CLI-33) only after the current message
+        # has fully completed, so the queue drains within run_one() instead of
+        # being watched by the generation loops.
+        if self.prompt_queue and not self._processing_queue:
+            self._processing_queue = True
+            try:
+                item = command_queue.dequeue_prompt(self)
+            finally:
+                self._processing_queue = False
+
+            if item is not None:
+                self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
+                await self.run_one(item["text"], preproc)
 
         if not await HookIntegration.call_end_hooks(self):
             self.io.tool_warning("Execution stopped by end hook")
@@ -2015,6 +2150,32 @@ class Coder(metaclass=UsageMeta):
         diff_tokens = self.summarizer.count_tokens(diff_messages)
         file_context_tokens = self.summarizer.count_tokens(file_context_messages)
         all_tokens = self.summarizer.count_tokens(all_messages)
+
+        # Determine if compaction is worthwhile
+        compactable_tokens = done_tokens + cur_tokens + diff_tokens + file_context_tokens
+
+        # Condition 1: Is min size
+        is_min_size = all_tokens >= self.context_compaction_max_tokens
+
+        # Condition 2: Percentage check (is chat history a significant part of the context?)
+        is_worth_by_percentage = all_tokens > 0 and (compactable_tokens / all_tokens) >= 0.20
+
+        # Condition 3: Absolute savings check (would compacting save enough tokens to fit?)
+        tokens_over_limit = all_tokens - (self.context_compaction_max_tokens or all_tokens)
+        potential_savings = compactable_tokens * 0.90
+        is_worth_by_absolute_savings = (
+            tokens_over_limit > 0 and potential_savings >= tokens_over_limit
+        )
+
+        if not force:
+            if not is_min_size:
+                return
+
+            if not (is_worth_by_percentage or is_worth_by_absolute_savings):
+                self.io.tool_output(
+                    "Skipping compaction: Not enough chat history to make a difference. Use /drop to remove files."
+                )
+                return
 
         message_tokens = done_tokens + cur_tokens
         file_tokens = diff_tokens + file_context_tokens
@@ -2126,14 +2287,17 @@ class Coder(metaclass=UsageMeta):
                     for msg in reversed(latest_messages):
                         manager.add_message(msg, tag=tag)
 
+                    # Fire memorizer after successful compaction
+                    if self.auto_memory and self.edit_format not in ["subagent"]:
+                        from cecli.helpers.memory.utils import invoke_memorizer
+
+                        asyncio.create_task(invoke_memorizer(self, additional_context=text))
+
             if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
                 await summarize_and_update(done_messages, MessageTag.DONE)
 
             if cur_tokens > self.context_compaction_max_tokens or cur_tokens > done_tokens:
                 await summarize_and_update(cur_messages, MessageTag.CUR)
-
-            self.io.tool_output("...chat history compacted.")
-            self.io.update_spinner(self.io.last_spinner_text)
 
             manager.clear_tag(MessageTag.DIFFS)
             manager.clear_tag(MessageTag.FILE_CONTEXTS)
@@ -2142,6 +2306,26 @@ class Coder(metaclass=UsageMeta):
             ConversationService.get_chunks(self).reset_clear_count()
             ObservationService.get_instance(self).reset_index()
             self.format_chat_chunks()
+
+            # Post-compaction token floor check
+            # Recalculate tokens after compaction to prevent infinite loops
+            # on already-minimal context
+            all_messages = manager.get_messages_dict()
+            post_compaction_tokens = self.summarizer.count_tokens(all_messages)
+            token_floor = (
+                self.context_compaction_max_tokens * 0.25
+                if self.context_compaction_max_tokens
+                else 0
+            )
+
+            if post_compaction_tokens < token_floor:
+                self.io.tool_output(
+                    "...context is already at minimum size, cannot compact further."
+                )
+            else:
+                self.io.tool_output("...chat history compacted.")
+
+            self.io.update_spinner(self.io.last_spinner_text)
 
         except Exception as e:
             self.io.tool_warning(f"Context compaction failed: {e}")
@@ -2363,6 +2547,8 @@ class Coder(metaclass=UsageMeta):
         # Add chat and edit file messages
         ConversationService.get_chunks(self).add_chat_files_messages()
 
+        ConversationService.get_manager(self).flush_queue()
+
         # Return formatted messages for LLM
         return ConversationService.get_manager(self).get_messages_dict()
 
@@ -2432,22 +2618,35 @@ class Coder(metaclass=UsageMeta):
         max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 0
 
         if max_input_tokens and input_tokens >= max_input_tokens:
-            self.io.tool_error(
-                f"Your estimated chat context of {input_tokens:,} tokens exceeds the"
-                f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
-            )
-            self.io.tool_output("To reduce the chat context:")
-            self.io.tool_output("- Use /drop to remove unneeded files from the chat")
-            self.io.tool_output("- Use /clear to clear the chat history")
-            self.io.tool_output("- Break your code into smaller files")
-            self.io.tool_output(
-                "It's probably safe to try and send the request, most providers won't charge if"
-                " the context limit is exceeded."
-            )
+            if self.enable_context_compaction:
+                self.io.tool_output(
+                    f"Estimated chat context of {input_tokens:,} tokens exceeds the"
+                    f" {max_input_tokens:,} token limit. Attempting to compact..."
+                )
+                await self.compact_context_if_needed(force=True)
 
-            if not await self.io.confirm_ask("Try to proceed anyway?"):
-                return False
-        return True
+                # After compaction, re-format messages and re-check tokens
+                messages = self.format_messages()
+                input_tokens = self.get_active_model().token_count(messages)
+
+            if max_input_tokens and input_tokens >= max_input_tokens:
+                self.io.tool_error(
+                    f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
+                    f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
+                )
+                self.io.tool_output("To reduce the chat context:")
+                self.io.tool_output("- Use /drop to remove unneeded files from the chat")
+                self.io.tool_output("- Use /clear to clear the chat history")
+                self.io.tool_output("- Break your code into smaller files")
+                self.io.tool_output(
+                    "It's probably safe to try and send the request, most providers won't charge if"
+                    " the context limit is exceeded."
+                )
+
+                if not await self.io.confirm_ask("Try to proceed anyway?"):
+                    return None
+
+        return messages
 
     def get_active_model(self):
         return self.main_model
@@ -2478,12 +2677,14 @@ class Coder(metaclass=UsageMeta):
             self.format_chat_chunks()
 
             # Always add user message to conversation manager
-            ConversationService.get_manager(self).add_message(
+            ConversationService.get_manager(self).queue_message(
                 message_dict=dict(role="user", content=inp),
                 tag=MessageTag.CUR,
-                hash_key=("user_message", inp, str(time.monotonic_ns())),
-                promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_demotion=1,
+                hash_key=(
+                    "user_message",
+                    xxhash.xxh3_128_hexdigest(inp.encode("utf-8", errors="replace")),
+                    str(time.monotonic_ns()),
+                ),
             )
 
         ConversationService.get_manager(self).decrement_message_markers()
@@ -2508,7 +2709,8 @@ class Coder(metaclass=UsageMeta):
 
         messages = result
 
-        if not await self.check_tokens(messages):
+        messages = await self.check_tokens(messages)
+        if not messages:
             return
 
         if self.verbose:
@@ -2633,6 +2835,7 @@ class Coder(metaclass=UsageMeta):
                             dict(role="assistant", content=self.multi_response_content, prefix=True)
                         )
                 except Exception as err:
+                    self.error_code = 1
                     self.mdstream = None
                     lines = traceback.format_exception(type(err), err, err.__traceback__)
                     self.io.tool_warning("".join(lines))
@@ -2675,6 +2878,7 @@ class Coder(metaclass=UsageMeta):
 
             await self.show_exhausted_error()
             self.num_exhausted_context_windows += 1
+            self._release_response_buffers()
             return
         if self.partial_response_function_call:
             args = self.parse_partial_args()
@@ -2708,6 +2912,9 @@ class Coder(metaclass=UsageMeta):
                 mark_for_demotion=1,
             )
 
+            # The reply was interrupted mid-stream; drop the partial chunk buffers
+            # rather than holding them until the next send().
+            self._release_response_buffers()
             return
 
         edited = await self.apply_updates()
@@ -2792,6 +2999,11 @@ class Coder(metaclass=UsageMeta):
                 if ok:
                     self.reflected_message = test_errors
                     return
+
+        # Turn complete: drop the per-turn LLM stream buffers.  They are reset at
+        # the start of the next send(), so holding on to them while idle only
+        # wastes memory (chunks can be large for long streaming responses).
+        self._release_response_buffers()
 
     def _extract_and_prepare_tool_calls(self, tool_call_response):
         """
@@ -2948,7 +3160,7 @@ class Coder(metaclass=UsageMeta):
 
     async def _execute_mcp_tools(self, server, tool_calls):
         """Execute MCP tools via LiteLLM."""
-        import httpx
+        from cecli.http import httpx
 
         tool_responses = []
         try:
@@ -2998,19 +3210,14 @@ class Coder(metaclass=UsageMeta):
 
                         async def do_tool_call():
                             nonlocal session
-                            from litellm import experimental_mcp_client
 
                             try:
-                                return await experimental_mcp_client.call_openai_tool(
-                                    session=session,
-                                    openai_tool=new_tool_call,
-                                )
+                                return await self.call_mcp_tool_from_session(session, new_tool_call)
                             except Exception as e:
                                 if server.is_session_expired_error(e):
                                     session = await server.reconnect()
-                                    return await experimental_mcp_client.call_openai_tool(
-                                        session=session,
-                                        openai_tool=new_tool_call,
+                                    return await self.call_mcp_tool_from_session(
+                                        session, new_tool_call
                                     )
                                 raise
 
@@ -3096,6 +3303,40 @@ class Coder(metaclass=UsageMeta):
                 )
 
         return tool_responses
+
+    async def call_mcp_tool_from_session(self, session, tool_call):
+        """Call an MCP tool from an OpenAI-style tool call using the native SDK.
+
+        Accepts either a dict (``{"function": {"name": ..., "arguments": ...}}``)
+        or a tool-call object (e.g. litellm's ChatCompletionMessageToolCall) and
+        invokes the MCP session directly, avoiding litellm's lazily-imported
+        ``experimental_mcp_client`` submodule.
+        """
+        if isinstance(tool_call, dict):
+            function = tool_call.get("function", {})
+            name = function.get("name")
+            arguments = function.get("arguments", {})
+        else:
+            function = getattr(tool_call, "function", None)
+            name = getattr(function, "name", None)
+            arguments = getattr(function, "arguments", {})
+
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        # Some models mirror the OpenAI wire format and wrap the real params
+        # under a single "arguments"/"parameters"/"params" key. Unwrap so the
+        # server receives the actual parameters instead of rejecting the call
+        # with a "missing required parameter" error.
+        arguments = responses.coerce_tool_structure(arguments)
+
+        return await session.call_tool(name=name, arguments=arguments)
 
     async def process_tool_calls(self, tool_call_response):
         """Simplified main entry point."""
@@ -3197,7 +3438,7 @@ class Coder(metaclass=UsageMeta):
                     continue
 
                 for tool in server_tools:
-                    if server_name == "Local":
+                    if server_name.lower() == "local":
                         # Apply per-instance tool name filtering
                         tool_name = tool.get("function", {}).get("name", "")
                         if (
@@ -3311,6 +3552,16 @@ class Coder(metaclass=UsageMeta):
         """Cleanup when the Coder object is destroyed."""
         self.ok_to_warm_cache = False
 
+    def _release_response_buffers(self):
+        """Drop per-turn LLM stream data now that the turn has completed.
+
+        `partial_response_content` is intentionally kept: subclasses and callers
+        (get_edits, reply_completed, run_stream, ...) read it after the turn.
+        """
+        self.partial_response_chunks = []
+        self.partial_response_consolidated = None
+        self.partial_response_reasoning_content = ""
+
     async def add_assistant_reply_to_cur_messages(self):
         """
         Add the assistant's reply to `cur_messages`.
@@ -3318,11 +3569,17 @@ class Coder(metaclass=UsageMeta):
         to be `None` when `tool_calls` are present.
         """
         msg = dict(role="assistant")
-        response = (
-            self.partial_response_chunks[0]
-            if not self.stream
-            else litellm.stream_chunk_builder(self.partial_response_chunks)
-        )
+
+        # Prefer the response already produced by consolidate_chunks(): it carries
+        # the provider-specific fields (e.g. reasoning_items) that we preserved
+        # across all chunks, which a fresh litellm.stream_chunk_builder() pass
+        # alone would drop or truncate.
+        if self.partial_response_consolidated:
+            response = self.partial_response_consolidated[0]
+        elif not self.stream:
+            response = self.partial_response_chunks[0]
+        else:
+            response = litellm.stream_chunk_builder(self.partial_response_chunks)
 
         try:
             # Use response_dict as a regular dictionary
@@ -3334,15 +3591,16 @@ class Coder(metaclass=UsageMeta):
                 # but response.dict() is the Pydantic V1 method name.
                 response_dict = dict(response)
             except TypeError:
+                self.error_code = 1
                 self.io.tool_warning("Response parsing error.")
                 return
 
         msg = response_dict["choices"][0]["message"]
 
         if self.partial_response_tool_calls:
-            msg["tool_calls"] = self.partial_response_tool_calls
+            msg["tool_calls"] = [_tool_call_to_dict(tc) for tc in self.partial_response_tool_calls]
         elif self.partial_response_function_call:
-            msg["function_call"] = self.partial_response_function_call
+            msg["function_call"] = _function_call_to_dict(self.partial_response_function_call)
 
         if "reasoning_content" not in msg:
             msg["reasoning_content"] = self.partial_response_reasoning_content
@@ -3357,10 +3615,17 @@ class Coder(metaclass=UsageMeta):
                 self.io.tool_warning("Execution stopped by end message hook")
                 return
 
+            if self.edit_format in ("agent", "subagent"):
+                msg.pop("function_call", None)
+
             ConversationService.get_manager(self).add_message(
                 message_dict=msg,
                 tag=MessageTag.CUR,
-                hash_key=("assistant_message", str(msg), str(time.monotonic_ns())),
+                hash_key=(
+                    "assistant_message",
+                    xxhash.xxh3_128_hexdigest(str(msg).encode("utf-8", errors="replace")),
+                    str(time.monotonic_ns()),
+                ),
                 # promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
                 # mark_for_demotion=1,
             )
@@ -3453,12 +3718,14 @@ class Coder(metaclass=UsageMeta):
             return prompts.added_files.format(fnames=", ".join(added_fnames))
 
     async def send(self, messages, model=None, functions=None, tools=None):
-        from litellm.types.utils import ModelResponse
+        ModelResponse = litellm.types.utils.ModelResponse
 
         self.interrupt_event.clear()
         self.got_reasoning_content = False
         self.ended_reasoning_content = False
         self.empty_response = False
+        self._output_loop_detected = False
+        self._output_loop_message = ""
 
         self._streaming_buffer_length = 0
         self.io.reset_streaming_response()
@@ -3476,30 +3743,74 @@ class Coder(metaclass=UsageMeta):
         completion = None
         self.token_profiler.start()
 
+        litellm_ex = LiteLLMExceptions()
+
         try:
-            completion_coro = model.send_completion(
-                messages,
-                functions,
-                self.stream,
-                self.temperature,
-                tools=tools,
-                override_kwargs=self.model_kwargs.copy(),
-                interrupt_event=self.interrupt_event,
+            # Compaction retry loop for ContextWindowExceededError
+            max_compaction_retries = (
+                2 if self.edit_format in ("agent", "subagent") else self.max_compaction_retries
             )
+            compaction_retry_count = 0
 
-            try:
-                (hash_object, completion), interrupted = await coroutines.interruptible(
-                    completion_coro, self.interrupt_event
-                )
-            except TypeError:
-                self.io.tool_warning(
-                    "TypeError in interruptible() — this may indicate a bug "
-                    "in the LLM response handling. Converting to KeyboardInterrupt."
-                )
-                raise KeyboardInterrupt
+            while True:
+                try:
+                    completion_coro = model.send_completion(
+                        messages,
+                        functions,
+                        self.stream,
+                        self.temperature,
+                        tools=tools,
+                        override_kwargs=self.model_kwargs.copy(),
+                        interrupt_event=self.interrupt_event,
+                    )
 
-            if interrupted:
-                raise KeyboardInterrupt
+                    try:
+                        (hash_object, completion), interrupted = await coroutines.interruptible(
+                            completion_coro, self.interrupt_event
+                        )
+                    except TypeError:
+                        self.io.tool_warning(
+                            "TypeError in interruptible() — this may indicate a bug "
+                            "in the LLM response handling. Converting to KeyboardInterrupt."
+                        )
+                        raise KeyboardInterrupt
+
+                    if interrupted:
+                        raise KeyboardInterrupt
+
+                    break  # Success
+
+                except litellm.ContextWindowExceededError as err:
+                    if not self.enable_context_compaction:
+                        raise err
+
+                    if compaction_retry_count >= max_compaction_retries:
+                        self.io.tool_error(
+                            f"Context window exceeded after {max_compaction_retries}"
+                            " compaction attempt(s)."
+                        )
+                        raise err
+
+                    compaction_retry_count += 1
+                    self.io.tool_error(
+                        f"Compacting context... retry {compaction_retry_count}"
+                        f"/{max_compaction_retries}"
+                    )
+
+                    try:
+                        await self.compact_context_if_needed(
+                            force=True,
+                            message="Context window exceeded, please summarize to retry.",
+                        )
+                    except Exception:
+                        self.io.tool_error(
+                            "Context compaction failed." " Please use /clear or /compact manually."
+                        )
+                        raise err
+
+                    # Re-format messages after compaction and retry
+                    messages = self.format_messages()
+                    continue
 
             self.chat_completion_call_hashes.append(hash_object.hexdigest())
 
@@ -3519,14 +3830,16 @@ class Coder(metaclass=UsageMeta):
             # Calculate costs for successful responses
             self.calculate_and_show_tokens_and_cost(messages, completion)
 
-        except LiteLLMExceptions().exceptions_tuple() as err:
-            ex_info = LiteLLMExceptions().get_ex_info(err)
+        except litellm_ex.exceptions_tuple() as err:
+            self.error_code = 1
+            ex_info = litellm_ex.get_ex_info(err)
             if ex_info.name == "ContextWindowExceededError":
                 # Still calculate costs for context window errors
                 self.token_profiler.on_error()
                 self.calculate_and_show_tokens_and_cost(messages, completion)
             raise
         except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
+            self.error_code = 130  # apparently standard?
             self.keyboard_interrupt()
             raise kbi
         finally:
@@ -3541,7 +3854,7 @@ class Coder(metaclass=UsageMeta):
                     self.io.ai_output(json.dumps(args, indent=4))
 
     async def show_send_output(self, completion):
-        from litellm.types.utils import ModelResponse
+        ModelResponse = litellm.types.utils.ModelResponse
 
         if self.verbose:
             print(completion)
@@ -3621,13 +3934,16 @@ class Coder(metaclass=UsageMeta):
     async def show_send_output_stream(self, completion):
         received_content = False
         chunk_index = 0
+        content_detector = LoopDetector()
+        tool_detector = LoopDetector()
+        loop_detected = False
+
+        stream = coroutines.interruptible_async_generator(completion, self.interrupt_event)
 
         try:
-            async for chunk in coroutines.interruptible_async_generator(
-                completion, self.interrupt_event
-            ):
+            async for chunk in stream:
                 if self.args.debug:
-                    with open(".cecli/logs/chunks.log", "a") as f:
+                    with safe_open(".cecli/logs/chunks.log", "a") as f:
                         print(chunk, file=f)
 
                 # Check if confirmation is in progress and wait if needed
@@ -3665,6 +3981,8 @@ class Coder(metaclass=UsageMeta):
                                         self.io.update_spinner_suffix(
                                             tool_call_chunk.function.arguments
                                         )
+
+                                        tool_detector.push(tool_call_chunk.function.arguments)
 
                     except (AttributeError, IndexError):
                         # Handle cases where the response structure doesn't match expectations
@@ -3729,6 +4047,9 @@ class Coder(metaclass=UsageMeta):
                 chunk._hidden_params["created_at"] = chunk_index
                 self.partial_response_chunks.append(chunk)
 
+                if text:
+                    content_detector.push(text)
+
                 if self.show_pretty():
                     # Use simplified streaming - just call the method with full content
                     content_to_show = self.live_incremental_response(False)
@@ -3748,6 +4069,30 @@ class Coder(metaclass=UsageMeta):
                     yield text
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise KeyboardInterrupt
+
+        except LoopDetectedError as e:
+            self._output_loop_detected = True
+            self._output_loop_message = str(e)
+            loop_detected = True
+
+        if loop_detected:
+            self.io.tool_warning(
+                f"Output loop detected while streaming: {self._output_loop_message}"
+            )
+            # Explicitly close the async generators so the wrapper's interrupt
+            # task and the underlying provider generator are cleaned up instead
+            # of being left suspended after we stop consuming them.
+            if hasattr(stream, "aclose"):
+                try:
+                    await stream.aclose()
+                except Exception:
+                    pass
+            if hasattr(completion, "aclose"):
+                try:
+                    await completion.aclose()
+                except Exception:
+                    pass
+            return
 
         if (
             self.show_pretty()
@@ -3788,63 +4133,60 @@ class Coder(metaclass=UsageMeta):
                 if getattr(last_chunk, "usage", None):
                     response.usage = last_chunk.usage
 
-        # Collect provider-specific fields from chunks to preserve them
-        # We need to track both by ID (primary) and index (fallback) since
-        # early chunks might not have IDs established yet
-        provider_specific_fields_by_id = {}
-        provider_specific_fields_by_index = {}
-
+        # Collect message-level provider-specific fields (e.g. `reasoning_items`
+        # for reasoning models) from ALL chunks.  litellm's stream_chunk_builder()
+        # merges these with last-wins semantics for list fields, silently dropping
+        # every reasoning item except the final one.  Reasoning models depend on the
+        # full ordered item list being present in the assistant message so that
+        # exact-prefix prompt caching keeps working across turns, so we collect the
+        # fields ourselves and concatenate list-valued entries.
+        message_provider_specific_fields = {}
         for chunk in self.partial_response_chunks:
             try:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.tool_calls:
-                    for tool_call in chunk.choices[0].delta.tool_calls:
-                        if (
-                            hasattr(tool_call, "provider_specific_fields")
-                            and tool_call.provider_specific_fields
-                        ):
-                            # Ensure provider_specific_fields is a dictionary
-                            psf = tool_call.provider_specific_fields
-                            if not isinstance(psf, dict):
-                                continue
-
-                            # Try to use ID first
-                            if hasattr(tool_call, "id") and tool_call.id:
-                                tool_id = tool_call.id
-                                if tool_id not in provider_specific_fields_by_id:
-                                    provider_specific_fields_by_id[tool_id] = {}
-                                # Merge provider-specific fields for this tool ID
-                                provider_specific_fields_by_id[tool_id].update(psf)
-                            # Also track by index as fallback
-                            elif hasattr(tool_call, "index"):
-                                tool_index = tool_call.index
-                                if tool_index not in provider_specific_fields_by_index:
-                                    provider_specific_fields_by_index[tool_index] = {}
-                                provider_specific_fields_by_index[tool_index].update(psf)
+                if chunk.choices and chunk.choices[0].delta:
+                    psf = getattr(chunk.choices[0].delta, "provider_specific_fields", None)
+                    if psf and isinstance(psf, dict):
+                        for key, value in psf.items():
+                            if isinstance(value, list):
+                                message_provider_specific_fields.setdefault(key, []).extend(value)
+                            elif (
+                                key in message_provider_specific_fields
+                                and isinstance(message_provider_specific_fields[key], dict)
+                                and isinstance(value, dict)
+                            ):
+                                # Merge dict-valued metadata (e.g. gemini per-call
+                                # function_call_signatures) so parallel tool calls
+                                # each keep their own signature across chunks.
+                                message_provider_specific_fields[key].update(value)
+                            elif value is not None:
+                                message_provider_specific_fields[key] = value
             except (AttributeError, IndexError):
                 continue
 
+        if message_provider_specific_fields:
+            message_psf = getattr(response.choices[0].message, "provider_specific_fields", None)
+            if not isinstance(message_psf, dict):
+                message_psf = {}
+            message_psf.update(message_provider_specific_fields)
+            response.choices[0].message.provider_specific_fields = message_psf
+
         try:
-            if response.choices[0].message.tool_calls:
-                for i, tool_call in enumerate(response.choices[0].message.tool_calls):
-                    # Add provider-specific fields if we collected any for this tool
-                    tool_id = tool_call.id
+            message_tool_calls = response.choices[0].message.tool_calls
+            if message_tool_calls and len(message_tool_calls):
+                if self.stream:
+                    built_tool_calls = self._build_tool_calls_from_chunks()
+                    if built_tool_calls:
+                        response.choices[0].message.tool_calls = built_tool_calls
+                        self.partial_response_tool_calls = built_tool_calls
+                    else:
+                        # Fall back to litellm's merged list, keeping every call
+                        self.partial_response_tool_calls = list(message_tool_calls)
+                else:
+                    # Non-streaming: the single response chunk already carries the
+                    # full tool_calls list
+                    self.partial_response_tool_calls = list(message_tool_calls)
 
-                    # Try ID first
-                    if tool_id in provider_specific_fields_by_id:
-                        # Add provider-specific fields directly to the tool call object
-                        tool_call.provider_specific_fields = provider_specific_fields_by_id[tool_id]
-                    # Fall back to index
-                    elif i in provider_specific_fields_by_index:
-                        # Add provider-specific fields directly to the tool call object
-                        tool_call.provider_specific_fields = provider_specific_fields_by_index[i]
-
-                    # Only append to partial_response_tool_calls if it's empty
-                    if len(self.partial_response_tool_calls) == 0:
-                        self.partial_response_tool_calls.append(tool_call)
-
-                self.partial_response_function_call = (
-                    response.choices[0].message.tool_calls[0].function
-                )
+                self.partial_response_function_call = self.partial_response_tool_calls[0].function
         except AttributeError as e:
             func_err = e
 
@@ -3897,8 +4239,128 @@ class Coder(metaclass=UsageMeta):
                 self.tool_reflection = True
                 self.partial_response_tool_calls = extracted_calls
 
+        if self._output_loop_detected:
+            # A repeating output loop was caught while streaming; turn it into an
+            # assistant message so the model can adjust and drop any tool calls.
+            marker = "\n\n[SYSTEM CANCEL: OUTPUT LOOP DETECTED]\n"
+            self.partial_response_content += marker
+            self.partial_response_tool_calls = []
+            self.partial_response_function_call = dict()
+
+            # The assistant message stored in the conversation is built from the
+            # response object (via model_dump()), so the marker has to be written
+            # there too, otherwise it never reaches the model to react to.
+            message = response.choices[0].message
+            message.content = (message.content or "") + marker
+            message.tool_calls = []
+            if hasattr(message, "function_call"):
+                message.function_call = None
+
         self.partial_response_consolidated = (response, func_err, content_err)
         return response, func_err, content_err
+
+    def _build_tool_calls_from_chunks(self):
+        """Rebuild tool calls from the raw streaming chunks.
+
+        Parallel tool calls arrive interleaved and may start at any index.
+        Most providers key fragments by a per-call ``index`` (openai / anthropic /
+        gemini), but some (e.g. deepseek) reuse index0 for every call and only
+        distinguish them by the ``id`` announced on the first fragment.  Keying
+        by id when present -- and remembering the index -> key mapping so later
+        id-less fragments resolve to the right call -- preserves every parallel
+        call instead of collapsing them onto one, keeps them ordered by first
+        appearance, and retains provider-specific fields (e.g. thought
+        signatures) attached.
+        """
+        ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+        Function = litellm.types.utils.Function
+
+        tool_calls_dict = {}
+        index_lookup = {}
+        last_key = None
+
+        for chunk in self.partial_response_chunks:
+            try:
+                if not (chunk.choices and chunk.choices[0].delta):
+                    continue
+
+                delta = chunk.choices[0].delta
+                for tool_call in delta.tool_calls or []:
+                    if tool_call is None:
+                        continue
+
+                    if nested.getter(tool_call, "function") is None:
+                        continue
+
+                    tool_id = nested.getter(tool_call, "id") or ""
+                    index = nested.getter(tool_call, "index")
+
+                    if tool_id:
+                        key = ("id", tool_id)
+
+                        if index is not None:
+                            index_lookup[index] = key
+
+                        last_key = key
+                    elif index is not None and index in index_lookup:
+                        key = index_lookup[index]
+                    elif index is not None:
+                        key = ("index", index)
+                        index_lookup[index] = key
+                    elif last_key is not None:
+                        key = last_key
+                    else:
+                        key = ("slot", len(tool_calls_dict))
+
+                    entry = tool_calls_dict.setdefault(
+                        key,
+                        {
+                            "id": None,
+                            "name": None,
+                            "type": "function",
+                            "arguments": [],
+                            "provider_specific_fields": {},
+                            "_order": len(tool_calls_dict),
+                        },
+                    )
+
+                    entry["id"] = tool_id or entry["id"]
+                    entry["type"] = nested.getter(tool_call, "type") or entry["type"]
+                    entry["name"] = nested.getter(tool_call, "function.name") or entry["name"]
+
+                    arguments = nested.getter(tool_call, "function.arguments")
+                    if arguments:
+                        entry["arguments"].append(arguments)
+
+                    psf = nested.getter(tool_call, "provider_specific_fields")
+                    if not psf:
+                        psf = nested.getter(tool_call, "function.provider_specific_fields")
+                    if psf and isinstance(psf, dict):
+                        entry["provider_specific_fields"].update(psf)
+            except (AttributeError, IndexError):
+                continue
+
+        tool_calls = []
+        for key in sorted(tool_calls_dict.keys(), key=lambda k: tool_calls_dict[k]["_order"]):
+            data = tool_calls_dict[key]
+            if not (data["id"] and data["name"]):
+                continue
+
+            function = Function(
+                arguments="".join(data["arguments"]) or "{}",
+                name=data["name"],
+            )
+            params = {
+                "id": data["id"],
+                "function": function,
+                "type": data["type"] or "function",
+            }
+            if data["provider_specific_fields"]:
+                params["provider_specific_fields"] = data["provider_specific_fields"]
+
+            tool_calls.append(ChatCompletionMessageToolCall(**params))
+
+        return tool_calls
 
     def stream_wrapper(self, content, final):
         if not hasattr(self, "_streaming_buffer_length"):
@@ -3973,9 +4435,21 @@ class Coder(metaclass=UsageMeta):
         cache_hit_tokens = 0
         cache_write_tokens = 0
 
-        if completion and hasattr(completion, "usage") and completion.usage is not None:
-            prompt_tokens = completion.usage.prompt_tokens
-            completion_tokens = completion.usage.completion_tokens
+        if (
+            completion
+            and nested.getter(completion, "usage.prompt_tokens") is not None
+            and nested.getter(completion, "usage.completion_tokens") is not None
+        ):
+            prompt_tokens = (
+                nested.getter(completion.usage, "prompt_tokens", 0)
+                or nested.getter(completion.usage, "prompt_eval_count", 0)
+                or 0
+            )
+            completion_tokens = (
+                nested.getter(completion.usage, "completion_tokens", 0)
+                or nested.getter(completion.usage, "eval_count", 0)
+                or 0
+            )
             cache_hit_tokens = (
                 getattr(completion.usage, "prompt_cache_hit_tokens", 0)
                 or getattr(completion.usage, "cache_read_input_tokens", 0)
@@ -3985,13 +4459,9 @@ class Coder(metaclass=UsageMeta):
             cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0) or 0
             self.message_cached_tokens += cache_hit_tokens
 
-            if hasattr(completion.usage, "cache_read_input_tokens") or hasattr(
-                completion.usage, "cache_creation_input_tokens"
-            ):
-                self.message_tokens_sent += prompt_tokens
-                self.message_tokens_sent += cache_write_tokens
-            else:
-                self.message_tokens_sent += prompt_tokens
+            # ``prompt_tokens`` is normalized to the full input (including any
+            # cache read/write) for anthropic usage, so no separate add here.
+            self.message_tokens_sent += prompt_tokens
 
         else:
             prompt_tokens = self.get_active_model().token_count(messages)
@@ -4000,15 +4470,12 @@ class Coder(metaclass=UsageMeta):
 
         self.message_tokens_received += completion_tokens
 
-        # Build the new streamlined format
-        tokens_parts = [format_tokens(prompt_tokens)]
-
-        if cache_hit_tokens:
-            tokens_parts.append(f"{format_tokens(cache_hit_tokens)}")
-        if cache_write_tokens:
-            tokens_parts.append(f"{format_tokens(cache_write_tokens)}")
-
-        tokens_str = "/".join(tokens_parts)
+        # Build tokens string as "{prompt} CH {hit_rate:.1f}% ↑ {completion} ↓"
+        if prompt_tokens > 0:
+            hit_rate = round(cache_hit_tokens / prompt_tokens * 100, 1) if cache_hit_tokens else 0.0
+        else:
+            hit_rate = 0.0
+        tokens_str = f"{format_tokens(prompt_tokens)} ◇ {hit_rate:.1f}%"
 
         tokens_report = f"{tokens_str} ↑ {format_tokens(completion_tokens)} ↓"
 
@@ -4023,12 +4490,17 @@ class Coder(metaclass=UsageMeta):
             + self.message_tokens_received
         )
         total_combined_cached = self.total_cached_tokens + self.message_cached_tokens
+        total_input_tokens = self.total_tokens_sent + self.message_tokens_sent
+        if total_input_tokens > 0:
+            total_hit_rate = (
+                round(total_combined_cached / total_input_tokens * 100, 1)
+                if total_combined_cached
+                else 0.0
+            )
+        else:
+            total_hit_rate = 0.0
 
-        total_stats = f"{format_tokens(total_combined_tokens)}"
-        if total_combined_cached:
-            total_stats += f"/{format_tokens(total_combined_cached)}"
-
-        total_stats += " ↑↓"
+        total_stats = f"{format_tokens(total_combined_tokens)} ◇ {total_hit_rate:.1f}% ↑↓"
 
         if not self.get_active_model().info.get("input_cost_per_token"):
             self.usage_report = tokens_report + " " + total_stats
@@ -4150,8 +4622,8 @@ class Coder(metaclass=UsageMeta):
             return
 
     def get_all_relative_files(self):
-        """Get all files known to the file service singleton."""
-        fs = FileSystemService.get_instance()
+        """Get all files known to the file service for this coder's base path."""
+        fs = getattr(self, "fs", None) or FileSystemService.get_instance()
         if fs.trie:
             # Auto-rebuild if the repository state has changed
             # (e.g., new commits, staged files, or HEAD change)
@@ -4266,9 +4738,12 @@ class Coder(metaclass=UsageMeta):
         if tokens < warn_number_of_tokens:
             return
 
-        self.io.tool_warning("Warning: it's best to only add files that need changes to the chat.")
-        self.io.tool_warning(urls.edit_errors)
-        self.warning_given = True
+        if self.context_compaction_current_ratio > 0.5:
+            self.io.tool_warning(
+                "Warning: it's best to only add files that need changes to the chat."
+            )
+            self.io.tool_warning(urls.edit_errors)
+            self.warning_given = True
 
     async def prepare_to_edit(self, edits):
         res = []
@@ -4356,7 +4831,12 @@ class Coder(metaclass=UsageMeta):
     def parse_partial_args(self):
         # dump(self.partial_response_function_call)
 
-        data = self.partial_response_function_call.get("arguments")
+        function_call = self.partial_response_function_call
+        if isinstance(function_call, dict):
+            data = function_call.get("arguments")
+        else:
+            data = getattr(function_call, "arguments", None)
+
         if not data:
             return
 
@@ -4482,13 +4962,44 @@ class Coder(metaclass=UsageMeta):
         return edits
 
     def local_agent_folder(self, path):
+        primary_uuid = self._resolve_primary_agent_uuid()
+        primary_root = os.path.abspath(self.primary_root)
+
+        stripped = path.lstrip("/")
+
+        if self.uuid == primary_uuid:
+            rel_dir = f"{primary_root}/.cecli/agents/{GLOBAL_DATE}/{primary_uuid}"
+        else:
+            rel_dir = f"{primary_root}/.cecli/agents/{GLOBAL_DATE}/{primary_uuid}/s/{self.uuid}"
+
         os.makedirs(
-            self.abs_root_path(f".cecli/agents/{GLOBAL_DATE}/{self.uuid}"),
+            self.abs_root_path(rel_dir),
             exist_ok=True,
         )
 
-        stripped = path.lstrip("/")
-        return f".cecli/agents/{GLOBAL_DATE}/{self.uuid}/{stripped}"
+        return f"{rel_dir}/{stripped}"
+
+    def _resolve_primary_agent_uuid(self):
+        """Return the primary coder's uuid for this session (memoized).
+
+        All agents spawned under a primary coder share the same base folder,
+        so sub-agent files nest under one location regardless of delegation
+        depth. Falls back to this coder's own uuid when the service is
+        unavailable (e.g. in unit tests).
+        """
+        if getattr(self, "_primary_agent_uuid", None):
+            return self._primary_agent_uuid
+
+        primary_uuid = self.uuid
+        try:
+            from cecli.helpers.agents.service import AgentService
+
+            primary_uuid = AgentService.get_primary_uuid() or self.uuid
+        except Exception:
+            pass
+
+        self._primary_agent_uuid = primary_uuid
+        return primary_uuid
 
     async def auto_save_session(self, force=False):
         """Automatically save the current session to {auto-save-session-name}.json."""
@@ -4634,3 +5145,25 @@ class Coder(metaclass=UsageMeta):
         else:
             # Append the command to the prefix with a space
             return f"{command_prefix} {command}"
+
+
+def _tool_call_to_dict(tc):
+    """Normalize a tool call (dict or litellm-shaped object) to a wire-format dict."""
+    if isinstance(tc, dict):
+        return tc
+
+    if hasattr(tc, "to_dict"):
+        return tc.to_dict()
+
+    return tc
+
+
+def _function_call_to_dict(function_call):
+    """Normalize a function call (dict or litellm-shaped Function) to a dict."""
+    if isinstance(function_call, dict):
+        return function_call
+
+    if hasattr(function_call, "to_dict"):
+        return function_call.to_dict()
+
+    return function_call

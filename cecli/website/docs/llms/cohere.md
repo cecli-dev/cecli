@@ -5,14 +5,13 @@ nav_order: 500
 
 # Cohere
 
-Cohere offers *free* API access to their models.
-Their Command-R+ model works well with cecli
-as a *very basic* coding assistant.
-You'll need a [Cohere API key](https://dashboard.cohere.com/welcome/login).
+Cohere offers *free* API access to their models. Their Command-R+ model works well with cecli as a *very basic* coding assistant. You'll need a [Cohere API key](https://dashboard.cohere.com/welcome/login).
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 

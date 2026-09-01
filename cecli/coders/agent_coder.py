@@ -12,6 +12,9 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import xxhash
+
+from cecli.args import AGENT_CONFIG_LIST_FIELDS
 from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested, responses
 from cecli.helpers.agents.service import AgentService
@@ -24,7 +27,6 @@ from cecli.helpers.similarity import (
 )
 from cecli.helpers.skills import SkillsManager
 from cecli.hooks import HookIntegration
-from cecli.llm import litellm
 from cecli.mcp import LocalServer, McpServerManager
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.registry import ToolRegistry
@@ -62,19 +64,19 @@ class AgentCoder(Coder):
         self.max_tool_vector_history = 20
         self.read_tools = {
             "command",
-            "commandinteractive",
             "explorecode",
             "ls",
             "readfile",
             "grep",
             "thinking",
             "updatetodolist",
+            "searchfacts",
         }
         self.write_tools = {
             "command",
-            "commandinteractive",
             "editfile",
             "undochange",
+            "replacefacts",
         }
         self.edit_allowed = True
         self.max_tool_calls = 10000
@@ -83,9 +85,9 @@ class AgentCoder(Coder):
         self.change_tracker = ChangeTracker()
         self.args = kwargs.get("args")
         self.files_added_in_exploration = set()
+        self.file_read_cache = set()
         self.tool_call_count = 0
         self.turn_count = 0
-        self.max_reflections = 15
         self.use_enhanced_context = True
         self._last_edited_file = None
         self._cur_message_divider = None
@@ -97,13 +99,33 @@ class AgentCoder(Coder):
         self.tokens_calculated = False
         self.skip_cli_confirmations = False
         self.agent_finished = False
-        self.agent_config = self._get_agent_config()
-        self.max_sub_agents = self.agent_config.get("max_sub_agents", 3)
+        init_metadata = kwargs.pop("init_metadata", {})
+        self.agent_config = self._get_agent_config(config=init_metadata)
+        self.max_sub_agents = self.agent_config.get("max_sub_agents", 30)
         self.sub_agent_paths = self.agent_config.get("subagent_paths", [])
         self._setup_agent()
 
-        AgentService.build_registry(self.sub_agent_paths)
-        ToolRegistry.build_registry(agent_config=self.agent_config)
+        # primary_root is needed early so the skills and tool registries can
+        # resolve relative paths against the primary workspace root rather than
+        # this coder's (possibly overridden) local root. base_coder re-affirms
+        # and keeps this value in super().__init__().
+        self.primary_root = kwargs.get("primary_root") or getattr(self, "primary_root", None)
+
+        # Allow a sub-agent to target a different working root (multi-project workspace).
+        if not kwargs.get("root"):
+            configured_root = self.agent_config.get("root")
+            if configured_root:
+                kwargs["root"] = configured_root
+
+        self._initialize_skills_manager(
+            self.agent_config, root=kwargs.get("root", self.primary_root)
+        )
+        AgentService.build_registry(
+            self.sub_agent_paths, root=kwargs.get("root", self.primary_root)
+        )
+        ToolRegistry.build_registry(
+            agent_config=self.agent_config, root=kwargs.get("root", self.primary_root)
+        )
 
         self.loaded_custom_tools = ToolRegistry.loaded_custom_tools
         super().__init__(*args, **kwargs)
@@ -130,26 +152,59 @@ class AgentCoder(Coder):
             self.io.tool_warning(err)
 
         self.start_up_errors = []
+        # Preserve the original 10000 setting now that max tool calls is configurable
+        self.max_tool_calls = self.max_tool_calls * 400
 
     def _setup_agent(self):
         os.makedirs(".cecli/temp", exist_ok=True)
 
-    def _get_agent_config(self):
+    def _get_agent_config(self, config=None):
         """
         Parse and return agent configuration from args.agent_config.
+
+        Args:
+            config: Optional dict of metadata (e.g. sub-agent front matter)
+                    that is merged on top of args.agent_config. Parameter
+                    takes priority over args.agent_config values.
 
         Returns:
             dict: Agent configuration with defaults for missing values
         """
-        config = {}
-        if (
+        config = config or {}
+
+        # init_metadata provides agent-config directly, replacing args
+        if "agent_config" in config and config["agent_config"]:
+            config = config["agent_config"]
+        # Primary agent: load from args.agent_config
+        elif (
             hasattr(self, "args")
             and self.args
             and hasattr(self.args, "agent_config")
             and self.args.agent_config
         ):
             try:
-                config = json.loads(self.args.agent_config)
+                args_config = json.loads(self.args.agent_config)
+
+                # Validate that array fields are lists, wrap scalars in lists
+                list_fields = AGENT_CONFIG_LIST_FIELDS
+
+                for field in list_fields:
+                    if field in args_config:
+                        if args_config[field] is None:
+                            # YAML null / JSON null -> treat as empty list
+                            args_config[field] = []
+                        elif not isinstance(args_config[field], list):
+                            self.start_up_errors.append(
+                                f"agent-config field '{field}' should be a list but got "
+                                f"{type(args_config[field]).__name__}, wrapping in list"
+                            )
+                            args_config[field] = [args_config[field]]
+
+                # Merge metadata (caller-provided config) on top of
+                # args.agent_config so sub-agent front matter takes priority.
+                args_config.update(config)
+                config = args_config
+
             except (json.JSONDecodeError, TypeError) as e:
                 self.start_up_errors.append(f"Failed to parse agent-config JSON: {e}")
                 return {}
@@ -167,6 +222,11 @@ class AgentCoder(Coder):
         config["hot_reload"] = nested.getter(config, "hot_reload", False)
         config["diff_colors"] = nested.getter(config, "diff_colors", True)
         config["allow_nested_delegation"] = nested.getter(config, "allow_nested_delegation", False)
+        config["allow_orchestration"] = nested.getter(config, "allow_orchestration", True)
+        config["max_sub_agents"] = nested.getter(config, "max_sub_agents", 30)
+
+        if config["max_sub_agents"] == -1:
+            config["max_sub_agents"] = 2 ^ 31 - 1
 
         config["tools_paths"] = nested.getter(config, ["tools_paths", "tool_paths"], [])
         config["tools_includelist"] = nested.getter(
@@ -175,8 +235,20 @@ class AgentCoder(Coder):
         config["tools_excludelist"] = nested.getter(
             config,
             ["tools_excludelist", "tools_blacklist"],
-            ["gitbranch", "gitdiff", "gitlog", "gitremote", "gitshow", "gitstatus"],
+            [
+                "gitbranch",
+                "gitdiff",
+                "gitlog",
+                "gitremote",
+                "gitshow",
+                "gitstatus",
+                "searchfacts",
+                "replacefacts",
+            ],
         )
+
+        if config["tools_includelist"]:
+            config["tools_includelist"].append("yield")
 
         config["servers_includelist"] = nested.getter(
             config, ["servers_includelist", "servers_whitelist"], []
@@ -184,6 +256,7 @@ class AgentCoder(Coder):
         config["servers_excludelist"] = nested.getter(
             config, ["servers_excludelist", "servers_blacklist"], []
         )
+
         config["include_context_blocks"] = set(
             nested.getter(
                 config,
@@ -202,6 +275,14 @@ class AgentCoder(Coder):
             )
         )
         config["exclude_context_blocks"] = set(nested.getter(config, "exclude_context_blocks", []))
+
+        if config["allow_orchestration"]:
+            config["include_context_blocks"].add("orchestration")
+            config["exclude_context_blocks"].discard("orchestration")
+        else:
+            config["include_context_blocks"].discard("orchestration")
+            config["exclude_context_blocks"].add("orchestration")
+            config["tools_excludelist"].append("orchestrate")
 
         self.large_file_token_threshold = config["large_file_token_threshold"]
         self.skip_cli_confirmations = config["skip_cli_confirmations"]
@@ -230,21 +311,19 @@ class AgentCoder(Coder):
             config["tools_excludelist"].append("loadskill")
             config["tools_excludelist"].append("removeskill")
 
-        self._initialize_skills_manager(config)
         return config
 
-    def _initialize_skills_manager(self, config):
+    def _initialize_skills_manager(self, config, root=None):
         """
         Initialize the skills manager with the configured directory paths and filters.
         """
         try:
-            git_root = str(self.repo.root) if self.repo else None
             self.skills_manager = SkillsManager(
                 directory_paths=config.get("skills_paths", []),
                 include_list=config.get("skills_includelist", []),
                 exclude_list=config.get("skills_excludelist", []),
                 initialize_list=config.get("skills_init", []),
-                git_root=git_root,
+                root=root or self.root or self.primary_root,
                 coder=self,
             )
         except Exception as e:
@@ -292,6 +371,7 @@ class AgentCoder(Coder):
 
     async def _execute_mcp_tool(self, server, tool_name, params):
         """Helper to execute a single MCP tool call, created from legacy format."""
+        from cecli.tools.utils.responses import ToolResponse
 
         async def _exec_async():
             function_dict = {"name": tool_name, "arguments": json.dumps(params)}
@@ -302,16 +382,12 @@ class AgentCoder(Coder):
             }
             try:
                 session = await server.connect()
-                call_result = await litellm.experimental_mcp_client.call_openai_tool(
-                    session=session, openai_tool=tool_call_dict
-                )
+                call_result = await self.call_mcp_tool_from_session(session, tool_call_dict)
             except Exception as e:
                 if server.is_session_expired_error(e):
                     try:
                         session = await server.reconnect()
-                        call_result = await litellm.experimental_mcp_client.call_openai_tool(
-                            session=session, openai_tool=tool_call_dict
-                        )
+                        call_result = await self.call_mcp_tool_from_session(session, tool_call_dict)
                     except Exception as retry_exc:
                         self.io.tool_warning(
                             f"Executing {tool_name} on {server.name} failed after reconnect:\n"
@@ -350,9 +426,14 @@ class AgentCoder(Coder):
 
         result, interrupted = await interruptible(_exec_async(), self.interrupt_event)
 
+        response = ToolResponse(tool_name)
         if interrupted:
-            return "Tool execution interrupted by user."
-        return result
+            response.append_error("Tool execution interrupted by user.")
+        elif isinstance(result, str) and result.startswith("Error executing tool call"):
+            response.append_error(result)
+        else:
+            response.append_result(result)
+        return response
 
     def _calculate_context_block_tokens(self, force=False):
         """
@@ -383,6 +464,7 @@ class AgentCoder(Coder):
                 "servers",
                 "sub_agents",
                 "loaded_skills",
+                "orchestration",
             ]
             for block_type in block_types:
                 if block_type in self.allowed_context_blocks:
@@ -419,6 +501,8 @@ class AgentCoder(Coder):
             content = self.get_servers_context()
         elif block_name == "loaded_skills":
             content = self.get_skills_content()
+        elif block_name == "orchestration":
+            content = self.get_orchestration_context()
         elif block_name == "sub_agents" and (
             not self.parent_uuid or self.agent_config.get("allow_nested_delegation", False)
         ):
@@ -562,6 +646,8 @@ class AgentCoder(Coder):
         ConversationService.get_chunks(self).add_readonly_files_messages()
         ConversationService.get_chunks(self).add_chat_files_messages()
 
+        ConversationService.get_manager(self).flush_queue()
+
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
         ConversationService.get_chunks(self).add_post_message_context_blocks()
 
@@ -664,7 +750,8 @@ class AgentCoder(Coder):
     def get_environment_info(self):
         """
         Generate an environment information context block with key system details.
-        Returns formatted string with working directory, platform, date, and other relevant environment details.
+        Returns formatted string with working directory, platform, date, and other relevant environment details,
+        including the agent's own identity and the primary agent's UUID.
         """
         if not self.use_enhanced_context:
             return None
@@ -678,6 +765,17 @@ class AgentCoder(Coder):
             result += f"- Current date: {current_date}\n"
             result += f"- Platform: {platform_info}\n"
             result += f"- Language preference: {language}\n"
+
+            # Agent identity so the model can recognise itself and the primary
+            # agent. Kept here (a static context block) rather than in the
+            # sub-agent states block to avoid re-injecting an agent's own
+            # identity whenever sub-agent state changes mid-conversation.
+            service = AgentService.get_instance(self)
+            self_uuid = str(self.uuid)
+            primary_uuid = str(service.coder.uuid)
+            self_name = service.get_agent_name(self) or "primary"
+            result += f"- Agent: {self_name} ({self_uuid}) [self]\n"
+            result += f"- Primary agent: primary ({primary_uuid})\n"
             if self.repo:
                 try:
                     rel_repo_dir = self.repo.get_rel_repo_dir()
@@ -851,20 +949,20 @@ class AgentCoder(Coder):
                     "# Fix the linting errors below, and then continue with your task.",
                     1,
                 )
+                lint_hash = xxhash.xxh3_128_hexdigest(lint_errors.encode("utf-8", errors="replace"))
                 ConversationService.get_manager(self).add_message(
                     message_dict=dict(role="user", content=lint_errors),
                     tag=MessageTag.LINT,
-                    hash_key=("lint_errors", "agent", lint_errors),
+                    hash_key=("lint_errors", "agent", lint_hash),
                 )
-                ConversationService.get_manager(self).add_message(
+                ConversationService.get_manager(self).queue_message(
                     message_dict=dict(
                         role="user", content="Please address the latest linting errors."
                     ),
                     tag=MessageTag.LINT,
-                    hash_key=("lint_errors", "agent", lint_errors, "cta"),
+                    hash_key=("lint_errors", "agent", lint_hash, "cta"),
                     promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
                     mark_for_demotion=1,
-                    mark_for_delete=0,
                 )
             else:
                 if has_errors:
@@ -897,7 +995,7 @@ class AgentCoder(Coder):
                 {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": result,
+                    "content": str(result),
                 }
             )
         return tool_responses
@@ -1154,15 +1252,6 @@ class AgentCoder(Coder):
         for i, tool in enumerate(recent_history, 1):
             context_parts.append(f"{i}. {tool}")
 
-        if not self.edit_allowed:
-            context_parts.append("\n\n")
-            context_parts.append("## File Editing Tools Disabled")
-            context_parts.append(
-                "File editing tools are currently disabled. Use `ReadFile` to determine the"
-                " current content ID prefixes needed to perform an edit and activate them when"
-                " you are ready to edit a file."
-            )
-
         context_parts.append("\n\n")
         repetition_warning = None
 
@@ -1282,7 +1371,7 @@ class AgentCoder(Coder):
             )
 
         if repetition_warning:
-            ConversationService.get_manager(self).add_message(
+            ConversationService.get_manager(self).queue_message(
                 message_dict=dict(role="user", content=repetition_warning),
                 tag=MessageTag.CUR,
                 hash_key=("repetition", "agent"),
@@ -1385,6 +1474,7 @@ class AgentCoder(Coder):
         inp = self.wrap_user_input(inp)
 
         BaseTool.clear_invocation_cache()
+        ConversationService.get_chunks(self).reset_message_tracker()
         self.agent_finished = False
         self.turn_count = 0
         return inp
@@ -1601,6 +1691,23 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             self.io.tool_error(f"Error generating servers context: {str(e)}")
             return None
 
+    def get_orchestration_context(self):
+        """
+        Generate a context block for the Orchestrate tool if allowed.
+
+        Only returns content if ``allow_orchestration`` is enabled in the agent config.
+        """
+        if not self.use_enhanced_context:
+            return None
+
+        try:
+            from cecli.helpers.orchestration import build_orchestration_context_block
+
+            return build_orchestration_context_block(self.agent_config)
+        except Exception as e:
+            self.io.tool_error(f"Error generating orchestration context: {str(e)}")
+            return None
+
     def get_sub_agents_context(self):
         """
         Generate a context block for registered sub-agents.
@@ -1621,7 +1728,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
             result = '<context name="sub_agents" from="agent">\n'
             result += "## Available Sub-Agents\n\n"
-            result += f"Found {len(registry)} registered sub-agent(s):\n\n"
+            result += f"Found {len(registry)} registered sub-agent(s) types:\n\n"
 
             for name, config in sorted(registry.items()):
                 result += f"**{name}**:\n"
@@ -1630,57 +1737,107 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                     result += f"{desc}\n"
                 result += "\n"
 
-            result += "Use the `Delegate` tool with the sub-agent name to delegate tasks.\n"
-            result += "Use the `Yield` tool to wait for responses for all active sub agents.\n"
+            result += "Use the `Delegate` tool with the sub-agent type to delegate tasks.\n"
+            result += "Use the `Yield` tool to wait for responses for all child sub agents.\n"
             result += "</context>"
             return result
         except Exception as e:
             self.io.tool_error(f"Error generating sub-agents context: {str(e)}")
             return None
 
-    def get_child_agent_states(self):
-        """Get the state of all active child sub-agents.
+    def get_sub_agent_states(self):
+        """Get the state of all active sub-agents.
 
-        Returns a formatted context block with each child sub-agent's name,
-        UUID, and current status, or None if no children exist.
+        Returns a formatted context block listing each active sub-agent as
+        ``{name} ({uuid}, {status})`` bullets, for both dependent children and
+        independent sub-agents. The independent ones are those reachable via
+        the ``Broadcast`` tool.
+
+        Finished/errored sub-agents are excluded. Returns None if there are no
+        active sub-agents, if enhanced context is disabled, or if the caller is
+        a sub-agent without nested delegation enabled.
+
+        The primary agent and calling agent's own identity are deliberately not
+        included here — they live in ``get_environment_info()`` (a static block)
+        so they don't re-inject and churn the conversation when sub-agent state
+        changes.
+
         This is used by ConversationChunks.add_sub_agent_states() to provide
         the model with visibility into active sub-agent states.
         """
         if not self.use_enhanced_context:
             return None
 
-        # Sub-agents should only see child states when nested delegation is enabled
+        # Sub-agents should only see sub-agent states when nested delegation is enabled
         if hasattr(self, "parent_uuid") and self.parent_uuid:
             if not self.agent_config.get("allow_nested_delegation", False):
                 return None
 
         try:
             service = AgentService.get_instance(self)
+
+            from cecli.helpers.agents.service import SubAgentStatus
+
+            originator_uuid = str(self.uuid)
+
+            # Dependent children are the coder's direct children.
             children = service.get_children(self)
-            if not children:
-                return None
+            dependent_children = [
+                info
+                for info in children
+                if not info.independent
+                and info.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
+            ]
 
-            # Filter to non-independent children only
-            dependent_children = [info for info in children if not info.independent]
+            # Independent agents aren't all direct children, so iterate over
+            # every active sub-agent reachable via the Broadcast tool and dedupe
+            # against the dependent children already captured above.
+            dependent_uuids = {info.coder.uuid for info in dependent_children}
+            independent_agents = []
+            seen = set()
+            for info in service.sub_agents.values():
+                if (
+                    info.independent
+                    and str(info.coder.uuid) != originator_uuid
+                    and info.status not in (SubAgentStatus.ERROR,)
+                    and info.coder.uuid not in dependent_uuids
+                    and info.coder.uuid not in seen
+                ):
+                    seen.add(info.coder.uuid)
+                    independent_agents.append(info)
 
-            if not dependent_children:
+            if not dependent_children and not independent_agents:
                 return None
 
             result = '<context name="sub_agent_states" from="agent">\n'
-            result += "## Active Sub-Agent States\n\n"
-            result += f"Found {len(dependent_children)} active child sub-agent(s):\n\n"
+            result += "## Active Sub-Agent Instances\n\n"
+            result += f"Found {len(dependent_children) + len(independent_agents)} active sub-agent(s):\n\n"
 
-            for info in dependent_children:
-                result += f"**{info.name}**:\n"
-                result += f"  - UUID: `{info.coder.uuid}`\n"
-                result += f"  - Status: {info.status.value}\n"
-                if info.error:
-                    result += f"  - Error: {info.error}\n"
-                result += "\n"
+            if dependent_children:
+                for info in dependent_children:
+                    line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
+                    if info.error:
+                        line += f" - Error: {info.error}"
+                    result += line + "\n"
+
+            if independent_agents:
+                result += "## Independent Sub-Agent Instances\n"
+                result += (
+                    "Communicate bi-directionally with these sub-agents using the "
+                    "`Broadcast` tool:\n\n"
+                )
+
+                for info in independent_agents:
+                    line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
+                    if info.error:
+                        line += f" - Error: {info.error}"
+                    result += line + "\n"
+
             result += "</context>"
             return result
+
         except Exception as e:
-            self.io.tool_error(f"Error generating child agent states: {str(e)}")
+            self.io.tool_error(f"Error generating sub-agent states: {str(e)}")
             return None
 
     def get_background_command_output(self):

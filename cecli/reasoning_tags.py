@@ -44,7 +44,8 @@ def remove_reasoning_content(res, reasoning_tag):
 def replace_reasoning_tags(text, tag_name):
     """
     Replace opening and closing reasoning tags with standard formatting.
-    Ensures exactly one blank line before START and END markers.
+    Content is kept flush with the START and END markers, with exactly one
+    blank line after the END marker.
 
     Args:
         text (str): The text containing the tags
@@ -58,10 +59,10 @@ def replace_reasoning_tags(text, tag_name):
         return text
 
     # Replace opening tag with proper spacing
-    text = re.sub(f"\\s*<{tag_name}>\\s*", f"\n{REASONING_START}\n\n", text)
+    text = re.sub(f"\\s*<{tag_name}>\\s*", f"\n{REASONING_START}", text)
 
     # Replace closing tag with proper spacing
-    text = re.sub(f"\\s*</{tag_name}>\\s*", f"\n\n{REASONING_END}\n\n", text)
+    text = re.sub(f"\\s*</{tag_name}>\\s*", f"\n{REASONING_END}\n", text)
 
     return text
 

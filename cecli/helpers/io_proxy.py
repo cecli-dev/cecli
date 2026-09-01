@@ -6,11 +6,17 @@ every direct call site.
 """
 
 import asyncio
+import logging
 import queue as _queue
 import weakref
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from cecli.report import update_error_prefix
+from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
+
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 class IOProxy(Generic[T]):
@@ -45,14 +51,21 @@ class IOProxy(Generic[T]):
         super().__setattr__("_coder", weakref.ref(coder))
         # Per-coder task storage: {coder_uuid: {attr_name: asyncio.Task}}
         super().__setattr__("_per_coder", {coder_uuid: {}})
+        # Last tool `type` emitted via tool_output — lives on the proxy,
+        # never on the shared target (like coder_uuid)
+        super().__setattr__("_last_type", None)
 
         # Register a per-coder input queue (TUI mode only)
         # Allows the TUI to push input directly to this coder's queue,
         # eliminating the shared-queue routing loop in get_input().
-        if hasattr(target, "_per_coder_queues"):
-            _input_q = _queue.Queue()
-            target.register_coder_queue(coder_uuid, _input_q)
-            super().__setattr__("_input_queue", _input_q)
+        # In TUI mode, register this coder's input queue in the global
+        # queue registry so the TUI can push input directly to the
+        # correct coder without iterating a shared queue.
+        from cecli.helpers import queues as _queues
+
+        _input_q = _queue.Queue()
+        _queues.register_coder_queue(coder_uuid, _input_q)
+        super().__setattr__("_input_queue", _input_q)
 
     @classmethod
     def unwrap(cls, io):
@@ -66,6 +79,7 @@ class IOProxy(Generic[T]):
         """Forward tool_output with coder_uuid injected."""
         if "coder_uuid" not in kwargs:
             kwargs["coder_uuid"] = self._coder_uuid
+        self._last_type = kwargs.get("type")
         return self._target.tool_output(*messages, **kwargs)
 
     def tool_error(self, message: str = "", strip: bool = True, **kwargs: Any) -> Any:
@@ -133,7 +147,7 @@ class IOProxy(Generic[T]):
             tuple[str, str | None]: (user_input, coder_uuid).
         """
         # TUI mode: call target (iterates all per-coder queues)
-        if hasattr(self._target, "_per_coder_queues"):
+        if hasattr(self._target, "output_queue"):
             while True:
                 result = await self._target.get_input(*args, **kwargs)
                 if isinstance(result, tuple) and len(result) == 2:
@@ -214,7 +228,28 @@ class IOProxy(Generic[T]):
             try:
                 task.cancel()
                 await task
-            except (asyncio.CancelledError, Exception):
+            except (
+                asyncio.CancelledError,
+                EOFError,
+                ReloadProgramSignal,
+                SystemExit,
+                SwitchCoderSignal,
+            ):
+                pass
+            except (
+                Exception,
+                IndexError,
+                RuntimeError,
+            ):
+                e = task.exception()
+                if e:
+                    logger.error(e, exc_info=True)
+
+                import traceback
+
+                traceback_str = traceback.format_exc()
+                update_error_prefix(traceback_str)
+                update_error_prefix(str(task))
                 pass
             state["output_task"] = None
 
@@ -234,7 +269,7 @@ class IOProxy(Generic[T]):
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Proxy-internal attributes — store on proxy instance only
-        if name in ("_target", "_coder_uuid", "_coder", "_per_coder"):
+        if name in ("_target", "_coder_uuid", "_coder", "_per_coder", "_last_type"):
             super().__setattr__(name, value)
         # Per-coder task attributes — isolate per-coder so coders don't
         # compete for the same promise on the shared InputOutput instance

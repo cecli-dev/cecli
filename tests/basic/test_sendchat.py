@@ -21,7 +21,7 @@ class TestSendChat:
         litellm_ex = LiteLLMExceptions()
         litellm_ex._load(strict=True)
 
-    @patch("litellm.acompletion")
+    @patch("cecli.llm.litellm.acompletion")
     @patch("builtins.print")
     async def test_simple_send_with_retries_rate_limit_error(self, mock_print, mock_completion):
         mock = MagicMock()
@@ -45,7 +45,7 @@ class TestSendChat:
         await model.simple_send_with_retries(self.mock_messages)
         assert mock_print.call_count > 0
 
-    @patch("litellm.acompletion")
+    @patch("cecli.llm.litellm.acompletion")
     async def test_send_completion_basic(self, mock_completion):
         # Setup mock response
         mock_response = MagicMock()
@@ -59,7 +59,7 @@ class TestSendChat:
         assert response == mock_response
         mock_completion.assert_called_once()
 
-    @patch("litellm.acompletion")
+    @patch("cecli.llm.litellm.acompletion")
     async def test_send_completion_with_functions(self, mock_completion):
         mock_function = {"name": "test_function", "parameters": {"type": "object"}}
 
@@ -72,7 +72,37 @@ class TestSendChat:
         assert "tools" in called_kwargs
         assert called_kwargs["tools"][0]["function"] == mock_function
 
-    @patch("litellm.acompletion")
+    @patch("cecli.llm.litellm.acompletion")
+    async def test_simple_send_with_retries_passes_tools_from_coder(self, mock_completion):
+        # Setup mock response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "summary"
+        mock_completion.return_value = mock_response
+
+        coder = MagicMock()
+        tools = [
+            {"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}},
+            {"type": "function", "function": {"name": "write", "parameters": {"type": "object"}}},
+        ]
+        coder.get_tool_list.return_value = tools
+        coder.temperature = 0.5
+        coder.model_kwargs = {}
+
+        result = await Model(self.mock_model).simple_send_with_retries(
+            self.mock_messages, coder=coder
+        )
+
+        assert result == "summary"
+
+        # send_completion must receive the coder's tools so summarization /
+        # observation requests share the same (messages + tools) prefix as the main chat
+        called_kwargs = mock_completion.call_args.kwargs
+        assert "tools" in called_kwargs
+        # send_completion sorts tools deterministically by function name
+        assert called_kwargs["tools"] == sorted(tools, key=lambda x: x["function"]["name"])
+
+    @patch("cecli.llm.litellm.acompletion")
     async def test_simple_send_attribute_error(self, mock_completion):
         # Setup mock to raise AttributeError
         mock_completion.return_value = MagicMock()
@@ -82,7 +112,7 @@ class TestSendChat:
         result = await Model(self.mock_model).simple_send_with_retries(self.mock_messages)
         assert result is None
 
-    @patch("litellm.acompletion")
+    @patch("cecli.llm.litellm.acompletion")
     @patch("builtins.print")
     async def test_simple_send_non_retryable_error(self, mock_print, mock_completion):
         # Test with an error that shouldn't trigger retries

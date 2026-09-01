@@ -13,21 +13,20 @@ Model aliases allow you to create shorthand names for models you frequently use.
 You can define aliases when launching cecli using the `--alias` option:
 
 ```bash
-cecli --alias "fast:gpt-5-mini" --alias "smart:o3-mini"
+cecli --alias "fast:gpt-5-mini" --alias "smart:anthropic/claude-opus-5"
 ```
 
 Multiple aliases can be defined by using the `--alias` option multiple times. Each alias definition should be in the format `alias:model-name`.
 
 ## Configuration File
 
-Of course,
-you can also define aliases in your [`.cecli.conf.yml` file](https://cecli.dev/docs/config/cecli_conf.html):
+Of course, you can also define aliases in your [`.cecli.conf.yml` file](conf.html):
 
 ```yaml
 alias:
   - "fast:gpt-5-mini"
-  - "smart:o3-mini"
-  - "hacker:claude-3-sonnet-20240229"
+  - "smart:anthropic/claude-opus-5"
+  - "hacker:moonshotai/kimi-k3"
 ```
 
 ## Using Aliases
@@ -36,65 +35,30 @@ Once defined, you can use the alias instead of the full model name from the comm
 
 ```bash
 cecli --model fast  # Uses gpt-5-mini
-cecli --model smart  # Uses o3-mini
+cecli --model smart  # Uses anthropic/claude-opus-5
 ```
 
 Or with the `/model` command in-chat:
 
 ```
-cecli v0.75.3
-Main model: anthropic/claude-3-7-sonnet-20250219 with diff edit format, prompt cache, infinite output
-Weak model: claude-3-5-sonnet-20241022
+cecli v1.0.0
+Main model: moonshotai/kimi-k3 with diff edit format, prompt cache, infinite output
+Weak model: gpt-5.6-luna
 Git repo: .git with 406 files
 Repo-map: using 4096 tokens, files refresh
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 > /model fast
 
-cecli v0.75.3
+cecli v1.0.0
 Main model: gpt-5-mini with diff edit format
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 diff> /model smart
 
-cecli v0.75.3
-Main model: o3-mini with diff edit format
+cecli v1.0.0
+Main model: anthropic/claude-opus-5 with diff edit format
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 >
 ```
-
-## Built-in Aliases
-
-cecli includes some built-in aliases for convenience:
-
-<!--[[[cog
-import cog
-from cecli.models import MODEL_ALIASES
-
-for alias, model in sorted(MODEL_ALIASES.items()):
-    cog.outl(f"- `{alias}`: {model}")
-]]]-->
-- `3`: gpt-3.5-turbo
-- `35-turbo`: gpt-3.5-turbo
-- `35turbo`: gpt-3.5-turbo
-- `4`: gpt-4-0613
-- `4-turbo`: gpt-4-1106-preview
-- `4o`: gpt-4o
-- `5`: gpt-5
-- `deepseek`: deepseek/deepseek-chat
-- `flash`: gemini/gemini-2.5-flash
-- `flash-lite`: gemini/gemini-2.5-flash-lite
-- `gemini`: gemini/gemini-3-pro-preview
-- `gemini-2.5-pro`: gemini/gemini-2.5-pro
-- `gemini-3-pro-preview`: gemini/gemini-3-pro-preview
-- `gemini-exp`: gemini/gemini-2.5-pro-exp-03-25
-- `grok3`: xai/grok-3-beta
-- `haiku`: claude-3-5-haiku-20241022
-- `optimus`: openrouter/openrouter/optimus-alpha
-- `opus`: claude-opus-4-20250514
-- `quasar`: openrouter/openrouter/quasar-alpha
-- `r1`: deepseek/deepseek-reasoner
-- `sonnet`: anthropic/claude-sonnet-4-20250514
-<!--[[[end]]]-->
-
 
 ## Priority
 

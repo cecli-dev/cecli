@@ -1,5 +1,6 @@
 from cecli.repo import ANY_GIT_ERROR
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.responses import ToolResponse
 
 
 class Tool(BaseTool):
@@ -83,8 +84,11 @@ class Tool(BaseTool):
         """
         List branches in the repository with various filtering and formatting options.
         """
+        response = ToolResponse(cls.NORM_NAME)
+
         if not coder.repo:
-            return "Not in a git repository."
+            response.append_result("Not in a git repository.")
+            return response
 
         try:
             # Build git command arguments
@@ -121,13 +125,18 @@ class Tool(BaseTool):
                 try:
                     head = coder.repo.repo.head
                     if head.is_detached:
-                        return "HEAD (detached)"
-                    return coder.repo.repo.active_branch.name
+                        response.append_result("HEAD (detached)")
+                        return response
+                    response.append_result(coder.repo.repo.active_branch.name)
+                    return response
                 except ANY_GIT_ERROR:
-                    return "No current branch found."
+                    response.append_result("No current branch found.")
+                    return response
 
-            return result if result else "No branches found matching the criteria."
+            response.append_result(result if result else "No branches found matching the criteria.")
+            return response
 
         except ANY_GIT_ERROR as e:
             coder.io.tool_error(f"Error running git branch: {e}")
-            return f"Error running git branch: {e}"
+            response.append_error(str(e))
+            return response

@@ -50,6 +50,7 @@ jobs:
         uv pip install --system \
           pytest \
           pytest-asyncio \
+          pytest-env \
           pytest-mock \
           -r requirements/requirements.in \
           -r requirements/requirements-help.in \

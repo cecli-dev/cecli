@@ -132,7 +132,24 @@ class AddCommand(BaseCommand):
                         f" {active_model.name} does not support images."
                     )
                     continue
-                content = io.read_text(abs_file_path)
+                try:
+                    content = io.read_text(abs_file_path)
+                except (ValueError, UnicodeError, UnicodeDecodeError, OSError) as exc:
+                    # Binary or undecodable files (e.g. .git/objects/pack/*.rev)
+                    # raise ValueError("Could not determine text encoding ...")
+                    # from decoding.safe_open. Skip them gracefully instead of
+                    # crashing the session.
+                    msg = str(exc)
+                    if "Could not determine text encoding" in msg or isinstance(
+                        exc, (UnicodeError, UnicodeDecodeError)
+                    ):
+                        io.tool_warning(
+                            f"Skipping {matched_file}: not decodable as text "
+                            "(binary or unknown encoding)"
+                        )
+                    else:
+                        io.tool_error(f"Skipping {matched_file}: {exc}")
+                    continue
                 if content is None:
                     io.tool_error(f"Unable to read {matched_file}")
                 else:

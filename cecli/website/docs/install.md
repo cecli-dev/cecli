@@ -6,13 +6,10 @@ description: How to install and get started pair programming with cecli.
 ---
 
 # Installation
-{: .no_toc }
 
 ## One-liners
 
-These one-liners will install cecli, along with python 3.12 if needed (cecli supports Python 3.10-3.14).
-They are based on the 
-[uv installers](https://docs.astral.sh/uv/getting-started/installation/).
+These one-liners will install cecli, along with python 3.12 if needed (cecli supports Python 3.10-3.14). They are based on the [uv installers](https://docs.astral.sh/uv/getting-started/installation/).
 
 #### Linux & Mac
 
@@ -42,12 +39,9 @@ You can install cecli with uv:
 uv tool install --native-tls --python python3.12 cecli-dev
 ```
 
-This will install cecli in its own isolated environment.
-If needed, 
-uv will automatically install a separate python 3.12 to use with cecli (cecli supports Python 3.10-3.14).
+This will install cecli in its own isolated environment. If needed, uv will automatically install a separate python 3.12 to use with cecli (cecli supports Python 3.10-3.14).
 
-Also see the
-[docs on other methods for installing uv itself](https://docs.astral.sh/uv/getting-started/installation/).
+Also see the [docs on other methods for installing uv itself](https://docs.astral.sh/uv/getting-started/installation/).
 
 ## Install with pipx
 
@@ -60,20 +54,15 @@ pipx install cecli-dev
 
 You can use pipx to install cecli with python versions 3.10-3.14.
 
-Also see the
-[docs on other methods for installing pipx itself](https://pipx.pypa.io/stable/installation/).
+Also see the [docs on other methods for installing pipx itself](https://pipx.pypa.io/stable/installation/).
 
 ## Other install methods
 
-You can install cecli with the methods described below, but one of the above
-methods is usually safer.
+You can install cecli with the methods described below, but one of the above methods is usually safer.
 
 #### Install with pip
 
-If you install with pip, you should consider
-using a 
-[virtual environment](https://docs.python.org/3/library/venv.html)
-to keep cecli's dependencies separated.
+If you install with pip, you should consider using a [virtual environment](https://docs.python.org/3/library/venv.html) to keep cecli's dependencies separated.
 
 You can use pip to install cecli with python versions 3.10-3.14.
 
@@ -125,5 +114,4 @@ On first run to configure keybindings for the program (notably `shift+enter`). S
 
 ## Next steps...
 
-See the [usage instructions](https://cecli.dev/docs/usage.html) to start coding with cecli.
-
+See the [usage instructions](usage.html) to start coding with cecli.

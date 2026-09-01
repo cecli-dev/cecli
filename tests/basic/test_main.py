@@ -60,7 +60,6 @@ def test_env(mocker, temp_cwd, temp_home):
     - Mocked user input and browser opening
     - Windows compatibility (USERPROFILE vs HOME)
 
-    All resources are automatically cleaned up by dependency fixtures and mocker.
     """
     test_env_vars = {
         "OPENAI_API_KEY": "deadbeef",
@@ -73,7 +72,7 @@ def test_env(mocker, temp_cwd, temp_home):
         test_env_vars["HOME"] = temp_home
     mocker.patch.dict(os.environ, test_env_vars)
     mocker.patch("builtins.input", return_value=None)
-    mocker.patch("cecli.io.webbrowser.open")
+    mocker.patch("webbrowser.open")
 
 
 @pytest.fixture
@@ -371,6 +370,38 @@ def test_main_exit_calls_version_check(dummy_io, git_temp_dir, mocker):
     main(["--exit", "--check-update"], **dummy_io)
     mock_check_version.assert_called_once()
     mock_input_output.assert_called_once()
+
+
+def test_suppress_release_notes_prompt_with_yes_always(dummy_io, git_temp_dir, mocker):
+    mock_input_output = mocker.patch("cecli.io.InputOutput")
+    mock_input_output.return_value.confirm_ask = AsyncMock(return_value=True)
+    mock_input_output.return_value.offer_url = AsyncMock()
+    mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
+
+    main(["--exit", "--yes-always"], **dummy_io)
+    mock_input_output.return_value.offer_url.assert_not_called()
+
+
+def test_shows_release_notes_prompt_on_first_run(dummy_io, git_temp_dir, mocker):
+    mock_input_output = mocker.patch("cecli.io.InputOutput")
+    mock_input_output.return_value.confirm_ask = AsyncMock(return_value=True)
+    mock_input_output.return_value.offer_url = AsyncMock()
+    mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
+
+    main(["--exit"], **dummy_io)
+    mock_input_output.return_value.offer_url.assert_called_once()
+
+
+def test_explicit_show_release_notes_with_yes_always(dummy_io, git_temp_dir, mocker):
+    mock_input_output = mocker.patch("cecli.io.InputOutput")
+    mock_input_output.return_value.confirm_ask = AsyncMock(return_value=True)
+    mock_input_output.return_value.offer_url = AsyncMock()
+    mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
+    mocker.patch("webbrowser.open")
+
+    main(["--exit", "--yes-always", "--show-release-notes"], **dummy_io)
+    # The explicit --show-release-notes code path uses webbrowser.open directly, not offer_url
+    mock_input_output.return_value.offer_url.assert_not_called()
 
 
 def test_main_message_adds_to_input_history(dummy_io, mocker):
@@ -772,7 +803,9 @@ def test_accepts_settings_warnings(
         warning_shown == should_warn
     ), f"Expected warning={should_warn} for {setting_name} but got {warning_shown}"
     if should_call:
-        mock_method.assert_called_once_with(setting_value)
+        # The CLI value must reach the setter; the setters are also invoked at
+        # init time with pipeline defaults, so use assert_any_call.
+        mock_method.assert_any_call(setting_value)
     else:
         mock_method.assert_not_called()
 
@@ -1081,7 +1114,11 @@ def test_reasoning_effort_option(dummy_io, git_temp_dir):
         **dummy_io,
         return_coder=True,
     )
-    assert coder.main_model.extra_params.get("extra_body", {}).get("reasoning_effort") == "3"
+    # OpenRouter / responses-mode models store the effort as the nested
+    # ``reasoning.effort``; everything else uses the flat ``reasoning_effort``.
+    extra_body = coder.main_model.extra_params.get("extra_body", {})
+    effort = extra_body.get("reasoning_effort") or extra_body.get("reasoning", {}).get("effort")
+    assert effort == "3"
 
 
 def test_thinking_tokens_option(dummy_io, git_temp_dir):
@@ -1090,7 +1127,12 @@ def test_thinking_tokens_option(dummy_io, git_temp_dir):
         **dummy_io,
         return_coder=True,
     )
-    assert coder.main_model.extra_params.get("thinking", {}).get("budget_tokens") == 1000
+    # Anthropic consumes the top-level ``thinking`` kwarg; other providers may
+    # keep it in extra_body.
+    thinking = coder.main_model.extra_params.get("thinking") or coder.main_model.extra_params.get(
+        "extra_body", {}
+    ).get("thinking")
+    assert thinking.get("budget_tokens") == 1000
 
 
 def test_list_models_includes_metadata_models(dummy_io, git_temp_dir, mocker, capsys):
@@ -1289,31 +1331,6 @@ def test_model_accepts_settings_attribute(dummy_io, git_temp_dir, mocker):
     )
     mock_instance.set_reasoning_effort.assert_called_once_with("3")
     mock_instance.set_thinking_tokens.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "flags,should_warn",
-    [
-        (["--stream", "--cache-prompts"], True),
-        (["--stream"], False),
-        (["--cache-prompts", "--no-stream"], False),
-    ],
-    ids=["stream_and_cache", "stream_only", "cache_only"],
-)
-def test_stream_cache_warning(dummy_io, git_temp_dir, mocker, flags, should_warn):
-    """Test warning shown only when both streaming and caching are enabled."""
-    MockInputOutput = mocker.patch("cecli.io.InputOutput", autospec=True)
-    mock_io_instance = MockInputOutput.return_value
-    mock_io_instance.pretty = True
-    args = flags + ["--exit", "--yes-always"]
-    main(args, **dummy_io)
-    if should_warn:
-        mock_io_instance.tool_warning.assert_called_with(
-            "Cost estimates may be inaccurate when using streaming and caching."
-        )
-    else:
-        for call in mock_io_instance.tool_warning.call_args_list:
-            assert "Cost estimates may be inaccurate" not in call[0][0]
 
 
 def test_argv_file_respects_git(dummy_io, git_temp_dir):

@@ -1367,7 +1367,7 @@ class TestCommands(TestCase):
 
                 # Check that the model's thinking tokens were updated
                 self.assertEqual(
-                    coder.main_model.extra_params["thinking"]["budget_tokens"],
+                    coder.main_model.extra_params["extra_body"]["thinking"]["budget_tokens"],
                     expected_tokens,
                 )
 

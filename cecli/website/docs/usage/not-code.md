@@ -7,17 +7,12 @@ description: Use cecli to edit configuration files, documentation, and other tex
 
 # Editing config & text files
 
-cecli isn't just for code, it can be very helpful when editing
-almost any text file.
-You can use cecli to make changes to your shell & ssh settings, 
-Dockerfiles
-or pretty much any configuration or documentation file.
+Cecli isn't just for code, it can be very helpful when editing almost any text file. You can use cecli to make changes to your shell & ssh settings, Dockerfiles or pretty much any configuration or documentation file.
 
 Here are some practical examples of modifying common config/text files:
 
 ## Shell Configuration
 
-<div class="chat-transcript" markdown="1">
 $ cecli .bashrc
 
 Added .bashrc to the chat.
@@ -29,11 +24,9 @@ Added .bashrc to the chat.
 + alias ll='ls -alh'
 + export PATH="$PATH:$HOME/.local/bin:$PATH"
 ```
-</div>
 
 ## SSH Configurations
 
-<div class="chat-transcript" markdown="1">
 $ cecli ~/.ssh/config
 
 Added config to the chat.
@@ -48,11 +41,9 @@ Added config to the chat.
 +     IdentityFile ~/.ssh/deploy_key
 +     ProxyJump bastion.example.com
 ```
-</div>
 
 ## Docker Setup
 
-<div class="chat-transcript" markdown="1">
 $ cecli Dockerfile docker-compose.yml
 
 Added Dockerfile and docker-compose.yml to the chat.
@@ -76,11 +67,9 @@ Added Dockerfile and docker-compose.yml to the chat.
 +     volumes:
 +       - pgdata:/var/lib/postgresql/data
 ```
-</div>
 
 ## Git Configuration
 
-<div class="chat-transcript" markdown="1">
 $ cecli .gitconfig
 
 Added .gitconfig to the chat.
@@ -93,10 +82,8 @@ Added .gitconfig to the chat.
 + [color]
 +     ui = auto
 ```
-</div>
 
 ## System Configuration
-<div class="chat-transcript" markdown="1">
 $ cecli /etc/hosts  # May need sudo
 
 Added hosts to the chat.
@@ -107,11 +94,9 @@ Added hosts to the chat.
 + 127.0.0.1   ads.example.com
 + 127.0.0.1   track.analytics.co
 ```
-</div>
 
 
 ## Editor Configs
-<div class="chat-transcript" markdown="1">
 $ cecli .vimrc
 
 Added .vimrc to the chat.
@@ -122,10 +107,8 @@ Added .vimrc to the chat.
 + set number
 + autocmd FileType python set tabstop=4 shiftwidth=4 expandtab
 ```
-</div>
 
 ## VSCode Configuration
-<div class="chat-transcript" markdown="1">
 $ cecli settings.json
 
 Added settings.json to the chat.
@@ -136,10 +119,8 @@ Added settings.json to the chat.
 + "editor.formatOnSave": true,
 + "editor.defaultFormatter": "esbenp.prettier-vscode"
 ```
-</div>
 
 ## Markdown Documentation
-<div class="chat-transcript" markdown="1">
 $ cecli README.md
 
 Added README.md to the chat.
@@ -157,10 +138,8 @@ Added README.md to the chat.
 + pipx install cool-app-10k
 + ```
 ```
-</div>
 
 ## XML Configuration
-<div class="chat-transcript" markdown="1">
 $ cecli pom.xml
 
 Added pom.xml to the chat.
@@ -174,6 +153,5 @@ Added pom.xml to the chat.
 +     <scope>test</scope>
 + </dependency>
 ```
-</div>
 
 

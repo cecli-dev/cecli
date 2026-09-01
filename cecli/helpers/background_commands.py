@@ -12,6 +12,10 @@ import threading
 from collections import deque
 from typing import Dict, List, Optional, Tuple
 
+import xxhash
+
+from cecli.decoding import safe_open
+
 try:
     import pty
     import termios
@@ -181,6 +185,31 @@ class BackgroundProcess:
             def _strip_ansi(text: str) -> str:
                 return _ansi_escape.sub("", text)
 
+            def _pump(stream, use_readline=False, strip_ansi=False):
+                """Blocking read pump for a single output stream.
+
+                Uses a blocking read instead of non-blocking reads + polling,
+                so it consumes no CPU while idle and works identically on
+                Linux, macOS, and Windows (select/os.set_blocking are
+                socket-only on Windows and cannot be used on pipes there).
+                """
+                while not self._stop_event.is_set():
+                    try:
+                        if use_readline:
+                            # Fallback when fileno() is unavailable
+                            # (e.g. mock objects in tests)
+                            data = stream.readline()
+                        else:
+                            data = os.read(stream.fileno(), 4096).decode(errors="replace")
+                    except (OSError, EOFError, ValueError):
+                        break
+                    if not data:
+                        # EOF: the process exited or the stream closed
+                        break
+                    if strip_ansi:
+                        data = _strip_ansi(data)
+                    self.buffer.append(data)
+
             try:
                 if self.master_fd is not None:
                     while not self._stop_event.is_set():
@@ -193,64 +222,49 @@ class BackgroundProcess:
                         except (OSError, EOFError):
                             break
                 else:
-                    has_stdout_fileno = hasattr(self.process.stdout, "fileno")
-                    if has_stdout_fileno:
-                        os.set_blocking(self.process.stdout.fileno(), False)
-                    while not self._stop_event.is_set():
-                        try:
-                            if has_stdout_fileno:
-                                # Use os.read() instead of readline() to capture
-                                # partial line output (e.g. REPL prompts without newlines)
-                                data = os.read(self.process.stdout.fileno(), 4096).decode(
-                                    errors="replace"
-                                )
-                            else:
-                                # Fallback to readline when fileno() is unavailable
-                                # (e.g. mock objects in tests)
-                                data = self.process.stdout.readline()
-                            if data:
-                                self.buffer.append(data)
-                            else:
-                                # Check if process died
-                                if not self.is_alive():
-                                    if has_stdout_fileno:
-                                        # Read any remaining data
-                                        try:
-                                            remaining = os.read(
-                                                self.process.stdout.fileno(), 4096
-                                            ).decode(errors="replace")
-                                            if remaining:
-                                                self.buffer.append(remaining)
-                                        except (OSError, EOFError):
-                                            pass
-                                    break
-                                import time
-
-                                time.sleep(0.05)
-                        except (OSError, EOFError, ValueError):
-                            if not self.is_alive():
-                                break
-                            import time
-
-                            time.sleep(0.05)
-
-                    # Also capture stderr (best-effort, non-blocking)
+                    # Pipe mode: spawn one blocking pump per stream so stderr
+                    # cannot fill up while stdout is being read. Pumps use
+                    # blocking reads and stop on EOF, which stop() triggers by
+                    # terminating the process (closing the pipe write ends).
+                    # A grandchild that inherits those write ends keeps a pump
+                    # alive until it exits (bounded by the daemon thread and
+                    # self-healing).
+                    pumps = []
+                    if hasattr(self.process.stdout, "fileno"):
+                        # Use os.read() instead of readline() to capture
+                        # partial line output (e.g. REPL prompts without newlines)
+                        pumps.append(
+                            threading.Thread(
+                                target=_pump,
+                                args=(self.process.stdout,),
+                                daemon=True,
+                            )
+                        )
+                    else:
+                        # Fallback to readline when fileno() is unavailable
+                        # (e.g. mock objects in tests)
+                        pumps.append(
+                            threading.Thread(
+                                target=_pump,
+                                args=(self.process.stdout, True),
+                                daemon=True,
+                            )
+                        )
                     if hasattr(self.process.stderr, "fileno"):
-                        try:
-                            os.set_blocking(self.process.stderr.fileno(), False)
-                            while True:
-                                try:
-                                    err_data = os.read(self.process.stderr.fileno(), 4096).decode(
-                                        errors="replace"
-                                    )
-                                    if not err_data:
-                                        break
-                                    self.buffer.append(err_data)
-                                except (OSError, EOFError):
-                                    break
-                        except Exception:
-                            pass
+                        # Best-effort stderr capture
+                        pumps.append(
+                            threading.Thread(
+                                target=_pump,
+                                args=(self.process.stderr,),
+                                daemon=True,
+                            )
+                        )
 
+                    for pump_thread in pumps:
+                        pump_thread.start()
+
+                    for pump_thread in pumps:
+                        pump_thread.join()
             except Exception as e:
                 self.buffer.append(f"\n[Error reading process output: {str(e)}]\n")
 
@@ -407,7 +421,8 @@ class BackgroundCommandManager:
             Unique command key
         """
         with cls._lock:
-            key = f"bg_{cls._next_id}_{hash(command) % 10000:04d}"
+            digest = xxhash.xxh64(command.encode("utf-8")).intdigest()
+            key = f"bg_{cls._next_id}_{digest % 10000:04d}"
             cls._next_id += 1
             return key
 
@@ -767,6 +782,8 @@ class BackgroundCommandManager:
         Returns:
             Tuple of (folder path, rel file paths list, alias paths list), or None if output fits in one page.
         """
+        import math
+
         if not output or len(output) <= page_size:
             return None
 
@@ -774,14 +791,14 @@ class BackgroundCommandManager:
         abs_folder = abs_root_path_func(folder_path)
         os.makedirs(abs_folder, exist_ok=True)
 
-        num_pages = (len(output) + page_size - 1) // page_size
+        num_pages = math.ceil((len(output) + page_size - 1) // page_size)
 
         for i in range(num_pages):
             page_num = i + 1
             filename = f"{page_num}.txt"
             abs_path = os.path.join(abs_folder, filename)
             page_content = output[i * page_size : (i + 1) * page_size]
-            with open(abs_path, "w") as f:
+            with safe_open(abs_path, "w") as f:
                 f.write(page_content)
 
         file_paths = [f"{folder_path}/{page_num}.txt" for page_num in range(1, num_pages + 1)]

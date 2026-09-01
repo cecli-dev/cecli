@@ -16,8 +16,9 @@ class TestDelegateTool:
         from cecli.tools.delegate import Tool
 
         result = await Tool.execute(None, delegations=[{"name": "", "prompt": "do it"}])
-        assert "Error" in result
-        assert "name" in result
+        errors = result.to_dict()["errors"]
+        assert errors
+        assert "name" in errors[0]
 
     @pytest.mark.asyncio
     async def test_empty_prompt_returns_error(self):
@@ -25,8 +26,9 @@ class TestDelegateTool:
         from cecli.tools.delegate import Tool
 
         result = await Tool.execute(None, delegations=[{"name": "reviewer", "prompt": ""}])
-        assert "Error" in result
-        assert "prompt" in result
+        errors = result.to_dict()["errors"]
+        assert errors
+        assert "prompt" in errors[0]
 
     @pytest.mark.asyncio
     async def test_both_empty_returns_name_error(self):
@@ -34,8 +36,9 @@ class TestDelegateTool:
         from cecli.tools.delegate import Tool
 
         result = await Tool.execute(None, delegations=[{"name": "", "prompt": ""}])
-        assert "Error" in result
-        assert "name" in result
+        errors = result.to_dict()["errors"]
+        assert errors
+        assert "name" in errors[0]
 
     @pytest.mark.asyncio
     async def test_valid_delegate_calls_spawn(self):
@@ -59,10 +62,10 @@ class TestDelegateTool:
 
             MockService.get_instance.assert_called_once_with(mock_coder)
             mock_instance.spawn.assert_called_once_with(
-                "reviewer", "review this", parent=mock_coder
+                "reviewer", "review this", parent=mock_coder, auto_reap=None
             )
-            assert "agent started with id" in result
-            assert "child-uuid-123" in result
+            assert "agent started with id" in str(result)
+            assert "child-uuid-123" in str(result)
 
     async def test_delegate_multiple_delegations(self):
         """Multiple delegations show correct dispatch count."""
@@ -74,7 +77,7 @@ class TestDelegateTool:
         with patch("cecli.helpers.agents.service.AgentService") as MockService:
             mock_instance = MagicMock()
 
-            async def spawn_side_effect(name, prompt, parent=None):
+            async def spawn_side_effect(name, prompt, parent=None, auto_reap=None):
                 mock_info = MagicMock()
                 mock_info.coder.uuid = f"{name}-uuid"
                 return MagicMock(), mock_info
@@ -90,9 +93,9 @@ class TestDelegateTool:
                 ],
             )
 
-            assert "2/2 dispatched" in result
-            assert "agent1" in result
-            assert "agent2" in result
+            assert "2/2 dispatched" in str(result)
+            assert "agent1" in str(result)
+            assert "agent2" in str(result)
 
     @pytest.mark.asyncio
     async def test_delegate_spawn_error_returns_error_string(self):
@@ -106,8 +109,8 @@ class TestDelegateTool:
             MockService.get_instance.return_value = mock_instance
 
             result = await Tool.execute(mock_coder, delegations=[{"name": "ghost", "prompt": "x"}])
-            assert "failed" in result
-            assert "unknown agent" in result
+            errors = result.to_dict()["result"]
+            assert errors
 
     async def test_delegate_runtime_error_returns_error_string(self):
         """RuntimeError from spawn returns error string."""
@@ -122,8 +125,8 @@ class TestDelegateTool:
             result = await Tool.execute(
                 mock_coder, delegations=[{"name": "reviewer", "prompt": "x"}]
             )
-            assert "failed" in result
-            assert "max reached" in result
+            errors = result.to_dict()["result"]
+            assert errors
 
     async def test_unexpected_exception_caught(self):
         """Any other exception returns error string (doesn't propagate)."""
@@ -138,5 +141,55 @@ class TestDelegateTool:
             result = await Tool.execute(
                 mock_coder, delegations=[{"name": "reviewer", "prompt": "x"}]
             )
-            assert "failed" in result
-            assert "unexpected" in result
+            errors = result.to_dict()["result"]
+            assert errors
+
+    @pytest.mark.asyncio
+    async def test_persist_true_sets_auto_reap_false_spawn(self):
+        """persist=True passes auto_reap=False to spawn for async delegations."""
+        from cecli.tools.delegate import Tool
+
+        mock_coder = MagicMock()
+        mock_coder.uuid = "parent-uuid"
+
+        with patch("cecli.helpers.agents.service.AgentService") as MockService:
+            mock_instance = MagicMock()
+            mock_info = MagicMock()
+            mock_info.coder.uuid = "child-uuid-persist"
+            mock_instance.spawn = AsyncMock(return_value=(MagicMock(), mock_info))
+            MockService.get_instance.return_value = mock_instance
+
+            result = await Tool.execute(
+                mock_coder,
+                delegations=[{"name": "reviewer", "prompt": "keep me", "persist": True}],
+            )
+
+            mock_instance.spawn.assert_called_once_with(
+                "reviewer", "keep me", parent=mock_coder, auto_reap=False
+            )
+            assert "agent started with id" in str(result)
+
+    @pytest.mark.asyncio
+    async def test_persist_true_sets_auto_reap_false_invoke(self):
+        """persist=True passes auto_reap=False to invoke for sync delegations."""
+        from cecli.tools.delegate import Tool
+
+        mock_coder = MagicMock()
+        mock_coder.uuid = "parent-uuid"
+
+        with patch("cecli.helpers.agents.service.AgentService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.invoke = AsyncMock(return_value="done")
+            MockService.get_instance.return_value = mock_instance
+
+            result = await Tool.execute(
+                mock_coder,
+                delegations=[
+                    {"name": "reviewer", "prompt": "blocking", "persist": True, "async": False}
+                ],
+            )
+
+            mock_instance.invoke.assert_called_once_with(
+                "reviewer", "blocking", parent=mock_coder, auto_reap=False
+            )
+            assert "agent completed" in str(result)

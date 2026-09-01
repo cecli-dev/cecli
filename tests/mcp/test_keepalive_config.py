@@ -7,7 +7,7 @@ import pytest
 
 from cecli.mcp.manager import McpServerManager
 from cecli.mcp.server import HttpStreamingServer
-from tests.mcp.conftest import ServerStateInspector
+from tests.mcp.conftest import ServerStateInspector, _mock_transport_streams
 
 
 class TestKeepaliveConfigurationValidation:
@@ -100,27 +100,28 @@ class TestKeepaliveConfigurationValidation:
         }
 
         server = HttpStreamingServer(config, io=MagicMock())
+        server._create_oauth_provider = AsyncMock()
 
         with (
             patch("cecli.mcp.server.ClientSession") as MockSession,
             patch("cecli.mcp.server.streamable_http_client") as mock_transport,
-            patch("httpx.AsyncClient") as MockAsyncClient,
+            patch("cecli.mcp.server._get_http_client_module") as mock_get_http_module,
         ):
-            # Setup mock HTTP client to capture constructor args
+            # Setup mock HTTP client module to capture constructor args
             mock_http_client = AsyncMock()
-            MockAsyncClient.return_value = mock_http_client
+            mock_http_module = MagicMock()
+            mock_http_module.AsyncClient = MagicMock(return_value=mock_http_client)
+            mock_get_http_module.return_value = mock_http_module
 
             # Setup mock session
             mock_session = AsyncMock()
             mock_session.initialize = AsyncMock()
             MockSession.return_value = mock_session
 
-            # Setup mock transport
-            mock_read = AsyncMock()
-            mock_write = AsyncMock()
+            # Setup mock transport with version-appropriate stream tuple
             mock_transport.return_value = AsyncMock()
             mock_transport.return_value.__aenter__ = AsyncMock(
-                return_value=(mock_read, mock_write, None)
+                return_value=_mock_transport_streams()
             )
 
             await server.connect()
@@ -130,14 +131,20 @@ class TestKeepaliveConfigurationValidation:
             inspector = ServerStateInspector()
             assert inspector.is_keepalive_running(server)
 
-            # Verify httpx.AsyncClient was created with auth headers
-            MockAsyncClient.assert_called_once()
-            call_kwargs = MockAsyncClient.call_args.kwargs
+            # Static headers mean no OAuth provider should be created
+            server._create_oauth_provider.assert_not_awaited()
+
+            # Verify AsyncClient was created with the auth headers (and no auth)
+            mock_http_module.AsyncClient.assert_called_once()
+            call_kwargs = mock_http_module.AsyncClient.call_args.kwargs
             assert (
                 "headers" in call_kwargs
             ), f"Expected 'headers' in AsyncClient kwargs, got: {list(call_kwargs.keys())}"
             assert call_kwargs["headers"] == {
                 "Authorization": "Bearer test-token"
             }, f"Expected auth header, got: {call_kwargs['headers']}"
+            assert (
+                call_kwargs["auth"] is None
+            ), f"Expected no auth when static headers are set, got: {call_kwargs['auth']}"
 
             await server.disconnect()

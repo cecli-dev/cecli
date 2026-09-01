@@ -9,7 +9,9 @@ You'll need a [xAI API key](https://console.x.ai.).
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 
@@ -40,14 +42,8 @@ cecli --model xai/grok-3-mini-fast-beta
 cecli --list-models xai/
 ```
 
-The Grok 3 Mini models support the `--reasoning-effort` flag.
-See the [reasoning settings documentation](../config/reasoning.md) for details.
-Example:
+The Grok 3 Mini models support the `--reasoning-effort` flag. See the [reasoning settings documentation](../config/reasoning.md) for details. Example:
 
 ```bash
 cecli --model xai/grok-3-mini-beta --reasoning-effort high
 ```
-
-
-
-

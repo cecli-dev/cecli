@@ -40,7 +40,7 @@ async def install_upgrade(io, latest_version=None):
         io.tool_warning(text)
         return True
     success = await utils.check_pip_install_extra(
-        io, None, new_ver_text, ["cecli-dev"], self_update=True
+        io, None, new_ver_text, cmd=utils.get_self_upgrade_command(), self_update=True
     )
     if success:
         io.tool_output("Re-run cecli to use new version.")
@@ -48,8 +48,8 @@ async def install_upgrade(io, latest_version=None):
     return
 
 
-async def check_version(io, just_check=False, verbose=False):
-    if not just_check and VERSION_CHECK_FNAME.exists():
+async def check_version(io, just_check=False, verbose=False, upgrade=False):
+    if not just_check and not upgrade and VERSION_CHECK_FNAME.exists():
         day = 60 * 60 * 24
         since = time.time() - os.path.getmtime(VERSION_CHECK_FNAME)
         if 0 < since < day:
@@ -66,10 +66,8 @@ async def check_version(io, just_check=False, verbose=False):
         current_version = cecli.__version__
         if just_check or verbose:
             io.tool_output(f"Current version: {current_version}")
-            io.tool_output(f"Latest version: {latest_version}")
-        is_update_available = (
-            packaging.version.parse(latest_version).release
-            > packaging.version.parse(current_version).release
+        is_update_available = packaging.version.parse(latest_version) > packaging.version.parse(
+            current_version
         )
     except Exception as err:
         io.tool_error(f"Error checking pypi for new version: {err}")

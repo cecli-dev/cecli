@@ -7,269 +7,173 @@ layout: none
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cecli - a terminal agent</title>
+    <link rel="icon" href="/assets/cecli-temp-logo-favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap&text=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,/()%25&display=fallback">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap&display=fallback">
     <link rel="stylesheet" href="/assets/styles.css">
-    <!-- Add Prism.js CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
     <!-- Material Design Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/css/materialdesignicons.min.css">
 </head>
 <body>
-    <header>
-        <div class="container">
-            <nav>
-                <a href="#" class="logo" id="logo-container">cecli</a>
-                <div class="nav-links">
-                    <a href="/docs/">Documentation</a>
-                    <a href="https://discord.gg/AX9ZEA7nJn">Discord</a>
-                    <a href="https://github.com/dwash96/cecli">GitHub</a>
-                    <a href="https://ko-fi.com/cecli">Support</a>
-                </div>
-            </nav>
-        </div>
-    </header>
-    
-    <section class="hero">
-        <div class="container">
-            <div class="hero-grid">
-                <div class="hero-content">
-                    <h1>An ode to the CLI</h1>
-                    <p>
-                        Here, we spoke to the machine<br>
-                        Now, the machine speaks back<br>
-                        So we journey, together
-                    </p>
-                    
-                    <div class="buttons">
-                        <a href="#getting-started" class="btn btn-primary">Get Started</a>
-                        <a href="/docs/install.html" class="btn btn-secondary">Installation Guide</a>
-                        <a href="/docs/" class="btn btn-secondary">Documentation</a>
-                    </div>
-                </div>
-                
+    <nav class="nav">
+        <div class="nav-pill">
+            <a href="/" class="nav-logo" aria-label="cecli home">
+                <img class="nav-logo-mark" src="/assets/cecli-temp-logo-favicon.svg" alt="" width="24" height="24">
+            </a>
+            <div class="nav-links">
+                <a href="/docs/">Documentation</a>
+                <a href="https://discord.gg/AX9ZEA7nJn">Discord</a>
+                <a href="https://ko-fi.com/cecli">Support</a>
+            </div>
+            <div class="nav-actions">
+                <a href="https://github.com/cecli-dev/cecli" class="nav-icon" aria-label="GitHub"><i class="mdi mdi-github"></i></a>
             </div>
         </div>
-    </section>
-    
-    <section class="features" id="features">
-        <div class="container">
-            <h2 class="section-title">Features</h2>
-            <div class="feature-grid">
-                <a href="/docs/llms.html" class="feature-card">
-                    <div class="feature-card-header">
+    </nav>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <a class="announcement" href="/docs/">
+                    <span class="announcement-dot"></span>
+                    Read the docs
+                    <span class="announcement-arrow">→</span>
+                </a>
+<h1 class="ascii-heading"><span class="ascii-art">
+                     ▒▒╗▒▒╗
+ ▒▒▒▒▒╗ ▒▒▒▒▒╗ ▒▒▒▒▒╗▒▒║╚═╝
+▒▒╔═══╝▒▒▓▓▓▒║▒▒╔═══╝▒▒║▒▒╗
+▒▒║    ▒▒╔═══╝▒▒║    ▒▒║▒▒║
+╚▒▒▒▒▒╗╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒║▒▒║
+ ╚════╝ ╚════╝ ╚════╝╚═╝╚═╝</span><small class="hero-tagline">For Nerds, Geeks, and the Extremely Curious</small></h1>
+                <p class="hero-sub">
+                    There are many terminal agents, but there's also this one✌️
+                </p>
+                <div class="hero-actions">
+                    <a href="/docs/install/" class="btn btn-primary">Get Started</a>
+                    <div class="command-pill"><span class="prompt">$</span> uv pip install cecli-dev</div>
+                </div>
+                <div class="stats">
+                    <div class="stat"><strong>100+</strong><span>Supported Models</span></div>
+                    <div class="stat"><strong>&gt;90%</strong><span>Cache Hit Rate</span></div>
+                    <div class="stat"><strong>3.10–3.14</strong><span>Python support</span></div>
+                    <div class="stat"><strong>100%</strong><span>Open source</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="terminal" aria-label="Installation example">
+            <div class="container">
+                <div class="terminal-card">
+                    <div class="terminal-chrome">
+                        <span class="terminal-dot red"></span>
+                        <span class="terminal-dot yellow"></span>
+                        <span class="terminal-dot green"></span>
+                        <span class="terminal-tab active">terminal</span>
+                        <span class="terminal-version">cecli</span>
+                    </div>
+                    <div class="terminal-body">
+                        <div class="term-line"><span class="prompt">$</span> uv pip install cecli-dev</div>
+                        <div class="term-line ok"><span class="check">✓</span> Installed cecli</div>
+                        <div class="term-line spacer"></div>
+                        <div class="term-line"><span class="prompt">$</span> cd /to/your/project</div>
+                        <div class="term-line spacer"></div>
+                        <div class="term-line"><span class="prompt">$</span> cecli --model claude-sonnet-5 --api-key anthropic=&lt;key&gt;</div>
+                        <div class="term-line ok"><span class="check">→</span> Ready. Ask cecli to fix a bug, add a feature, or write tests.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features" id="features">
+            <div class="container">
+                <h2 class="section-title">Features</h2>
+                <p class="section-desc">Built for autonomous, context-aware software work.</p>
+                <div class="feature-grid">
+                    <a href="/docs/config/agent-mode/" class="feature-card">
+                        <i class="mdi mdi-robot-outline feature-icon"></i>
+                        <h3 class="feature-title">Autonomous agent mode</h3>
+                        <p>Plans and executes multi-step work with explicit tools and controls.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/config/hooks/" class="feature-card">
+                        <i class="mdi mdi-hook feature-icon"></i>
+                        <h3 class="feature-title">Extensible hooks</h3>
+                        <p>Run custom logic before and after agent actions to fit your workflow.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/usage/" class="feature-card">
+                        <i class="mdi mdi-magnify-scan feature-icon"></i>
+                        <h3 class="feature-title">Context discovery</h3>
+                        <p>Finds the relevant code and files instead of making you curate context.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/config/subagents/" class="feature-card">
+                        <span><i class="mdi mdi-robot-outline feature-icon"></i><i class="mdi mdi-robot-outline feature-icon"></i></span>
+                        <h3 class="feature-title">Subagents</h3>
+                        <p>Delegate focused investigations and tasks without losing the main thread.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/config/persistent-memory/" class="feature-card">
                         <i class="mdi mdi-brain feature-icon"></i>
-                        <h3 class="feature-title">
-                            Cloud and local LLMs
-                        </h3>
-                    </div>
-                    <p>cecli works best with Claude 4.5 Sonnet, DeepSeek V4, OpenAI GPT-5.2 &amp; Gemini 3, but can connect to almost any LLM, including local models.</p>
-                </a>
-                <a href="/docs/repomap.html" class="feature-card">
-                    <div class="feature-card-header">
+                        <h3 class="feature-title">Persistent memory</h3>
+                        <p>Preserves useful project decisions and context across longer-running work.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/repomap/" class="feature-card">
                         <i class="mdi mdi-map-outline feature-icon"></i>
-                        <h3 class="feature-title">Maps your codebase</h3>
-                    </div>
-                    <p>
-                        cecli makes a map of your entire codebase,
-                        which helps it work well in larger projects.
-                    </p>
-                </a>
-                <a href="/docs/languages.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-code-tags feature-icon"></i>
-                        <h3 class="feature-title">100+ code languages</h3>
-                    </div>
-                    <p>
-                        cecli works with most popular programming
-                        languages: python, javascript, rust, ruby, go, cpp,
-                        php, html, css, and dozens more.
-                    </p>
-                </a>
-                <a href="/docs/git.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-source-branch feature-icon"></i>
-                        <h3 class="feature-title">Git integration</h3>
-                    </div>
-                    <p>
-                        cecli automatically commits changes with
-                        sensible commit messages.
-                        Use familiar git tools to easily
-                        diff, manage and undo AI changes.
-                    </p>
-                </a>
-                <a href="/docs/usage/watch.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-monitor feature-icon"></i>
-                        <h3 class="feature-title">In your IDE</h3>
-                    </div>
-                    <p>
-                        Use cecli from within your favorite IDE or editor.
-                        Ask for changes by adding comments to
-                        your code and cecli will get to work.
-                    </p>
-                </a>
-                <a href="/docs/usage/images-urls.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-image-multiple feature-icon"></i>
-                        <h3 class="feature-title">Images &amp; web pages</h3>
-                    </div>
-                    <p>
-                        Add images and web pages to the chat to
-                        provide visual context, screenshots, reference docs,
-                        etc.
-                    </p>
-                </a>
-                <a href="/docs/usage/voice.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-microphone feature-icon"></i>
-                        <h3 class="feature-title">Voice-to-code</h3>
-                    </div>
-                    <p>
-                        Speak with cecli about your code! Request new features, 
-                        test cases or bug fixes using your voice and let cecli
-                        implement the changes.
-                    </p>
-                </a>
-                <a href="/docs/usage/lint-test.html" class="feature-card">
-                    <div class="feature-card-header">
+                        <h3 class="feature-title">Repository maps</h3>
+                        <p>Builds a concise map of your codebase to navigate larger projects.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>                    
+                    <a href="/docs/config/skills/" class="feature-card">
+                        <i class="mdi mdi-puzzle-outline feature-icon"></i>
+                        <h3 class="feature-title">Custom skills</h3>
+                        <p>Give the agent reusable, domain-specific capabilities when it needs them.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
+                    <a href="/docs/usage/lint-test/" class="feature-card">
                         <i class="mdi mdi-check-all feature-icon"></i>
-                        <h3 class="feature-title">Linting &amp; testing</h3>
-                    </div>
-                    <p>
-                        Automatically lint and test your code every time cecli makes changes.
-                        cecli can fix problems detected by your linters and test suites.
-                    </p>
-                </a>
-                <a href="/docs/usage/copypaste.html" class="feature-card">
-                    <div class="feature-card-header">
-                        <i class="mdi mdi-content-copy feature-icon"></i>
-                        <h3 class="feature-title">Copy/paste to web chat</h3>
-                    </div>
-                    <p>
-                        cecli works best with LLM APIs,
-                        but it can also work an LLM via its web chat interface.
-                        cecli streamlines copy/pasting code
-                        back and forth with a browser.
-                    </p>
-                </a>
-            </div>
-        </div>
-    </section>
-    
-    <section class="models" id="getting-started">
-        <div class="container">
-            <h2 class="section-title">Getting Started</h2>
-            <div class="info-content">
-                <div class="code-block">
-                    <pre><code class="language-bash">uv pip install cecli-dev
-
-# Change directory into your codebase
-cd /to/your/project
-# Claude 4.5 Sonnet
-cecli --model claude-sonnet-4-5 --api-key anthropic=&lt;key&gt;
-
-# Gemini 3
-cecli --model gemini/gemini-3-flash-preview --api-key gemini=&lt;key&gt;
-
-# GPT-5.2
-cecli --model openai/gpt-5.2 --api-key openai=&lt;key&gt;
-
-# DeepSeek Chat
-cecli --model deepseek/deepseek-chat --api-key deepseek=&lt;key&gt;
-</code></pre>
-                </div>
-                <div class="cta-container">
-                  <p class="cta-text">Want more details?</p>
-                  <div class="cta-buttons">
-                    <a href="/docs/install.html" class="btn btn-secondary">Installation Guide</a>
-                    <a href="/docs/usage.html" class="btn btn-secondary">Usage Guide</a>
-                  </div>
+                        <h3 class="feature-title">Change validation</h3>
+                        <p>Run linters and tests, then feed the results back into the agent loop.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>                    
+                    <a href="/docs/config/tui/" class="feature-card">
+                        <i class="mdi mdi-console-line feature-icon"></i>
+                        <h3 class="feature-title">Expressive TUI</h3>
+                        <p>Peer into the mind of the agent and fully monitor the situation.</p>
+                        <span class="feature-link">Docs →</span>
+                    </a>
                 </div>
             </div>
-        </div>
-    </section>
-    
+        </section>
 
-
-
-
-
-
-    
-    <section class="info-section" id="more-info">
-        <div class="container">
-            <h2 class="section-title">More Information</h2>
-            <div class="info-columns">
-                <div class="info-column">
-                    <h3 class="info-column-title">Documentation</h3>
-                    <p class="info-column-desc">Everything you need to get started and make the most of cecli</p>
-                    <ul class="info-list">
-                        <li><a href="/docs/install.html">Installation Guide</a></li>
-                        <li><a href="/docs/install.html">Usage Guide</a></li>
-                        <li><a href="/docs/usage/tutorials.html">Tutorial Videos</a></li>
-                        <li><a href="/docs/llms.html">Connecting to LLMs</a></li>
-                        <li><a href="/docs/config.html">Configuration Options</a></li>
-                        <li><a href="/docs/troubleshooting.html">Troubleshooting</a></li>
-                        <li><a href="/docs/faq.html">FAQ</a></li>
-                    </ul>
-                </div>
-                <div class="info-column">
-                    <h3 class="info-column-title">Community &amp; Resources</h3>
-                    <p class="info-column-desc">Connect with other users and find additional resources</p>
-                    <ul class="info-list">
-                        <li><a href="/docs/leaderboards/">LLM Leaderboards</a></li>
-                        <li><a href="https://github.com/dwash96/cecli">GitHub Repository</a></li>
-                        <li><a href="https://discord.gg/AX9ZEA7nJn">Discord Community</a></li>
-                        <li><a href="https://cecli.dev/HISTORY.html">Release notes</a></li>
-
-                    </ul>
+        <section class="more" id="more-info">
+            <div class="container">
+                <div class="more-links">
+                    <a href="/docs/install/">Installation</a>
+                    <a href="/docs/usage/">Usage</a>
+                    <a href="/docs/llms/">Connecting to LLMs</a>
+                    <a href="/docs/config/">Configuration</a>
+                    <a href="/docs/troubleshooting/">Troubleshooting</a>
+                    <a href="/docs/leaderboards/">Leaderboards</a>
                 </div>
             </div>
-        </div>
-    </section>
-    
-    <footer>
-        <div class="container">
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <span class="footer-brand">cecli</span>
             <div class="footer-links">
-                <a href="/docs/install.html">Documentation</a>
-                <a href="https://github.com/dwash96/cecli">GitHub</a>
+                <a href="/docs/">Documentation</a>
+                <a href="https://github.com/cecli-dev/cecli">GitHub</a>
                 <a href="https://discord.gg/AX9ZEA7nJn">Discord</a>
             </div>
         </div>
     </footer>
-    
-    <!-- Add Prism.js for syntax highlighting -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    
-    <!-- Logo Progressive Enhancement -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const logoContainer = document.getElementById('logo-container');
-            const textContent = logoContainer.textContent; // Save the text for fallback
-            
-            // Create new image element
-            const logoImg = new Image();
-            logoImg.src = '/assets/cecli-temp-logo.svg';
-            logoImg.alt = 'Cecli Logo';
-            logoImg.style.height = '3rem';
-            logoImg.style.verticalAlign = 'middle';
-            
-            // Only replace if image loads successfully
-            logoImg.onload = function() {
-                logoContainer.textContent = ''; // Clear text
-                logoContainer.appendChild(logoImg);
-            };
-            
-            // If image fails to load, do nothing (keep the text)
-            logoImg.onerror = function() {
-                console.log('SVG logo failed to load, keeping text fallback');
-            };
-        });
-    </script>
 </body>
 </html>

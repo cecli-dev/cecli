@@ -1,9 +1,12 @@
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp.types import Tool as McpTool
 
 from cecli.mcp.manager import McpServerManager
-from cecli.mcp.server import LocalServer, McpServer
+from cecli.mcp.server import LocalServer, McpServer, _get_mcp_major_version
 
 
 @pytest.fixture
@@ -37,17 +40,54 @@ def mock_local_server():
     return server
 
 
+def _mcp_tools_from_openai_schemas(schemas):
+    """Build mcp Tool objects from OpenAI function schema dicts (version-aware)."""
+    tools = []
+    for schema in schemas:
+        function = schema["function"]
+        if _get_mcp_major_version() >= 2:
+            tools.append(
+                McpTool(
+                    name=function["name"],
+                    description=function["description"],
+                    input_schema=function["parameters"],
+                )
+            )
+        else:
+            tools.append(
+                McpTool(
+                    name=function["name"],
+                    description=function["description"],
+                    inputSchema=function["parameters"],
+                )
+            )
+    return tools
+
+
 @pytest.fixture
 def mock_tools():
+    """Expected OpenAI-format tool dicts stored by connect_server."""
     return [
         {
+            "type": "function",
             "function": {
                 "name": "test_tool",
                 "description": "A test tool",
-                "parameters": {},
-            }
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+                "strict": False,
+            },
         }
     ]
+
+
+@pytest.fixture
+def mock_session(mock_tools):
+    """Mock session whose list_tools() yields mcp Tools matching mock_tools."""
+    session = MagicMock()
+    session.list_tools = AsyncMock(
+        return_value=SimpleNamespace(tools=_mcp_tools_from_openai_schemas(mock_tools))
+    )
+    return session
 
 
 class TestMcpServerManager:
@@ -129,20 +169,17 @@ class TestMcpServerManager:
             assert manager._server_tools["Local"] == [{"name": "local_tool"}]
 
     @pytest.mark.asyncio
-    async def test_connect_server_success(self, mock_server, mock_tools):
+    async def test_connect_server_success(self, mock_server, mock_tools, mock_session):
         manager = McpServerManager(servers=[mock_server])
-        mock_session = MagicMock()
         mock_server.connect.return_value = mock_session
 
-        with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-            mock_load_tools.return_value = mock_tools
-            result = await manager.connect_server("test-server")
+        result = await manager.connect_server("test-server")
 
-            assert result is True
-            mock_server.connect.assert_called_once()
-            mock_load_tools.assert_called_once_with(session=mock_session, format="openai")
-            assert mock_server in manager._connected_servers
-            assert manager._server_tools["test-server"] == mock_tools
+        assert result is True
+        mock_server.connect.assert_called_once()
+        mock_session.list_tools.assert_awaited_once()
+        assert mock_server in manager._connected_servers
+        assert manager._server_tools["test-server"] == mock_tools
 
     @pytest.mark.asyncio
     async def test_connect_server_failure(self, mock_server, mock_io):
@@ -224,6 +261,31 @@ class TestMcpServerManager:
         assert "server2" not in manager._server_tools
 
     @pytest.mark.asyncio
+    async def test_disconnect_all_cancelled_during_shutdown(self, mock_io):
+        server1 = MagicMock(spec=McpServer)
+        server1.name = "server1"
+        started = asyncio.Event()
+
+        async def blocking_disconnect():
+            started.set()
+            await asyncio.Event().wait()
+
+        server1.disconnect = blocking_disconnect
+
+        manager = McpServerManager(servers=[server1], io=mock_io, verbose=True)
+        manager._connected_servers.add(server1)
+        manager._server_tools = {"server1": []}
+
+        # Simulate the task running disconnect_all being cancelled mid-gather
+        # (e.g. by an anyio cancel scope during program shutdown).
+        task = asyncio.create_task(manager.disconnect_all())
+        await started.wait()
+        task.cancel()
+
+        # Should complete without raising CancelledError.
+        assert await task is None
+
+    @pytest.mark.asyncio
     async def test_add_server_success(self, mock_server, mock_io):
         manager = McpServerManager(servers=[], io=mock_io, verbose=True)
 
@@ -286,21 +348,20 @@ class TestMcpServerManager:
         assert result is not tools  # Should be a copy
 
     @pytest.mark.asyncio
-    async def test_from_servers_creates_manager(self, mock_server, mock_io, mock_tools):
-        with patch("litellm.experimental_mcp_client.load_mcp_tools") as mock_load_tools:
-            mock_load_tools.return_value = mock_tools
-            mock_session = MagicMock()
-            mock_server.connect.return_value = mock_session
+    async def test_from_servers_creates_manager(
+        self, mock_server, mock_io, mock_tools, mock_session
+    ):
+        mock_server.connect.return_value = mock_session
 
-            manager = await McpServerManager.from_servers(
-                servers=[mock_server], io=mock_io, verbose=True
-            )
+        manager = await McpServerManager.from_servers(
+            servers=[mock_server], io=mock_io, verbose=True
+        )
 
-            assert isinstance(manager, McpServerManager)
-            assert manager._servers == [mock_server]
-            assert mock_server in manager._connected_servers
-            mock_server.connect.assert_called_once()
-            mock_load_tools.assert_called_once()
+        assert isinstance(manager, McpServerManager)
+        assert manager._servers == [mock_server]
+        assert mock_server in manager._connected_servers
+        mock_server.connect.assert_called_once()
+        mock_session.list_tools.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_from_servers_skips_disabled(self, mock_io):

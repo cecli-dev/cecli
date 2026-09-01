@@ -77,7 +77,12 @@ class ObservationService:
 
         self.is_processing = True
         try:
-            all_messages = ConversationService.get_manager(coder).get_messages_dict()
+            # Use the fully-formatted message dict (system prompt, rules, repo map,
+            # file contexts, and conversation) from format_chat_chunks() so that
+            # background observation requests share the same prompt prefix as the
+            # main chat and get a higher cache hit ratio. Pass a copy because
+            # summarize_all_as_text() appends the observation prompt in place.
+            all_messages = list(coder.format_chat_chunks())
             prompt = coder.gpt_prompts.observation_prompt
             if self.observations:
                 prompt += "\n\n---\nCURRENT OBSERVATIONS (Do not duplicate):\n\n"

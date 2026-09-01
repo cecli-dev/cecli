@@ -28,9 +28,10 @@ def tool_header(coder, mcp_server, tool_response, params=None):
         tool_response: a tool_response dictionary
     """
     color_start, color_end = color_markers(coder)
+    nl = "\n" if coder.io._last_type == "tool-footer" else ""
 
     coder.io.tool_output(
-        f"{color_start}Tool Call:{color_end} {mcp_server.name} • {tool_response.function.name}",
+        f"{nl}{color_start}Tool Call:{color_end} {mcp_server.name} • {tool_response.function.name}",
         type="Tool Call",
     )
 

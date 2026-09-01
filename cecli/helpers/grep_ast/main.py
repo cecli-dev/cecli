@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pathspec
 
+from cecli.decoding import safe_open
+
 from .dump import dump  # noqa: F401
 from .grep_ast import TreeContext
 from .parsers import PARSERS
@@ -79,7 +81,7 @@ def enumerate_files(fnames, spec, use_spec=False):
 
 def process_filename(filename, args):
     try:
-        with open(filename, "r", encoding=args.encoding) as file:
+        with safe_open(filename, "r") as file:
             code = file.read()
     except UnicodeDecodeError:
         return

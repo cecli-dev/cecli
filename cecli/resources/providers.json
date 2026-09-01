@@ -1,10 +1,83 @@
 {
+  "ai21": {
+    "api_base": "https://api.ai21.com/studio/v1",
+    "api_key_env": [
+      "AI21_API_KEY"
+    ],
+    "display_name": "ai21"
+  },
+  "anyscale": {
+    "api_base": "https://api.endpoints.anyscale.com/v1",
+    "api_key_env": [
+      "ANYSCALE_API_KEY"
+    ],
+    "display_name": "anyscale"
+  },
   "apertis": {
     "api_base": "https://api.stima.tech/v1",
     "api_key_env": [
       "STIMA_API_KEY"
     ],
     "display_name": "apertis"
+  },
+  "azure": {
+    "api_base": "https://{resource}.openai.azure.com/openai/deployments/{deployment}",
+    "api_key_env": [
+      "AZURE_API_KEY"
+    ],
+    "base_url_env": [
+      "AZURE_API_BASE"
+    ],
+    "display_name": "azure",
+    "extra_query": {
+      "api-version": "2024-10-21"
+    }
+  },
+  "azure_ai": {
+    "api_base": "https://{resource}.services.ai.azure.com",
+    "api_key_env": [
+      "AZURE_AI_API_KEY"
+    ],
+    "display_name": "azure_ai"
+  },
+  "baseten": {
+    "api_base": "https://inference.baseten.co/v1",
+    "api_key_env": [
+      "BASETEN_API_KEY"
+    ],
+    "display_name": "baseten"
+  },
+  "bedrock": {
+    "api_base": "https://bedrock-runtime.{region}.amazonaws.com",
+    "api_key_env": [
+      "AWS_ACCESS_KEY_ID"
+    ],
+    "display_name": "bedrock",
+    "supports_stream": false
+  },
+  "bedrock_mantle": {
+    "api_base": "https://bedrock-mantle.{region}.api.aws/v1",
+    "api_key_env": [
+      "BEDROCK_MANTLE_API_KEY"
+    ],
+    "base_url_env": [
+      "BEDROCK_MANTLE_API_BASE"
+    ],
+    "display_name": "bedrock_mantle"
+  },
+  "cerebras": {
+    "api_base": "https://api.cerebras.ai/v1",
+    "api_key_env": [
+      "CEREBRAS_API_KEY"
+    ],
+    "display_name": "cerebras"
+  },
+  "chatgpt": {
+    "api_base": "https://chatgpt.com/backend-api/codex",
+    "api_key_env": [
+      "CHATGPT_API_KEY"
+    ],
+    "display_name": "chatgpt"
   },
   "chutes": {
     "api_base": "https://llm.chutes.ai/v1/",
@@ -13,6 +86,110 @@
     ],
     "display_name": "chutes"
   },
+  "cloudflare": {
+    "account_id_env": "CLOUDFLARE_ACCOUNT_ID",
+    "api_base": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+    "api_key_env": [
+      "CLOUDFLARE_API_KEY"
+    ],
+    "display_name": "cloudflare",
+    "models_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/models"
+  },
+  "codestral": {
+    "api_base": "https://codestral.mistral.ai/v1",
+    "api_key_env": [
+      "CODESTRAL_API_KEY"
+    ],
+    "display_name": "codestral"
+  },
+  "crusoe": {
+    "api_base": "https://managed-inference-api-proxy.crusoecloud.com/v1",
+    "api_key_env": [
+      "CRUSOE_API_KEY"
+    ],
+    "base_url_env": [
+      "CRUSOE_API_BASE"
+    ],
+    "display_name": "crusoe"
+  },
+  "darkbloom": {
+    "api_base": "https://api.darkbloom.dev/v1",
+    "api_key_env": [
+      "DARKBLOOM_API_KEY"
+    ],
+    "base_url_env": [
+      "DARKBLOOM_API_BASE"
+    ],
+    "display_name": "darkbloom"
+  },
+  "dashscope": {
+    "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key_env": [
+      "DASHSCOPE_API_KEY"
+    ],
+    "display_name": "dashscope"
+  },
+  "databricks": {
+    "api_base": "https://{workspace}.cloud.databricks.com",
+    "api_key_env": [
+      "DATABRICKS_API_KEY"
+    ],
+    "base_url_env": [
+      "DATABRICKS_API_BASE"
+    ],
+    "display_name": "databricks"
+  },
+  "deepinfra": {
+    "api_base": "https://api.deepinfra.com/v1/openai",
+    "api_key_env": [
+      "DEEPINFRA_API_KEY"
+    ],
+    "display_name": "deepinfra"
+  },
+  "featherless_ai": {
+    "api_base": "https://api.featherless.ai/v1",
+    "api_key_env": [
+      "FEATHERLESS_AI_API_KEY"
+    ],
+    "display_name": "featherless_ai"
+  },
+  "fireworks_ai": {
+    "account_id_env": "FIREWORKS_AI_ACCOUNT_ID",
+    "api_base": "https://api.fireworks.ai/inference/v1",
+    "api_key_env": [
+      "FIREWORKS_AI_API_KEY"
+    ],
+    "display_name": "fireworks_ai",
+    "models_url": "https://api.fireworks.ai/v1/accounts/{account_id}/models"
+  },
+  "friendliai": {
+    "api_base": "https://api.friendli.ai/serverless/v1",
+    "api_key_env": [
+      "FRIENDLIAI_API_KEY"
+    ],
+    "display_name": "friendliai"
+  },
+  "gmi": {
+    "api_base": "https://api.gmi-serving.com/v1",
+    "api_key_env": [
+      "GMI_API_KEY"
+    ],
+    "display_name": "gmi"
+  },
+  "gradient_ai": {
+    "api_base": "https://inference.do-ai.run/v1",
+    "api_key_env": [
+      "GRADIENT_AI_API_KEY"
+    ],
+    "display_name": "gradient_ai"
+  },
+  "groq": {
+    "api_base": "https://api.groq.com/openai/v1",
+    "api_key_env": [
+      "GROQ_API_KEY"
+    ],
+    "display_name": "groq"
+  },
   "helicone": {
     "api_base": "https://ai-gateway.helicone.ai/",
     "api_key_env": [
@@ -20,12 +197,167 @@
     ],
     "display_name": "helicone"
   },
+  "hyperbolic": {
+    "api_base": "https://api.hyperbolic.xyz/v1",
+    "api_key_env": [
+      "HYPERBOLIC_API_KEY"
+    ],
+    "display_name": "hyperbolic"
+  },
+  "inception": {
+    "api_base": "https://api.inceptionlabs.ai/v1",
+    "api_key_env": [
+      "INCEPTION_API_KEY"
+    ],
+    "display_name": "inception"
+  },
+  "lambda_ai": {
+    "api_base": "https://api.lambda.ai/v1",
+    "api_key_env": [
+      "LAMBDA_API_KEY"
+    ],
+    "display_name": "lambda_ai"
+  },
+  "lemonade": {
+    "api_base": "http://localhost:8000/api/v1",
+    "api_key_env": [
+      "LEMONADE_API_KEY"
+    ],
+    "base_url_env": [
+      "LEMONADE_API_BASE"
+    ],
+    "display_name": "lemonade"
+  },
+  "libertai": {
+    "api_base": "https://api.libertai.io/v1",
+    "api_key_env": [
+      "LIBERTAI_API_KEY"
+    ],
+    "base_url_env": [
+      "LIBERTAI_API_BASE"
+    ],
+    "display_name": "libertai"
+  },
+  "llamagate": {
+    "api_base": "https://api.llamagate.dev/v1",
+    "api_key_env": [
+      "LLAMAGATE_API_KEY"
+    ],
+    "display_name": "llamagate"
+  },
+  "meta_llama": {
+    "api_base": "https://api.llama.com/compat/v1",
+    "api_key_env": [
+      "LLAMA_API_KEY"
+    ],
+    "display_name": "meta_llama"
+  },
+  "minimax": {
+    "api_base": "https://api.minimax.io/v1",
+    "api_key_env": [
+      "MINIMAX_API_KEY"
+    ],
+    "base_url_env": [
+      "MINIMAX_API_BASE"
+    ],
+    "display_name": "minimax"
+  },
+  "mistral": {
+    "api_base": "https://api.mistral.ai/v1",
+    "api_key_env": [
+      "MISTRAL_API_KEY"
+    ],
+    "display_name": "mistral"
+  },
+  "moonshot": {
+    "api_base": "https://api.moonshot.ai/v1",
+    "api_key_env": [
+      "MOONSHOT_API_KEY"
+    ],
+    "display_name": "moonshot"
+  },
+  "morph": {
+    "api_base": "https://api.morphllm.com/v1",
+    "api_key_env": [
+      "MORPH_API_KEY"
+    ],
+    "display_name": "morph"
+  },
   "nano-gpt": {
     "api_base": "https://nano-gpt.com/api/v1",
     "api_key_env": [
       "NANOGPT_API_KEY"
     ],
     "display_name": "nano-gpt"
+  },
+  "nebius": {
+    "api_base": "https://api.studio.nebius.ai/v1",
+    "api_key_env": [
+      "NEBIUS_API_KEY"
+    ],
+    "display_name": "nebius"
+  },
+  "novita": {
+    "api_base": "https://api.novita.ai/v3/openai",
+    "api_key_env": [
+      "NOVITA_API_KEY"
+    ],
+    "display_name": "novita"
+  },
+  "nscale": {
+    "api_base": "https://inference.api.nscale.com/v1",
+    "api_key_env": [
+      "NSCALE_API_KEY"
+    ],
+    "display_name": "nscale"
+  },
+  "ollama": {
+    "api_base": "http://localhost:11434/v1",
+    "api_key_env": [
+      "OLLAMA_API_KEY"
+    ],
+    "base_url_env": [
+      "OLLAMA_API_BASE"
+    ],
+    "display_name": "ollama"
+  },
+  "opencode-go": {
+    "api_base": "https://opencode.ai/zen/go/v1",
+    "api_key_env": [
+      "OPENCODE_GO_API_KEY"
+    ],
+    "display_name": "opencode-go"
+  },
+  "opencode-zen": {
+    "api_base": "https://opencode.ai/zen/v1",
+    "api_key_env": [
+      "OPENCODE_ZEN_API_KEY"
+    ],
+    "display_name": "opencode-zen"
+  },
+  "ovhcloud": {
+    "api_base": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+    "api_key_env": [
+      "OVHCLOUD_API_KEY"
+    ],
+    "display_name": "ovhcloud"
+  },
+  "perplexity": {
+    "api_base": "https://api.perplexity.ai",
+    "api_key_env": [
+      "PERPLEXITY_API_KEY"
+    ],
+    "display_name": "perplexity"
+  },
+  "pinstripes": {
+    "api_base": "https://pinstripes.io/v1",
+    "api_key_env": [
+      "PINSTRIPES_API_KEY"
+    ],
+    "base_url_env": [
+      "PINSTRIPES_API_BASE"
+    ],
+    "display_name": "pinstripes"
   },
   "poe": {
     "api_base": "https://api.poe.com/v1",
@@ -41,6 +373,27 @@
     ],
     "display_name": "publicai"
   },
+  "sambanova": {
+    "api_base": "https://api.sambanova.ai/v1",
+    "api_key_env": [
+      "SAMBANOVA_API_KEY"
+    ],
+    "display_name": "sambanova"
+  },
+  "sarvam": {
+    "api_base": "https://api.sarvam.ai/v1",
+    "api_key_env": [
+      "SARVAM_API_KEY"
+    ],
+    "display_name": "sarvam"
+  },
+  "scaleway": {
+    "api_base": "https://api.scaleway.ai/v1",
+    "api_key_env": [
+      "SCW_SECRET_KEY"
+    ],
+    "display_name": "scaleway"
+  },
   "synthetic": {
     "api_base": "https://api.synthetic.new/openai/v1",
     "api_key_env": [
@@ -50,6 +403,37 @@
     "hf_namespace": true,
     "supports_stream": false
   },
+  "tencent": {
+    "api_base": "https://tokenhub-intl.tencentcloudmaas.com/v1",
+    "api_key_env": [
+      "TENCENT_API_KEY"
+    ],
+    "display_name": "tencent"
+  },
+  "tensormesh": {
+    "api_base": "https://serverless.tensormesh.ai/v1",
+    "api_key_env": [
+      "TENSORMESH_INFERENCE_API_KEY"
+    ],
+    "base_url_env": [
+      "TENSORMESH_SERVERLESS_BASE_URL"
+    ],
+    "display_name": "tensormesh"
+  },
+  "together_ai": {
+    "api_base": "https://api.together.xyz/v1",
+    "api_key_env": [
+      "TOGETHER_AI_API_KEY"
+    ],
+    "display_name": "together_ai"
+  },
+  "v0": {
+    "api_base": "https://api.v0.dev/v1",
+    "api_key_env": [
+      "V0_API_KEY"
+    ],
+    "display_name": "v0"
+  },
   "veniceai": {
     "api_base": "https://api.venice.ai/api/v1",
     "api_key_env": [
@@ -57,14 +441,33 @@
     ],
     "display_name": "veniceai"
   },
-  "fireworks_ai": {
-    "api_base": "https://api.fireworks.ai/inference/v1",
+  "vercel_ai_gateway": {
+    "api_base": "https://ai-gateway.vercel.sh/v1",
     "api_key_env": [
-      "FIREWORKS_AI_API_KEY"
+      "VERCEL_AI_GATEWAY_API_KEY"
     ],
-    "display_name": "fireworks_ai",
-    "models_url": "https://api.fireworks.ai/v1/accounts/{account_id}/models",
-    "account_id_env": "FIREWORKS_AI_ACCOUNT_ID"
+    "display_name": "vercel_ai_gateway"
+  },
+  "volcengine": {
+    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_key_env": [
+      "VOLCENGINE_API_KEY"
+    ],
+    "display_name": "volcengine"
+  },
+  "wandb": {
+    "api_base": "https://api.inference.wandb.ai/v1",
+    "api_key_env": [
+      "WANDB_API_KEY"
+    ],
+    "display_name": "wandb"
+  },
+  "xai": {
+    "api_base": "https://api.x.ai/v1",
+    "api_key_env": [
+      "XAI_API_KEY"
+    ],
+    "display_name": "xai"
   },
   "xiaomi_mimo": {
     "api_base": "https://api.xiaomimimo.com/v1",
@@ -72,5 +475,12 @@
       "XIAOMI_MIMO_API_KEY"
     ],
     "display_name": "xiaomi_mimo"
+  },
+  "zai": {
+    "api_base": "https://api.z.ai/api/paas/v4",
+    "api_key_env": [
+      "ZAI_API_KEY"
+    ],
+    "display_name": "zai"
   }
 }

@@ -1,4 +1,4 @@
 
 ```bash
-python -m pip install cecli-dev
+uv tool install cecli-dev
 ```

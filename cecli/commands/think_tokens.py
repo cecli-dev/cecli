@@ -11,7 +11,7 @@ class ThinkTokensCommand(BaseCommand):
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         """Execute the think-tokens command with given parameters."""
-        model = coder.main_model
+        model = coder.get_active_model()
 
         if not args.strip():
             # Display current value if no args are provided

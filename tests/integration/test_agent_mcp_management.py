@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+import pytest_asyncio
 
 from cecli.coders.agent_coder import AgentCoder
 from cecli.coders.sub_agent_coder import SubAgentCoder
@@ -58,6 +59,13 @@ def mock_mcp_manager():
 @pytest.fixture
 def agent_coder(mock_mcp_manager):
     """Fixture for an AgentCoder with a mocked MCP manager."""
+    # Reset AgentService class-level state to prevent test isolation issues
+    from cecli.helpers.agents.service import AgentService
+
+    AgentService._instances.clear()
+    AgentService._uuid_coder_map.clear()
+    AgentService._primary_agent_uuid = None
+
     with patch("cecli.coders.agent_coder.McpServerManager", return_value=mock_mcp_manager):
         coder = AgentCoder(
             main_model=MagicMock(),
@@ -75,7 +83,7 @@ def agent_coder(mock_mcp_manager):
         return coder
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sub_agent_coder(agent_coder):
     """Fixture for a SubAgentCoder."""
     # Fix: Use create() class method instead of direct instantiation
@@ -83,7 +91,12 @@ async def sub_agent_coder(agent_coder):
     # Ensure sub_agent has the required mocks for tools
     sub_agent.coroutines = agent_coder.coroutines
     sub_agent.interrupt_event = agent_coder.interrupt_event
-    return sub_agent
+    yield sub_agent
+    # Clean up AgentService state to prevent test isolation issues
+    from cecli.helpers.agents.service import AgentService
+
+    AgentService._uuid_coder_map.pop(sub_agent.uuid, None)
+    AgentService._instances.pop(sub_agent.uuid, None)
 
 
 @pytest.mark.asyncio

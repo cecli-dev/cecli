@@ -9,7 +9,7 @@ If you specify a model that cecli has never heard of, you will get
 this warning.
 This means cecli doesn't know the context window size and token costs
 for that model.
-cecli will use an unlimited context window and assume the model is free,
+Cecli will use an unlimited context window and assume the model is free,
 so this is not usually a significant problem.
 
 See the docs on 
@@ -56,7 +56,7 @@ command prompt for the changes to take effect.
 Model gpt-5: Unknown which environment variables are required.
 ```
 
-cecli is unable verify the environment because it doesn't know
+Cecli is unable verify the environment because it doesn't know
 which variables are required for the model.
 If required variables are missing,
 you may get errors when you attempt to chat with the model.

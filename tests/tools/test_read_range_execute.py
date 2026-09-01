@@ -125,7 +125,7 @@ class TestReadFileExecute:
         # Patch hashline_formatted to return (text, json)
         hl_patch = patch(
             "cecli.tools.read_file.hashline_formatted",
-            side_effect=lambda text, file_name, partial, expanded, start_line=1: (text, "{}"),
+            side_effect=lambda text, file_name, total_lines=0, start_line=1: (text, "{}"),
         )
         hl_patch.start()
         self.patches.append(hl_patch)
@@ -169,11 +169,10 @@ class TestReadFileExecute:
         content = "\n".join(f"line{i}" for i in range(1, 11))
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "5", "range_end": "10"}]
+            show = [{"file_path": self.test_file, "range_start": "@L5", "range_end": "@L10"}]
             result = self.Tool.execute(self.coder, show)
-            assert "prefixed_contents" in result
-            assert "line5" in result
-            assert "line10" in result
+            assert "line5" in str(result)
+            assert "line10" in str(result)
         finally:
             self._teardown()
 
@@ -182,9 +181,9 @@ class TestReadFileExecute:
         content = "\n".join(f"line{i}" for i in range(1, 11))
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "1", "range_end": "1"}]
+            show = [{"file_path": self.test_file, "range_start": "@L1", "range_end": "@L1"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line1" in result
+            assert "line1" in str(result)
         finally:
             self._teardown()
 
@@ -195,10 +194,10 @@ class TestReadFileExecute:
         content = "\n".join(f"line{i}" for i in range(1, 11))
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "1", "range_end": "100"}]
+            show = [{"file_path": self.test_file, "range_start": "@L1", "range_end": "@L100"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line1" in result
-            assert "line10" in result
+            assert "line1" in str(result)
+            assert "line10" in str(result)
         finally:
             self._teardown()
 
@@ -209,7 +208,7 @@ class TestReadFileExecute:
         content = "\n".join(f"line{i}" for i in range(1, 11))
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "10", "range_end": "5"}]
+            show = [{"file_path": self.test_file, "range_start": "@L10", "range_end": "@L5"}]
             result = self.Tool.execute(self.coder, show)
             # Inverted: start=[9], end=[4], only one each -> swap to (4, 9)
             assert result is not None
@@ -227,8 +226,8 @@ class TestReadFileExecute:
         try:
             show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "000@"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line1" in result
-            assert "line5" in result
+            assert "line1" in str(result)
+            assert "line5" in str(result)
         finally:
             self._teardown()
 
@@ -239,7 +238,7 @@ class TestReadFileExecute:
         try:
             show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "@000"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line1" in result
+            assert "line1" in str(result)
         finally:
             self._teardown()
 
@@ -250,7 +249,7 @@ class TestReadFileExecute:
         try:
             show = [{"file_path": self.test_file, "range_start": "000@", "range_end": "000@"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line5" in result
+            assert "line5" in str(result)
         finally:
             self._teardown()
 
@@ -265,10 +264,10 @@ class TestReadFileExecute:
         content = "line1\nline2\nline3\nline4\nline5"
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "3"}]
+            show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "@L3"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line1" in result
-            assert "line3" in result
+            assert "line1" in str(result)
+            assert "line3" in str(result)
         finally:
             self._teardown()
 
@@ -279,10 +278,10 @@ class TestReadFileExecute:
         content = "line1\nline2\nline3\nline4\nline5"
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
         try:
-            show = [{"file_path": self.test_file, "range_start": "2", "range_end": "000@"}]
+            show = [{"file_path": self.test_file, "range_start": "@L2", "range_end": "000@"}]
             result = self.Tool.execute(self.coder, show)
-            assert "line2" in result
-            assert "line5" in result
+            assert "line2" in str(result)
+            assert "line5" in str(result)
         finally:
             self._teardown()
 
@@ -305,9 +304,8 @@ class TestReadFileExecute:
                 }
             ]
             result = self.Tool.execute(self.coder, show)
-            assert "prefixed_contents" in result
-            assert "def foo()" in result
-            assert "def bar()" in result
+            assert "def foo()" in str(result)
+            assert "def bar()" in str(result)
         finally:
             self._teardown()
 
@@ -324,7 +322,7 @@ class TestReadFileExecute:
                 }
             ]
             result = self.Tool.execute(self.coder, show)
-            assert "Errors" in result or "not found" in result
+            assert "Errors" in str(result) or "not found" in str(result)
         finally:
             self._teardown()
 
@@ -335,7 +333,7 @@ class TestReadFileExecute:
         try:
             show = [{"file_path": self.test_file, "range_start": "def foo", "range_end": "def bar"}]
             result = self.Tool.execute(self.coder, show)
-            assert "prefixed_contents" in result
+            assert "return 1" in str(result)
         finally:
             self._teardown()
 
@@ -355,7 +353,7 @@ class TestReadFileExecute:
             show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "debug_mode"}]
             result = self.Tool.execute(self.coder, show)
             # Should find '@000' at start and 'debug_mode' as text
-            print(f"\n[special_start_text_end] result: {result[:300]}")
+            print(f"\n[special_start_text_end] result: {str(result)[:300]}")
             assert result is not None
         finally:
             self._teardown()
@@ -373,7 +371,7 @@ class TestReadFileExecute:
                 {"file_path": self.test_file, "range_start": "config_value", "range_end": "000@"}
             ]
             result = self.Tool.execute(self.coder, show)
-            print(f"\n[text_start_special_end] result: {result[:300]}")
+            print(f"\n[text_start_special_end] result: {str(result)[:300]}")
             assert result is not None
         finally:
             self._teardown()
@@ -388,7 +386,7 @@ class TestReadFileExecute:
         try:
             show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "000@"}]
             result = self.Tool.execute(self.coder, show)
-            assert "empty" in result.lower()
+            assert "empty" in str(result).lower()
         finally:
             self._teardown()
 
@@ -396,9 +394,9 @@ class TestReadFileExecute:
         """Test with a single line file."""
         self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, "only_line")
         try:
-            show = [{"file_path": self.test_file, "range_start": "1", "range_end": "1"}]
+            show = [{"file_path": self.test_file, "range_start": "@L1", "range_end": "@L1"}]
             result = self.Tool.execute(self.coder, show)
-            assert "only_line" in result
+            assert "only_line" in str(result)
         finally:
             self._teardown()
 
@@ -417,9 +415,9 @@ class TestReadFileExecute:
 
         from cecli.tools.read_file import Tool
 
-        show = [{"file_path": "nonexistent/path.py", "range_start": "1", "range_end": "10"}]
+        show = [{"file_path": "nonexistent/path.py", "range_start": "@L1", "range_end": "@L10"}]
         result = Tool.execute(mock_coder, show)
-        assert "not found" in result or "Errors" in result
+        assert "not found" in str(result) or "Errors" in str(result)
 
     def test_missing_parameters(self, mock_coder, mock_file_context, mock_chunks, mock_manager):
         """Test with missing range_start and range_end (empty strings)."""
@@ -427,7 +425,7 @@ class TestReadFileExecute:
 
         show = [{"file_path": "some_file.py", "range_start": "", "range_end": ""}]
         result = Tool.execute(mock_coder, show)
-        assert "Provide both" in result or "Errors" in result
+        assert "Provide both" in str(result) or "Errors" in str(result)
 
     def test_multiple_show_operations(
         self, mock_coder, mock_file_context, mock_chunks, mock_manager
@@ -451,7 +449,7 @@ class TestReadFileExecute:
 
         hl_patch = patch(
             "cecli.tools.read_file.hashline_formatted",
-            side_effect=lambda text, file_name, partial, expanded, start_line=1: (text, "{}"),
+            side_effect=lambda text, file_name, total_lines=0, start_line=1: (text, "{}"),
         )
         hl_patch.start()
 
@@ -478,12 +476,12 @@ class TestReadFileExecute:
             Tool._last_read_turn = {}
 
             show = [
-                {"file_path": "file1.py", "range_start": "1", "range_end": "3"},
-                {"file_path": "file2.py", "range_start": "2", "range_end": "4"},
+                {"file_path": "file1.py", "range_start": "@L1", "range_end": "@L3"},
+                {"file_path": "file2.py", "range_start": "@L2", "range_end": "@L4"},
             ]
             result = Tool.execute(mock_coder, show)
-            assert "line1_1" in result
-            assert "line2_2" in result
+            assert "line1_1" in str(result)
+            assert "line2_2" in str(result)
         finally:
             for p in [cs_patch, sh_patch, hl_patch, rp_patch, ip_patch]:
                 p.stop()
@@ -524,7 +522,7 @@ def func_f():
                 }
             ]
             result = self.Tool.execute(self.coder, show)
-            assert "prefixed_contents" in result
+            assert "def func_a" in str(result)
         finally:
             self._teardown()
 
@@ -554,7 +552,7 @@ def func_f():
         try:
             show = [{"file_path": self.test_file, "range_start": "def", "range_end": "def"}]
             result = self.Tool.execute(self.coder, show)
-            assert "too broad" in result.lower()
+            assert "too broad" in str(result).lower()
         finally:
             self._teardown()
 

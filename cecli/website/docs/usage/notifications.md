@@ -8,9 +8,7 @@ description: cecli can notify you when it's waiting for your input.
 
 # Notifications
 
-cecli can notify you when it's done working and is
-waiting for your input. 
-This is especially useful for long-running operations or when you're multitasking.
+Cecli can notify you when it's done working and is waiting for your input. This is especially useful for long-running operations or when you're multitasking.
 
 ## Usage
 
@@ -24,10 +22,10 @@ When enabled, cecli will notify you when the LLM has finished generating a respo
 
 ## OS-Specific Notifications
 
-cecli automatically detects your operating system and uses an appropriate notification method:
+Cecli automatically detects your operating system and uses an appropriate notification method:
 
-- **macOS**: Uses `terminal-notifier` if available, falling back to AppleScript notifications
 - **Linux**: Uses `notify-send` or `zenity` if available
+- **MacOS**: Uses `terminal-notifier` if available, falling back to AppleScript notifications
 - **Windows**: Uses PowerShell to display a message box
 
 ## Custom Notification Commands
@@ -46,8 +44,7 @@ cecli --notifications-command "say 'cecli is ready'"
 
 ### Remote Notifications
 
-For remote notifications you could use [Apprise](https://github.com/caronc/apprise),
-which is a cross-platform Python library for sending notifications to various services.
+For remote notifications you could use [Apprise](https://github.com/caronc/apprise), which is a cross-platform Python library for sending notifications to various services.
 
 We can use Apprise to send notifications to Slack
 

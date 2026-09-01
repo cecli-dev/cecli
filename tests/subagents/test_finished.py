@@ -34,6 +34,7 @@ class TestFinishedTool:
         mock_coder.uuid = "sub-uuid"
         mock_coder.parent_uuid = "parent-uuid"
         mock_coder.files_edited_by_tools = set()
+        mock_coder.turn_count = 0
 
         mock_info = MagicMock()
         mock_info.coder.uuid = "sub-uuid"
@@ -43,7 +44,12 @@ class TestFinishedTool:
         mock_service = MagicMock()
         mock_service.sub_agents.values.return_value = [mock_info]
 
-        with patch.object(AgentService, "_instances", {"parent-uuid": mock_service}):
+        with (
+            patch.object(
+                AgentService, "_instances", {"parent-uuid": mock_service, "sub-uuid": mock_service}
+            ),
+            patch.object(AgentService, "_primary_agent_uuid", None),
+        ):
             _ = await Tool.execute(mock_coder, summary="done")
 
         assert mock_info.summary == "done"
@@ -60,7 +66,7 @@ class TestFinishedTool:
         mock_coder.files_edited_by_tools = set()
 
         result = await Tool.execute(mock_coder)
-        assert result == "Yielded."
+        assert result.to_dict()["result"][0]["content"] == "Yielded."
 
     @pytest.mark.asyncio
     async def test_non_sub_agent_skips_lookup(self):
@@ -73,7 +79,7 @@ class TestFinishedTool:
         mock_coder.files_edited_by_tools = set()
 
         result = await Tool.execute(mock_coder)
-        assert result == "Yielded."
+        assert result.to_dict()["result"][0]["content"] == "Yielded."
 
     @pytest.mark.asyncio
     async def test_unknown_parent_uuid_caught_gracefully(self):
@@ -85,10 +91,14 @@ class TestFinishedTool:
         mock_coder.uuid = "sub-uuid"
         mock_coder.parent_uuid = "nonexistent-parent"
         mock_coder.files_edited_by_tools = set()
+        mock_coder.turn_count = 0
 
-        with patch.object(AgentService, "_instances", {}):
+        with (
+            patch.object(AgentService, "_instances", {}),
+            patch.object(AgentService, "_primary_agent_uuid", None),
+        ):
             result = await Tool.execute(mock_coder, summary="done")
-            assert "Summary: done" in result
+            assert "Summary: done" in str(result)
 
     async def test_returns_summary_in_response(self):
         """When summary provided, response includes it."""
@@ -98,9 +108,10 @@ class TestFinishedTool:
         mock_coder.uuid = "test-uuid"
         mock_coder.parent_uuid = ""
         mock_coder.files_edited_by_tools = set()
+        mock_coder.turn_count = 0
 
         result = await Tool.execute(mock_coder, summary="completed successfully")
-        assert "Summary: completed successfully" in result
+        assert "Summary: completed successfully" in str(result)
 
     @pytest.mark.asyncio
     async def test_coder_is_none_returns_error(self):
@@ -108,4 +119,5 @@ class TestFinishedTool:
         from cecli.tools._yield import Tool
 
         result = await Tool.execute(None)
-        assert "Error" in result
+        errors = result.to_dict()["errors"]
+        assert errors

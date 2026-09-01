@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from cecli.tools.utils.helpers import handle_tool_error
 from cecli.tools.utils.output import print_tool_response
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 
@@ -15,6 +16,9 @@ class BaseTool(ABC):
 
     # Declarative validations (maps param paths to lists of validation method names)
     VALIDATIONS = {}
+
+    # Result format configuration ("str" or "list")
+    RESULT_TYPE = "str"
 
     # Invocation tracking for detecting repeated tool calls
     _invocations = {}  # Dict to store last 3 invocations per tool
@@ -37,16 +41,18 @@ class BaseTool(ABC):
         pass
 
     @classmethod
-    def process_response(cls, coder, params):
+    def process_response(cls, coder, params, _convert=True):
         """
         Process the tool response by creating an instance and calling execute.
 
         Args:
             coder: The Coder instance
             params: Dictionary of parameters
+            _convert: If True (default), ToolResponse results are converted to str.
+                         If False, ToolResponse is returned as-is for sandbox use.
 
         Returns:
-            str: Result message
+            str or ToolResponse: Result message (or ToolResponse when _convert=False)
         """
 
         # Validate required parameters from SCHEMA
@@ -57,25 +63,29 @@ class BaseTool(ABC):
                 required_params = function_schema["parameters"]["required"]
                 properties = function_schema["parameters"].get("properties", {})
 
-                # Auto-correction: If a required parameter is missing but it's an array,
-                # and the current params look like a single item of that array, wrap it.
-                if len(required_params) == 1:
-                    missing_param = required_params[0]
-                    if missing_param not in params and params:
-                        param_schema = properties.get(missing_param, {})
-                        if param_schema.get("type") == "array":
-                            params = {missing_param: [params]}
+                # Auto-correction: fix common shape mistakes (a bare array or
+                # a single item of that array sent directly as the whole
+                # arguments, instead of wrapped under the expected key) BEFORE
+                # checking for missing required parameters. Otherwise a
+                # recoverable shape (e.g. a bare `[...]` array) gets rejected
+                # before it has a chance to be normalized.
+                params = ToolValidations._basic_validations(params, cls.SCHEMA)
 
                 # Auto-correction: If a required parameter is present but is a dict instead of an array
-                for param_name in required_params:
-                    if param_name in params:
-                        param_schema = properties.get(param_name, {})
-                        if param_schema.get("type") == "array" and isinstance(
-                            params[param_name], dict
-                        ):
-                            params[param_name] = [params[param_name]]
+                if isinstance(params, dict):
+                    for param_name in required_params:
+                        if param_name in params:
+                            param_schema = properties.get(param_name, {})
+                            if param_schema.get("type") == "array" and isinstance(
+                                params[param_name], dict
+                            ):
+                                params[param_name] = [params[param_name]]
 
-                missing_params = [param for param in required_params if param not in params]
+                missing_params = [
+                    param
+                    for param in required_params
+                    if not isinstance(params, dict) or param not in params
+                ]
                 if missing_params:
                     tool_name = function_schema.get("name", "Unknown Tool")
                     error_msg = (
@@ -84,7 +94,7 @@ class BaseTool(ABC):
                     return handle_tool_error(coder, tool_name, ValueError(error_msg))
 
         # Check for repeated invocations if TRACK_INVOCATIONS is enabled
-        if cls.TRACK_INVOCATIONS:
+        if cls.TRACK_INVOCATIONS and _convert:
             tool_name = None
             if cls.SCHEMA and "function" in cls.SCHEMA:
                 tool_name = cls.SCHEMA["function"].get("name", "Unknown Tool")
@@ -133,7 +143,12 @@ class BaseTool(ABC):
         params = ToolValidations.validate_params(params, cls.VALIDATIONS, cls.SCHEMA)
 
         try:
-            return cls.execute(coder, **params)
+            result = cls.execute(coder, **params)
+
+            if isinstance(result, ToolResponse):
+                return result if not _convert else str(result)
+
+            return result
         except Exception as e:
             return handle_tool_error(coder, cls.SCHEMA.get("function").get("name"), e)
 
@@ -154,3 +169,20 @@ class BaseTool(ABC):
     def clear_invocation_cache(cls):
         cls._invocations.clear()
         cls._invocation_summary.clear()
+
+    @classmethod
+    def ptc_format(cls, result):
+        """Post-tool-call formatting hook for orchestration sandbox exposure.
+
+        By default, passes through the result unchanged. Tools can override
+        this to reshape the output that gets exposed to the orchestration
+        sandbox (e.g., stripping placeholder entries).
+
+        Args:
+            result: The result from ``execute()`` (typically a ``ToolResponse``
+                    or string).
+
+        Returns:
+            The (possibly modified) result.
+        """
+        return result

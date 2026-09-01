@@ -10,7 +10,8 @@ from rich.style import Style as RichStyle
 from rich.text import Text
 from textual import events, on
 from textual.message import Message
-from textual.widgets import RichLog
+
+from .selectable_log import SelectableRichLog
 
 
 class CostUpdate(Message):
@@ -21,7 +22,7 @@ class CostUpdate(Message):
         super().__init__()
 
 
-class OutputContainer(RichLog):
+class OutputContainer(SelectableRichLog):
     """Scrollable output area using RichLog widget for rich rendering.
 
     Uses Textual's RichLog widget for efficient streaming and display
@@ -36,15 +37,16 @@ class OutputContainer(RichLog):
     }
     """
 
-    _last_write_type = None
-    _write_history = []
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Line buffer for streaming text to avoid word-per-line issue
         self._line_buffer = ""
         # Track if we're on the first line of the current response
         self._first_line_of_response = True
+
+        # Per-instance duplicate-check state (do not share across containers)
+        self._write_history = []
+        self._last_write_type = None
 
         # Enable markup for rich formatting
         self.highlight = True
@@ -54,6 +56,11 @@ class OutputContainer(RichLog):
 
     async def start_response(self):
         """Start a new LLM response section with streaming support."""
+
+        # Insert blank line between consecutive assistant responses
+        if self._last_write_type == "assistant":
+            self.output("")
+
         # Clear the line buffer for new response
         self._line_buffer = ""
         # Reset first line flag
@@ -98,20 +105,28 @@ class OutputContainer(RichLog):
         # Process complete lines from buffer
         while "\n" in self._line_buffer:
             line, self._line_buffer = self._line_buffer.split("\n", 1)
-            if line.rstrip():
-                # Format with prefix on first line, proper indentation on subsequent lines
-                if self._first_line_of_response:
-                    wrapped_line = self._wrap_text_with_prefix(line.rstrip(), prefix="• ")
-                    self._first_line_of_response = False
-                else:
-                    # For subsequent lines, we need to wrap with proper indentation
-                    # but without the bullet prefix
-                    wrapped_line = self._wrap_text_with_prefix(line.rstrip(), prefix="  ")
+            # Preserve blank lines as single paragraph breaks (collapsed to one
+            # blank line by output()'s duplicate check) so streamed markdown
+            # paragraphs stay visually separated instead of being merged.
+            if not line.rstrip():
+                if not self._first_line_of_response:
+                    self.output("")
 
-                # Output each wrapped line
-                for wrapped in wrapped_line.split("\n"):
-                    if wrapped.strip():
-                        self.output(escape(wrapped), render_markdown=True)
+                continue
+
+            # Format with prefix on first line, proper indentation on subsequent lines
+            if self._first_line_of_response:
+                wrapped_line = self._wrap_text_with_prefix(line.rstrip(), prefix="• ")
+                self._first_line_of_response = False
+            else:
+                # For subsequent lines, we need to wrap with proper indentation
+                # but without the bullet prefix
+                wrapped_line = self._wrap_text_with_prefix(line.rstrip(), prefix="  ")
+
+            # Output each wrapped line
+            for wrapped in wrapped_line.split("\n"):
+                if wrapped.strip():
+                    self.output(escape(wrapped), render_markdown=True)
 
     async def end_response(self):
         """End the current LLM response."""
@@ -144,22 +159,30 @@ class OutputContainer(RichLog):
         is_first_line = True
 
         for line in lines:
-            if line.rstrip():
-                # Wrap each line with proper prefix
-                if is_first_line:
-                    wrapped_line = self._wrap_text_with_prefix(line, prefix="> ")
-                    is_first_line = False
-                else:
-                    wrapped_line = self._wrap_text_with_prefix(line, prefix="  ")
+            # Preserve blank lines as single paragraph breaks (collapsed to one
+            # blank line by output()'s duplicate check) so multi-paragraph user
+            # messages stay visually separated.
+            if not line.rstrip():
+                if not is_first_line:
+                    self.output("")
 
-                # Output each wrapped line with green styling
-                for wrapped in wrapped_line.split("\n"):
-                    if wrapped.strip():
-                        self.output(
-                            "[bold medium_spring_green]"
-                            f"{escape(wrapped)}"
-                            "[/bold medium_spring_green]"
-                        )
+                continue
+
+            # Wrap each line with proper prefix
+            if is_first_line:
+                wrapped_line = self._wrap_text_with_prefix(line, prefix="> ")
+                is_first_line = False
+            else:
+                wrapped_line = self._wrap_text_with_prefix(line, prefix="  ")
+
+            # Output each wrapped line with green styling
+            for wrapped in wrapped_line.split("\n"):
+                if wrapped.strip():
+                    self.output(
+                        "[bold medium_spring_green]"
+                        f"{escape(wrapped)}"
+                        "[/bold medium_spring_green]"
+                    )
 
         self.scroll_end(animate=False)
 
@@ -265,6 +288,34 @@ class OutputContainer(RichLog):
             except (ValueError, AttributeError):
                 pass
 
+    @staticmethod
+    def _plain_text(text) -> str:
+        """Extract the plain text of a renderable for duplicate checking.
+
+        Args:
+            text: The text or Rich renderable to extract plain text from
+
+        Returns:
+            The plain text content used for blank-line duplicate detection
+        """
+        if isinstance(text, str):
+            return text
+
+        if isinstance(text, Text):
+            return text.plain
+
+        if isinstance(text, Markdown):
+            # Markdown objects expose their source through the markup attribute
+            return text.markup if hasattr(text, "markup") else str(text)
+
+        if isinstance(text, Padding):
+            # Recurse into Padding so we track the actual content rather than
+            # the renderable's string representation (which is not plain text)
+            return OutputContainer._plain_text(text.renderable)
+
+        # Fall back to the string representation for other renderables
+        return str(text)
+
     def start_task(self, task_id: str, title: str, task_type: str = "general"):
         """Start a new task section."""
         self.set_last_write_type(f"{task_id}-{title}-{task_type}")
@@ -272,6 +323,10 @@ class OutputContainer(RichLog):
     def clear_output(self):
         """Clear all output."""
         self._line_buffer = ""
+        # Reset tracking state so a fresh screen starts with no write-type
+        # context or duplicate-check history.
+        self._write_history = []
+        self._last_write_type = None
         self.clear()
 
     def set_last_write_type(self, type):
@@ -289,18 +344,7 @@ class OutputContainer(RichLog):
             render_markdown: If True and app config allows, render as markdown
         """
         # Get plain text for duplicate checking BEFORE any markdown conversion
-        plain_text = ""
-        if isinstance(text, str):
-            plain_text = text
-        elif isinstance(text, Text):
-            plain_text = text.plain
-        elif isinstance(text, Markdown):
-            # For Markdown objects, we need to get the source markdown text
-            # Markdown objects have a .markup attribute with the source
-            plain_text = text.markup if hasattr(text, "markup") else str(text)
-        else:
-            # For other types, convert to string
-            plain_text = str(text)
+        plain_text = self._plain_text(text)
 
         # Check if we should render as markdown
         if render_markdown and hasattr(self.app, "render_markdown") and self.app.render_markdown:
@@ -308,15 +352,17 @@ class OutputContainer(RichLog):
             if isinstance(text, str):
                 text = Markdown(text)
 
-        # Check for duplicate newlines using the plain text we extracted
-        if check_duplicates and len(self._write_history) >= 2:
+        # Check for duplicate newlines using the plain text we extracted.
+        # Allow a single blank line between blocks of content (paragraph
+        # breaks, section separators) but never more than one in a row, so
+        # multiple paragraph breaks or a trailing blank plus a section
+        # separator collapse into a single blank line.
+        if check_duplicates and len(self._write_history) >= 1:
             nl_check = plain_text in ["", "\n", "\\n"]
-            nl_last = self._write_history[-1] in ["", "\n", "\\n"]
-            nl_penultimate = self._write_history[-2] in ["", "\n", "\\n"] or self._write_history[
-                -2
-            ].endswith("\n")
+            last_was_blank = self._write_history[-1] in ["", "\n", "\\n"]
+            last_ended_with_newline = self._write_history[-1].endswith("\n")
 
-            if nl_check and nl_last and nl_penultimate:
+            if nl_check and (last_was_blank or last_ended_with_newline):
                 return
 
         # Call the actual write method

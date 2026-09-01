@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
+from cecli.decoding import safe_open
 from cecli.dump import dump  # noqa: F401
 
 _text_prefix = """
@@ -229,7 +230,7 @@ class MarkdownStream:
 
 
 if __name__ == "__main__":
-    with open("cecli/io.py", "r") as f:
+    with safe_open("cecli/io.py", "r") as f:
         code = f.read()
     _text = _text_prefix + code + _text_suffix
     _text = _text * 10

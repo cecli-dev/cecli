@@ -142,7 +142,7 @@ This will prefix model names with `hf:` (e.g., `hf:meta-llama/Llama-2-7b`).
 
 ## Built-in Providers
 
-cecli ships with several built-in providers defined in `providers.json`. These are automatically available without any configuration:
+Cecli ships with several built-in providers defined in `providers.json`. These are automatically available without any configuration:
 
 | Provider | Slug | API Base |
 |----------|------|----------|

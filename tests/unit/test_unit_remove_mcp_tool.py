@@ -51,6 +51,7 @@ async def test_remove_mcp_tool_success():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server = MagicMock()
     server.name = "test-server"
     coder.mcp_manager.get_server.return_value = server
@@ -74,7 +75,7 @@ async def test_remove_mcp_tool_success():
     result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
 
     # Assertions
-    assert "Removed server: test-server" in result
+    assert "Removed server: test-server" in str(result)
     coder.mcp_manager.disconnect_server.assert_awaited_once_with("test-server")
 
 
@@ -85,6 +86,7 @@ async def test_remove_mcp_tool_non_existent():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     # Create a mock server that exists (to bypass the 'no servers' check)
     existing_server = MagicMock()
     existing_server.name = "existing-server"
@@ -96,7 +98,7 @@ async def test_remove_mcp_tool_non_existent():
     result = await ResourceManagerTool.execute(coder, remove_mcp=["non-existent-server"])
 
     # Assertions
-    assert "MCP server non-existent-server does not exist." in result
+    assert "MCP server non-existent-server does not exist." in str(result)
 
 
 @pytest.mark.asyncio
@@ -105,6 +107,7 @@ async def test_remove_mcp_tool_not_connected():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server = MagicMock()
     server.name = "test-server"
     coder.mcp_manager.servers = [server]
@@ -113,7 +116,7 @@ async def test_remove_mcp_tool_not_connected():
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
 
-    assert "Server test-server is not currently connected." in result
+    assert "Server test-server is not currently connected." in str(result)
 
 
 @pytest.mark.asyncio
@@ -122,6 +125,7 @@ async def test_remove_mcp_tool_wildcard():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
 
     server1 = MagicMock()
     server1.name = "server1"
@@ -148,8 +152,8 @@ async def test_remove_mcp_tool_wildcard():
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["*"])
 
-    assert "Removed server: server1" in result
-    assert "Removed server: server2" in result
+    assert "Removed server: server1" in str(result)
+    assert "Removed server: server2" in str(result)
 
 
 @pytest.mark.asyncio
@@ -158,6 +162,7 @@ async def test_remove_mcp_tool_interrupted():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server = MagicMock()
     server.name = "test-server"
     coder.mcp_manager.servers = [server]
@@ -177,7 +182,7 @@ async def test_remove_mcp_tool_interrupted():
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
 
-    assert "Interrupted: test-server" in result
+    assert "Interrupted: test-server" in str(result)
 
 
 @pytest.mark.asyncio
@@ -186,6 +191,7 @@ async def test_remove_mcp_tool_failed():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server = MagicMock()
     server.name = "test-server"
     coder.mcp_manager.servers = [server]
@@ -205,7 +211,7 @@ async def test_remove_mcp_tool_failed():
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
 
-    assert "Unable to remove server: test-server" in result
+    assert "Unable to remove server: test-server" in str(result)
 
 
 @pytest.mark.asyncio
@@ -214,11 +220,12 @@ async def test_remove_mcp_tool_no_servers_configured():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     coder.mcp_manager.servers = []
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["test"])
 
-    assert result == "No MCP servers are configured."
+    assert result.to_dict()["result"][0]["content"] == "No MCP servers are configured."
 
 
 @pytest.mark.asyncio
@@ -227,6 +234,7 @@ async def test_remove_mcp_tool_mixed_results():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server1 = MagicMock()
     server1.name = "server1"
     server2 = MagicMock()
@@ -255,8 +263,8 @@ async def test_remove_mcp_tool_mixed_results():
 
     result = await ResourceManagerTool.execute(coder, remove_mcp=["server1", "server2"])
 
-    assert "Removed server: server1" in result
-    assert "Unable to remove server: server2" in result
+    assert "Removed server: server1" in str(result)
+    assert "Unable to remove server: server2" in str(result)
 
 
 @pytest.mark.asyncio
@@ -265,6 +273,7 @@ async def test_remove_mcp_tool_dictionary_iteration_fix():
     coder = MagicMock()
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
+    coder.registered_servers = {"included": set(), "excluded": set()}
     server1 = MagicMock()
     server1.name = "server1"
     server2 = MagicMock()
@@ -289,5 +298,5 @@ async def test_remove_mcp_tool_dictionary_iteration_fix():
     result = await ResourceManagerTool.execute(coder, remove_mcp=["*"])
 
     # Should successfully remove both servers using dictionary keys
-    assert "Removed server: server1" in result
-    assert "Removed server: server2" in result
+    assert "Removed server: server1" in str(result)
+    assert "Removed server: server2" in str(result)

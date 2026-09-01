@@ -1,9 +1,15 @@
 """
-FileSystemService: Global singleton for file path resolution and discovery.
+FileSystemService: per-base-path singleton for file path resolution and discovery.
 
-All agents (Coder, sub-agents, etc.) share one instance via get_instance().
-Initialized once on first call with root/repo params; subsequent calls
-ignore them and return the existing singleton.
+Each distinct base path owns exactly one instance, carrying its own repo,
+marisa-trie, and trigram index. Use FileSystemService.for_root(root, repo)
+to obtain the instance for a base path. Coders that share a base path share
+the same instance; coders on different base paths get independent instances,
+so multiple repositories can be served concurrently.
+
+get_instance() remains as a backward-compatible accessor that returns the
+most-recently-active base path's instance when no root is given, and delegates
+to for_root() when a root is provided.
 
 Uses marisa-trie for memory-efficient prefix/string matching and
 ngram for trigram-based fuzzy search. Supports construction from
@@ -11,6 +17,8 @@ git repositories (git ls-files) or filesystem scanning (os.scandir).
 """
 
 import os
+
+from cecli.decoding import safe_open
 
 from .builders import GitBuilder, ScandirBuilder
 from .ignore import FileIgnoreFilter
@@ -22,12 +30,15 @@ class FileSystemService:
     """
     Provides file path resolution, prefix queries, and fuzzy search.
 
-    Singleton — all agents and sub-agents share one instance.
-    Use FileSystemService.get_instance() to obtain it.
+    Singleton per base path — all coders that share a base path use one
+    instance; coders on different base paths get independent instances. Use
+    FileSystemService.for_root() to obtain the instance for a base path.
     """
 
-    # --- Singleton state ---
-    _instance = None
+    # --- Per-base-path singleton registry ---
+    _instances: dict[str, "FileSystemService"] = {}
+    _active_root: str | None = None
+    _refcounts: dict[str, int] = {}
 
     # --- Instance attributes ---
     root: str = "."
@@ -42,7 +53,7 @@ class FileSystemService:
     ):
         """
         Initialize the service. Not intended for direct use —
-        call get_instance() instead.
+        call for_root() instead.
         """
         self.root = os.path.normpath(root)
         self.repo = repo
@@ -65,34 +76,103 @@ class FileSystemService:
     # ---------------------------------------------------------------
     # Singleton access
     # ---------------------------------------------------------------
+    @staticmethod
+    def _normalize_root(root: str) -> str:
+        """Normalize a base path into a canonical registry key."""
+        return os.path.normpath(os.path.abspath(root))
+
     @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton — used primarily in test teardown."""
-        cls._instance = None
+        """Reset all per-base-path singletons — used primarily in test teardown."""
+        cls._instances.clear()
+        cls._refcounts.clear()
+        cls._active_root = None
+
+    @classmethod
+    def for_root(cls, root: str | None = None, repo=None) -> "FileSystemService":
+        """
+        Return the singleton for a base path.
+
+        Each distinct base path owns exactly one instance carrying its own
+        repo and indices. The first call for a base path builds it; later
+        calls return the cached instance. If a different repo is supplied for
+        an already-cached base path, the instance's repo is re-pointed and the
+        index is invalidated so the next rebuild uses the new repo.
+        """
+        root = root or "."
+        key = cls._normalize_root(root)
+        service = cls._instances.get(key)
+
+        if service is None:
+            service = cls._create(root=root, repo=repo)
+            cls._instances[key] = service
+        elif repo is not None and service.repo is not repo:
+            service.repo = repo
+            service._build_hash = ""  # Invalidate for lazy rebuild with new repo
+        cls._active_root = key
+        return service
 
     @classmethod
     def get_instance(cls, root: str | None = None, repo=None) -> "FileSystemService":
         """
-        Return the global singleton.
+        Backward-compatible accessor (see the module docstring).
 
-        On first call, creates and builds the instance using root/repo.
-        Subsequent calls return the existing instance. If a non-None root
-        is explicitly provided and differs from the current root, the
-        singleton is rebuilt (e.g. when a new coder is created in a
-        different working directory).
+        With a root, delegates to for_root(). Without a root, returns the
+        most-recently-active base path's instance, building one for the
+        current directory if nothing is active yet.
         """
-        if cls._instance is None:
-            cls._instance = cls._create(root=root or ".", repo=repo)
-        elif root is not None and root != cls._instance.root:
-            cls._instance = cls._create(root=root, repo=repo)
-        return cls._instance
+        if root is not None:
+            return cls.for_root(root=root, repo=repo)
+        if cls._active_root is None:
+            return cls.for_root(root=".", repo=repo)
+        return cls._instances[cls._active_root]
+
+    @classmethod
+    def evict(cls, root: str | None = None) -> None:
+        """Drop the instance for a base path (e.g. on coder teardown)."""
+        if root is None:
+            return
+        key = cls._normalize_root(root)
+        cls._instances.pop(key, None)
+        cls._refcounts.pop(key, None)
+        if cls._active_root == key:
+            cls._active_root = None
 
     @classmethod
     def _create(cls, root: str, repo=None) -> "FileSystemService":
-        """Internal factory — builds and returns the singleton."""
+        """Internal factory — builds and returns a per-base-path instance."""
         service = cls(root=root, repo=repo)
         service.build()
         return service
+
+    @classmethod
+    def _inc_ref(cls, key: str) -> None:
+        """Bump the reference count for a base path held by a live coder."""
+        cls._refcounts[key] = cls._refcounts.get(key, 0) + 1
+
+    @classmethod
+    def _release(cls, key: str) -> None:
+        """Drop one reference; evict the base-path service (and its git repo)
+        when the last coder using it is destroyed."""
+        count = cls._refcounts.get(key, 0)
+        if count <= 1:
+            cls._evict_pair(key)
+        else:
+            cls._refcounts[key] = count - 1
+
+    @classmethod
+    def _evict_pair(cls, key: str) -> None:
+        """Evict the FileSystemService and the matching GitRepoProxy for a base path."""
+        cls._instances.pop(key, None)
+        cls._refcounts.pop(key, None)
+        if cls._active_root == key:
+            cls._active_root = None
+        try:
+            from cecli.repo import GitRepoProxy
+
+            GitRepoProxy.evict(key)
+        except Exception:
+            pass
 
     def has_git(self) -> bool:
         """Check if a git repo is available at root."""
@@ -266,7 +346,7 @@ class FileSystemService:
         if self.trie_index:
             self.trie_index.save(trie_path)
         if self.trigram_index:
-            with open(ngram_path, "wb") as f:
+            with safe_open(ngram_path, "wb") as f:
                 pickle.dump(self.trigram_index, f)
 
         # Store metadata for cache validation
@@ -276,7 +356,7 @@ class FileSystemService:
             "build_hash": self._build_hash,
             "file_count": self.count(),
         }
-        with open(meta_path, "w") as f:
+        with safe_open(meta_path, "w") as f:
             json.dump(meta, f)
 
     def load(self, path: str) -> bool:
@@ -294,7 +374,7 @@ class FileSystemService:
 
         try:
             # Load metadata
-            with open(meta_path) as f:
+            with safe_open(meta_path) as f:
                 meta = json.load(f)
 
             self.root = meta["root"]
@@ -308,7 +388,7 @@ class FileSystemService:
                 return False
 
             # Load ngram index
-            with open(ngram_path, "rb") as f:
+            with safe_open(ngram_path, "rb") as f:
                 self.trigram_index = pickle.load(f)
 
             # Check if cache is stale

@@ -3,30 +3,45 @@ import sys
 
 try:
     if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-except Exception:
+        if sys.stdout is not None:
+            try:
+                sys.stdout.reconfigure(encoding="utf-8")
+            except AttributeError:
+                pass
+
+        if sys.stderr is not None:
+            try:
+                sys.stderr.reconfigure(encoding="utf-8")
+            except AttributeError:
+                pass
+
+        if sys.stdin is not None:
+            try:
+                sys.stdin.reconfigure(encoding="utf-8")
+            except AttributeError:
+                pass
+except AttributeError:
+    # Happens if streams were overridden by a test framework or GUI (e.g., pythonw.exe)
+    pass
+except sys.UnsupportedOperation:
+    # Happens in certain edge-case piping scenarios
     pass
 
 try:
     if not os.getenv("CECLI_DEFAULT_TLS"):
-        import truststore
+        from truststore import inject_into_ssl
 
-        truststore.inject_into_ssl()
+        inject_into_ssl()
 except Exception as e:
     print(e)
     pass
 
 import asyncio
 import json
-import os
 import re
 import shutil
-import threading
 import time
 import traceback
-import webbrowser
-from dataclasses import fields
 from pathlib import Path
 
 try:
@@ -54,49 +69,97 @@ elif sys.platform == "darwin":
                 return asyncio.SelectorEventLoop(selectors.SelectSelector())
 
         asyncio.set_event_loop_policy(_SelectSelectorPolicy())
-from prompt_toolkit.enums import EditingMode
 
 from .dump import dump  # noqa
 
 
-def convert_yaml_to_json_string(value):
+def convert_yaml_to_json_string(value, config_file_value=None):
     """
     Convert YAML dict/list values to JSON strings for compatibility.
 
     configargparse.YAMLConfigFileParser converts YAML to Python objects,
     but some arguments expect JSON strings. This function handles:
     - Direct dict/list objects
-    - String representations of dicts/lists (Python literals)
+    - String representations of dicts/lists (JSON or Python literals)
     - Already JSON strings (passed through unchanged)
+
+    When config_file_value is provided (the value for the same option from the
+    merged config files), the CLI value is deep-merged on top of it so CLI keys
+    win per-key while keys provided only by the config files (e.g.
+    skills_paths, skills_init) are preserved instead of being discarded
+    wholesale. configargparse discards config-file values for options that are
+    also given on the command line, so without this merge a CLI --agent-config
+    silently drops every agent-config key that lives only in .cecli.conf.yml.
 
     Args:
         value: The value to convert
+        config_file_value: Optional config-file value to deep-merge underneath
+            the CLI value
 
     Returns:
         str: JSON string if value is a dict/list, otherwise the original value
     """
     if value is None:
         return None
-    if isinstance(value, (dict, list)):
-        return json.dumps(value)
+
+    parsed = value
+
     if isinstance(value, str):
         try:
-            import ast
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            try:
+                import ast
 
-            parsed = ast.literal_eval(value)
-            if isinstance(parsed, (dict, list)):
-                return json.dumps(parsed)
-        except (SyntaxError, ValueError):
-            pass
+                parsed = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return value
+
+    if isinstance(parsed, (dict, list)):
+        if isinstance(parsed, dict) and config_file_value is not None:
+            from cecli.helpers.config_utils import deep_merge
+
+            try:
+                file_value = config_file_value
+
+                if isinstance(file_value, str):
+                    file_value = json.loads(file_value)
+
+                if isinstance(file_value, dict) and file_value:
+                    parsed = deep_merge(file_value, parsed, deep_merge_arrays=False)
+            except Exception:
+                pass
+
+        return json.dumps(parsed)
+
     return value
 
 
+# yaml-to-json args: argparse dest -> config-file key (hyphenated).
+# CLI values for these args deep-merge with the merged config-file value for
+# the same option, so CLI keys win per-key while file-only keys are preserved.
+YAML_TO_JSON_ARG_KEYS = {
+    "agent_config": "agent-config",
+    "tui_config": "tui-config",
+    "mcp_servers": "mcp-servers",
+    "custom": "custom",
+    "security_config": "security-config",
+    "retries": "retries",
+    "hooks": "hooks",
+    "workspaces": "workspaces",
+    "model_providers": "model-providers",
+    "server_config": "server-config",
+}
+
+
 def check_config_files_for_yes(config_files):
+    from cecli.decoding import safe_open
+
     found = False
     for config_file in config_files:
         if Path(config_file).exists():
             try:
-                with open(config_file, "r") as f:
+                with safe_open(config_file, "r") as f:
                     for line in f:
                         if line.strip().startswith("yes:"):
                             print("Configuration error detected.")
@@ -490,8 +553,7 @@ def custom_tracer(frame, event, arg):
 
 
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
-    from cecli.commands import ReloadProgramSignal
-    from cecli.hooks import HookService
+    from cecli.signals import ReloadProgramSignal
 
     # Tracks the coder instance from a ReloadProgramSignal so the new
     # main_async() can pass it as from_coder to Coder.create(), preserving
@@ -529,6 +591,8 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
             # The old HookManager and HookRegistry instances are cached by UUID and
             # would be reused by the new coder, causing hook registration failures.
             if reload_from_coder:
+                from cecli.hooks import HookService
+
                 HookService.destroy_instances(reload_from_coder.uuid)
             continue
 
@@ -541,24 +605,29 @@ async def main_async(
     return_coder=False,
     from_coder=None,
 ):
+    import logging
+
+    import yaml
+
     from cecli import models, urls, utils
-    from cecli.args import get_parser
+    from cecli.args import DEEP_MERGE_JSON_FIELDS, DEEP_MERGE_LIST_FIELDS, get_parser
     from cecli.coders import Coder
     from cecli.coders.base_coder import UnknownEditFormat
     from cecli.commands import Commands, ReloadProgramSignal, SwitchCoderSignal
+    from cecli.decoding import DEFAULT_ENCODING, safe_open  # noqa
     from cecli.deprecated_args import handle_deprecated_model_args
     from cecli.format_settings import format_settings, scrub_sensitive_info
+    from cecli.helpers import config_utils
     from cecli.helpers.conversation import ConversationService, MessageTag
     from cecli.helpers.copypaste import ClipboardWatcher
     from cecli.helpers.file_searcher import handle_core_files
     from cecli.history import ChatSummary
     from cecli.hooks import HookService
     from cecli.io import InputOutput
-    from cecli.llm import litellm
     from cecli.mcp import McpServerManager, load_mcp_servers
     from cecli.models import ModelSettings
     from cecli.onboarding import offer_openrouter_oauth, select_default_model
-    from cecli.repo import GitRepo
+    from cecli.repo import GitRepoProxy
     from cecli.report import report_uncaught_exceptions, set_args_error_data
     from cecli.versioncheck import check_version
     from cecli.watch import FileWatcher
@@ -573,28 +642,61 @@ async def main_async(
     else:
         git_root = get_git_root()
     conf_fname = handle_core_files(Path(".cecli.conf.yml"))
-    default_config_files = [
+    # Split config files into two groups:
+    #   - conf_yml_files:  .cecli/conf.yml  (shallow merge via configargparse)
+    #   - cecli_conf_yml_files: .cecli.conf.yml (deep merge handled by us)
+    # configargparse must NOT see .cecli.conf.yml files because it would
+    # shallow-merge (overwrite) them, destroying values from earlier files
+    # before our deep-merge code can run.
+    all_config_paths = [
         str(Path.home() / ".cecli" / "conf.yml"),
         str(Path.home() / ".cecli.conf.yml"),
         str(Path(".cecli.conf.yml")),
     ]
     if git_root:
-        default_config_files.append(str(Path(git_root) / ".cecli.conf.yml"))
-    parser = get_parser(default_config_files, git_root)
+        all_config_paths.append(str(Path(git_root) / ".cecli.conf.yml"))
+
+    conf_yml_files = [
+        p for p in all_config_paths if p.endswith("conf.yml") and not p.endswith(".cecli.conf.yml")
+    ]
+    cecli_conf_yml_files = [p for p in all_config_paths if p.endswith(".cecli.conf.yml")]
+
+    # ── Read and merge ALL config files as YAML upfront ─────────────────
+    # Decode all files as YAML, shallow-merge .cecli/conf.yml, then
+    # deep-merge .cecli.conf.yml on top for a fully resolved config dict.
+    merged_config = config_utils.read_and_merge_all_configs(
+        all_config_paths, conf_yml_files, cecli_conf_yml_files
+    )
+
+    # Write merged config to a temp YAML file so configargparse can
+    # consume it as a single, already-merged config source. CLI args
+    # parsed on top will correctly override config-file values.
+    import tempfile
+
+    _tmp_fd, _tmp_cfg = tempfile.mkstemp(suffix=".yml", prefix="cecli_merged_")
+    os.close(_tmp_fd)
+
+    with safe_open(_tmp_cfg, "w") as f:
+        yaml.dump(merged_config, f)
+
+    parser = get_parser([_tmp_cfg], git_root)
     args, unknown = parser.parse_known_args(argv)
 
-    # Load dotenv files and re-parse args before workspace logic
-    # to allow environment variables to be used in workspace config
+    # ── Load dotenv files ──────────────────────────────────────────────
+    # env_file is now fully resolved from the merged config (including
+    # values from .cecli.conf.yml which were previously ignored).
     loaded_dotenvs = load_dotenv_files(git_root, args.env_file, args.encoding)
     args, unknown = parser.parse_known_args(argv)
+    os.unlink(_tmp_cfg)
 
-    uses_workspace = False
     if args.workspaces or args.workspace_name:
-        from cecli.helpers.monorepo.config import (
+        from cecli.helpers.workspaces.config import (
             find_active_workspace_name,
             load_workspace_config,
+            workspace_layout,
         )
-        from cecli.helpers.monorepo.workspace import WorkspaceManager
+        from cecli.helpers.workspaces.subagents import register_workspace_subagents
+        from cecli.helpers.workspaces.workspace import WorkspaceManager
 
         # Interpolate environment variables in the workspaces argument
         if args.workspaces:
@@ -604,47 +706,71 @@ async def main_async(
         ws_name = args.workspace_name or find_active_workspace_name(ws_config_arg)
         if ws_name:
             config = load_workspace_config(ws_config_arg, name=ws_name)
-            workspace_manager = WorkspaceManager(ws_name, config)
 
-            if not workspace_manager.exists():
-                workspace_manager.initialize()
+            # Clone workspaces must be materialised so the implicit ws:{name}
+            # sub-agents can point their roots at the cloned checkouts. The
+            # primary agent's root is left unchanged: workspaces are just
+            # sub-agents with overridden roots.
+            if workspace_layout(config) == "clone":
+                wm = WorkspaceManager(ws_name, config)
+                if not wm.exists():
+                    wm.initialize()
 
-            os.chdir(workspace_manager.get_working_directory())
-            git_root = get_git_root()
-            uses_workspace = True
+            register_workspace_subagents(config)
 
     if git_root:
         git_conf = Path(git_root) / conf_fname
-        if git_conf not in default_config_files:
-            default_config_files.append(str(git_conf))
-
-    if uses_workspace:
-        parser = get_parser(default_config_files, git_root)
-        args, unknown = parser.parse_known_args(argv)
+        if git_conf not in all_config_paths:
+            all_config_paths.append(str(git_conf))
+            cecli_conf_yml_files.append(str(git_conf))
 
     set_args_error_data(args)
+
+    # Override the module-level default encoding with the resolved config value
+    DEFAULT_ENCODING = args.encoding  # noqa
+
+    # ── Normalize array fields ─────────────────────────────────────────
+    # (previously done inside load_and_apply_cecli_conf_files)
+    for key in DEEP_MERGE_LIST_FIELDS:
+        if hasattr(args, key):
+            val = getattr(args, key)
+
+            if val is None or (isinstance(val, str) and val.strip() == ""):
+                setattr(args, key, [])
+
+            elif isinstance(val, str):
+                setattr(args, key, [val])
+
+            elif not isinstance(val, list):
+                logging.warning(
+                    "args.%s is not a list (type: %s), coercing to empty list",
+                    key,
+                    type(val).__name__,
+                )
+                setattr(args, key, [])
+
+    for key in DEEP_MERGE_JSON_FIELDS:
+        if hasattr(args, key):
+            val = getattr(args, key)
+
+            if val is None or (isinstance(val, str) and val.strip() == ""):
+                setattr(args, key, "{}")
 
     if len(unknown):
         print("Unknown Args: ", unknown)
 
-    if hasattr(args, "agent_config") and args.agent_config is not None:
-        args.agent_config = convert_yaml_to_json_string(args.agent_config)
-    if hasattr(args, "tui_config") and args.tui_config is not None:
-        args.tui_config = convert_yaml_to_json_string(args.tui_config)
-    if hasattr(args, "mcp_servers") and args.mcp_servers is not None:
-        args.mcp_servers = convert_yaml_to_json_string(args.mcp_servers)
-    if hasattr(args, "custom") and args.custom is not None:
-        args.custom = convert_yaml_to_json_string(args.custom)
-    if hasattr(args, "security_config") and args.security_config is not None:
-        args.security_config = convert_yaml_to_json_string(args.security_config)
-    if hasattr(args, "retries") and args.retries is not None:
-        args.retries = convert_yaml_to_json_string(args.retries)
-    if hasattr(args, "hooks") and args.hooks is not None:
-        args.hooks = convert_yaml_to_json_string(args.hooks)
-    if hasattr(args, "workspaces") and args.workspaces is not None:
-        args.workspaces = convert_yaml_to_json_string(args.workspaces)
-    if hasattr(args, "model_providers") and args.model_providers is not None:
-        args.model_providers = convert_yaml_to_json_string(args.model_providers)
+    # ── Convert yaml-to-json arguments, deep-merging CLI values with ──────
+    # the merged config-file values so CLI keys win per-key while file-only
+    # keys are preserved.
+    for arg_name, config_key in YAML_TO_JSON_ARG_KEYS.items():
+        if hasattr(args, arg_name) and getattr(args, arg_name) is not None:
+            config_file_value = merged_config.get(config_key)
+
+            setattr(
+                args,
+                arg_name,
+                convert_yaml_to_json_string(getattr(args, arg_name), config_file_value),
+            )
 
     # Interpolate environment variables in all string arguments
     for key, value in vars(args).items():
@@ -667,12 +793,9 @@ async def main_async(
     if git is None:
         args.git = False
     if not args.verify_ssl:
-        import httpx
+        from cecli.helpers.llms import set_verify_ssl
 
-        os.environ["LITELLM_LOCAL_MODEL_COST"] = "true"
-        litellm._load_litellm()
-        litellm._lazy_module.client_session = httpx.Client(verify=False)
-        litellm._lazy_module.aclient_session = httpx.AsyncClient(verify=False)
+        set_verify_ssl(False)
         models.model_info_manager.set_verify_ssl(False)
     if args.timeout:
         models.request_timeout = args.timeout
@@ -692,7 +815,7 @@ async def main_async(
         args.yes_always = True
     if args.yes_always_commands:
         args.yes_always = True
-    editing_mode = EditingMode.VI if args.vim else EditingMode.EMACS
+    editing_mode = "VI" if args.vim else "EMACS"
 
     def get_io(pretty):
         return InputOutput(
@@ -865,7 +988,7 @@ async def main_async(
             return await main_async(argv, input, output, right_repo_root, return_coder=return_coder)
 
     if (args.check_update or args.upgrade) and not args.just_check_update and not suppress_pre_init:
-        await check_version(pre_init_io, verbose=args.verbose)
+        await check_version(pre_init_io, verbose=args.verbose, upgrade=args.upgrade)
     elif args.just_check_update:
         update_available = await check_version(pre_init_io, just_check=True, verbose=args.verbose)
         return await graceful_exit(None, 0 if not update_available else 1)
@@ -879,16 +1002,17 @@ async def main_async(
     await check_and_load_imports(io, is_first_run, verbose=args.verbose)
     register_models(git_root, args.model_settings_file, io, verbose=args.verbose)
     register_litellm_models(git_root, args.model_metadata_file, io, verbose=args.verbose)
+
+    # Release transient garbage from the (heavy) model/litellm imports now that
+    # registration is done, so import-time bloat doesn't carry into the session.
+    from cecli.helpers.memory_control import trim_memory
+
+    trim_memory()
     if args.model_providers:
         try:
             user_providers = json.loads(args.model_providers)
             if isinstance(user_providers, dict):
                 models.model_info_manager.provider_manager.merge_provider_configs(user_providers)
-                from cecli.helpers.model_providers import (
-                    register_user_providers_with_litellm,
-                )
-
-                register_user_providers_with_litellm(user_providers)
                 if args.verbose:
                     io.tool_output(f"Loaded {len(user_providers)} custom model provider(s):")
                     for slug in user_providers:
@@ -1030,6 +1154,8 @@ async def main_async(
         if main_model.edit_format in ("diff", "whole", "diff-fenced"):
             main_model.edit_format = "editor-" + main_model.edit_format
     if args.verbose:
+        from dataclasses import fields
+
         io.tool_output("Model metadata:")
         io.tool_output(json.dumps(main_model.info, indent=4))
         io.tool_output("Model settings:")
@@ -1043,11 +1169,12 @@ async def main_async(
     repo = None
     if args.git:
         try:
-            repo = GitRepo(
+            repo = GitRepoProxy.for_root(
+                None,
                 io,
-                fnames,
-                git_dname,
-                args.cecli_ignore,
+                fnames=fnames,
+                git_dname=git_dname,
+                cecli_ignore_file=args.cecli_ignore,
                 models=main_model.commit_message_models(),
                 attribute_author=args.attribute_author,
                 attribute_committer=args.attribute_committer,
@@ -1118,7 +1245,11 @@ async def main_async(
         mcp_servers = load_mcp_servers(
             args.mcp_servers, args.mcp_servers_files, io, args.verbose, args.mcp_transport
         )
-        mcp_manager = await McpServerManager.from_servers(mcp_servers, io, args.verbose)
+        # Create the manager without connecting. Connections are established
+        # later on the coder's event loop (connect_all below for CLI mode, or
+        # CoderWorker._async_run for TUI mode) so loop-bound MCP state stays
+        # on the loop the coder actually runs on.
+        mcp_manager = McpServerManager(mcp_servers, io=io, verbose=args.verbose)
 
         if from_coder:
             from_coder.tui = None
@@ -1145,6 +1276,7 @@ async def main_async(
             use_git=args.git,
             auto_lint=args.auto_lint,
             auto_test=args.auto_test,
+            auto_memory=args.auto_memory,
             lint_cmds=lint_cmds,
             test_cmd=args.test_cmd,
             commands=commands,
@@ -1183,6 +1315,14 @@ async def main_async(
                     f" {', '.join(loaded_hooks)}"
                 )
 
+        # Connect MCP servers on the coder's event loop so loop-bound MCP
+        # state (sessions, locks, keepalive tasks) is created where the coder
+        # runs. In TUI mode the coder runs on the worker thread's loop and
+        # CoderWorker connects there; connecting here on the main loop would
+        # migrate the connections across loops on first use.
+        if not args.tui:
+            await mcp_manager.connect_all()
+
         if args.show_model_warnings and not suppress_pre_init:
             problem = await models.sanity_check_models(pre_init_io, main_model)
             if problem:
@@ -1209,6 +1349,13 @@ async def main_async(
     except ValueError as err:
         pre_init_io.tool_error(str(err))
         return await graceful_exit(None, 1)
+
+    # The coder owns the MCP manager so graceful_exit can disconnect servers.
+    # If the coder never adopted it (e.g. mocked coders in tests), keep the
+    # reference so disconnect_all() still runs and MCP client tasks don't
+    # leak into asyncio.run() shutdown (which hangs with mcp 2.x stdio tasks).
+    coder.mcp_manager = mcp_manager
+
     if return_coder:
         return coder
     ignores = []
@@ -1271,11 +1418,16 @@ async def main_async(
         args.edit_format = main_model.editor_edit_format
         args.message = "/paste"
     if args.show_release_notes is True:
+        import webbrowser
+
         pre_init_io.tool_output(f"Opening release notes: {urls.release_notes}")
         pre_init_io.tool_output()
         webbrowser.open(urls.release_notes)
         return await graceful_exit(coder)
-    elif args.show_release_notes is None and is_first_run:
+    elif args.show_release_notes is None and is_first_run and not args.yes_always:
+        # Suppress the first-run release-notes prompt when --yes-always is set,
+        # so automated/headless runs don't have the browser hijacked by an
+        # auto-confirmed offer_url. Explicit --show-release-notes still opens.
         pre_init_io.tool_output()
         await pre_init_io.offer_url(
             urls.release_notes,
@@ -1290,7 +1442,7 @@ async def main_async(
         )
         io.tool_output(f"Cur working dir: {Path.cwd()}")
         io.tool_output(f"Git working dir: {git_root}")
-    if args.stream and args.cache_prompts:
+    if args.stream and args.cache_prompts and args.verbose:
         io.tool_warning("Cost estimates may be inaccurate when using streaming and caching.")
     if args.load:
         await commands.execute("load", args.load)
@@ -1338,6 +1490,37 @@ async def main_async(
     if suppress_pre_init:
         await graceful_exit(coder)
 
+    # ── WebSocket server ────────────────────────────────────────────
+    # The WebSocket server only starts if --server-config is explicitly provided.
+    ws_bridge = None
+    if hasattr(args, "server_config") and args.server_config:
+        _server_cfg = {}
+        try:
+            parsed = json.loads(args.server_config)
+            if isinstance(parsed, dict):
+                _server_cfg = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        ws_port = _server_cfg.get("port", 23254)
+        ws_host = _server_cfg.get("host", "127.0.0.1")
+        headless = _server_cfg.get("headless", False)
+
+        # Set args.headless for TUI / other consumers
+        args.headless = headless
+
+        if ws_port and ws_port > 0:
+            try:
+                from cecli.helpers.server.ws_server import run_ws_server
+
+                ws_bridge = await run_ws_server(port=ws_port, host=ws_host)
+                if args.verbose:
+                    io.tool_output(f"WebSocket server started on ws://{ws_host}:{ws_bridge.port}")
+            except Exception as e:
+                io.tool_warning(f"Failed to start WebSocket server: {e}")
+    else:
+        args.headless = False
+
     if args.tui:
         from cecli.tui import launch_tui
 
@@ -1354,11 +1537,17 @@ async def main_async(
             # Clean up stale TUI per-coder queues from previous sessions
             # to prevent stale queue entries from accumulating across
             # reload cycles.
-            from cecli.tui.io import TextualInputOutput as _TuiIO
+            from cecli.helpers import queues
 
-            _TuiIO._per_coder_queues.clear()
+            queues._per_coder_queues.clear()
 
             raise
+        # Stop WebSocket server
+        if ws_bridge is not None:
+            try:
+                await ws_bridge.stop()
+            except Exception:
+                pass
         return await graceful_exit(coder, return_code)
     while True:
         try:
@@ -1414,6 +1603,7 @@ async def main_async(
 def is_first_run_of_new_version(io, verbose=False):
     """Check if this is the first run of a new version/executable combination"""
     from cecli import __version__
+    from cecli.decoding import safe_open
     from cecli.helpers.file_searcher import handle_core_files
 
     installs_file = handle_core_files(Path.home() / ".cecli" / "installs.json")
@@ -1427,7 +1617,7 @@ def is_first_run_of_new_version(io, verbose=False):
         io.tool_output(f"Installs file: {installs_file}")
     try:
         if installs_file.exists():
-            with open(installs_file, "r") as f:
+            with safe_open(installs_file, "r") as f:
                 installs = json.load(f)
             if verbose:
                 io.tool_output("Installs file exists and loaded")
@@ -1439,7 +1629,7 @@ def is_first_run_of_new_version(io, verbose=False):
         if is_first_run:
             installs[str(key)] = True
             installs_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(installs_file, "w") as f:
+            with safe_open(installs_file, "w") as f:
                 json.dump(installs, f, indent=4)
         return is_first_run
     except Exception as e:
@@ -1472,6 +1662,8 @@ async def check_and_load_imports(io, is_first_run, verbose=False):
         else:
             if verbose:
                 io.tool_output("Not first run, loading imports in background thread")
+            import threading
+
             thread = threading.Thread(target=load_slow_imports)
             thread.daemon = True
             thread.start()
@@ -1483,9 +1675,7 @@ async def check_and_load_imports(io, is_first_run, verbose=False):
 
 def load_slow_imports(swallow=True):
     try:
-        import httpx  # noqa
-        import litellm  # noqa
-        import numpy  # noqa
+        import cecli.llm  # noqa
     except Exception as e:
         if not swallow:
             raise e
@@ -1565,6 +1755,10 @@ async def task(message, setting=None, env=None, force_git_root=None, return_code
 
 async def graceful_exit(coder=None, exit_code=0):
     sys.settrace(None)
+
+    if getattr(coder, "error_code", None) is not None:
+        exit_code = coder.error_code
+
     if coder:
         if hasattr(coder, "_autosave_future"):
             await coder._autosave_future
@@ -1590,13 +1784,21 @@ async def graceful_exit(coder=None, exit_code=0):
                         if (now - mtime) > week_seconds:
                             shutil.rmtree(agent_folder, ignore_errors=True)
                         else:
-                            # Remove empty sub-folders in remaining folders
-                            for sub_folder in agent_folder.iterdir():
-                                if sub_folder.is_dir():
-                                    try:
+                            # Find all nested subdirectories inside this agent folder
+                            all_subdirs = [d for d in agent_folder.rglob("*") if d.is_dir()]
+
+                            # Sort them by depth (deepest first) so child dirs are processed before parents
+                            all_subdirs.sort(key=lambda x: len(x.parts), reverse=True)
+
+                            for sub_folder in all_subdirs:
+                                try:
+                                    # rmdir() safely fails if a file is present
+                                    # any() checks if the directory has any files or remaining folders
+                                    if not any(sub_folder.iterdir()):
                                         sub_folder.rmdir()
-                                    except OSError:
-                                        pass
+                                except OSError:
+                                    pass
+
                     except (OSError, PermissionError):
                         pass
     except Exception:

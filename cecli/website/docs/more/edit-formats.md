@@ -4,21 +4,13 @@ nav_order: 490
 description: cecli uses various "edit formats" to let LLMs edit source files.
 ---
 
-# Edit formats
+# Edit Formats
 
-cecli uses various "edit formats" to let LLMs edit source files.
-Different models work better or worse with different edit formats.
-cecli is configured to use the optimal format for most popular, common models.
-You can always force use of a specific edit format with 
-the `--edit-format` switch.
+Cecli uses various "edit formats" to let LLMs edit source files. Different models work better or worse with different edit formats. cecli is configured to use the optimal format for most popular, common models. You can always force use of a specific edit format with the `--edit-format` switch.
 
 ## whole
 
-The "whole" edit format is the simplest possible editing format.
-The LLM is instructed to return a full, updated
-copy of each source file that needs changes.
-While simple, it can be slow and costly because the LLM has to return
-the *entire file* even if just a few lines are edited.
+The "whole" edit format is the simplest possible editing format. The LLM is instructed to return a full, updated copy of each source file that needs changes. While simple, it can be slow and costly because the LLM has to return the *entire file* even if just a few lines are edited.
 
 The whole format expects the file path just before the fenced file content:
 
@@ -38,12 +30,9 @@ if __name__ == '__main__':
 
 ## diff
 
-The "diff" edit format asks the LLM to specify file edits as a series of search/replace blocks.
-This is an efficient format, because the model only needs to return parts of the file
-which have changes.
+The "diff" edit format asks the LLM to specify file edits as a series of search/replace blocks. This is an efficient format, because the model only needs to return parts of the file which have changes.
 
-Edits are formatted using a syntax similar to the git merge conflict resolution markings,
-with the file path right before a fenced block:
+Edits are formatted using a syntax similar to the git merge conflict resolution markings, with the file path right before a fenced block:
 
 ````
 mathweb/flask/app.py
@@ -59,10 +48,7 @@ from flask import Flask
 
 ## diff-fenced
 
-The "diff-fenced" edit format is based on the diff format, but
-the file path is placed inside the fence.
-It is primarily used with the Gemini family of models,
-which often fail to conform to the fencing approach specified in the diff format.
+The "diff-fenced" edit format is based on the diff format, but the file path is placed inside the fence. It is primarily used with the Gemini family of models, which often fail to conform to the fencing approach specified in the diff format.
 
 ````
 ```
@@ -78,16 +64,9 @@ from flask import Flask
 
 ## udiff
 
-The "udiff" edit format is based on the widely used unified diff format,
-but [modified and simplified](/2023/12/21/unified-diffs.html).
-This is an efficient format, because the model only needs to return parts of the file
-which have changes.
+The "udiff" edit format is based on the widely used unified diff format, but [modified and simplified](https://cecli.dev/2023/12/21/unified-diffs.html). This is an efficient format, because the model only needs to return parts of the file which have changes.
 
-It was mainly used to the GPT-4 Turbo family of models,
-because it reduced their "lazy coding" tendencies.
-With other edit formats the GPT-4 Turbo models tended to elide
-large sections of code and replace them with "# ... original code here ..."
-style comments.
+It was mainly used to the GPT-4 Turbo family of models, because it reduced their "lazy coding" tendencies. With other edit formats the GPT-4 Turbo models tended to elide large sections of code and replace them with "# ... original code here ..." style comments.
 
 
 ````
@@ -104,13 +83,4 @@ style comments.
 
 ## editor-diff and editor-whole
 
-These are streamlined versions of the diff and whole formats, intended to be used
-with `--editor-edit-format` when using
-[architect mode](/docs/usage/modes.html).
-The actual edit format is the same, but cecli uses a simpler prompt that
-is more narrowly focused on just editing the file as opposed to
-solving the coding task.
-The architect model resolves the coding task and
-provides plain text instructions about which file changes need to be made.
-The editor interprets those instructions to produce the
-syntactically correct diff or whole edits.
+These are streamlined versions of the diff and whole formats, intended to be used with `--editor-edit-format` when using [architect mode](../usage/modes.html). The actual edit format is the same, but cecli uses a simpler prompt that is more narrowly focused on just editing the file as opposed to solving the coding task. The architect model resolves the coding task and provides plain text instructions about which file changes need to be made. The editor interprets those instructions to produce the syntactically correct diff or whole edits.

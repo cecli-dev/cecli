@@ -3,6 +3,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.decoding import safe_open
 from cecli.utils import run_fzf
 
 
@@ -68,7 +69,7 @@ class HistorySearchCommand(BaseCommand):
             return []
 
         try:
-            with open(file_path, "r") as f:
+            with safe_open(file_path, "r") as f:
                 content = f.read()
         except (OSError, IOError):
             return []

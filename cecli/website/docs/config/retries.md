@@ -6,9 +6,7 @@ description: How to configure cecli retry behavior for failed API calls.
 
 # Retries
 
-cecli can be configured to retry failed API calls.
-This is useful for handling intermittent network issues or other transient errors.
-The `retries` option is a JSON object that can be configured with the following keys:
+Cecli can be configured to retry failed API calls. This is useful for handling intermittent network issues or other transient errors. The `retries` option is a JSON object that can be configured with the following keys:
 
 - `retry-timeout`: The timeout in seconds for each retry.
 - `retry-backoff-factor`: The backoff factor to use between retries.
@@ -34,4 +32,8 @@ Or by setting the `CECLI_RETRIES` environment variable:
 ```
 export CECLI_RETRIES='{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true}'
 ```
-{% include keys.md %}
+
+> **Tip:**
+> See the
+> [API key configuration docs](api-keys.html)
+> for information on how to configure and store your API keys.

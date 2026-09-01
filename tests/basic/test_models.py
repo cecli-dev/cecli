@@ -164,16 +164,16 @@ class TestModels:
 
         # Test with integer
         model.set_thinking_tokens(8096)
-        assert model.extra_params["thinking"]["budget_tokens"] == 8096
+        assert model.extra_params["extra_body"]["thinking"]["budget_tokens"] == 8096
         assert not model.use_temperature
 
         # Test with string
         model.set_thinking_tokens("10k")
-        assert model.extra_params["thinking"]["budget_tokens"] == 10 * 1024
+        assert model.extra_params["extra_body"]["thinking"]["budget_tokens"] == 10 * 1024
 
         # Test with decimal value
         model.set_thinking_tokens("0.5M")
-        assert model.extra_params["thinking"]["budget_tokens"] == 0.5 * 1024 * 1024
+        assert model.extra_params["extra_body"]["thinking"]["budget_tokens"] == 0.5 * 1024 * 1024
 
     @patch("cecli.models.check_pip_install_extra")
     async def test_check_for_dependencies_bedrock(self, mock_check_pip):
@@ -377,13 +377,14 @@ class TestModels:
         mock_completion.assert_called_once_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             num_ctx=expected_ctx,
             timeout=600,
             keep_alive=-1,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -424,13 +425,14 @@ class TestModels:
         mock_completion.assert_called_once_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             num_ctx=4096,
             timeout=600,
             keep_alive=-1,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -444,11 +446,12 @@ class TestModels:
         mock_completion.assert_called_once_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -478,11 +481,12 @@ class TestModels:
         mock_completion.assert_called_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -497,11 +501,12 @@ class TestModels:
         mock_completion.assert_called_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             timeout=300,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -516,11 +521,12 @@ class TestModels:
         mock_completion.assert_called_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
@@ -540,11 +546,12 @@ class TestModels:
         mock_completion.assert_called_with(
             model=model.name,
             messages=ANY,
+            prompt_cache_key=ANY,
             stream=False,
             temperature=0.7,
             timeout=600,
             drop_params=True,
-            headers={"Connection": "close", "User-Agent": ANY},
+            headers={"User-Agent": ANY},
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )

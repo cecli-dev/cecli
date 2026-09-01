@@ -49,6 +49,14 @@ class CoderWorker:
         asyncio.set_event_loop(self.loop)
         self.loop.set_exception_handler(self.worker_loop_exception_handler)
 
+        # Bind the global input wake-up state to this worker loop so
+        # producers (TUI, WebSocket, ACP) wake consumers on the correct
+        # loop. A fresh binding is required after a hot reload, where the
+        # previous worker loop was closed.
+        from cecli.helpers import queues
+
+        queues.set_input_loop(self.loop)
+
         try:
             self.loop.run_until_complete(self._async_run())
         except BaseException:
@@ -64,6 +72,18 @@ class CoderWorker:
             return
 
         try:
+            # Disconnect MCP servers on this loop (connections live here) so
+            # main-loop disconnect_all() becomes a no-op instead of racing
+            # loop-bound cleanup across threads.
+            mcp_manager = getattr(self.coder, "mcp_manager", None)
+            if mcp_manager is not None and mcp_manager.is_connected and not self.loop.is_closed():
+                try:
+                    self.loop.run_until_complete(
+                        asyncio.wait_for(mcp_manager.disconnect_all(), timeout=10)
+                    )
+                except Exception:
+                    pass  # Ignore cleanup errors
+
             # Cancel pending tasks if loop is still running
             if not self.loop.is_closed():
                 pending = asyncio.all_tasks(self.loop)
@@ -89,6 +109,16 @@ class CoderWorker:
 
     async def _async_run(self):
         """Async entry point - runs coder loop."""
+        # MCP servers connect lazily on the coder's event loop (see main.py)
+        # so loop-bound MCP state (sessions, locks, keepalive tasks) stays on
+        # the same loop the coder runs on instead of migrating across loops.
+        mcp_manager = getattr(self.coder, "mcp_manager", None)
+        if mcp_manager is not None:
+            try:
+                await mcp_manager.connect_all()
+            except Exception as e:
+                logger.error("Failed to connect MCP servers in worker: %s", e, exc_info=True)
+
         while self.running:
             try:
                 await self.coder.run()
@@ -107,6 +137,8 @@ class CoderWorker:
                 await self._handle_switch_coder_signal(switch)
                 # Continue the loop with the new coder
             except Exception as e:
+                logger.error(e, exc_info=True)
+
                 self.output_queue.put(
                     {
                         "type": "error",

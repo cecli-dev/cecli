@@ -5,14 +5,13 @@ nav_order: 200
 
 # Anthropic
 
-To work with Anthropic's models, you need to provide your
-[Anthropic API key](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
-either in the `ANTHROPIC_API_KEY` environment variable or
-via the `--anthropic-api-key` command line switch.
+To work with Anthropic's models, you need to provide your [Anthropic API key](https://docs.anthropic.com/claude/reference/getting-started-with-the-api) either in the `ANTHROPIC_API_KEY` environment variable or via the `--anthropic-api-key` command line switch.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 
@@ -34,26 +33,15 @@ cecli
 cecli --list-models anthropic/
 ```
 
-{: .tip }
-Anthropic has very low rate limits. 
-You can access all the Anthropic models via
-[OpenRouter](openrouter.md)
-or [Google Vertex AI](vertex.md)
-with more generous rate limits.
+> **Tip:** Anthropic has very low rate limits. You can access all the Anthropic models via [OpenRouter](openrouter.md) or [Google Vertex AI](vertex.md) with more generous rate limits.
 
-You can use `cecli --model <model-name>` to use any other Anthropic model.
-For example, if you want to use a specific version of Opus
-you could do `cecli --model claude-3-opus-20240229`.
+You can use `cecli --model <model-name>` to use any other Anthropic model. For example, if you want to use a specific version of Opus you could do `cecli --model claude-3-opus-20240229`.
 
 ## Thinking tokens
 
-cecli can work with Sonnet 3.7's new thinking tokens, but does not ask Sonnet to use
-thinking tokens by default.
+Cecli can work with Sonnet 3.7's new thinking tokens, but does not ask Sonnet to use thinking tokens by default.
 
-Enabling thinking currently requires manual configuration.
-You need to add the following to your `.cecli.model.settings.yml` 
-[model settings file](/docs/config/adv-model-settings.html#model-settings).
-Adjust the `budget_tokens` value to change the target number of thinking tokens.
+Enabling thinking currently requires manual configuration. You need to add the following to your `.cecli.model.settings.yml` [model settings file](../config/adv-model-settings.html#advanced-model-settings-model-settings). Adjust the `budget_tokens` value to change the target number of thinking tokens.
 
 ```yaml
 - name: anthropic/claude-3-7-sonnet-20250219

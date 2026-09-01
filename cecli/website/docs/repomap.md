@@ -5,34 +5,15 @@ nav_order: 300
 description: cecli uses a map of your git repository to provide code context to LLMs.
 ---
 
-# Repository map
+# Repository Map
 
-![robot flowchat](/assets/robot-ast.png)
-
-cecli
-uses a **concise map of your whole git repository**
-that includes
-the most important classes and functions along with their types and call signatures.
-This helps cecli understand the code it's editing
-and how it relates to the other parts of the codebase.
-The repo map also helps cecli write new code
-that respects and utilizes existing libraries, modules and abstractions
-found elsewhere in the codebase.
+Cecli uses a **concise map of your whole git repository** that includes the most important classes and functions along with their types and call signatures. This helps cecli understand the code it's editing and how it relates to the other parts of the codebase. The repo map also helps cecli write new code that respects and utilizes existing libraries, modules and abstractions found elsewhere in the codebase.
 
 ## Using a repo map to provide context
 
-cecli sends a **repo map** to the LLM along with
-each change request from the user.
-The repo map contains a list of the files in the
-repo, along with the key symbols which are defined in each file.
-It shows how each of these symbols are defined, by including the critical lines of code for each definition.
+Cecli sends a **repo map** to the LLM along with each change request from the user. The repo map contains a list of the files in the repo, along with the key symbols which are defined in each file. It shows how each of these symbols are defined, by including the critical lines of code for each definition.
 
-Here's a part of
-the repo map of cecli's repo, for
-[base_coder.py](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py)
-and
-[commands.py](https://github.com/cecli-dev/cecli/blob/main/cecli/commands.py)
-:
+Here's a part of the repo map of cecli's repo, for [base_coder.py](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py) and [commands.py](https://github.com/cecli-dev/cecli/blob/main/cecli/commands.py) :
 
 ```
 cecli/coders/base_coder.py:
@@ -75,38 +56,14 @@ Mapping out the repo like this provides some key benefits:
 
 ## Optimizing the map
 
-Of course, for large repositories even just the repo map might be too large
-for the LLM's context window.
-cecli solves this problem by sending just the **most relevant**
-portions of the repo map.
-It does this by analyzing the full repo map using
-a graph ranking algorithm, computed on a graph
-where each source file is a node and edges connect
-files which have dependencies.
-cecli optimizes the repo map by
-selecting the most important parts of the codebase
-which will
-fit into the active token budget.
-The optimization identifies and maps the portions of the code base
-which are most relevant to the current state of the chat.
+Of course, for large repositories even just the repo map might be too large for the LLM's context window. cecli solves this problem by sending just the **most relevant** portions of the repo map. It does this by analyzing the full repo map using a graph ranking algorithm, computed on a graph where each source file is a node and edges connect files which have dependencies. cecli optimizes the repo map by selecting the most important parts of the codebase which will fit into the active token budget. The optimization identifies and maps the portions of the code base which are most relevant to the current state of the chat.
 
-The token budget is
-influenced by the `--map-tokens` switch, which defaults to 1k tokens.
-cecli adjusts the size of the repo map dynamically based on the state of the chat. It will usually stay within that setting's value. But it does expand the repo map
-significantly at times, especially when no files have been added to the chat and cecli needs to understand the entire repo as best as possible.
+The token budget is influenced by the `--map-tokens` switch, which defaults to 1k tokens. cecli adjusts the size of the repo map dynamically based on the state of the chat. It will usually stay within that setting's value. But it does expand the repo map significantly at times, especially when no files have been added to the chat and cecli needs to understand the entire repo as best as possible.
 
 
-The sample map shown above doesn't contain *every* class, method and function from those
-files.
-It only includes the most important identifiers,
-the ones which are most often referenced by other portions of the code.
-These are the key pieces of context that the LLM needs to know to understand
-the overall codebase.
+The sample map shown above doesn't contain *every* class, method and function from those files. It only includes the most important identifiers, the ones which are most often referenced by other portions of the code. These are the key pieces of context that the LLM needs to know to understand the overall codebase.
 
 
 ## More info
 
-Please check the
-[repo map article on cecli's blog](https://cecli.dev/2023/10/22/repomap.html)
-for more information on cecli's repository map
-and how it is constructed.
+Please check the [repo map article on cecli's blog](https://cecli.dev/2023/10/22/repomap.html) for more information on cecli's repository map and how it is constructed.

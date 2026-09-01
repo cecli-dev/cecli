@@ -2,6 +2,7 @@ import argparse
 
 import cecli.prompts.utils.system as prompts
 from cecli import models
+from cecli.decoding import safe_open
 from cecli.dump import dump  # noqa: F401
 
 
@@ -160,7 +161,7 @@ def main():
     model_list = [models.Model(name) for name in model_names]
     summarizer = ChatSummary(model_list)
 
-    with open(args.filename, "r") as f:
+    with safe_open(args.filename, "r") as f:
         text = f.read()
 
     summary = summarizer.summarize_chat_history_markdown(text)

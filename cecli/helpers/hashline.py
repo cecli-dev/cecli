@@ -3,7 +3,11 @@ import json
 import re
 from collections import Counter
 
-from cecli.helpers.hashpos.hashpos import HashPos
+from cecli.helpers.hashpos.hashpos import (  # noqa
+    HASH_DELIMITER,
+    UNIQUE_HASH_DELIMITER,
+    HashPos,
+)
 
 HASHLINE_PREFIX_RE = HashPos.HASH_PREFIX_RE
 
@@ -30,7 +34,7 @@ def hashline(text: str, start_line: int = 1) -> str:
 
 
 def hashline_formatted(
-    text: str, file_name: str, partial: bool, expanded: bool, start_line: int = 1
+    text: str, file_name: str, total_lines: int = 0, start_line: int = 1
 ) -> tuple[str, str]:
     """
     Generate hashline-formatted content and return it as both raw hashline text and a JSON structure.
@@ -55,8 +59,7 @@ def hashline_formatted(
         "file_name": file_name,
         "start_line": start_line,
         "end_line": end_line,
-        "partial": partial,
-        "expanded": expanded,
+        "total_lines": total_lines if total_lines else hp.total,
         "prefixed_contents": prefixed,
     }
 
@@ -70,17 +73,19 @@ def strip_hashline(text: str) -> str:
     """
     Remove HashPos prefixes from the start of every line.
     """
+    if text is None:
+        return ""
     return HashPos.strip_prefix(text)
 
 
-def normalize_hashline(hashline_str: str) -> str:
+def normalize_hashline(hashline_str: str, throw=True) -> str:
     """
     Normalize a hashline string to the content id hash fragment.
     """
     if hashline_str in ("@000", "000@"):
         return hashline_str
     try:
-        return HashPos.normalize(hashpos_str=hashline_str)
+        return HashPos.normalize(hashpos_str=hashline_str, throw=throw)
     except ValueError as e:
         raise ContentHashError(str(e))
 
@@ -276,18 +281,21 @@ def resolve_content_to_hashline_ids(
     original_content: str,
     start_value: str,
     end_value: str = None,
+    start_hint_line: int | None = None,
+    exact: bool = True,
 ) -> tuple:
     """
     Resolve potential line content values to proper hashline content IDs.
 
     If start_value or end_value does not look like a content ID (hash),
-    search for the content in the original file using substring matching.
+    search for the content in the original file using exact line matching
+    (or substring matching when exact=False).
 
-    For start_value: Only resolves if exactly one line contains it as a
+    For start_value: Only resolves if exactly one line exactly matches it as a
     substring (unique match).
 
     For end_value: Resolves by finding the closest line (by position) to
-    the resolved start line that contains it as a substring.
+    the resolved start line that exactly matches it.
 
     This handles the case where LLMs return entire line content or fragments
     instead of content IDs in edit parameters.
@@ -296,6 +304,8 @@ def resolve_content_to_hashline_ids(
         original_content: Original file content (without hash prefixes)
         start_value: The start_line value from the edit
         end_value: The end_line value from the edit (optional)
+        start_hint_line: 0-based line number hint used to disambiguate
+                        non-unique start_value matches (optional)
 
     Returns:
         tuple: (resolved_start, resolved_end) with hash IDs or original values
@@ -315,25 +325,37 @@ def resolve_content_to_hashline_ids(
         except (ContentHashError, ValueError):
             return False
 
-    def _find_substring_matches(lines, value):
-        """Find all line indices where the value appears as a substring."""
+    def _find_exact_line_matches(lines, value):
+        """Find all line indices where the value matches the line content."""
+        if exact:
+            return [i for i, line in enumerate(lines) if line == value]
         value_stripped = value.strip()
         return [i for i, line in enumerate(lines) if value_stripped in line]
 
     def _find_multiline_match(lines, value):
         """Find the start index where the full multiline value matches consecutive lines."""
-        value_lines = value.strip().splitlines()
+        if exact:
+            value_lines = value.splitlines()
+        else:
+            value_lines = value.strip().splitlines()
         if len(value_lines) <= 1:
             return None
         for i in range(len(lines) - len(value_lines) + 1):
-            if all(value_lines[j].strip() in lines[i + j] for j in range(len(value_lines))):
-                return i
+            if exact:
+                if all(lines[i + j] == value_lines[j] for j in range(len(value_lines))):
+                    return i
+            else:
+                if all(value_lines[j].strip() in lines[i + j] for j in range(len(value_lines))):
+                    return i
         return None
 
     def _resolve_to_hash_id(lines, idx, hp):
         """Generate a hash ID for the line at the given index."""
-        hash_id = hp.generate_public_id(lines[idx], idx)
-        return hash_id + "::"
+        line_text = lines[idx]
+        # Compute the occurrence number (1-based) of this line instance
+        occurrence = 1 + sum(1 for i in range(idx) if lines[i] == line_text)
+        hash_id = hp.generate_public_id(line_text, idx, occurrence)
+        return HashPos.get_wrapped_id(hash_id)
 
     lines = original_content.splitlines()
     hp = HashPos(original_content)
@@ -351,10 +373,31 @@ def resolve_content_to_hashline_ids(
             resolved_start = _resolve_to_hash_id(lines, resolved_start_idx, hp)
         else:
             # Fall back to first line substring matching
-            containing_indices = _find_substring_matches(lines, first_line)
+            containing_indices = _find_exact_line_matches(lines, first_line)
             if len(containing_indices) == 1:
                 resolved_start_idx = containing_indices[0]
                 resolved_start = _resolve_to_hash_id(lines, resolved_start_idx, hp)
+            elif len(containing_indices) > 1 and start_hint_line is not None:
+                # Multiple matches - pick closest to hint line
+                resolved_start_idx = min(
+                    containing_indices,
+                    key=lambda idx: abs(idx - start_hint_line),
+                )
+                resolved_start = _resolve_to_hash_id(lines, resolved_start_idx, hp)
+            else:
+                # Fallback: the value may be line content whose whitespace was
+                # normalized (e.g. stripped indentation). Resolve it against a
+                # single unique line — mirroring apply_hashline_operations — so
+                # the preview resolves exactly like the actual edit.
+                unique_resolved = _try_resolve_as_unique_line(hp, first_line)
+                if unique_resolved is not None:
+                    resolved_start = unique_resolved
+                    try:
+                        candidates = hp.resolve_to_lines(normalize_hashline(unique_resolved))
+                        if candidates:
+                            resolved_start_idx = candidates[0]
+                    except (ContentHashError, ValueError):
+                        pass
     elif start_value is not None and _looks_like_content_id(start_value):
         # Already a content ID - try to resolve it to find the line position
         # for proximity matching with end_value
@@ -364,7 +407,22 @@ def resolve_content_to_hashline_ids(
             if candidates:
                 resolved_start_idx = candidates[0]
         except (ContentHashError, ValueError):
-            pass
+            # The value looks like a content ID but normalized to UNIQUE_HASH_DELIMITER which can't
+            # be spatially resolved. Fall back: strip the UNIQUE_HASH_DELIMITER prefix and treat the
+            # remaining content as line content to match.
+            content = HashPos.strip_prefix(start_value)
+            if content != start_value and content.strip():
+                containing_indices = _find_exact_line_matches(lines, content)
+                if len(containing_indices) == 1:
+                    resolved_start_idx = containing_indices[0]
+                    resolved_start = _resolve_to_hash_id(lines, resolved_start_idx, hp)
+                elif len(containing_indices) > 1 and start_hint_line is not None:
+                    # Multiple matches - pick closest to hint line
+                    resolved_start_idx = min(
+                        containing_indices,
+                        key=lambda idx: abs(idx - start_hint_line),
+                    )
+                    resolved_start = _resolve_to_hash_id(lines, resolved_start_idx, hp)
 
     # Resolve end_value based on proximity to start position
     resolved_end = end_value
@@ -378,7 +436,7 @@ def resolve_content_to_hashline_ids(
             resolved_end = _resolve_to_hash_id(lines, idx, hp)
         else:
             # Fall back to first line substring matching
-            containing_indices = _find_substring_matches(lines, first_line)
+            containing_indices = _find_exact_line_matches(lines, first_line)
             if len(containing_indices) == 1:
                 # Unique match - resolve directly
                 idx = containing_indices[0]
@@ -390,6 +448,38 @@ def resolve_content_to_hashline_ids(
                     key=lambda idx: abs(idx - resolved_start_idx),
                 )
                 resolved_end = _resolve_to_hash_id(lines, closest_idx, hp)
+            else:
+                # Fallback: the value may be line content whose whitespace was
+                # normalized (e.g. stripped indentation). Resolve it against a
+                # single unique line — mirroring apply_hashline_operations — so
+                # the preview resolves exactly like the actual edit.
+                unique_resolved = _try_resolve_as_unique_line(hp, first_line)
+                if unique_resolved is not None:
+                    resolved_end = unique_resolved
+    elif end_value is not None and _looks_like_content_id(end_value):
+        # Already a content ID - try to resolve it
+        try:
+            normalized = normalize_hashline(end_value)
+            candidates = hp.resolve_to_lines(normalized)
+            if candidates and resolved_start_idx is not None:
+                # Pick candidate closest to start position
+                resolved_end = _resolve_to_hash_id(lines, candidates[0], hp)
+        except (ContentHashError, ValueError):
+            # The value looks like a content ID but normalized to UNIQUE_HASH_DELIMITER which can't
+            # be spatially resolved. Fall back: strip the UNIQUE_HASH_DELIMITER prefix and treat the
+            # remaining content as line content to match.
+            content = HashPos.strip_prefix(end_value)
+            if content != end_value and content.strip():
+                containing_indices = _find_exact_line_matches(lines, content)
+                if len(containing_indices) == 1:
+                    idx = containing_indices[0]
+                    resolved_end = _resolve_to_hash_id(lines, idx, hp)
+                elif len(containing_indices) > 1 and resolved_start_idx is not None:
+                    closest_idx = min(
+                        containing_indices,
+                        key=lambda idx: abs(idx - resolved_start_idx),
+                    )
+                    resolved_end = _resolve_to_hash_id(lines, closest_idx, hp)
 
     return resolved_start, resolved_end
 
@@ -1251,28 +1341,43 @@ def _honor_cancellations(resolved_ops):
 
 def _deduplicate_ranges(resolved_ops):
     """
-    Deduplicate operations that start on the same line.
-    If multiple operations start on the same line, keep only the latest one.
-    This handles cases where a model might generate multiple operations for the same line while "thinking"
+    Deduplicate operations that target the same line and operation type.
+
+    Inserts are anchored after their target line, so an insert and a replace
+    sharing a start index are independent operations and must both be retained.
+    Multiple operations of the same type still keep only the latest one.
+
+    Returns:
+        tuple: (deduplicated_ops, dropped_ops) where dropped_ops describes the
+        operations that were removed so callers can surface them as failures.
     """
     deduplicated_ops = []
-    # Group operations by start_idx
-    start_idx_to_ops = {}
-    # Loop to group operations by their start index
+    dropped = []
+    ops_by_key = {}
+
     for op in resolved_ops:
-        start_idx = op["start_idx"]
-        if start_idx not in start_idx_to_ops:
-            start_idx_to_ops[start_idx] = []
-        start_idx_to_ops[start_idx].append(op)
+        key = (op["start_idx"], op["op"]["operation"])
+        ops_by_key.setdefault(key, []).append(op)
 
-    # For each start_idx, keep only the operation with the highest original index (latest in the list)
-    # Loop to select only the latest operation per start index
-    for start_idx, ops in start_idx_to_ops.items():
-        # Sort by original index descending and take the first one
+    for ops in ops_by_key.values():
         ops.sort(key=lambda x: x["index"], reverse=True)
-        deduplicated_ops.append(ops[0])
+        kept = ops[0]
+        deduplicated_ops.append(kept)
 
-    return deduplicated_ops
+        for dropped_op in ops[1:]:
+            dropped.append(
+                {
+                    "index": dropped_op["index"],
+                    "error": (
+                        f"Edit {dropped_op['index'] + 1} targets the same start line and "
+                        f"operation type as Edit {kept['index'] + 1} and was not applied"
+                    ),
+                    "operation": dropped_op["op"],
+                    "failure_type": "not_applied",
+                }
+            )
+
+    return deduplicated_ops, dropped
 
 
 def _honor_special_markers(resolved_ops):
@@ -1286,9 +1391,21 @@ def _honor_special_markers(resolved_ops):
        starting between beginning of file and that end hash.
     3. If an operation has a normal start hash and "000@" as end hash,
        remove any operations ending between that start hash and end of file.
+
+    Returns:
+        tuple: (remaining_ops, dropped_ops) where dropped_ops describes the
+        operations removed by the special markers so callers can surface them
+        as failures instead of silently discarding them.
     """
     if not resolved_ops:
-        return resolved_ops
+        return resolved_ops, []
+
+    def _drop(op, reason):
+        return {
+            "index": op["index"],
+            "error": f"Edit {op['index'] + 1} {reason}",
+            "operation": op["op"],
+        }
 
     # Check for full file replacement (@000 to 000@)
     for op in resolved_ops:
@@ -1298,7 +1415,12 @@ def _honor_special_markers(resolved_ops):
 
         if start_hash == "@000" and end_hash == "000@":
             # This operation replaces the entire file, keep only this one
-            return [op]
+            dropped = [
+                _drop(other, "was superseded by a full-file replacement (@000..000@)")
+                for other in resolved_ops
+                if other is not op
+            ]
+            return [op], dropped
 
     # Track which operations have special markers
     has_special_marker = [False] * len(resolved_ops)
@@ -1309,8 +1431,8 @@ def _honor_special_markers(resolved_ops):
         if start_hash == "@000" or end_hash == "000@":
             has_special_marker[i] = True
 
-    # Mark operations for removal
-    ops_to_remove = set()
+    # Mark operations for removal, along with the reason they were removed
+    ops_to_remove = {}
 
     for i, op in enumerate(resolved_ops):
         original_op = op["op"]
@@ -1326,7 +1448,10 @@ def _honor_special_markers(resolved_ops):
                 if j != i and not has_special_marker[j]:
                     other_start_idx = other_op["start_idx"]
                     if other_start_idx <= end_idx:
-                        ops_to_remove.add(j)
+                        ops_to_remove.setdefault(
+                            j,
+                            "was superseded by an operation starting at the top of the file (@000)",
+                        )
         elif end_hash == "000@":
             # Operation ends at end of file
             # Remove any operations ending at or after this operation's start_idx
@@ -1336,26 +1461,39 @@ def _honor_special_markers(resolved_ops):
                 if j != i and not has_special_marker[j]:
                     other_end_idx = other_op["end_idx"]
                     if other_end_idx >= start_idx:
-                        ops_to_remove.add(j)
+                        ops_to_remove.setdefault(
+                            j,
+                            "was superseded by an operation ending at the bottom of the file (000@)",
+                        )
 
     # Filter out operations marked for removal
     result = []
+    dropped = []
     for i, op in enumerate(resolved_ops):
         if i not in ops_to_remove:
             result.append(op)
+        else:
+            dropped.append(_drop(op, ops_to_remove[i]))
 
-    return result
+    return result, dropped
 
 
 def _merged_contained_ranges(resolved_ops):
     """
     Discard inner ranges that are completely contained within outer ranges.
     This prevents redundant operations and potential errors.
+
+    Returns:
+        tuple: (optimized_ops, dropped_ops) where dropped_ops describes the
+        contained operations that were removed so callers can surface them
+        as failures instead of silently discarding them.
     """
     optimized_ops = []
+    dropped = []
     # Loop to remove operations that are completely contained within other operations
     for i, op_a in enumerate(resolved_ops):
         keep_op = True
+        container = None
 
         # Check if this operation is contained within any other operation
         for j, op_b in enumerate(resolved_ops):
@@ -1376,13 +1514,25 @@ def _merged_contained_ranges(resolved_ops):
                     # Keep both operations if they have different types
                     continue
                 # op_a is inside op_b, discard op_a
+                container = op_b
                 keep_op = False
                 break
 
         if keep_op:
             optimized_ops.append(op_a)
+        else:
+            dropped.append(
+                {
+                    "index": op_a["index"],
+                    "error": (
+                        f"Edit {op_a['index'] + 1} range is contained within "
+                        f"Edit {container['index'] + 1} and was not applied"
+                    ),
+                    "operation": op_a["op"],
+                }
+            )
 
-    return optimized_ops
+    return optimized_ops, dropped
 
 
 def sort_ranges(op):
@@ -1706,6 +1856,152 @@ def _apply_closure_safeguard(
     return safe_resolved_ops, rejected_ops
 
 
+def _try_resolve_as_unique_line(
+    hp: HashPos,
+    value: str,
+) -> str | None:
+    """
+    Try to resolve a value by matching it against unique lines in the source content.
+
+    If the value (after stripping) matches exactly one line in the source
+    AND that line appears only once (unique), returns a tilde-wrapped hash ID
+    that can be resolved to line indices by the HashPos engine.
+
+    This serves as a preliminary resolution step that can salvage operations
+    whose hash references could not be normalized, by checking if the value
+    corresponds to unique line content in the file.
+
+    Args:
+        hp: HashPos instance for the source content
+        value: The value to resolve (typically line content rather than a hash)
+
+    Returns:
+        A tilde-wrapped hash ID if resolution succeeds, None otherwise
+    """
+    if not hp or not value:
+        return None
+
+    value_stripped = value.strip()
+    if not value_stripped:
+        return None
+
+    # Find all lines that exactly match this value
+    matching_lines = []
+    for i, line in enumerate(hp.lines):
+        if line.strip() == value_stripped:
+            matching_lines.append((i, line))
+
+    # Only resolve if it matches exactly one unique line
+    if len(matching_lines) == 1:
+        idx, matched_line = matching_lines[0]
+        # Verify the line is actually unique in the source (appears only once)
+        if hp.line_counts.get(matched_line, 0) == 1:
+            hash_id = hp.generate_public_id(matched_line, idx, 1)
+            return HashPos.get_wrapped_id(hash_id)
+
+    return None
+
+
+def _raise_clear_hash_error(hp, op, key):
+    """Raise a ContentHashError with a clear message explaining why a value couldn't be resolved.
+
+    Checks if the value matches line content in the file and provides specific guidance
+    about how to fix the reference (use hashed ID prefix, check for duplicates, etc.).
+    """
+    value = op.get(key, "")
+    value_stripped = value.strip() if value else ""
+
+    if not hp or not value_stripped:
+        raise ContentHashError(
+            f"Could not resolve '{value}' as a content ID. "
+            "Use a hashed ID prefix (e.g., `—XXXX—`) to target the line."
+        )
+
+    # Count how many lines contain this value as a substring
+    matching_count = 0
+    for line in hp.lines:
+        if value_stripped in line:
+            matching_count += 1
+
+    if matching_count > 1:
+        raise ContentHashError(
+            f"Line '{value_stripped}' appears {matching_count} times in the file. "
+            "Use the hashed ID prefix (e.g., `—XXXX—`) to disambiguate "
+            "which occurrence to target."
+        )
+    elif matching_count == 1:
+        raise ContentHashError(
+            f"Line '{value_stripped}' was found once in the file but could not be "
+            "resolved as a unique content ID. Use the hashed ID prefix (e.g., `—XXXX—`) "
+            "to target it precisely."
+        )
+    else:
+        raise ContentHashError(
+            f"Line '{value_stripped}' was not found in the file. "
+            "Use the exact line content or a hashed ID prefix (e.g., `—XXXX—`) "
+            "to target the desired line."
+        )
+
+
+def _detect_overlapping_ranges(resolved_ops):
+    """Check resolved operations for genuinely overlapping ranges.
+
+    Detects operations where ranges overlap in a way that can't be resolved
+    by simple deduplication (same-start) or containment. These non-trivial
+    overlaps (e.g., a delete range partially overlapping a replace range)
+    are flagged and returned as failed operations with a clear message.
+    The overlapping operations' indices are also returned so the caller
+    can exclude them from `resolved_ops`.
+
+    Returns a tuple of (failed_ops, indices_to_remove).
+    - failed_ops: list of failed operation dicts with overlap errors
+    - indices_to_remove: set of operation indices to remove from resolved_ops
+    """
+    if len(resolved_ops) < 2:
+        return [], set()
+
+    failed_ops = []
+    indices_to_remove = set()
+    for i in range(len(resolved_ops)):
+        a = resolved_ops[i]
+        a_start = a["start_idx"]
+        a_end = a["end_idx"]
+
+        for j in range(i + 1, len(resolved_ops)):
+            b = resolved_ops[j]
+            b_start = b["start_idx"]
+            b_end = b["end_idx"]
+
+            # Skip trivial cases handled elsewhere:
+            # 1. Same start line - handled by _deduplicate_ranges
+            if a_start == b_start:
+                continue
+
+            # 2. One range fully contained within the other - handled by _merged_contained_ranges
+            if (a_start <= b_start and b_end <= a_end) or (b_start <= a_start and a_end <= b_end):
+                continue
+
+            # Check if ranges genuinely overlap (not just adjacent/contiguous)
+            # Two ranges [a_start, a_end] and [b_start, b_end] overlap if
+            # a_start <= b_end and b_start <= a_end
+            if a_start <= b_end and b_start <= a_end:
+                op_a = a["op"]
+                op_b = b["op"]
+                error_msg = (
+                    f"Operation {a['index'] + 1} ({op_a['operation']}, lines "
+                    f"{a_start}-{a_end}) overlaps with operation {b['index'] + 1} "
+                    f"({op_b['operation']}, lines {b_start}-{b_end}). "
+                    "Edits with overlapping ranges are not supported. "
+                    "Combine them into a single edit or use non-overlapping ranges."
+                )
+                failed_ops.append({"index": a["index"], "error": error_msg, "operation": op_a})
+                failed_ops.append({"index": b["index"], "error": error_msg, "operation": op_b})
+                indices_to_remove.add(i)
+                indices_to_remove.add(j)
+
+    return failed_ops, indices_to_remove
+
+
 def apply_hashline_operations(
     original_content: str,
     operations: list,
@@ -1731,32 +2027,45 @@ def apply_hashline_operations(
     # Normalize hashline inputs in operations
     normalized_operations = []
     failed_ops = []
+    # Create a single HashPos instance for preliminary resolution and content hashing
+    hp = HashPos(original_content) if original_content else HashPos("")
     # Loop through each operation to normalize hashline strings
     for i, op in enumerate(operations):
         try:
             normalized_op = op.copy()
             # Normalize start line hash to ensure consistent format
-            normalized_op["start_line_hash"] = normalize_hashline(op["start_line_hash"])
+            try:
+                normalized_op["start_line_hash"] = normalize_hashline(op["start_line_hash"])
+            except (ContentHashError, ValueError):
+                # Preliminary resolution: check if the value matches a unique line
+                resolved = _try_resolve_as_unique_line(hp, op["start_line_hash"])
+                if resolved is not None:
+                    normalized_op["start_line_hash"] = resolved
+                else:
+                    _raise_clear_hash_error(hp, op, "start_line_hash")
+
             if "end_line_hash" in op:
                 # Normalize end line hash if present
-                normalized_op["end_line_hash"] = normalize_hashline(op["end_line_hash"])
+                try:
+                    normalized_op["end_line_hash"] = normalize_hashline(op["end_line_hash"])
+                except (ContentHashError, ValueError):
+                    # Preliminary resolution: check if the value matches a unique line
+                    resolved = _try_resolve_as_unique_line(hp, op["end_line_hash"])
+                    if resolved is not None:
+                        normalized_op["end_line_hash"] = resolved
+                    else:
+                        _raise_clear_hash_error(hp, op, "end_line_hash")
+
             normalized_operations.append(normalized_op)
         except Exception as e:
             failed_ops.append({"index": i, "error": str(e), "operation": op})
 
     if not normalized_operations:
         return original_content, [], failed_ops
-    # Convert insert operations without @000 marker to inclusive replace operations
-    for op in normalized_operations:
-        if op["operation"] == "insert":
-            start_hash_fragment, _, _ = parse_hashline(op["start_line_hash"])
-            if start_hash_fragment != "@000" and start_hash_fragment != "000@":
-                op["operation"] = "replace"
-                op["end_line_hash"] = op["start_line_hash"]
 
     # Apply hashline to original content once
     # This converts content to hashed lines for line tracking
-    hashed_content = hashline(original_content)
+    hashed_content = hp.format_content()
     hashed_lines = hashed_content.splitlines(keepends=True)
 
     # Resolve all operations to indices first
@@ -1773,6 +2082,9 @@ def apply_hashline_operations(
                     # Genesis anchor - if empty, insert at 0. If not empty, insert at -1
                     # so that hashed_lines.insert(found_start + 1, text) inserts at 0.
                     found_start = 0 if not hashed_lines else -1
+                elif start_hash_fragment == "000@":
+                    # Bottom-of-file anchor - insert after the last line
+                    found_start = len(hashed_lines) - 1 if hashed_lines else -1
                 else:
                     # Try exact match first for insert operations
                     found_start = find_hashline_by_exact_match(
@@ -1834,16 +2146,33 @@ def apply_hashline_operations(
         except Exception as e:
             failed_ops.append({"index": i, "error": str(e), "operation": op})
 
+    # Check for overlapping ranges among resolved operations
+    overlap_failures, overlap_indices = _detect_overlapping_ranges(resolved_ops)
+    for overlap_failure in overlap_failures:
+        failed_ops.append(overlap_failure)
+    # Remove overlapping operations from resolved_ops so they don't get applied
+    if overlap_indices:
+        resolved_ops = [op for i, op in enumerate(resolved_ops) if i not in overlap_indices]
+
     # Honor cancellations: remove operations that are cancelled by later cancel operations
     resolved_ops = _honor_cancellations(resolved_ops)
-    # Deduplicate: if multiple operations start on the same line, keep only the latest one
-    # This handles cases where a model might generate multiple operations for the same line while "thinking"
-    resolved_ops = _deduplicate_ranges(resolved_ops)
+    # Deduplicate: if multiple operations start on the same line, keep only the latest one.
+    # This handles cases where a model might generate multiple operations for the same line while "thinking".
+    # Dropped operations are surfaced as failures instead of being silently discarded.
+    resolved_ops, dropped = _deduplicate_ranges(resolved_ops)
+    for drop in dropped:
+        failed_ops.append(drop)
+
     # Honor special markers: handle @000 and 000@ special markers for whole-file or partial-file operations
-    resolved_ops = _honor_special_markers(resolved_ops)
-    # Optimize: discard inner ranges that are completely contained within outer ranges
-    # This prevents redundant operations and potential errors
-    resolved_ops = _merged_contained_ranges(resolved_ops)
+    resolved_ops, dropped = _honor_special_markers(resolved_ops)
+    for drop in dropped:
+        failed_ops.append(drop)
+
+    # Optimize: discard inner ranges that are completely contained within outer ranges.
+    # This prevents redundant operations and potential errors.
+    resolved_ops, dropped = _merged_contained_ranges(resolved_ops)
+    for drop in dropped:
+        failed_ops.append(drop)
     # Merge contiguous replace operations
     resolved_ops = _merge_replace_operations(resolved_ops)
 
@@ -1876,19 +2205,22 @@ def apply_hashline_operations(
             op = resolved["op"]
             start_idx = resolved["start_idx"]
             end_idx = resolved["end_idx"]
+            changed = True
 
             if op["operation"] == "insert":
                 text = op["text"]
-                if text and not text.endswith("\n"):
-                    text += "\n"
-                # Special handling for empty hashed_lines (genesis anchor case)
-                if hashed_lines:
-                    if not hashed_lines[start_idx].endswith("\n"):
-                        hashed_lines[start_idx] += "\n"
-                    hashed_lines.insert(start_idx + 1, text)
+                if not text:
+                    changed = False
                 else:
-                    # Empty content with genesis anchor - just add the text
-                    hashed_lines.append(text)
+                    if not text.endswith("\n"):
+                        text += "\n"
+                    # Special handling for empty hashed_lines (genesis anchor case)
+                    if hashed_lines:
+                        if not hashed_lines[start_idx].endswith("\n"):
+                            hashed_lines[start_idx] += "\n"
+                        hashed_lines.insert(start_idx + 1, text)
+                    else:
+                        hashed_lines.append(text)
             elif op["operation"] == "delete":
                 del hashed_lines[start_idx : end_idx + 1]
             elif op["operation"] == "replace":
@@ -1897,6 +2229,13 @@ def apply_hashline_operations(
                     end_idx = len(hashed_lines) - 1
 
                 text = op["text"]
+                # Snapshot the pre-edit range content so no-op replacements are
+                # not counted as successful edits. Normalize line endings because
+                # the apply path enforces a trailing newline on replacement lines.
+                before_range = [
+                    strip_hashline(line).rstrip("\r\n")
+                    for line in hashed_lines[start_idx : end_idx + 1]
+                ]
                 if text:
                     # Split text into lines, preserving trailing newline behavior
                     # If text doesn't end with newline, we add one to ensure proper line separation
@@ -1943,12 +2282,31 @@ def apply_hashline_operations(
 
                 else:
                     # Empty text - replace with nothing (delete)
+                    replacement_lines = []
                     hashed_lines[start_idx : end_idx + 1] = []
 
-            if "merged_indices" in resolved:
-                successful_ops.extend(resolved["merged_indices"])
+                replacement_content = [line.rstrip("\r\n") for line in replacement_lines]
+                if before_range == replacement_content:
+                    changed = False
+
+            if changed:
+                if "merged_indices" in resolved:
+                    successful_ops.extend(resolved["merged_indices"])
+                else:
+                    successful_ops.append(resolved["index"])
             else:
-                successful_ops.append(resolved["index"])
+                # No-op edit: report it as failed so the caller's success count
+                # reflects edits that actually changed the file
+                indices = resolved.get("merged_indices") or [resolved["index"]]
+                for idx in indices:
+                    failed_ops.append(
+                        {
+                            "index": idx,
+                            "error": "Edit resulted in no changes to the file content",
+                            "operation": op,
+                            "failure_type": "no_change",
+                        }
+                    )
         except Exception as e:
             failed_ops.append(
                 {"index": resolved["index"], "error": str(e), "operation": resolved["op"]}

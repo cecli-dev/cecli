@@ -17,52 +17,74 @@ class HelpCommand(BaseCommand):
             await cls._basic_help(io, coder)
             return format_command_result(io, "help", "Displayed basic help")
 
+        import traceback
+        from uuid import uuid4 as generate_unique_id
+
         from cecli.coders.base_coder import Coder
+        from cecli.commands import SwitchCoderSignal
         from cecli.help import Help, install_help_extra
 
         # Get the Commands instance from kwargs if available
         commands_instance = kwargs.get("commands_instance")
 
-        if not commands_instance or not hasattr(commands_instance, "help"):
-            res = await install_help_extra(io)
-            if not res:
-                io.tool_error("Unable to initialize interactive help.")
-                return format_command_result(io, "help", "Unable to initialize interactive help")
+        # The announcement lines read ``coder.args``, which is None when a coder
+        # is created without CLI args (e.g. in tests). Skip them in that case.
+        has_args = bool(getattr(coder, "args", None))
 
-            if not commands_instance:
-                # Create a minimal Commands instance if not provided
-                from cecli.commands import Commands
+        try:
+            if not commands_instance or not hasattr(commands_instance, "help"):
+                res = await install_help_extra(io)
+                if not res:
+                    io.tool_error("Unable to initialize interactive help.")
+                    await cls._basic_help(io, coder)
+                    return format_command_result(
+                        io, "help", "Unable to initialize interactive help"
+                    )
 
-                commands_instance = Commands(io, coder)
-            commands_instance.help = Help()
+                if not commands_instance:
+                    # Create a minimal Commands instance if not provided
+                    from cecli.commands import Commands
 
-        help_instance = commands_instance.help
+                    commands_instance = Commands(io, coder)
+                commands_instance.help = Help(coder=coder)
 
-        # Use the editor_model from the main_model if it exists, otherwise use the main_model itself
-        editor_model = coder.main_model.editor_model or coder.main_model
+            help_instance = commands_instance.help
 
-        kwargs = dict()
-        kwargs["io"] = io
-        kwargs["from_coder"] = coder
-        kwargs["edit_format"] = "help"
-        kwargs["summarize_from_coder"] = False
-        kwargs["map_tokens"] = 512
-        kwargs["map_mul_no_files"] = 1
-        kwargs["main_model"] = editor_model
-        kwargs["args"] = coder.args
-        kwargs["suggest_shell_commands"] = False
-        kwargs["cache_prompts"] = False
-        kwargs["num_cache_warming_pings"] = 0
+            # Use the editor_model from the main_model if it exists, otherwise use the main_model itself
+            editor_model = coder.main_model.editor_model or coder.main_model
 
-        help_coder = await Coder.create(**kwargs)
-        user_msg = help_instance.ask(args)
-        user_msg += """
+            original_coder = coder
+
+            kwargs = dict()
+            kwargs["io"] = io
+            kwargs["uuid"] = str(generate_unique_id())
+            kwargs["from_coder"] = coder
+            kwargs["edit_format"] = "help"
+            kwargs["summarize_from_coder"] = False
+            kwargs["map_tokens"] = 512
+            kwargs["map_mul_no_files"] = 1
+            kwargs["main_model"] = editor_model
+            kwargs["args"] = coder.args
+            kwargs["suggest_shell_commands"] = False
+            kwargs["cache_prompts"] = False
+            kwargs["num_cache_warming_pings"] = 0
+
+            help_coder = await Coder.create(**kwargs)
+            user_msg = help_instance.ask(args)
+            user_msg += """
 # Announcement lines from when this session of cecli was launched:
 
 """
-        user_msg += "\n".join(coder.get_announcements()) + "\n"
+            user_msg += "\n".join(coder.get_announcements() if has_args else []) + "\n"
 
-        await help_coder.run(user_msg, preproc=False)
+            await help_coder.run(user_msg, preproc=False)
+        except Exception as err:
+            io.tool_error(f"Interactive help failed to initialize: {err}")
+            io.tool_error(traceback.format_exc())
+            await cls._basic_help(io, coder)
+            return format_command_result(
+                io, "help", f"Interactive help failed to initialize: {err}"
+            )
 
         if coder.repo_map:
             map_tokens = coder.repo_map.max_map_tokens
@@ -71,12 +93,10 @@ class HelpCommand(BaseCommand):
             map_tokens = 0
             map_mul_no_files = 1
 
-        from cecli.commands import SwitchCoderSignal
-
         raise SwitchCoderSignal(
             edit_format=coder.edit_format,
             summarize_from_coder=False,
-            from_coder=help_coder,
+            from_coder=original_coder,
             map_tokens=map_tokens,
             map_mul_no_files=map_mul_no_files,
             show_announcements=False,

@@ -6,74 +6,66 @@ description: Information on all of cecli's settings and how to use them.
 
 # Configuration
 
-cecli has many options which can be set with
-command line switches.
-Most options can also be set in an `.cecli.conf.yml` file
-which can be placed in your home directory or at the root of
-your git repo. 
-Or by setting environment variables like `CECLI_xxx`
-either in your shell or a `.env` file.
+Cecli has many options which can be set with command line switches. Most options can also be set in an `.cecli.conf.yml` file which can be placed in your home directory or at the root of your git repo. Or by setting environment variables like `CECLI_xxx` either in your shell or a `.env` file.
 
 Here are 4 equivalent ways of setting an option. 
 
 With a command line switch:
 
 ```
-$ cecli --dark-mode
+$ cecli --tui
 ```
 
 Using a `.cecli.conf.yml` file:
 
 ```yaml
-dark-mode: true
+tui: true
 ```
 
 By setting an environment variable:
 
 ```
-export CECLI_DARK_MODE=true
+export CECLI_TUI=true
 ```
 
 Using an `.env` file:
 
 ```
-CECLI_DARK_MODE=true
+CECLI_TUI=true
 ```
 
+## Default File Locations
 
-## Default `~/.cecli/` Locations
-
-cecli also checks several default locations inside `~/.cecli/` for
-configuration, environment variables, and agent resources.
-These are always included with lower precedence than project-level equivalents,
-so a setting in a project `.cecli.conf.yml` or `.env` file will override the
-`~/.cecli/` default.
+Cecli also checks several default locations inside `~/.cecli/` for configuration, environment variables, and agent resources. These are always included with lower precedence than project-level equivalents, so a setting in a project `.cecli.conf.yml` or `.env` file will override the `~/.cecli/` default. The agent resource registries below each also look for a **local** default under an agent's working root, which takes precedence over the global default.
 
 ### `~/.cecli/conf.yml`
 
-A YAML configuration file read after all other config file sources,
-making it the lowest-precedence config option. Useful for setting
-machine-wide defaults that individual projects can override.
-See the [configuration section](/docs/config/conf.html) above for supported options.
+A YAML configuration file read after all other config file sources, making it the lowest-precedence config option. Useful for setting machine-wide defaults that individual projects can override. See the [configuration section](config/conf.html) above for supported options.
 
 ### `~/.cecli/.env`
 
-An environment file loaded before any other `.env` file, so project-level
-`.env` files can override its values. A convenient place to store
-API keys or other environment variables used across multiple projects.
+An environment file loaded before any other `.env` file, so project-level `.env` files can override its values. A convenient place to store API keys or other environment variables used across multiple projects.
 
 ### `~/.cecli/skills/`
 
-A directory containing skill packages (each a sub-directory with a
-`SKILL.md` file). Skills here are discoverable alongside those in any
-user-configured skills paths.
+`Local: .cecli/skills/`
+
+A directory containing skill packages (each a sub-directory with a `SKILL.md` file).
 
 ### `~/.cecli/subagents/`
 
-A directory containing sub-agent definition files (`.md` files with
-YAML front matter). Sub-agents here are registered alongside those in
-any user-configured sub-agent paths.
+`Local: .cecli/subagents/`
 
+A directory containing sub-agent definition files (`.md` files with YAML front matter).
+
+### `~/.cecli/tools/`
+
+`Local: .cecli/tools/`
+
+A directory containing custom tool packages (`.py` files exposing a `Tool` class).
+
+> **Tip:**
+> See the [API key configuration docs](config/api-keys.html) for information on how to configure and store your API keys.
 
 ## Prompt Queue Configuration
 

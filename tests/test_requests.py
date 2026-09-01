@@ -630,6 +630,90 @@ class TestModelRequestParser:
         result = model_request_parser(model, [], None)
         assert result == []
 
+    def test_does_not_mutate_stored_provider_specific_fields(self):
+        """The parser must not mutate the stored messages' nested provider_specific_fields."""
+        model = _MockModel(name="gpt-4", supports_assistant_prefill=True)
+        reasoning_items = [
+            {"id": "item-1", "type": "reasoning", "encrypted_content": "abc", "summary": []}
+        ]
+        stored = {
+            "role": "assistant",
+            "content": "Let me check that.",
+            "reasoning_content": "thinking...",
+            "provider_specific_fields": {
+                "reasoning_items": reasoning_items,
+                "reasoning_content": "thinking...",
+            },
+        }
+
+        result = model_request_parser(model, [stored], None)
+
+        # The returned request promotes reasoning_items to the top level...
+        assert result[0]["reasoning_items"] == reasoning_items
+        assert "reasoning_items" not in result[0]["provider_specific_fields"]
+
+        # ...while the stored message keeps its provider_specific_fields intact.
+        assert stored["provider_specific_fields"] == {
+            "reasoning_items": reasoning_items,
+            "reasoning_content": "thinking...",
+        }
+        assert "reasoning_items" not in stored
+
+    def test_preserves_base_message_provider_specific_fields(self):
+        """Stored BaseMessage psf survives a send (to_dict shares psf with the store)."""
+        from cecli.helpers.conversation.base_message import BaseMessage
+
+        model = _MockModel(name="gpt-4", supports_assistant_prefill=True)
+        reasoning_items = [
+            {"id": "item-1", "type": "reasoning", "encrypted_content": "abc", "summary": []}
+        ]
+        message = BaseMessage(
+            message_dict={
+                "role": "assistant",
+                "content": "Let me check that.",
+                "reasoning_content": "thinking...",
+                "provider_specific_fields": {"reasoning_items": reasoning_items},
+            },
+            tag="cur",
+        )
+
+        result = model_request_parser(model, [message.to_dict()], None)
+
+        assert result[0]["reasoning_items"] == reasoning_items
+        assert (
+            message.message_dict["provider_specific_fields"]["reasoning_items"] == reasoning_items
+        )
+        assert "reasoning_items" not in message.message_dict
+
+    def test_preserves_tool_call_provider_specific_fields(self):
+        """Gemini thought-signature processing must not mutate stored tool_calls."""
+        model = _MockModel(name="gemini/gemini-2.0-flash", supports_assistant_prefill=True)
+        reasoning_items = [
+            {"id": "item-1", "type": "reasoning", "encrypted_content": "abc", "summary": []}
+        ]
+        stored_call = {
+            "id": "call-1",
+            "type": "function",
+            "function": {"name": "Local--Grep", "arguments": "{}"},
+            "provider_specific_fields": {"reasoning_items": reasoning_items},
+        }
+        stored = [
+            {"role": "assistant", "content": None, "tool_calls": [stored_call]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+        ]
+
+        result = model_request_parser(model, stored, None)
+
+        # Thought signatures are added to the copied tool call only...
+        call_psf = result[0]["tool_calls"][0]["provider_specific_fields"]
+        assert call_psf["thought_signature"] == "skip_thought_signature_validator"
+
+        # ...while the stored tool call keeps its original psf.
+        assert stored[0]["tool_calls"][0]["provider_specific_fields"] == {
+            "reasoning_items": reasoning_items
+        }
+        assert "thought_signature" not in stored[0]["tool_calls"][0]["provider_specific_fields"]
+
 
 # ---------------------------------------------------------------------------
 # ensure_alternating_roles (from sendchat)

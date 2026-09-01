@@ -1,7 +1,7 @@
 from typing import List
 
-from cecli.commands.core import ReloadProgramSignal
 from cecli.commands.utils.base_command import BaseCommand
+from cecli.signals import ReloadProgramSignal
 
 
 class HotReloadCommand(BaseCommand):

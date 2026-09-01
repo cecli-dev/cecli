@@ -1,11 +1,10 @@
 # flake8: noqa: F401
 # Import tool modules into the cecli.tools namespace
 
-# Import all tool modules
 from . import (
     _yield,
+    broadcast,
     command,
-    command_interactive,
     delegate,
     edit_file,
     explore_code,
@@ -17,8 +16,11 @@ from . import (
     git_status,
     grep,
     ls,
+    orchestrate,
     read_file,
+    replace_facts,
     resource_manager,
+    search_facts,
     thinking,
     undo_change,
     update_todo_list,
@@ -27,11 +29,11 @@ from . import (
 # List of all available tool modules for dynamic discovery
 TOOL_MODULES = [
     command,
-    command_interactive,
     delegate,
     edit_file,
     explore_code,
     _yield,
+    broadcast,
     git_branch,
     git_diff,
     git_log,
@@ -40,8 +42,11 @@ TOOL_MODULES = [
     git_status,
     grep,
     ls,
+    orchestrate,
     read_file,
+    replace_facts,
     resource_manager,
+    search_facts,
     thinking,
     undo_change,
     update_todo_list,

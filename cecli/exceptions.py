@@ -62,7 +62,7 @@ class LiteLLMExceptions:
         self._load()
 
     def _load(self, strict=False):
-        import litellm
+        from cecli.llm import litellm
 
         for var in dir(litellm):
             if var.endswith("Error"):
@@ -83,7 +83,7 @@ class LiteLLMExceptions:
 
     def get_ex_info(self, ex):
         """Return the ExInfo for a given exception instance"""
-        import litellm
+        from cecli.llm import litellm
 
         if ex.__class__ is litellm.APIConnectionError:
             if "google.auth" in str(ex):

@@ -87,7 +87,7 @@ class ArchitectCoder(AskCoder):
             self.total_cost = editor_coder.total_cost
             self.coder_commit_hashes = editor_coder.coder_commit_hashes
         except Exception as e:
-            self.io.tool_error(e)
+            self.io.tool_error(str(e))
             # Restore original state on error
             ConversationService.get_manager(original_coder or self).initialize(
                 reset=True,

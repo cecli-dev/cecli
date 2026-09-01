@@ -2,182 +2,186 @@ import re
 
 import xxhash
 
+# Delimiter used to wrap public hash IDs
+HASH_DELIMITER = "—"
+UNIQUE_HASH_DELIMITER = "——"
+
 
 class HashPos:
-    # -------------------------------------------------------------------------
-    # TOKEN-OPTIMIZED PREFIX-FREE ENCODING SETUP
-    # -------------------------------------------------------------------------
-    # flake8: noqa
-    # fmt: off
-    _TOKEN_LIST =   [
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', #noqa
-        'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', #noqa
-        'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'GA', 'GB', 'GC', 'GD', 'Ge', 'Gl', #noqa
-        'Go', 'Gr', 'Gu', 'HA', 'HD', 'HE', 'HO', 'HP', 'HR', 'HT', 'Ha', 'He', 'Hi', 'Hy', 'IC', 'ID', #noqa
-        'IE', 'IF', 'II', 'IL', 'IM', 'IN', 'IO', 'IP', 'IR', 'IS', 'IT', 'IV', 'IX', 'Id', 'If', 'Il', #noqa
-        'Im', 'In', 'Ir', 'Is', 'It', 'JO', 'JS', 'Jo', 'Ke', 'Kn', 'LA', 'LE', 'LI', 'LL', 'LO', 'LP', #noqa
-        'La', 'Le', 'Li', 'Lo', 'MA', 'MB', 'MC', 'MD', 'ME', 'MI', 'ML', 'MO', 'MP', 'MR', 'MS', 'MT', #noqa
-        'MY', 'Ma', 'Mc', 'Me', 'Mi', 'Mo', 'Mr', 'Ms', 'My', 'NA', 'NC', 'NE', 'NL', 'NO', 'NS', 'NT', #noqa
-        'NV', 'NY', 'Na', 'Ne', 'No', 'OB', 'OF', 'OK', 'ON', 'OP', 'OR', 'OS', 'Ob', 'Of', 'Oh', 'Ok', #noqa
-        'On', 'Op', 'Or', 'Os', 'PA', 'PC', 'PD', 'PE', 'PG', 'PH', 'PI', 'PK', 'PL', 'PM', 'PO', 'PP', #noqa
-        'PR', 'PS', 'PT', 'Pa', 'Pe', 'Ph', 'Pi', 'Pl', 'Po', 'Pr', 'Py', 'Qt', 'Qu', 'RC', 'RE', 'RF', #noqa
-        'RO', 'RT', 'Ra', 'Re', 'Ro', 'SA', 'SB', 'SC', 'SD', 'SE', 'SF', 'SH', 'SI', 'SK', 'SL', 'SM', #noqa
-        'SN', 'SO', 'SP', 'SR', 'SS', 'ST', 'SU', 'SW', 'SY', 'Sc', 'Se', 'Sh', 'Si', 'Sk', 'Sl', 'Sm', #noqa
-        'Sn', 'So', 'Sp', 'St', 'Su', 'Sw', 'TD', 'TE', 'TF', 'TH', 'TL', 'TO', 'TR', 'TV', 'TX', 'Te', #noqa
-        'Th', 'To', 'Tr', 'Tw', 'Ty', 'UE', 'UI', 'UK', 'UN', 'UP', 'US', 'UV', 'Un', 'Up', 'Ur', 'Us', #noqa
-        'VA', 'VI', 'VM', 'VT', 'Va', 'Ve', 'WA', 'WE', 'WH', 'WM', 'WR', 'We', 'Wh', 'Wr', 'XX', 'Ye', #noqa
-    ]
-    # fmt: on
-    # flake8: qa
+    # 1024-character Base1024 corpus
+    B1024 = (
+        "0123456789ABCDEFGHIJ"
+        "KLMNOPQRSTUVWXYZabcd"
+        "efghijklmnopqrstuvwx"
+        "yz¡£§©«®°±·»¿×ßæðøĐđ"
+        "ıłœəαβγδεηθικλμνοπρς"
+        "στυφχωАБВГДЕЗИКЛМНОП"
+        "РСТУФЦЧЭЯабвгдежзикл"
+        "мнопрстуфхцчшщъыьэюя"
+        "іאבדהוחילמנערשת،ابةت"
+        "ثجحخدذرزسشصضطظعغفقكل"
+        "منهوىيپکگیकतनपमरलसहন"
+        "রกขคงจชณดตถทนบปผพมยร"
+        "ลวสหอะาเแใไ‐–—―‘’“”„"
+        "†•′※€←→−─│█■●★☆♥♪、。《"
+        "》「」『』【】〜あいうえおかきくけこさし"
+        "すせそたちっつてとなにのはまみめもやよら"
+        "りるれろわをんアィイウェエオカキクコサシ"
+        "スセタチッテトナニフマムメャュョラリルレ"
+        "ロン・ー一万三上下不与专业东两个中为主么"
+        "义之也书了事二于五些交产享京人亿今介从他"
+        "付代以们件价任份企会传但位体何余作你使例"
+        "供価保信修倍值停像元先入全公共关其具内円"
+        "册再写出击分列则初利别到制前力功加务动動"
+        "包化北区十午华单南即历原去县参及友反发取"
+        "变口只可台右号司合同名后向否含听启告员周"
+        "命和品哈商問器四回因国图土在地场型城基報"
+        "場增声处备复外多大天失头女好如始子字存学"
+        "安完定实客家容密对导将小少尔就局展山岁州"
+        "工左已市布常平年并广序库应店度建开式引张"
+        "当录形影径待後得微心必志态思性总息您情意"
+        "感成我或户所手打技投报拉持指按换据排接推"
+        "提播支收改放政效数整文料断新方族无日时明"
+        "易星是時景更最月有服期木未本机权束条来板"
+        "构果查标样格案模次款止正此步歳段每比民気"
+        "水求江没治法注活流海消清游源火点無然片版"
+        "物特率环现球理生用由电男画界番登的目直相"
+        "省看県真知码确示社票私种科秒称移程税空立"
+        "站章端笑符第等简算管米类系素索约级线组经"
+        "结给统编网置美老考者而联能自至色节英藏行"
+        "表装西要見见规视角解言計記話読计认议记论"
+        "设证评试话该语误说请读调象责败货费资起超"
+        "路身车转载辑输达过运近还这进连述退送选通"
+        "速造連道部都配释里重量金错长開間関门闭问"
+        "间队阳陆限院除雅集雷需非面音页项题首验高"
+        "黑가간개거게결경고공과구그글기나내는능니"
+        "다당대도동되된드든들디라래러력로록료류른"
+        "를름리만메면명목문미버번보복부분비사산상"
+        "색생서성세션소수스습시식신아야어에여열오"
+        "와요용우운원위으은을음의이인일임입자작장"
+        "재적전정제져조주지진째체출치크태터턴트하"
+        "한할함해호화환회�ª²³´µ¹º¼½ÀÁ"
+        "ÂÃÄÇ"
+    )
 
-    # Quick lookups for the 256 bytes
-    ENCODE_MAP = {i: token for i, token in enumerate(_TOKEN_LIST)}
-    DECODE_MAP = {token: i for i, token in enumerate(_TOKEN_LIST)}
+    _B1024_REGEX_SET = "".join(re.escape(c) for c in B1024)
 
-    # Because all 2-char tokens start with uppercase G-Y, which are never used as standalone
-    # 1-char tokens, we can cleanly split them.
-    _PREFIX_CHARS = set("GHIJKLMNOPQRSTUVWXY")
+    # Regex matches EITHER the exact string '——' OR a tilde-wrapped 4-character Base1024 hash
+    HASH_PREFIX_RE = re.compile(
+        rf"^({UNIQUE_HASH_DELIMITER}|{HASH_DELIMITER}[{_B1024_REGEX_SET}]{{4}}{HASH_DELIMITER})"
+    )
+    FRAGMENT_RE = re.compile(
+        rf"^({UNIQUE_HASH_DELIMITER}|{HASH_DELIMITER}[{_B1024_REGEX_SET}]{{4}}{HASH_DELIMITER})$"
+    )
 
-    # Regex building blocks dynamically matching the list logic.
-    # Single chars are 0-9, A-F, and a-z. Two-char tokens start with G-Y followed by any letter.
-    _BYTE_REGEX = r"(?:[0-9a-zA-F]|[GHIJKLMNOPQRSTUVWXY][A-Za-z])"
-    # Regex for HashPos format: {3 encoded bytes}::
-    HASH_PREFIX_RE = re.compile(rf"^({_BYTE_REGEX}{{3}})::")
-    # Regex for normalization: 3 encoded bytes optionally followed by '::'
-    NORMALIZE_RE = re.compile(rf"^({_BYTE_REGEX}{{3}})(?:::.*)?$")
-    # Regex for a raw 3-byte encoded fragment
-    FRAGMENT_RE = re.compile(rf"^{_BYTE_REGEX}{{3}}$")
+    # Loose prefix for robust stripping: Matches a emdash-wrapped 8-char string containing non-ASCII
+    _LOOSE_PREFIX_RE = re.compile(rf"^[{HASH_DELIMITER}]?\S{{0,8}}{HASH_DELIMITER}")
 
     def __init__(self, source_text: str = ""):
         self.lines = source_text.splitlines()
         self.total = len(self.lines)
 
-    def _get_region_val(self, line_idx: int) -> int:
-        """
-        Maps the line to one of 16 proportional vertical buckets (4 bits).
-        This acts as a binary space partition:
-        - bit 3 is top/bottom half
-        - bit 2 is top/bottom quarter
-        - bit 1 is top/bottom eighth
-        - bit 0 is top/bottom sixteenth
-        """
-        if self.total == 0:
-            return 0
+        self.line_counts = {}
+        for line in self.lines:
+            if line.strip():
+                self.line_counts[line] = self.line_counts.get(line, 0) + 1
 
-        # Calculate which 16th of the file the line falls into
-        region = (line_idx * 16) // self.total
+    def _get_line_hash(self, text: str) -> int:
+        return xxhash.xxh3_64_intdigest(text.encode("utf-8")) & 0xFFFFF
 
-        # Clamp to 15 to handle edge cases safely
-        return min(region, 15)
+    def generate_public_id(self, text: str, line_idx: int, occurrence: int) -> str:
+        line_hash = self._get_line_hash(text)
 
-    def _get_neighborhood_hash(self, line_idx: int) -> int:
-        """
-        Creates a 20-bit digest using the current line and the 2 lines
-        before and after it.
-        """
-        start = max(0, line_idx - 2)
-        end = min(self.total, line_idx + 3)
+        # Explicit modulo for bounds wrapping
+        idx_bits = line_idx % 16384
+        occ_bits = occurrence % 64
 
-        context_window = "\n".join(self.lines[start:end])
-        full_hash = xxhash.xxh3_64_intdigest(context_window.encode("utf-8"))
+        packed = (line_hash << 20) | (idx_bits << 6) | occ_bits
 
-        # Isolate exactly 20 bits
-        return full_hash & 0xFFFFF
-
-    def generate_public_id(self, text: str, line_idx: int) -> str:
-        """
-        Generates a 3-to-6 char ID using the token-optimized prefix-free encoding.
-        Layout: [20-bit Neighborhood Hash] [4-bit Region] = 24 bits total.
-        """
-        neighborhood_hash = self._get_neighborhood_hash(line_idx)
-        region_val = self._get_region_val(line_idx)
-
-        # Pack the 24-bit integer
-        packed = (neighborhood_hash << 4) | region_val
-
-        # Encode 3 bytes using the prefix-free map
         res = ""
-        for _ in range(3):
-            byte_segment = packed % 256
-            res += self.ENCODE_MAP[byte_segment]
-            packed //= 256
-
+        for i in range(3, -1, -1):
+            res += self.B1024[(packed >> (10 * i)) & 0x3FF]
         return res
 
-    def unpack_public_id(self, public_id: str) -> tuple[int, int]:
-        """
-        Reverses the Public ID back into its (Neighborhood Hash, Region Value) values.
-        Reads the prefix-free string left-to-right to unambiguously decode the bytes.
-        """
+    def unpack_public_id(self, public_id: str) -> tuple[int, int, int]:
         packed = 0
-        byte_shift = 0
-        i = 0
+        for i, char in enumerate(public_id):
+            packed |= self.B1024.index(char) << (10 * (3 - i))
 
-        while i < len(public_id):
-            char = public_id[i]
+        occ_bits = packed & 0x3F
+        idx_bits = (packed >> 6) & 0x3FFF
+        line_hash = (packed >> 20) & 0xFFFFF
 
-            # The G-Y characters explicitly signal a two-character sequence
-            if char in self._PREFIX_CHARS:
-                seq = public_id[i : i + 2]
-                i += 2
-            else:
-                seq = char
-                i += 1
-
-            byte_val = self.DECODE_MAP[seq]
-            packed |= byte_val << byte_shift
-            byte_shift += 8
-
-        # Extract the 20-bit hash (shift right by 4, mask 0xFFFFF)
-        neighborhood_hash = (packed >> 4) & 0xFFFFF
-
-        # Extract the 4-bit region from the lowest bits
-        region_val = packed & 0xF
-
-        return neighborhood_hash, region_val
+        return line_hash, idx_bits, occ_bits
 
     def format_content(self, start_line: int = 1) -> str:
         formatted_lines = []
+        seen = {}
+
         for i, line in enumerate(self.lines):
-            prefix = self.generate_public_id(line, i)
-            if line.strip():
-                formatted_lines.append(f"{prefix}::{line}")
-            else:
+            if not line.strip():
                 formatted_lines.append(f"{line}")
+                continue
+
+            count = self.line_counts[line]
+
+            if count == 1:
+                # Flush directly against code using the unique token
+                formatted_lines.append(f"{UNIQUE_HASH_DELIMITER}{line}")
+            else:
+                occ = seen.get(line, 0) + 1
+                seen[line] = occ
+                prefix = self.generate_public_id(line, i, occ)
+                # Wrap the generated Base1024 hash in tildes
+                formatted_lines.append(f"{self.get_wrapped_id(prefix)}{line}")
 
         return "\n".join(formatted_lines)
 
     def resolve_to_lines(self, public_id: str, start_line: int = 1) -> list[int]:
-        target_hash, target_region = self.unpack_public_id(public_id)
-        matches = []
+        if public_id == UNIQUE_HASH_DELIMITER:
+            raise ValueError(
+                f"Cannot spatially resolve the unique '{UNIQUE_HASH_DELIMITER}' identifier without line text."
+            )
 
-        # Find all lines whose neighborhood hash matches our target
+        # Strip the surrounding tildes to unpack the core 4 characters
+        clean_id = public_id.strip(HASH_DELIMITER)
+        if len(clean_id) != 4:
+            raise ValueError(f"Invalid public ID string for unpacking: {public_id}")
+
+        target_line_hash, target_idx, target_occ = self.unpack_public_id(clean_id)
+
+        matches = []
         for i, line in enumerate(self.lines):
-            if self._get_neighborhood_hash(i) == target_hash:
-                matches.append(i)
+            if self._get_line_hash(line) == target_line_hash:
+                matches.append((i, line))
 
         if not matches:
             return []
 
-        # If perfectly unique, return it immediately
         if len(matches) == 1:
-            return matches
+            return [matches[0][0]]
 
-        # Distance Heuristic: If multiple matches exist (e.g. repeated code blocks),
-        # prioritize the one whose current binary region is closest to the target region.
-        def region_distance(idx: int) -> int:
-            current_region = self._get_region_val(idx)
-            # Linear distance because proportional regions don't wrap around
-            return abs(current_region - target_region)
+        current_seen = {}
+        scored_matches = []
 
-        matches.sort(key=region_distance)
+        for i, line in matches:
+            current_seen[line] = current_seen.get(line, 0) + 1
+            current_occ = current_seen[line]
 
-        return matches
+            # Apply identical modulo to current spatial data before comparing
+            current_idx_mod = i % 16384
+            current_occ_mod = current_occ % 64
+
+            # Cartesian distance squared
+            distance_sq = ((current_idx_mod - target_idx) ** 2) + (
+                (current_occ_mod - target_occ) ** 2
+            )
+            scored_matches.append((distance_sq, i))
+
+        scored_matches.sort(key=lambda x: x[0])
+        return [m[1] for m in scored_matches]
 
     def resolve_range(self, start_id: str, end_id: str) -> tuple[int, int]:
-        """
-        Resolves a block range from two Public IDs.
-        """
         starts = self.resolve_to_lines(start_id)
         ends = self.resolve_to_lines(end_id)
 
@@ -190,48 +194,44 @@ class HashPos:
                     return s, e
 
         raise ValueError(
-            f"Found matches for {start_id} and {end_id}, but no logically ordered range or unique matches."
+            f"Found matches for {start_id} and {end_id}, but no logically ordered range."
         )
 
     @staticmethod
+    def get_wrapped_id(public_id: str) -> str:
+        """Wrap a public ID with the HashPos delimiters for use in hashline content."""
+        return f"{HASH_DELIMITER}{public_id}{HASH_DELIMITER}"
+
+    @staticmethod
     def strip_prefix(text: str) -> str:
-        """
-        Remove HashPos prefixes from the start of every line.
-        """
+        if text is None:
+            return ""
         lines = text.splitlines(keepends=True)
         result_lines = []
         for line in lines:
             stripped_line = HashPos.HASH_PREFIX_RE.sub("", line, count=1)
+            if stripped_line == line:
+                stripped_line = HashPos._LOOSE_PREFIX_RE.sub("", line, count=1)
             result_lines.append(stripped_line)
-
         return "".join(result_lines)
 
     @staticmethod
     def extract_prefix(line: str) -> str:
-        """
-        Extract the hash prefix from a line if it has a HashPos prefix.
-        """
         match = HashPos.HASH_PREFIX_RE.match(line)
         if match:
             return match.group(1)
         return ""
 
     @staticmethod
-    def normalize(hashpos_str: str) -> str:
-        """
-        Normalize a HashPos string to the exact matched prefix fragment.
-        """
+    def normalize(hashpos_str: str, throw=True) -> str:
         if hashpos_str is None:
             raise ValueError("HashPos string cannot be None")
 
-        if HashPos.FRAGMENT_RE.match(hashpos_str):
-            return hashpos_str
-
-        match = HashPos.NORMALIZE_RE.match(hashpos_str)
+        match = HashPos.HASH_PREFIX_RE.match(hashpos_str)
         if match:
             return match.group(1)
 
-        raise ValueError(
-            f"Invalid HashPos format '{hashpos_str}'. "
-            r"Expected a valid content ID followed by `::`"
-        )
+        if throw:
+            raise ValueError(f"Invalid HashPos format '{hashpos_str}'.")
+        else:
+            return False

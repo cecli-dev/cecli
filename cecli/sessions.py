@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from cecli import models
+from cecli.decoding import safe_open
 from cecli.helpers import crypto as session_crypto
 from cecli.helpers.conversation import ConversationService, MessageTag
 
@@ -202,7 +203,7 @@ class SessionManager:
                     return False
                 session_file.write_bytes(session_crypto.encrypt_session_dict(session_data, key))
             else:
-                with open(session_file, "w", encoding="utf-8") as f:
+                with safe_open(session_file, "w") as f:
                     json.dump(session_data, f, indent=2)
             return True
         except session_crypto.SessionCryptoError as e:
@@ -270,6 +271,9 @@ class SessionManager:
                 "tools_includelist": self.coder.agent_config.get("tools_includelist", []),
                 "tools_excludelist": self.coder.agent_config.get("tools_excludelist", []),
             }
+
+        # Flush any queued messages so the saved chat history is complete
+        ConversationService.get_manager(self.coder).flush_queue()
 
         return {
             "version": 1,

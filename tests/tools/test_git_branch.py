@@ -29,7 +29,7 @@ def test_gitbranch_show_current_returns_branch_name():
 
         result = git_branch.Tool.execute(coder, show_current=True)
 
-        assert result.strip() == "feature"
+        assert result.to_dict()["result"][0]["content"].strip() == "feature"
 
 
 def test_gitbranch_show_current_handles_detached_head():
@@ -48,4 +48,4 @@ def test_gitbranch_show_current_handles_detached_head():
 
         result = git_branch.Tool.execute(coder, show_current=True)
 
-        assert result.strip() == "HEAD (detached)"
+        assert result.to_dict()["result"][0]["content"].strip() == "HEAD (detached)"

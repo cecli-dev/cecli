@@ -1,0 +1,333 @@
+{
+  "title": "cecli_",
+  "url": "https://cecli.dev",
+  "src": "docs",
+  "out": "_site/docs",
+  "base": "/docs/",
+  "navigation": [
+    {
+      "title": "Getting Started",
+      "icon": "rocket",
+      "children": [
+        {
+          "title": "Overview",
+          "path": "/"
+        },
+        {
+          "title": "Installation",
+          "path": "/install/"
+        },
+        {
+          "title": "Configuration",
+          "path": "/config/"
+        },
+        {
+          "title": "API Keys",
+          "path": "/config/api-keys/"
+        },
+        {
+          "title": "Usage",
+          "path": "/usage/"
+        },
+        {
+          "title": "Troubleshooting",
+          "path": "/troubleshooting/"
+        }
+      ]
+    },
+    {
+      "title": "Configuration",
+      "icon": "settings",
+      "collapsible": true,
+      "children": [
+        {
+          "title": "Config - YAML (Preferred)",
+          "path": "/config/conf/"
+        },
+        {
+          "title": "Config - .env",
+          "path": "/config/dotenv/"
+        },
+        {
+          "title": "Config - CLI",
+          "path": "/config/options/"
+        },
+        {
+          "title": "Agent Mode",
+          "path": "/config/agent-mode/"
+        },
+        {
+          "title": "Agent Memory",
+          "path": "/config/persistent-memory/"
+        },
+        {
+          "title": "Agent Client Protocol (ACP)",
+          "path": "/config/api/"
+        },
+        {
+          "title": "Custom Commands",
+          "path": "/config/custom-commands/"
+        },
+        {
+          "title": "Custom System Prompts",
+          "path": "/config/custom-system-prompts/"
+        },
+        {
+          "title": "Editor Configuration",
+          "path": "/config/editor/"
+        },
+        {
+          "title": "Hooks",
+          "path": "/config/hooks/"
+        },
+        {
+          "title": "Model Context Protocol (MCP)",
+          "path": "/config/mcp/"
+        },
+        {
+          "title": "Model Configuration",
+          "path": "/config/model-configuration/"
+        },
+        {
+          "title": "Model Configuration Files",
+          "path": "/config/adv-model-settings/"
+        },
+        {
+          "title": "Model Providers",
+          "path": "/config/model-providers/"
+        },
+        {
+          "title": "Model Aliases",
+          "path": "/config/model-aliases/"
+        },
+        {
+          "title": "Reasoning models",
+          "path": "/config/reasoning/"
+        },
+        {
+          "title": "Retries",
+          "path": "/config/retries/"
+        },
+        {
+          "title": "Security Configuration",
+          "path": "/config/security/"
+        },
+        {
+          "title": "Skills",
+          "path": "/config/skills/"
+        },
+        {
+          "title": "Sub-Agents",
+          "path": "/config/subagents/"
+        },
+        {
+          "title": "TUI",
+          "path": "/config/tui/"
+        },
+        {
+          "title": "Workspaces",
+          "path": "/config/workspaces/"
+        }
+      ]
+    },
+    {
+      "title": "Connecting to LLMs",
+      "icon": "cpu",
+      "path": "/llms/",
+      "children": [
+        {
+          "title": "Anthropic",
+          "path": "/llms/anthropic/"
+        },
+        {
+          "title": "Azure",
+          "path": "/llms/azure/"
+        },
+        {
+          "title": "Amazon Bedrock",
+          "path": "/llms/bedrock/"
+        },
+        {
+          "title": "Cohere",
+          "path": "/llms/cohere/"
+        },
+        {
+          "title": "DeepSeek",
+          "path": "/llms/deepseek/"
+        },
+        {
+          "title": "Gemini",
+          "path": "/llms/gemini/"
+        },
+        {
+          "title": "GitHub Copilot",
+          "path": "/llms/github/"
+        },
+        {
+          "title": "GROQ",
+          "path": "/llms/groq/"
+        },
+        {
+          "title": "LM Studio",
+          "path": "/llms/lm-studio/"
+        },
+        {
+          "title": "Ollama",
+          "path": "/llms/ollama/"
+        },
+        {
+          "title": "OpenCode Go",
+          "path": "/llms/opencode-go/"
+        },
+        {
+          "title": "OpenAI compatible APIs",
+          "path": "/llms/openai-compat/"
+        },
+        {
+          "title": "OpenAI",
+          "path": "/llms/openai/"
+        },
+        {
+          "title": "OpenRouter",
+          "path": "/llms/openrouter/"
+        },
+        {
+          "title": "Vertex AI",
+          "path": "/llms/vertex/"
+        },
+        {
+          "title": "xAI",
+          "path": "/llms/xai/"
+        },
+        {
+          "title": "Model warnings",
+          "path": "/llms/warnings/"
+        },
+        {
+          "title": "Other LLMs",
+          "path": "/llms/other/"
+        }
+      ]
+    },
+    {
+      "title": "Usage Guides",
+      "icon": "book-open",
+      "path": "/usage/",
+      "children": [
+        {
+          "title": "Slash Commands",
+          "path": "/usage/commands/"
+        },
+        {
+          "title": "Session Management",
+          "path": "/usage/sessions/"
+        },
+        {
+          "title": "Convention Files",
+          "path": "/usage/conventions/"
+        },
+        {
+          "title": "Images & Web Pages",
+          "path": "/usage/images-urls/"
+        },
+        {
+          "title": "Linting and Testing",
+          "path": "/usage/lint-test/"
+        },
+        {
+          "title": "Chat Modes",
+          "path": "/usage/modes/"
+        },
+        {
+          "title": "Notifications",
+          "path": "/usage/notifications/"
+        },
+        {
+          "title": "Copy/Paste Mode",
+          "path": "/usage/copypaste/"
+        },
+        {
+          "title": "Voice Mode",
+          "path": "/usage/voice/"
+        },
+        {
+          "title": "Watch Mode",
+          "path": "/usage/watch/"
+        },
+        {
+          "title": "Tips",
+          "path": "/usage/tips/"
+        }
+      ]
+    },
+    {
+      "title": "Other Topics",
+      "icon": "layers",
+      "collapsible": true,
+      "children": [
+        {
+          "title": "Git Integration",
+          "path": "/git/"
+        },
+        {
+          "title": "Repository Map",
+          "path": "/repomap/"
+        },
+        {
+          "title": "Scripting Cecli",
+          "path": "/scripting/"
+        },
+        {
+          "title": "Supported Languages",
+          "path": "/languages/"
+        },
+        {
+          "title": "Edit Formats",
+          "path": "/more/edit-formats/"
+        }
+      ]
+    },
+    {
+      "title": "Leaderboards",
+      "icon": "trophy",
+      "path": "/leaderboards/",
+      "children": [
+        {
+          "title": "Scores by release date",
+          "path": "/leaderboards/by-release-date/"
+        },
+        {
+          "title": "Contributing results",
+          "path": "/leaderboards/contrib/"
+        },
+        {
+          "title": "Code editing leaderboard",
+          "path": "/leaderboards/edit/"
+        },
+        {
+          "title": "Benchmark notes",
+          "path": "/leaderboards/notes/"
+        },
+        {
+          "title": "refactor",
+          "path": "/leaderboards/refactor/"
+        }
+      ]
+    }
+  ],
+  "theme": {
+    "name": "default",
+    "appearance": "light"
+  },
+  "layout": {
+    "optionsMenu": {
+      "position": "header",
+      "components": {
+        "search": true,
+        "themeSwitch": true,
+        "sponsor": "https://ko-fi.com/cecli"
+      }
+    }
+  },
+  "favicon": "/assets/cecli-temp-logo-favicon.svg"
+}

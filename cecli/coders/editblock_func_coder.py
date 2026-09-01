@@ -92,7 +92,11 @@ class EditBlockFunctionCoder(Coder):
         return res
 
     async def _update_files(self):
-        name = self.partial_response_function_call.get("name")
+        function_call = self.partial_response_function_call
+        if isinstance(function_call, dict):
+            name = function_call.get("name")
+        else:
+            name = getattr(function_call, "name", None)
 
         if name and name != "replace_lines":
             raise ValueError(f'Unknown function_call name="{name}", use name="replace_lines"')

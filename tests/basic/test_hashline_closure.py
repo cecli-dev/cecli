@@ -483,15 +483,18 @@ def test_apply_closure_safeguard_passes_rejected_ops_to_failed():
     Integration test: apply_hashline_operations should propagate rejected
     operations (from _apply_closure_safeguard) into the failed_ops list.
     """
-    from cecli.helpers.hashline import apply_hashline_operations, hashline
+    from cecli.helpers.hashline import apply_hashline_operations
 
     source = """x = 1
 y = 2
 """
     # Try to replace a line with broken syntax — this should fail via eviction
-    # Get the correct hashline ID for the first line
-    hp_content = hashline(source)
-    first_line_hash = hp_content.splitlines()[0].split("::")[0] + "::"
+    # Get the correct hashline ID for the first line using HashPos API
+    # New format uses —4chars— (tilde-wrapped 4-char hash), no :: separator
+    from cecli.helpers.hashpos.hashpos import HashPos
+
+    hp = HashPos(source)
+    first_line_hash = hp.get_wrapped_id(hp.generate_public_id("x = 1", 0, 1))
 
     ops = [
         {

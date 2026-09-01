@@ -1,118 +1,72 @@
 ---
-title: Copy/paste with web chat
-#highlight_image: /assets/browser.jpg
+title: Copy/Paste Mode
 parent: Usage
 nav_order: 850
 description: cecli works with LLM web chat UIs
 ---
 
-# Copy/paste with web chat
+## Copy/Paste Mode
 
-<div class="video-container">
-  <video controls loop poster="/assets/copypaste.jpg">
-    <source src="/assets/copypaste.mp4" type="video/mp4">
-    <a href="/assets/copypaste.mp4">cecli browser UI demo video</a>
-  </video>
-</div>
-
-<style>
-.video-container {
-  position: relative;
-  padding-bottom: 66.34%; /* 2160 / 3256 = 0.6634 */
-  height: 0;
-  overflow: hidden;
-}
-
-.video-container video {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-</style>
-
-## Working with an LLM web chat
-
-[cecli can connect to most LLMs via API](https://cecli.dev/docs/llms.html) and works best that way.
-But there are times when you may want to work with an LLM via its web chat interface:
+[Cecli can connect to most LLMs via API](../llms.html) and works best that way. But there are times when you may want to work with an LLM via its web chat interface:
 
 - Workplace policies may limit your LLM usage to a proprietary web chat system.
 - The web chat LLM may have access to unique context or may have been specially fine tuned for your task.
 - It may be cost prohibitive to use some models via API.
 - There may not be an API available.
 
-cecli has features for working with an LLM via its web chat interface.
-This allows you to use the web chat LLM as the "big brain code architect"
-while running cecli with a smaller, cheaper LLM to actually make changes
-to your local files.
+Cecli has features for working with an LLM via its web chat interface. This allows you to use the web chat LLM as the "big brain code architect" while running cecli with a smaller, cheaper LLM to actually make changes to your local files.
 
-For this "file editor" part of the process 
-you can run cecli with many open source, free or very inexpensive LLMs.
-For example, the demo video above shows cecli using DeepSeek to apply the changes
-that o1-preview is suggesting in the web chat.
+For this "file editor" part of the process you can run cecli with many open source, free or very inexpensive LLMs. For example, the demo video above shows cecli using DeepSeek to apply the changes that o1-preview is suggesting in the web chat.
 
 ### Copy cecli's code context to your clipboard, paste into the web UI
 
-The `/copy-context <instructions>` command can be used in chat to copy cecli's code context to your clipboard.
-It will include:
+The `/copy-context <instructions>` command can be used in chat to copy cecli's code context to your clipboard. It will include:
 
 - All the files which have been added to the chat via `/add`.
 - Any read only files which have been added via `/read`.
-- cecli's [repository map](https://cecli.dev/docs/repomap.html) that brings in code context related to the above files from elsewhere in your git repo.
+- Cecli's [repository map](../repomap.html) that brings in code context related to the above files from elsewhere in your git repo.
 - Some instructions to the LLM that ask it to output change instructions concisely.
 - If you include `<instructions>`, they will be copied too.
 
-You can paste the context into your browser, and start interacting with the LLM web chat to
-ask for code changes.
+You can paste the context into your browser, and start interacting with the LLM web chat to ask for code changes.
 
 ### Paste the LLM's reply back into cecli to edit your files
 
-Once the LLM has replied, you can use the "copy response" button in the web UI to copy
-the LLM's response.
-Back in cecli, you can run `/paste` and cecli will edit your files
-to implement the changes suggested by the LLM.
+Once the LLM has replied, you can use the "copy response" button in the web UI to copy the LLM's response. Back in cecli, you can run `/paste` and cecli will edit your files to implement the changes suggested by the LLM.
 
-You can use a cheap, efficient model like GPT-4o Mini, DeepSeek or Qwen to do these edits.
-This works best if you run cecli with `--edit-format editor-diff` or `--edit-format editor-whole`.
+You can use a cheap, efficient model like gpt-5-mini, claude-4.6-haiku, deepseek-v4-flash or qwen3.6-35b-a3b to do these edits. This works best if you run cecli with `--edit-format editor-diff` or `--edit-format editor-whole`.
 
 ### Copy/paste mode
 
-cecli has a `--copy-paste` mode that streamlines this entire process:
+Cecli has a `--copy-paste` mode that streamlines this entire process:
 
 - Whenever you `/add` or `/read` files, cecli will automatically copy the entire, updated
-code context to your clipboard. 
-You'll see "Copied code context to clipboard" whenever this happens.
+code context to your clipboard. You'll see "Copied code context to clipboard" whenever this happens.
 - When you copy the LLM reply to your clipboard outside cecli, cecli will automatically notice
-and load it into the cecli chat. 
-Just press ENTER to send the message
-and cecli will apply the LLMs changes to your local files.
+and load it into the cecli chat. Just press ENTER to send the message and cecli will apply the LLMs changes to your local files.
 - cecli will automatically select the best edit format for this copy/paste functionality. 
 Depending on the LLM you have cecli use, it will be either `editor-whole` or `editor-diff`.
 
-### No API access? Use `cp:model`
+### No API access? Use `cp:<model name>`
 
 If your only access to an LLM is via a web chat (no API keys, no local models), you can run cecli with a model name prefixed by cp:. This performs the entire workflow via copy/paste without making any API calls.
 
-#### What cp: does
+#### What the cp: prefix does
 
 - Activates CopyPasteCoder, which never sends requests to any LLM API.
 - Uses the same copy/paste workflow described above
 
 #### Token and cost tracking
 
-- cecli uses the text after cp: as the "model name" for local token counting and cost estimation.
+- Cecli uses the text after cp: as the "model name" for local token counting and cost estimation.
 - If the label matches a known model in cecli's pricing tables, cecli will estimate tokens/costs using that model's rates; otherwise, costs may show as unknown or zero.
 - With flat-rate web chat plans, you can treat any "estimated cost" displayed by cecli as your "savings" versus if you had called an API model.
 
 ## Terms of service
 
-Be sure to review the Terms Of Service of any LLM web chat service you use with
-these features.
-These features are not intended to be used in violation of any service's Terms Of Service (TOS).
+Be sure to review the Terms Of Service of any LLM web chat service you use with these features. These features are not intended to be used in violation of any service's Terms Of Service (TOS).
 
-cecli's web chat features have been designed to be compliant with the 
-terms of service of most LLM web chats.
+Cecli's web chat features have been designed to be compliant with the terms of service of most LLM web chats.
 
 There are 4 copy/paste steps involved when coding with an LLM web chat:
 
@@ -121,16 +75,8 @@ There are 4 copy/paste steps involved when coding with an LLM web chat:
 3. Copy the reply from the LLM web chat.
 4. Paste the LLM reply into cecli.
 
-Most LLM web chat TOS prohibit automating steps (2) and (3) where code
-is copied from and pasted into the web chat.
-cecli's `--copy-paste` mode leaves those as 100% manual steps for the user to complete.
-It simply streamlines steps (1) and (4) that are interactions with cecli,
-and which should not be under the scope of an LLM web chat TOS.
+Most LLM web chat TOS prohibit automating steps (2) and (3) where code is copied from and pasted into the web chat. cecli's `--copy-paste` mode leaves those as 100% manual steps for the user to complete. It simply streamlines steps (1) and (4) that are interactions with cecli, and which should not be under the scope of an LLM web chat TOS.
 
-If you are concerned that
-the automatic interactions with cecli in steps (1) and (4) may be problematic with respect to
-your LLM web chat provider's TOS, you can forego `--copy-paste` mode.
-Instead, manually use the `/copy-context` and `/paste` commands if that
-will keep you in compliance.
+If you are concerned that the automatic interactions with cecli in steps (1) and (4) may be problematic with respect to your LLM web chat provider's TOS, you can forego `--copy-paste` mode. Instead, manually use the `/copy-context` and `/paste` commands if that will keep you in compliance.
 
-Again, do not use these features in violation of any service's Terms Of Service.
+Again, do not use these features in violation of any provider's Terms Of Service.

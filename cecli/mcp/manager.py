@@ -32,6 +32,9 @@ class McpServerManager:
 
         self._server_tools: dict[str, list] = {}  # Maps server name to its tools
         self._connected_servers: set[McpServer] = set()
+        # Event loop that created the MCP connections (set by connect_all).
+        # Loop-bound MCP state must only be torn down on this loop.
+        self._connection_loop: asyncio.AbstractEventLoop | None = None
 
     def _log_verbose(self, message: str) -> None:
         """Log a verbose message if verbose mode is enabled and IO is available."""
@@ -85,8 +88,11 @@ class McpServerManager:
 
     @property
     def is_connected(self) -> bool:
-        """Check if any servers are connected."""
-        return len(self._connected_servers) > 0
+        """Check if any servers have a live session (including not-yet-registered ones)."""
+        if self._connected_servers:
+            return True
+
+        return any(server.is_connected for server in self._servers)
 
     def get_server(self, name: str) -> McpServer | None:
         """
@@ -99,13 +105,28 @@ class McpServerManager:
             The server instance or None if not found
         """
         try:
-            return next(server for server in self._servers if server.name == name)
+            return next(server for server in self._servers if server.name.lower() == name.lower())
         except StopIteration:
             return None
 
     async def disconnect_all(self) -> None:
-        """Disconnect from all MCP servers."""
-        if not self._connected_servers:
+        """
+        Disconnect from all MCP servers.
+
+        Connections are loop-bound: they must only be torn down on the loop that
+        created them (see connect_all). Callers on any other loop (e.g. the TUI
+        main loop during a reload) skip, because the owning loop's teardown owns
+        the cleanup and tearing down cross-loop would raise or leak transports.
+        """
+        current_loop = asyncio.get_running_loop()
+        if self._connection_loop is not None and self._connection_loop is not current_loop:
+            self._log_verbose("Skipping disconnect_all: MCP connections live on another event loop")
+            return
+
+        # Include servers with a live session that never made it into
+        # _connected_servers (e.g. connect_all was cancelled between
+        # server.connect() and registering the server).
+        if not self._connected_servers and not any(server.is_connected for server in self._servers):
             self._log_verbose("MCP servers already disconnected")
             return
 
@@ -118,18 +139,33 @@ class McpServerManager:
                     del self._server_tools[server.name]
                 self._log_verbose(f"Disconnected from MCP server: {server.name}")
                 return (server, True)
+            except asyncio.CancelledError:
+                # Cancellation is expected during shutdown - anyio cancel scopes
+                # used by MCP transports don't play well with asyncio teardown.
+                self._log_verbose(f"Disconnect of MCP server {server.name} was cancelled")
+                return (server, False)
             except Exception:
                 self._log_warning(f"Error disconnected from MCP server: {server.name}")
                 return (server, False)
 
-        # Create a copy to avoid modifying during iteration
-        servers_to_disconnect = list(self._connected_servers)
+        servers_to_disconnect = [
+            server
+            for server in self._servers
+            if server in self._connected_servers or server.is_connected
+        ]
         tasks = [disconnect_server(server) for server in servers_to_disconnect]
-        results = await asyncio.gather(*tasks)
+
+        try:
+            results = await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            # The whole disconnect was cancelled (e.g. during program shutdown).
+            # Treat this as a graceful shutdown instead of crashing the exit path.
+            self._log_verbose("MCP disconnect interrupted by shutdown cancellation")
+            return
 
         for server, success in results:
             if success:
-                self._connected_servers.remove(server)
+                self._connected_servers.discard(server)
 
     async def connect_server(self, name: str) -> bool:
         """
@@ -141,7 +177,6 @@ class McpServerManager:
         Returns:
             Boolean indicating success or failure
         """
-        from litellm import experimental_mcp_client
 
         server = self.get_server(name)
         if not server:
@@ -175,9 +210,8 @@ class McpServerManager:
         for attempt in range(1, max_retries + 1):
             try:
                 session = await server.connect()
-                tools = await experimental_mcp_client.load_mcp_tools(
-                    session=session, format="openai"
-                )
+                tools_result = await session.list_tools()
+                tools = _mcp_tools_to_openai_tools(tools_result.tools)
                 self._server_tools[server.name] = tools
                 self._connected_servers.add(server)
                 self._log_verbose(f"Connected to MCP server: {name}")
@@ -199,6 +233,10 @@ class McpServerManager:
                             f"Failed to connect to MCP server {name} "
                             f"after {max_retries} attempts: {e}"
                         )
+                    if server.is_connected:
+                        # Session was established but tool listing failed; tear
+                        # it down so the transport/subprocess doesn't leak.
+                        await server.disconnect()
                     return False
 
     async def disconnect_server(self, name: str) -> bool:
@@ -244,7 +282,7 @@ class McpServerManager:
         """
         existing_server = self.get_server(server.name)
         if existing_server:
-            if server.name not in ["unnamed-server", "Local"]:
+            if server.name.lower() not in ["unnamed-server", "local"]:
                 self._log_warning(f"MCP server with name '{server.name}' already exists")
             return False
 
@@ -300,45 +338,94 @@ class McpServerManager:
         Create an MCP Server Manager from a list of servers it should manage.
         Automatically connects if the server is set to auto connect (by default it is)
         """
-        mcp_manager = cls(servers=[], io=io, verbose=verbose)
+        mcp_manager = cls(servers=servers, io=io, verbose=verbose)
+        await mcp_manager.connect_all()
 
-        async def add_server_with_retry(
-            server: McpServer, connect: bool = True, max_retries: int = 3
-        ) -> tuple[McpServer, bool]:
-            """Try to add and connect to a server with retries."""
-            if not connect:
-                success = await mcp_manager.add_server(server, connect=False)
-                return (server, success)
+        return mcp_manager
 
-            # connect_server now has built-in retry logic, so we only need
-            # a single call here — no separate retry loop needed.
-            success = await mcp_manager.add_server(server, connect=True)
-            return (server, success)
+    async def connect_all(self) -> None:
+        """
+        Connect all configured servers that are enabled (default) and populate their tools.
 
-        tasks = []
-        for server in servers:
-            auto_connect = server.config.get("enabled", True)
-            tasks.append(add_server_with_retry(server, connect=auto_connect))
+        Runs on whatever event loop calls it. In TUI mode the coder runs on the worker
+        thread's event loop (CoderWorker), so callers should invoke this from the coder's
+        loop — otherwise loop-bound MCP state (sessions, asyncio locks, keepalive tasks)
+        is created on one loop and migrated to another on first use, which can raise or
+        hang.
+        """
+        self._connection_loop = asyncio.get_running_loop()
 
-        results = await asyncio.gather(*tasks)
-        for server, did_connect in results:
-            if not did_connect and server.name not in ["unnamed-server", "Local"]:
-                io.tool_warning(
+        async def _connect(server: McpServer) -> tuple[McpServer, bool, bool]:
+            if not server.config.get("enabled", True):
+                # Disabled servers are registered but intentionally not connected.
+                return (server, False, False)
+
+            success = await self.connect_server(server.name)
+
+            return (server, success, True)
+
+        results = await asyncio.gather(*(_connect(server) for server in self._servers))
+
+        for server, did_connect, attempted in results:
+            if (
+                attempted
+                and not did_connect
+                and server.name.lower() not in ["unnamed-server", "local"]
+            ):
+                self._log_warning(
                     f"MCP tool initialization failed after multiple retries: {server.name}"
                 )
 
-        if verbose:
-            io.tool_output("MCP servers configured:")
+        if self.verbose and self.io:
+            self.io.tool_output("MCP servers configured:")
 
-            for server, _ in results:
-                io.tool_output(f"  - {server.name}")
+            for server, _did_connect, _attempted in results:
+                self.io.tool_output(f"  - {server.name}")
 
-                for tool in mcp_manager.get_server_tools(server.name):
+                for tool in self.get_server_tools(server.name):
                     tool_name = tool.get("function", {}).get("name", "unknown")
                     tool_desc = tool.get("function", {}).get("description", "").split("\n")[0]
-                    io.tool_output(f"    - {tool_name}: {tool_desc}")
+                    self.io.tool_output(f"    - {tool_name}: {tool_desc}")
 
-        return mcp_manager
+    async def spawn_child(self, io=None) -> "McpServerManager":
+        """Create a new, independent manager for a sub-agent.
+
+        Rebuilds fresh McpServer instances from this manager's server configs
+        so the sub-agent sees the same full set of servers it can include or
+        exclude (via registered_servers), but with its own connections that
+        can be torn down together with the sub-agent instead of being shared
+        with the parent. The "Local" server is deliberately left out so
+        AgentCoder.initialize_mcp_tools() can create and connect its own
+        instance and rebuild the tool list from the sub-agent's own filters
+        (the parent may exclude tools a child opts into).
+        """
+        server_io = io if io is not None else self.io
+        servers = [
+            _recreate_server(server, io=server_io, verbose=self.verbose)
+            for server in self._servers
+            if not isinstance(server, LocalServer)
+        ]
+
+        child = McpServerManager(servers=servers, io=server_io, verbose=self.verbose)
+        child._connection_loop = asyncio.get_running_loop()
+
+        # Mirror the parent's connected set, but with independent connections so
+        # the child can be disconnected without affecting the parent.
+        connected_names = {
+            server.name
+            for server in self._servers
+            if server in self._connected_servers or server.is_connected
+        }
+        for server in servers:
+            if server.name in connected_names:
+                try:
+                    await child.connect_server(server.name)
+                except Exception as exc:
+                    child._log_warning(
+                        f"Failed to connect MCP server {server.name} for sub-agent: {exc}"
+                    )
+
+        return child
 
 
 def get_local_tool_schemas():
@@ -349,3 +436,64 @@ def get_local_tool_schemas():
         if hasattr(tool_module, "SCHEMA"):
             schemas.append(tool_module.SCHEMA)
     return schemas
+
+
+def _mcp_tool_input_schema(tool):
+    """Return the input schema of an mcp Tool across SDK versions.
+
+    mcp SDK 1.x names the field inputSchema; SDK 2.x renamed it to
+    input_schema.
+    """
+    schema = getattr(tool, "input_schema", None)
+    if schema is None:
+        schema = getattr(tool, "inputSchema", None)
+    return schema
+
+
+def _normalize_mcp_input_schema(input_schema):
+    """Normalize an MCP input schema for OpenAI function calling.
+
+    OpenAI requires function parameters to have type 'object', a
+    properties dict, and (recommended) additionalProperties: false.
+    Mirrors litellm's _normalize_mcp_input_schema.
+    """
+    if not input_schema:
+        return {"type": "object", "properties": {}, "additionalProperties": False}
+
+    normalized = dict(input_schema)
+    if "type" not in normalized:
+        normalized["type"] = "object"
+    if "properties" not in normalized:
+        normalized["properties"] = {}
+    if "additionalProperties" not in normalized:
+        normalized["additionalProperties"] = False
+    return normalized
+
+
+def _mcp_tools_to_openai_tools(tools):
+    """Convert a list of mcp Tool objects to OpenAI 'tools' JSON dicts.
+
+    Uses the SDK's own session.list_tools() output and converts to the
+    standard OpenAI chat tools format. Version-aware: mcp SDK 2.x renamed
+    Tool.inputSchema to input_schema.
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description or "",
+                "parameters": _normalize_mcp_input_schema(_mcp_tool_input_schema(tool)),
+                "strict": False,
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _recreate_server(server, io=None, verbose=False):
+    """Rebuild a fresh McpServer of the same type/config as an existing one."""
+    import copy
+
+    config = copy.deepcopy(server.config)
+    return type(server)(config, io=io, verbose=verbose)

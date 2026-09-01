@@ -5,15 +5,9 @@ nav_order: 800
 
 # Other LLMs
 
-cecli uses the [litellm](https://docs.litellm.ai/docs/providers) package
-to connect to hundreds of other models.
-You can use `cecli --model <model-name>` to use any supported model.
+Cecli connects directly to hundreds of models through their providers' APIs, so there is no extra model-routing package to install. You can use `cecli --model <model-name>` to use any supported model.
 
-To explore the list of supported models you can run `cecli --list-models <model-name>`
-with a partial model name.
-If the supplied name is not an exact match for a known model, cecli will
-return a list of possible matching models.
-For example:
+To explore the list of supported models you can run `cecli --list-models <model-name>` with a partial model name. If the supplied name is not an exact match for a known model, cecli will return a list of possible matching models. For example:
 
 ```
 $ cecli --list-models turbo
@@ -27,91 +21,26 @@ Models which match "turbo":
 - ...
 ```
 
-See the [model warnings](warnings.html)
-section for information on warnings which will occur
-when working with models that cecli is not familiar with.
+See the [model warnings](warnings.html) section for information on warnings which will occur when working with models that cecli is not familiar with.
 
-## LiteLLM
+## Connecting to other providers
 
-cecli uses the LiteLLM package to connect to LLM providers.
-The [LiteLLM provider docs](https://docs.litellm.ai/docs/providers)
-contain more detail on all the supported providers,
-their models and any required environment variables.
-
+Cecli connects to each provider through its own request dispatcher (`cecli/helpers/llms/`): when you specify a model, cecli resolves the provider's base URL, API-key environment variable and API family (OpenAI-compatible chat, Anthropic Messages, Responses, Gemini, or Bedrock) and handles authentication and headers itself.
 
 ## Other API key variables
 
-Here are the API key environment variables that are supported
-by litellm. See their docs for more info.
+The authoritative list of provider base URLs and API-key environment variables is cecli's own provider configuration (`cecli/resources/providers.json`, which covers 61 providers) plus built-in defaults for the major providers. Each provider page in this section lists the variables you need to set, and `cecli --list-models <partial-name>` shows the model names cecli knows about.
 
-<!--[[[cog
-from subprocess import run
-lines = run(
-    "egrep -ho '[A-Z_]+_API_KEY' ../litellm/litellm/*py | sort -u",
-    shell=True,
-    capture_output=True,
-    text=True,
-    ).stdout
-lines = ['- ' + line for line in lines.splitlines(keepends=True)]
-cog.out(''.join(lines))
-]]]-->
-- ALEPH_ALPHA_API_KEY
-- ALEPHALPHA_API_KEY
-- ANTHROPIC_API_KEY
-- ANYSCALE_API_KEY
-- ARK_API_KEY
-- AZURE_AI_API_KEY
-- AZURE_API_KEY
-- AZURE_OPENAI_API_KEY
-- BASETEN_API_KEY
-- BYTEZ_API_KEY
-- CEREBRAS_API_KEY
-- CLARIFAI_API_KEY
-- CLOUDFLARE_API_KEY
-- CO_API_KEY
-- CODESTRAL_API_KEY
-- COHERE_API_KEY
-- COMPACTIFAI_API_KEY
-- DASHSCOPE_API_KEY
-- DATABRICKS_API_KEY
-- DEEPINFRA_API_KEY
-- DEEPSEEK_API_KEY
-- FEATHERLESS_AI_API_KEY
-- FIREWORKS_AI_API_KEY
-- FIREWORKS_API_KEY
-- FIREWORKSAI_API_KEY
-- GEMINI_API_KEY
-- GOOGLE_API_KEY
-- GROQ_API_KEY
-- HUGGINGFACE_API_KEY
-- INFINITY_API_KEY
-- MARITALK_API_KEY
-- MISTRAL_API_KEY
-- MOONSHOT_API_KEY
-- NEBIUS_API_KEY
-- NLP_CLOUD_API_KEY
-- NOVITA_API_KEY
-- NVIDIA_NIM_API_KEY
-- OLLAMA_API_KEY
+Here are some of the most commonly used API key environment variables:
+
 - OPENAI_API_KEY
-- OPENAI_LIKE_API_KEY
+- ANTHROPIC_API_KEY
+- DEEPSEEK_API_KEY
 - OPENROUTER_API_KEY
-- OR_API_KEY
-- OVHCLOUD_API_KEY
-- PALM_API_KEY
-- PERPLEXITYAI_API_KEY
-- PREDIBASE_API_KEY
-- PROVIDER_API_KEY
-- REPLICATE_API_KEY
-- SAMBANOVA_API_KEY
-- TOGETHERAI_API_KEY
-- USER_API_KEY
-- VERCEL_AI_GATEWAY_API_KEY
-- VOLCENGINE_API_KEY
-- VOYAGE_API_KEY
-- WANDB_API_KEY
-- WATSONX_API_KEY
-- WX_API_KEY
+- GEMINI_API_KEY
+- META_API_KEY
+- GROQ_API_KEY
 - XAI_API_KEY
-- XINFERENCE_API_KEY
-<!--[[[end]]]-->
+- MISTRAL_API_KEY
+- OLLAMA_API_KEY
+- AZURE_API_KEY

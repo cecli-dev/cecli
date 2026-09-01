@@ -16,7 +16,7 @@ class CodeCommand(BaseCommand):
             edit_format = coder.main_model.edit_format
         else:
             # Default to a reasonable edit format if main_model is not available
-            edit_format = "wholefile"
+            edit_format = "whole"
         return await cls._generic_chat_command(io, coder, args, edit_format)
 
     @classmethod

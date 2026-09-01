@@ -110,9 +110,14 @@ def test_copy_paste_completion_interacts_with_clipboard(monkeypatch):
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
+    class DummyUsage(dict):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+
     monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.Message", DummyMessage)
     monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.Choices", DummyChoices)
     monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.ModelResponse", DummyModelResponse)
+    monkeypatch.setattr("cecli.coders.copypaste_coder.litellm.Usage", DummyUsage)
 
     class ModelStub:
         name = "cp:gpt-4o"

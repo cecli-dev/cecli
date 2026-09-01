@@ -1,42 +1,38 @@
-import numpy as np
-
-
 def normalize_vector(vector):
     """Normalize a vector to unit length (L2 norm).
 
     Args:
-        vector (np.ndarray or list): Input vector
+        vector (list): Input vector
 
     Returns:
-        np.ndarray: Normalized vector with length 1
+        list: Normalized vector with length 1
     """
-    vector = np.asarray(vector, dtype=np.float64)
-    magnitude = np.linalg.norm(vector)
+    import math
+
+    magnitude = math.sqrt(sum(x * x for x in vector))
     if magnitude == 0:
-        return vector  # Return original if zero vector
-    return vector / magnitude
+        return list(vector)  # Return copy if zero vector
+    return [x / magnitude for x in vector]
 
 
 def cosine_similarity(vector1, vector2):
     """Calculate cosine similarity between two vectors.
 
     Args:
-        vector1 (np.ndarray or list): First vector
-        vector2 (np.ndarray or list): Second vector
+        vector1 (list): First vector
+        vector2 (list): Second vector
 
     Returns:
         float: Cosine similarity between the vectors (range: -1 to 1)
     """
-    vector1 = np.asarray(vector1, dtype=np.float64)
-    vector2 = np.asarray(vector2, dtype=np.float64)
+    import math
 
     if len(vector1) != len(vector2):
         raise ValueError("Vectors must have the same length")
 
-    # Use NumPy's optimized dot product and norm functions
-    dot_product = np.dot(vector1, vector2)
-    magnitude1 = np.linalg.norm(vector1)
-    magnitude2 = np.linalg.norm(vector2)
+    dot_product = sum(a * b for a, b in zip(vector1, vector2))
+    magnitude1 = math.sqrt(sum(x * x for x in vector1))
+    magnitude2 = math.sqrt(sum(x * x for x in vector2))
 
     if magnitude1 == 0 or magnitude2 == 0:
         return 0.0  # Return 0 if either vector is zero
@@ -45,16 +41,13 @@ def cosine_similarity(vector1, vector2):
 
 
 def create_bigram_vector(texts):
-    """Create a bigram frequency vector using optimized NumPy operations.
-
-    This version uses pre-computed bigram indices and NumPy's bincount
-    for maximum performance on large datasets.
+    """Create a bigram frequency vector.
 
     Args:
         texts (tuple): Tuple of strings to process
 
     Returns:
-        np.ndarray: Vector of bigram frequencies
+        list: Vector of bigram frequencies
     """
     # Pre-compute bigram indices (0 for 'aa', 1 for 'ab', ..., 675 for 'zz')
     bigram_indices = {}
@@ -66,7 +59,7 @@ def create_bigram_vector(texts):
             idx += 1
 
     # Initialize frequency vector
-    vector = np.zeros(26 * 26, dtype=np.int32)
+    vector = [0] * (26 * 26)
 
     # Process all texts
     for text in texts:
@@ -74,25 +67,11 @@ def create_bigram_vector(texts):
         if len(text_lower) < 2:
             continue
 
-        # Extract bigrams using NumPy sliding window view
-        # Convert string to character array for efficient slicing
-        chars = np.array(list(text_lower))
-
         # Create bigrams by combining consecutive characters
-        bigrams = np.char.add(chars[:-1], chars[1:])
-
-        # Filter only alphabetic bigrams
-        mask = np.array([bg.isalpha() for bg in bigrams])
-        valid_bigrams = bigrams[mask]
-
-        # Count bigrams using bincount with pre-computed indices
-        indices = []
-        for bg in valid_bigrams:
-            if bg in bigram_indices:
-                indices.append(bigram_indices[bg])
-
-        if indices:
-            counts = np.bincount(indices, minlength=26 * 26)
-            vector += counts
+        for i in range(len(text_lower) - 1):
+            bg = text_lower[i : i + 2]
+            # Filter only alphabetic bigrams
+            if bg.isalpha() and bg in bigram_indices:
+                vector[bigram_indices[bg]] += 1
 
     return vector

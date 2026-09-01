@@ -5,14 +5,13 @@ nav_order: 100
 
 # OpenAI
 
-To work with OpenAI's models, you need to provide your
-[OpenAI API key](https://help.openai.com/en/articles/4936850-where-do-i-find-my-secret-api-key)
-either in the `OPENAI_API_KEY` environment variable or
-via the `--api-key openai=<key>` command line switch.
+To work with OpenAI's models, you need to provide your [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do-i-find-my-secret-api-key) either in the `OPENAI_API_KEY` environment variable or via the `--api-key openai=<key>` command line switch.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 
@@ -40,19 +39,10 @@ cecli --model gpt-4o
 cecli --list-models openai/
 ```
 
-You can use `cecli --model <model-name>` to use any other OpenAI model.
-For example, if you want to use a specific version of GPT-4 Turbo
-you could do `cecli --model gpt-4-0125-preview`.
+You can use `cecli --model <model-name>` to use any other OpenAI model. For example, if you want to use a specific version of GPT-4 Turbo you could do `cecli --model gpt-4-0125-preview`.
 
 ## Reasoning models from other providers
 
-Many of OpenAI's 
-"reasoning" models have restrictions on streaming and setting the temperature parameter.
-Some also support different levels of "reasoning effort".
-cecli is configured to work properly with these models
-when served through major provider APIs and
-has a `--reasoning-effort` setting.
+Many of OpenAI's "reasoning" models have restrictions on streaming and setting the temperature parameter. Some also support different levels of "reasoning effort". cecli is configured to work properly with these models when served through major provider APIs and has a `--reasoning-effort` setting.
 
-You may need to [configure reasoning model settings](/docs/config/reasoning.html)
-if you are using them through another provider
-and see errors related to temperature or system prompt.
+You may need to [configure reasoning model settings](../config/reasoning.html) if you are using them through another provider and see errors related to temperature or system prompt.

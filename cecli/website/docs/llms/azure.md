@@ -5,11 +5,13 @@ nav_order: 500
 
 # Azure
 
-cecli can connect to the OpenAI models on Azure.
+Cecli can connect to the OpenAI models on Azure.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys and endpoint:
 
@@ -38,8 +40,7 @@ cecli --model azure/<your_model_deployment_name>
 cecli --list-models azure/
 ```
 
-Note that cecli will also use environment variables
-like `AZURE_OPENAI_API_xxx`.
+Note that cecli will also use environment variables like `AZURE_OPENAI_API_xxx`.
 
 The `cecli --list-models azure/` command will list all models that cecli supports through Azure, not the models that are available for the provided endpoint.
 

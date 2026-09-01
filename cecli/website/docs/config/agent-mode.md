@@ -44,22 +44,21 @@ This loop continues automatically until the `Yield` tool is called, or the maxim
 
 #### Tool Registry System
 
-Agent Mode uses a centralized local tool registry that manages all available tools:
+Agent Mode uses a centralized local tool registry. The standard tools include:
 
-- **File Discovery Tools**: `ExploreCode`, `Ls`, `Grep`
-- **Editing Tools**: `EditFile`,
-- **Context Management Tools**: `ResourceManager`, `GetLines`
-- **Git Tools**: `GitDiff`, `GitLog`, `GitShow`, `GitStatus`
-- **Utility Tools**: `UpdateTodoList`, `UndoChange`, `Yield`
-- **Sub-Agent Tools**: `Delegate` - Delegate sub-tasks to specialized sub-agents
+- **Discovery and inspection**: `ExploreCode`, `Ls`, `Grep`, `ReadFile`, and `Thinking`
+- **Context and editing**: `ResourceManager`, `EditFile`, `UndoChange`, and `UpdateTodoList`
+- **Execution and orchestration**: `Command` and `Orchestrate`
+- **Sub-agent coordination**: `Delegate` and `Yield`
+- **Optional memory tools**: `SearchFacts` and `ReplaceFacts`
 
 #### Enhanced Context Management
 
 Agent Mode includes some useful context management features:
 
 - **Automatic file tracking**: Files added during exploration are tracked separately
-- **Context blocks**: Directory structure, git status, symbol outlines, and environment info
-- **Token management**: Automatic calculation of context usage and warnings when approaching limits
+- **Configurable context blocks**: Environment, todo, skills, server, sub-agent, orchestration, and other blocks can be included or excluded
+- **Token management**: Context token counts are calculated when enabled; detailed limit warnings are shown by the `context_summary` block
 - **Tool usage history**: Tracks repetitive tool usage to prevent exploration loops
 
 ### Key Features
@@ -74,7 +73,7 @@ Agent Mode includes some useful context management features:
 
 - **Undo capability**: `UndoChange` tool for immediate recovery from mistakes
 - **Dry run support**: Tools can be tested with `dry_run=True`
-- **Line number verification**: Two-step process for line-based edits to prevents errors
+- **Virtual content IDs**: `ReadFile` returns virtual line identifiers that `EditFile` uses to target complete logical blocks safely
 - **Tool usage monitoring**: Prevents infinite loops by tracking repetitive patterns
 
 ### Workflow Process
@@ -83,18 +82,18 @@ Agent Mode includes some useful context management features:
 
 The LLM uses discovery tools to gather information:
 
-```
-Tool Call: ViewFilesMatching
-Arguments: {"pattern": "config", "file_pattern": "*.py"}
+```text
+Tool Call: ExploreCode
+Arguments: {"queries": [{"symbol": "Config", "action": "search"}]}
 
-Tool Call: View
-Arguments: {"file_path": "main.py"}
+Tool Call: ReadFile
+Arguments: {"read": [{"file_path": "main.py", "range_start": "@000", "range_end": "000@"}]}
 
 Tool Call: Grep
-Arguments: {"pattern": "function_name"}
+Arguments: {"searches": [{"pattern": "function_name", "directory": "."}]}
 ```
 
-Files found during exploration are added to context as read-only, allowing the LLM to analyze them without immediate editing.
+`ExploreCode` uses a codebase index when available. `ReadFile` returns content with virtual identifiers for precise follow-up edits. Files discovered through agent tools can be added as read-only context by using `ResourceManager` to change context membership.
 
 #### 2. Planning Phase
 
@@ -107,74 +106,128 @@ Arguments: {"content": "## Task: Add new feature\n- [ ] Analyze existing code\n-
 
 #### 3. Execution Phase
 
-Files are made editable and modifications are applied:
+Files are added to context and made editable with `ResourceManager`, then modifications are applied with `EditFile`:
 
-```
-Tool Call: MakeEditable
-Arguments: {"file_path": "main.py"}
-
-Tool Call: EditFile
-Arguments: {"file_path": "main.py", "find_text": "old_function", "replace_text": "new_function"}
+```text
+Tool Call: ResourceManager
+Arguments: {"add": ["main.py"]}
 
 Tool Call: EditFile
-Arguments: {"file_path": "main.py", "after_pattern": "import statements", "content": "new_imports"}
+Arguments: {"edits": [{"file_path": "main.py", "operation": "replace", "start_line": "——def old_function():", "end_line": "——    return old_value", "text": "def new_function():\n    return new_value"}]}
 ```
+
+`EditFile` accepts an `edits` array containing `replace`  or `delete` operations. Its line targets come from the latest `ReadFile` result. `ResourceManager` can add files as editable or read-only and remove them from context.
 
 #### 4. Verification Phase
 
-Changes are verified and the process continues:
+Changes are verified with the available tools:
 
-```
+```text
 Tool Call: GitDiff
 Arguments: {}
 
-Tool Call: ListChanges
-Arguments: {}
+Tool Call: ReadFile
+Arguments: {"read": [{"file_path": "main.py", "range_start": "@000", "range_end": "000@"}]}
+
+Tool Call: UndoChange
+Arguments: {"change_id": "..."}
 ```
+
+`GitDiff` is available when enabled in the configuration; it is excluded by default.
 
 #### 5. Completion Phase
 
-The above continues over and over until:
+The agent continues until the task is complete and then calls `Yield`:
 
-```
+```text
 Tool Call: Yield
 Arguments: {}
 ```
 
+`Yield` is the registry's essential tool. When sub-agents are active, it waits for their outstanding tasks; completed summaries and errors are injected into the parent conversation before completion.
+
 ### Agent Configuration
+
 Agent Mode can be configured using the `--agent-config` command line argument, which accepts a JSON string for fine-grained control over tool availability and behavior.
 
-Agent Mode can also be configured directly in your configuration file. See the [Complete Configuration Example](#complete-configuration-example) below for a full reference.
+Agent Mode can also be configured directly in your configuration file. See the [Complete Configuration Example](#agent-mode-how-agent-mode-works-agent-configuration-complete-configuration-example) below for a full reference.
 
 #### Configuration Options
 
-- **`large_file_token_threshold`**: Maximum token threshold for large file warnings (default: 32768)
-- **`skip_cli_confirmations`**: YOLO mode, be brave and let the LLM cook, can also use the option `yolo` (default: False)
-- **`allowed_commands`**: Array of glob patterns for commands that can be executed without prompting. Commands matching any pattern will skip the confirmation dialog. Example: `["wc -l*"]` (default: [])
-- **`tools_includelist`**: Array of tool names to allow (only these tools will be available)
-- **`tools_excludelist`**: Array of tool names to exclude (these tools will be disabled)
-- **`tools_paths`**: Array of directories or Python files containing custom tools to load
-- **`servers_includelist`**: Array of MCP server names to allow (only these servers will be available)
-- **`servers_excludelist`**: Array of MCP server names to exclude (these servers will be disabled)
-- **`show_lint_errors`**: When enabled, linting errors found during editing will be displayed in the tool output, allowing the LLM to see and address them (default: false)
-- **`subagent_paths`**: Array of directories to search for sub-agent definition `.md` files
-- **`max_sub_agents`**: Maximum number of concurrent sub-agents (default: 3)
-- **`allow_nested_delegation`**: Allow sub-agents to delegate tasks to further sub-agents (default: `false`). When enabled, the `Delegate` tool is made available in sub-agent tool schemas.
-- **`include_context_blocks`**: Array of context block names to include (overrides default set)
-- **`exclude_context_blocks`**: Array of context block names to exclude from default set
-- **`hot_reload`**: When enabled, skills configuration is hot-reloaded automatically, reflecting changes to skills without requiring a restart (default: false)
-- **`command_timeout`**: Time in seconds to wait for shell commands to finish before automatic backgrounding occurs (default: None)
-- **`diff_colors`**: When enabled, diff output in edit tool responses uses color-coded lines - removed lines in magenta, added lines in light green, and context lines in plain text (default: true)
+- **`large_file_token_threshold`**: Maximum token threshold for large file warnings (default: `8192`)
+- **`skip_cli_confirmations`**: YOLO mode; `yolo` is accepted as an alias (default: `false`)
+- **`allowed_commands`**: Array of glob patterns for commands that can be executed without prompting. Example: `["wc -l*"]` (default: `[]`)
+- **`tools_includelist`**: Array of tool names to allow. When non-empty, only these tools are available; `yield` is automatically retained.
+- **`tools_excludelist`**: Array of tool names to exclude
+- **`tools_paths`**: Array of directories or Python files containing custom tools. `tool_paths` is accepted as an alias.
+- **`servers_includelist`**: Array of MCP server names to allow. `servers_whitelist` is accepted as an alias.
+- **`servers_excludelist`**: Array of MCP server names to exclude. `servers_blacklist` is accepted as an alias.
+- **`show_lint_errors`**: When enabled, linting errors found during editing are displayed in tool output (default: `false`)
+- **`subagent_paths`**: Array of directories to search for sub-agent definition `.md` files. `~/.cecli/subagents` and the built-in defaults directory are also scanned.
+- **`max_sub_agents`**: Maximum number of active sub-agents (default: `30`; `-1` means effectively unlimited)
+- **`allow_nested_delegation`**: Allow sub-agents to delegate tasks to further sub-agents (default: `false`)
+- **`include_context_blocks`**: Array of context block names to include, replacing the default set
+- **`exclude_context_blocks`**: Array of context block names to exclude from the selected set
+- **`hot_reload`**: When enabled, skills configuration is hot-reloaded automatically (default: `false`)
+- **`command_timeout`**: Seconds used when waiting for background command completion (default: `30`)
+- **`diff_colors`**: When enabled, edit diffs use color-coded removed, added, and context lines (default: `true`)
+- **`allow_orchestration`**: Enables the `Orchestrate` tool and its context block (default: `true`)
+
+- **`orchestration`**: A nested configuration object for the Orchestrate tool's Python sandbox. When absent or empty, the sandbox runs with default restrictions. See [Orchestration Configuration](#agent-mode-how-agent-mode-works-agent-configuration-orchestration-configuration) below for details.
+
+#### Orchestration Configuration
+
+The `Orchestrate` tool runs user code in a secure Python sandbox with the following restrictions:
+- **No imports** — only pre-imported modules (`re`, `math`, `itertools`, `collections`,
+  `datetime`, `traceback`, `json`, `pathlib`) are available
+- **No private/dunder access** — attributes starting with `_` are blocked
+- **No dangerous builtins** — `eval`, `exec`, `open`, `compile`, `breakpoint`,
+  `__import__`, `globals`, `locals`, `setattr`, `delattr` are blocked
+- **No global/nonlocal statements**
+- **Loop protection** — `while`/`for` loops yield cooperatively to prevent hangs
+
+These restrictions can be selectively relaxed via the `orchestration` config block:
+
+- **`allowed_imports`**: Array of module names to allow importing. Example:
+  `["os", "typing"]`. Only standard library modules should be allowed; third-party
+  modules may execute arbitrary code at import time.
+
+- **`allowed_builtins`**: Array of builtin function names to add to the sandbox.
+  Example: `["setattr", "property"]`. Dangerous builtins (`eval`, `exec`, `open`, etc.)
+  cannot be added.
+
+- **`allow_classes`**: Boolean (default: `false`). When `true`, class definitions are
+  permitted and dunder methods (`__init__`, `__str__`, `__repr__`, `__iter__`, etc.)
+  are allowed inside class bodies.
+
+- **`disable_security`**: Boolean (default: `false`). When `true`, the AST-level security
+  filter is skipped entirely. ⚠ Use with extreme caution — this disables all import
+  blocking, dunder blocking, and dangerous builtin blocking.
+
+- **`disable_loop_protection`**: Boolean (default: `false`). When `true`, the cooperative
+  yield injection is skipped. Use only if you are certain the orchestration code has no
+  unbounded loops.
+
+Example:
+
+```yaml
+agent-config:
+  orchestration:
+    allowed_imports:
+      - os
+      - typing
+    allow_classes: true
+```
 
 #### Essential Tools
 
-Certain tools are always available regardless of includelist/excludelist settings:
+Only `Yield` is protected as an essential registry tool. Other tools, including `ResourceManager` and `ReadFile`, can be restricted by includelist/excludelist settings.
 
-- `ResourceManager` - Add, drop, and make files editable in the context
-- `editfile` - Basic text replacement
-- `finished` - Complete the task
+- `ResourceManager` - Add, drop, and make files editable in context
+- `ReadFile` - Read file contents with virtual content IDs
+- `Yield` - Complete the task and wait for active child agents
 
-The registry also supports **Custom Tools** that can be loaded from specified directories or files using the `tool_paths` configuration option. Custom tools must be Python files containing a `Tool` class that inherits from `BaseTool` and defines a `NORM_NAME` attribute.
+The registry also supports **Custom Tools** that can be loaded from specified directories or files using the `tools_paths` configuration option. Custom tools must be Python files containing a `Tool` class that inherits from `BaseTool` and defines a `NORM_NAME` attribute.
 
 ##### Creating Custom Tools
 
@@ -232,21 +285,36 @@ The `tools_paths` can include:
 
 Tools are loaded automatically when the registry is built and will be available alongside the built-in tools.
 
+#### Sub-agent Behavior
+
+`Delegate` accepts one or more delegation objects. Each delegation includes a registered sub-agent `name`, a `prompt`, and optional `async` and `persist` flags. Asynchronous delegations run in the background; synchronous delegations wait for the sub-agent result. The system uses `Yield` to wait for outstanding child tasks when finishing the parent task.
+
+Sub-agent results are reported back to the parent conversation as summaries or errors. Sub-agents use `auto_reap: true` by default, so completed agents can be removed automatically after their work and descendants finish. Independent agents may be cleaned up shortly after completion, while the service also reaps completed agents when the configured limit requires space. Set `max_sub_agents` to `-1` to remove the limit on simultaneous sub agents.
+
+Sub-agent definition files may specify a `model` using one of these runtime-resolved values: `<weak_model>`, `<agent_model>`, `<main_model>`, or `<current>`. Nested delegation is disabled by default; enable `allow_nested_delegation` to expose `Delegate` to sub-agents and allow nested child-agent context.
+
 #### Context Blocks
 
-The following context blocks are available by default and can be customized using `include_context_blocks` and `exclude_context_blocks`:
+The following context blocks are available and can be customized using `include_context_blocks` and `exclude_context_blocks`:
 
-- **`context_summary`**: Shows current context usage and token limits
-- **`directory_structure`**: Displays the project's file structure
-- **`git_status`**: Shows current git branch, status, and recent commits
-- **`symbol_outline`**: Lists classes, functions, and methods in current context
-- **`todo_list`**: Shows the current todo list managed via `UpdateTodoList` tool
-- **`skills`**: Include skills content in the conversation
-- **`sub_agents`**: Include registered sub-agents in the conversation context
+**Included by default:**
 
-When `include_context_blocks` is specified, only the listed blocks will be included. When `exclude_context_blocks` is specified, the listed blocks will be removed from the default set.
+- **`environment_info`**: Working directory, platform, date, language, and repository details
+- **`todo_list`**: Current tasks managed through `UpdateTodoList`
+- **`skills`**: Available skills and their configuration
+- **`servers`**: Connected, filtered, and disconnected MCP servers
+- **`sub_agents`**: Registered sub-agents (shown to the primary agent; nested agents require nested delegation to see child-agent context)
+- **`orchestration`**: Orchestrate guidance when `allow_orchestration` is enabled
 
-#### Other Cecli Config Options for Agent Mode
+**Available when explicitly included:**
+
+- **`context_summary`**: Current file and context-block token usage and limits
+- **`directory_structure`**: Project file structure
+- **`git_status`**: Current git branch, status, and recent commits
+- **`symbol_outline`**: Classes, functions, and methods in current context
+
+
+When `include_context_blocks` is specified, it replaces the default set. `exclude_context_blocks` then removes named blocks from that set.
 
 - `use-enhanced-map` - Use enhanced repo map that takes into account import relationships between files
 
@@ -265,38 +333,48 @@ agent: true
 # Agent Mode configuration
 agent-config:
   # Tool configuration
-  tools_includelist: ["resourcemanager", "editfile", "finished"]  # Optional: Whitelist of tools
-  tools_excludelist: ["command", "commandinteractive"]  # Optional: Blacklist of tools
-  tools_paths: ["./custom-tools", "~/my-tools"]  # Optional: Directories or files containing custom tools
-  
+  tools_includelist: ["resourcemanager", "readfile", "yield"]
+  tools_excludelist: ["command"]
+  tools_paths: ["./custom-tools", "~/my-tools"]
+
   # Server configuration
-  servers_includelist: ["local"]  # Optional: Whitelist of MCP server names to allow
-  servers_excludelist: []  # Optional: Blacklist of MCP server names to exclude
-  
+  servers_includelist: ["local"]
+  servers_excludelist: []
+
   # Sub-agent configuration
-  subagent_paths: [".cecli/subagents"]  # Optional: Directories to search for sub-agent definitions
-  max_sub_agents: 3  # Optional: Maximum concurrent sub-agents (default: 3)
-  allow_nested_delegation: false  # Optional: Allow sub-agents to delegate further (default: false)
+  subagent_paths: [".cecli/subagents"]
+  max_sub_agents: 30  # -1 means effectively unlimited
+  allow_nested_delegation: false
 
   # Context blocks configuration
-  include_context_blocks: ["todo_list", "git_status"]  # Optional: Context blocks to include
-  exclude_context_blocks: ["symbol_outline", "directory_structure"]  # Optional: Context blocks to exclude
-  
-  # Performance and behavior settings
-  large_file_token_threshold: 32768  # Token threshold for large file warnings (default: 32768)
-  skip_cli_confirmations: false  # YOLO mode - be brave and let the LLM cook
-  allowed_commands: ["wc -l*"]  # Commands matching these glob patterns will not prompt for confirmation
-  show_lint_errors: false  # When enabled, linting errors are shown in tool output (default: false)
-  hot_reload: false  # When enabled, skills configuration is hot-reloaded automatically (default: false)
-фвδ::  diff_colors: true  # When enabled, diff output uses color-coded lines (default: true)
-  # Skills configuration (see Skills documentation for details)
-  skills_paths: ["~/my-skills", "./project-skills"]  # Directories to search for skills
-  skills_includelist: ["python-refactoring", "react-components"]  # Optional: Whitelist of skills to include
-  skills_excludelist: ["legacy-tools"]  # Optional: Blacklist of skills to exclude
-  skills_init: ["python-refactoring"]  # Optional: Skills to load and enable on startup
+  include_context_blocks: ["todo_list", "git_status"]
+  exclude_context_blocks: ["symbol_outline", "directory_structure"]
 
-# Other Agent Mode options
-use-enhanced-map: true  # Use enhanced repo map with import relationships
+  # Performance and behavior settings
+  large_file_token_threshold: 8192
+  command_timeout: 30
+  skip_cli_confirmations: false
+  allowed_commands: ["wc -l*"]
+  show_lint_errors: false
+  hot_reload: false
+  diff_colors: true
+  allow_orchestration: true
+
+  # Orchestration sandbox configuration
+  orchestration:
+    allowed_imports: []
+    allowed_builtins: []
+    allow_classes: false
+    disable_security: false
+    disable_loop_protection: false
+
+  # Skills configuration
+  skills_paths: ["~/my-skills", "./project-skills"]
+  skills_includelist: ["python-refactoring", "react-components"]
+  skills_excludelist: ["legacy-tools"]
+  skills_init: ["python-refactoring"]
+
+
 ```
 
 This configuration system allows for fine-grained control over which tools are available in Agent Mode, enabling security-conscious deployments and specialized workflows while maintaining essential functionality.

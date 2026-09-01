@@ -23,8 +23,12 @@ def mock_io():
 def mock_agent_service(mock_coder):
     with patch("cecli.commands.switch_agent.AgentService") as MockAgentService:
         agent_service_instance = MockAgentService.get_instance.return_value
+
+        reviewer = MagicMock()
+        reviewer.name = "reviewer"
+
         agent_service_instance.sub_agents = {
-            "sub-uuid-1": MagicMock(name="reviewer"),
+            "sub-uuid-1": reviewer,
         }
         agent_service_instance.foreground_uuid = None
         yield agent_service_instance
@@ -97,7 +101,9 @@ class TestSwitchAgentCommand:
     def test_get_completions_with_duplicate_names(self, mock_coder, mock_io, mock_agent_service):
         """Test completions include UUID prefixes when there are duplicate names."""
         # Add a second sub-agent with the same name
-        mock_agent_service.sub_agents["sub-uuid-2"] = MagicMock(name="reviewer")
+        second_reviewer = MagicMock()
+        second_reviewer.name = "reviewer"
+        mock_agent_service.sub_agents["sub-uuid-2"] = second_reviewer
         mock_agent_service.foreground_uuid = None
         completions = SwitchAgentCommand.get_completions(mock_io, mock_coder, "")
         assert "reviewer (sub)" in completions

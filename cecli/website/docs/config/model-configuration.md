@@ -4,9 +4,11 @@ nav_order: 900
 description: Configure model overrides, alias-based suffixes, and structured override groups.
 ---
 
+# Model Configuration
+
 ## Model Configuration & Overrides
 
-CECLI allows you to customize and override LLM configurations to fine-tune their behavior, API parameters, and metadata. You can organize these overrides into three logical configuration groups, and apply them either as **defaults** (by model name) or via **suffixes** (e.g., `gpt-5:high`).
+Cecli allows you to customize and override LLM configurations to fine-tune their behavior, API parameters, and metadata. You can organize these overrides into three logical configuration groups, and apply them either as **defaults** (by model name) or via **suffixes** (e.g., `gpt-5:high`).
 
 ---
 
@@ -14,16 +16,19 @@ CECLI allows you to customize and override LLM configurations to fine-tune their
 
 For advanced configurations, you can organize override parameters into three logical groups: `api`, `llm`, and `agent`.
 ### 1. `api`
-Values under `api` are merged directly into the model's API request parameters (`headers`). This is useful for configuring provider-specific API options, temperature, or custom headers. For the full list of supported parameters, see the [LiteLLM completion input documentation](https://docs.litellm.ai/docs/completion/input).
-- **Common parameters**: `temperature`, `top_p`, `max_tokens`, `parallel_tool_calls`, `extra_body` (e.g., `thinking: true` or `reasoning_effort: "high"`).
+Values under `api` are request-level parameters that cecli passes to the provider API. This is useful for configuring provider-specific API options, temperature, or custom headers. For more details, see the [advanced model settings](../config/adv-model-settings.html) page.
+
+**Common parameters**: `temperature`, `top_p`, `max_tokens`, `parallel_tool_calls`, `extra_body` (e.g., `thinking: true` or `reasoning_effort: "high"`).
 
 ### 2. `llm`
-Values under `llm` are merged into the model's info dictionary (`self.info`). This allows you to override or augment model metadata and capabilities. For a comprehensive list of available model metadata fields, see the [LiteLLM model prices and context window reference](https://github.com/BerriAI/litellm/blob/litellm_internal_staging/model_prices_and_context_window.json).
-- **Common parameters**: `supports_vision`, `supports_function_calling`, token limits, or pricing information.
+Values under `llm` are merged into the model's info dictionary (`self.info`). This allows you to override or augment model metadata and capabilities. For a comprehensive list of available model metadata fields, see cecli's bundled metadata in [cecli/resources/model-metadata.json](https://github.com/cecli-dev/cecli/blob/main/cecli/resources/model-metadata.json).
+
+**Common parameters**: `supports_vision`, `supports_function_calling`, token limits, or pricing information.
 
 ### 3. `agent`
 Values under `agent` modify CECLI's internal `ModelSettings` fields. This controls how CECLI interacts with the model and manages the workspace. For all supported fields, the `ModelSettings` class in [models.py](https://github.com/cecli-dev/cecli/blob/main/cecli/models.py) contains the most comprehensive list.
-- **Common parameters**: `edit_format`, `use_repo_map`, `cache_control`, `caches_by_default`.
+
+**Common parameters**: `edit_format`, `use_repo_map`, `cache_control`, `caches_by_default`.
 
 ---
 
@@ -128,5 +133,4 @@ When resolving model configurations, CECLI applies overrides in the following or
 ### Alias Resolution
 If you use a model alias (e.g., `fast` as an alias for `gpt-5-mini`), the alias is resolved to the base model name **before** any suffixes or overrides are applied.
 
-For example:
-- `cecli --model fast:high` resolves `fast` to `gpt-5-mini`, then applies the `high` suffix overrides defined for `gpt-5-mini`.
+For example, `cecli --model fast:high` resolves `fast` to `gpt-5-mini`, then applies the `high` suffix overrides defined for `gpt-5-mini`.

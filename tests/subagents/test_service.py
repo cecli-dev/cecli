@@ -130,11 +130,46 @@ class TestRegistry:
         assert "reviewer" in AgentService._global_registry
         AgentService._global_registry = {}
 
-    def test_build_registry_skips_missing_dir(self):
-        """Non-existent directories are skipped silently."""
+    def test_build_registry_resolves_relative_path_against_root(self, temp_dir):
+        """Relative sub-agent directories resolve against the provided ``root``."""
         AgentService._global_registry = {}
-        AgentService.build_registry(["/nonexistent/path"])
-        assert AgentService._global_registry == {}
+
+        subagents_dir = temp_dir / "subagents"
+        subagents_dir.mkdir()
+        md_file = subagents_dir / "reviewer.md"
+        md_file.write_text("---\n" "name: reviewer\n" "---\n" "Review code.")
+
+        # ``subagents`` is relative — it must be resolved against ``root``.
+        AgentService.build_registry(["subagents"], root=str(temp_dir))
+        assert "reviewer" in AgentService._global_registry
+        AgentService._global_registry = {}
+
+    def test_build_registry_skips_missing_dir(self):
+        """Non-existent directories are skipped silently (default dirs still scanned)."""
+        AgentService._global_registry = {}
+        # build_registry also scans ~/.cecli/subagents and built-in defaults,
+        # so the registry may contain entries from those directories even when
+        # the user-supplied path does not exist.  The key assertion is that
+        # no exception is raised for the missing directory.
+        try:
+            AgentService.build_registry(["/nonexistent/path"])
+        except Exception:
+            pytest.fail("build_registry raised an exception for non-existent directory")
+        # Verify the nonexistent path didn't cause an error - default entries are fine
+        assert AgentService._global_registry is not None
+
+    def test_build_registry_includes_local_default_dir(self, temp_dir):
+        """build_registry scans {root}/.cecli/subagents as a local default."""
+        AgentService._global_registry = {}
+
+        local_dir = temp_dir / ".cecli" / "subagents"
+        local_dir.mkdir(parents=True)
+        md_file = local_dir / "localagent.md"
+        md_file.write_text("---\nname: localagent\n---\nLocal agent.")
+
+        AgentService.build_registry([], root=str(temp_dir))
+        assert "localagent" in AgentService._global_registry
+        AgentService._global_registry = {}
 
 
 # ================================================================== #

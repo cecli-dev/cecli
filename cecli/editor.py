@@ -15,6 +15,7 @@ import tempfile
 
 from rich.console import Console
 
+from cecli.decoding import safe_open
 from cecli.dump import dump  # noqa
 
 DEFAULT_EDITOR_NIX = "vi"
@@ -132,7 +133,7 @@ def pipe_editor(input_data="", suffix=None, editor=None):
     command_str += " " + filepath
 
     subprocess.call(command_str, shell=True)
-    with open(filepath, "r") as f:
+    with safe_open(filepath, "r") as f:
         output_data = f.read()
     try:
         os.remove(filepath)

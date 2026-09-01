@@ -1,26 +1,23 @@
 ---
 parent: Configuration
 nav_order: 40
-description: TUI (Textual User Interface) Mode provides a modern, visually rich terminal interface for AI pair programming.
+description: The TUI (Terminal User Interface) provides a modern, visually rich terminal interface for AI pair programming.
 ---
-# TUI Mode
+# TUI
 
-TUI (Textual User Interface) Mode provides a modern, visually rich terminal interface for AI pair programming.
+TUI (Terminal User Interface) Mode provides a modern, visually rich terminal interface for AI pair programming.
 
 ## Activation
 
-Command line:
+The TUI is the default in recent versions of Cecli and on older versions it can be started explicitly  in the terminal with:
+
 ```
-cecli ... --tui
-
-### OR!
-
 cecli ... --tui
 ```
 
 ## Configuration
 
-TUI Mode can be configured directly in the relevant config.json file or with JSON in the command line arguments:
+The TUI can be configured directly in the relevant config.json file or with JSON in the command line arguments:
 
 ### Minimal Configuration
 
@@ -30,7 +27,7 @@ tui: true
 
 ### Complete Configuration Example
 
-Complete configuration example in YAML configuration file (`.cecli.conf.yml` or `~/.cecli.conf.yml`). The base theme is pretty nice but if you want different colors and key bindings, do you thing:
+The base theme is pretty nice but if you want different colors and key bindings, you can specify them in the configuration files (`~/.cecli/conf.yml` or `.cecli.conf.yml`):
 
 ```yaml
 tui: true
@@ -68,6 +65,9 @@ tui-config:
     cancel: "ctrl+c"
     clear: "ctrl+l"
     quit: "ctrl+q"
+    next_agent: "alt+ctrl+right"
+    prev_agent: "alt+ctrl+left"
+    main_agent: "alt+ctrl+up"
 
 ```
 
@@ -92,6 +92,9 @@ The TUI provides customizable key bindings for all major actions. The default ke
 | Focus | `ctrl+f` | Focus the input area |
 | Clear | `ctrl+l` | Clear the output area |
 | Quit | `ctrl+q` | Exit the TUI |
+| Next Agent | `alt+ctrl+right` | Switch to the next agent (sub-agent or primary), wrapping around |
+| Previous Agent | `alt+ctrl+left` | Switch to the previous agent (sub-agent or primary), wrapping around |
+| Main Agent | `alt+ctrl+up` | Switch back to the main (primary) agent |
 
 #### Customizing Key Bindings
 
@@ -109,7 +112,7 @@ All key bindings use Textual's key syntax:
 
 Warning: key bindings may not work if they conflict with the textual library defaults at:
 
-https://textual.textualize.io/widgets/text_area/#bindings
+[Textual Documentation](https://textual.textualize.io/widgets/text_area/#bindings)
 
 ## Benefits
 
@@ -144,5 +147,3 @@ TUI Mode works seamlessly with other cecli features:
 - **Minimum Size**: 80x24 terminal size recommended
 - **Unicode Support**: Required for proper symbol display
 - **Modern Terminal**: Recommended: Kitty, WezTerm, iTerm2, or Windows Terminal
-
-TUI Mode represents a significant evolution in cecli's user experience, providing a modern, efficient interface for AI pair programming while maintaining the power and flexibility of the command-line foundation. Ideally, this mode makes ai-enabled programming more colorful and more fun for us all!

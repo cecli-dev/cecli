@@ -31,14 +31,6 @@ def _install_stubs():
         sys.modules["PIL.Image"] = image_module
         sys.modules["PIL.ImageGrab"] = image_grab_module
 
-    if "numpy" not in sys.modules:
-        numpy_module = types.ModuleType("numpy")
-        numpy_module.ndarray = object
-        numpy_module.array = lambda *a, **k: None
-        numpy_module.dot = lambda *a, **k: 0.0
-        numpy_module.linalg = types.SimpleNamespace(norm=lambda *a, **k: 1.0)
-        sys.modules["numpy"] = numpy_module
-
     if "oslex" not in sys.modules:
         oslex_module = types.ModuleType("oslex")
         oslex_module.__all__ = []

@@ -1,11 +1,13 @@
 from cecli.tools.utils.base_tool import BaseTool
-from cecli.tools.utils.helpers import ToolError, format_tool_result, handle_tool_error
+from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import tool_footer, tool_header
+from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 
 class Tool(BaseTool):
     NORM_NAME = "updatetodolist"
+    RESULT_TYPE = "list"
     VALIDATIONS = {
         "tasks": ["coerce_list"],
         "tasks[]": ["coerce_dict"],
@@ -59,7 +61,8 @@ class Tool(BaseTool):
         Update the todo list file (todo.txt) with formatted task items.
         Can either replace the entire content or append to it.
         """
-        tool_name = "UpdateTodoList"
+        # tool_name = "UpdateTodoList"
+        response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
         try:
             # Define the todo file path
             todo_file_path = coder.local_agent_folder("todo.txt")
@@ -130,18 +133,18 @@ class Tool(BaseTool):
             # Check if content actually changed
             if existing_content == new_content:
                 coder.io.tool_warning("No changes made: new content is identical to existing")
-                return (
+                response.append_result(
                     "Error: No changes made (content identical to existing)."
-                    "Please make progress implementing the plan instead of updating it."
+                    " Please make progress implementing the plan instead of updating it."
                 )
+                return response
 
             # Handle dry run
             if dry_run:
                 action = "append to" if append else "replace"
                 dry_run_message = f"Dry run: Would {action} todo list in {todo_file_path}."
-                return format_tool_result(
-                    coder, tool_name, "", dry_run=True, dry_run_message=dry_run_message
-                )
+                response.append_result(dry_run_message)
+                return response
 
             # Apply change
             metadata = {
@@ -183,12 +186,15 @@ class Tool(BaseTool):
             #     success_message,
             #     change_id=final_change_id,
             # )
-            return new_content
+            response.append_result(new_content)
+            return response
 
         except ToolError as e:
-            return handle_tool_error(coder, tool_name, e, add_traceback=False)
+            response.append_error(str(e))
+            return response
         except Exception as e:
-            return handle_tool_error(coder, tool_name, e)
+            response.append_error(str(e))
+            return response
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):

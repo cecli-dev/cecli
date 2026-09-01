@@ -52,6 +52,7 @@ class DummyCoder:
         self.abs_read_only_fnames = set()
         self.abs_fnames = set()
         self.edit_allowed = True
+        self.file_read_cache = set()
 
     def abs_root_path(self, file_path):
         path = Path(file_path)
@@ -97,11 +98,12 @@ def test_position_top_succeeds_with_no_patterns(coder_with_file):
         ],
     )
 
-    assert result.startswith("Successfully executed EditFile.")
+    assert "Applied" in result.to_dict()["result"][0]["content"]
     lines = file_path.read_text().splitlines()
-    # Inserted line replaces first line (inclusive bounds) assert lines[1] == "second line"
-    # Original second line shifts up
-    assert lines[0] == "inserted line"
+    # Insert places the new line after the anchor line
+    assert lines[0] == "first line"
+    assert lines[1] == "inserted line"
+    assert lines[2] == "second line"
     coder.io.tool_error.assert_not_called()
 
 
@@ -121,10 +123,10 @@ def test_mutually_exclusive_parameters_raise(coder_with_file):
         ],
     )
 
-    assert result.startswith("Error in EditFile:")
-    assert "Invalid Edit - Review content ID bounds" in result
+    assert any("Invalid Edit" in e for e in result.to_dict()["errors"])
+    assert "Invalid Edit - Review content ID bounds" in str(result)
     assert file_path.read_text().startswith("first line")
-    coder.io.tool_error.assert_called()
+    coder.io.tool_error.assert_not_called()
 
 
 def test_trailing_newline_preservation(coder_with_file):
@@ -221,9 +223,9 @@ def test_line_number_beyond_file_length_appends(coder_with_file):
         ],
     )
 
-    assert result.startswith("Successfully executed EditFile.")
+    assert "Applied" in result.to_dict()["result"][0]["content"]
     content = file_path.read_text()
-    assert content == "first line\nappended line\n"
+    assert content == "first line\nsecond line\nappended line\n"
     coder.io.tool_error.assert_not_called()
 
 
@@ -254,7 +256,6 @@ def test_line_number_beyond_file_length_appends_no_trailing_newline(coder_with_f
         ],
     )
     content = file_path.read_text()
-    # Current implementation joins with \n, but respects original trailing newline
-    # Original doesn't have trailing newline, so result won't have one either
-    assert content == "first line\nappended line"
+    # Insert respects the original trailing newline: no trailing newline in the result
+    assert content == "first line\nsecond line\nappended line"
     coder.io.tool_error.assert_not_called()

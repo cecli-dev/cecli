@@ -11,7 +11,6 @@ import signal
 import subprocess
 import sys
 import time
-import webbrowser
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,10 +40,11 @@ from rich.spinner import SPINNERS
 from rich.style import Style as RichStyle
 from rich.text import Text
 
-from cecli.commands import SwitchCoderSignal
+from cecli.decoding import safe_open
 from cecli.helpers import coroutines
 from cecli.helpers.threading import ThreadSafeEvent
 from cecli.report import update_error_prefix
+from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
 
 from .dump import dump  # noqa: F401
 from .editor import pipe_editor
@@ -200,7 +200,7 @@ class AutoCompleter(Completer):
 
         for fname in process_fnames:
             try:
-                with open(fname, "r", encoding=self.encoding) as f:
+                with safe_open(fname, "r") as f:
                     content = f.read()
             except (FileNotFoundError, UnicodeDecodeError, IsADirectoryError):
                 continue
@@ -360,7 +360,7 @@ class InputOutput:
         encoding="utf-8",
         line_endings="platform",
         dry_run=False,
-        editingmode=EditingMode.EMACS,
+        editingmode="EMACS",
         fancy_input=True,
         file_watcher=None,
         multiline_mode=False,
@@ -526,10 +526,10 @@ class InputOutput:
                 "input": self.input,
                 "output": self.output,
                 "lexer": PygmentsLexer(MarkdownLexer),
-                "editing_mode": self.editingmode,
+                "editing_mode": EditingMode(self.editingmode),
                 "bottom_toolbar": self.get_bottom_toolbar,
             }
-            if self.editingmode == EditingMode.VI:
+            if self.editingmode == "VI":
                 session_kwargs["cursor"] = ModalCursorShapeConfig()
             if self.input_history_file is not None:
                 session_kwargs["history"] = FileHistory(self.input_history_file)
@@ -689,7 +689,7 @@ class InputOutput:
 
     def read_image(self, filename):
         try:
-            with open(str(filename), "rb") as image_file:
+            with safe_open(str(filename), "rb") as image_file:
                 encoded_string = base64.b64encode(image_file.read())
                 return encoded_string.decode("utf-8")
         except OSError as err:
@@ -710,7 +710,7 @@ class InputOutput:
             return self.read_image(filename)
 
         try:
-            with open(str(filename), "r", encoding=self.encoding) as f:
+            with safe_open(str(filename), "r") as f:
                 return f.read()
         except FileNotFoundError:
             if not silent:
@@ -724,7 +724,12 @@ class InputOutput:
             if not silent:
                 self.tool_error(f"{filename}: unable to read: {err}")
             return
-        except UnicodeError as e:
+        except (UnicodeError, ValueError) as e:
+            # ValueError is raised by decoding.safe_open / smart_read when
+            # charset_normalizer cannot determine an encoding (e.g. binary
+            # files like .git/objects/pack/*.rev). Treat it like a decode
+            # error so callers such as /add can skip the file gracefully
+            # instead of crashing the session.
             if not silent:
                 self.tool_error(f"{filename}: {e}")
                 self.tool_error("Use --encoding to set the unicode encoding.")
@@ -732,7 +737,7 @@ class InputOutput:
 
     def _detect_newline(self, filename):
         try:
-            with open(filename, "rb") as f:
+            with safe_open(filename, "rb") as f:
                 chunk = f.read(1024)
                 if b"\r\n" in chunk:
                     return "\r\n"
@@ -761,7 +766,7 @@ class InputOutput:
         delay = initial_delay
         for attempt in range(max_retries):
             try:
-                with open(str(filename), "w", encoding=self.encoding, newline=newline) as f:
+                with safe_open(str(filename), "w", newline=newline) as f:
                     f.write(content)
                 return  # Successfully wrote the file
             except PermissionError as err:
@@ -1136,6 +1141,7 @@ class InputOutput:
             except (
                 asyncio.CancelledError,
                 EOFError,
+                ReloadProgramSignal,
                 SystemExit,
                 SwitchCoderSignal,
             ):
@@ -1225,7 +1231,7 @@ class InputOutput:
             editor = os.environ.get("EDITOR", "vi")
             subprocess.call([editor, tmpfile.name])
 
-        with open(tmpfile.name, "r", encoding=self.encoding) as f:
+        with safe_open(tmpfile.name, "r") as f:
             edited = f.read()
 
         os.unlink(tmpfile.name)
@@ -1235,6 +1241,8 @@ class InputOutput:
         self, url, prompt="Open URL for more info?", allow_never=True, acknowledge=False
     ):
         """Offer to open a URL in the browser, returns True if opened."""
+        import webbrowser
+
         if url in self.never_prompts:
             return False
         if await self.confirm_ask(
@@ -1346,6 +1354,13 @@ class InputOutput:
                 while True:
                     try:
                         if self.prompt_session:
+                            if (
+                                getattr(
+                                    getattr(self.prompt_session, "app", None), "_is_running", False
+                                )
+                                is True
+                            ):
+                                return True
                             # Call prompt_async directly instead of using input_task
                             # This allows KeyboardInterrupt to propagate properly
                             res = await self.prompt_session.prompt_async(question)
@@ -1733,39 +1748,42 @@ class InputOutput:
 
         # 2. Define the Notification component
         notif_cmd = None
-        if system == "Darwin":
-            if shutil.which("terminal-notifier"):
-                notif_cmd = f"terminal-notifier -title 'cecli' -message '{NOTIFICATION_MESSAGE}'"
-            else:
-                notif_cmd = f'osascript -e \'display notification "{NOTIFICATION_MESSAGE}" with title "cecli"\''
+        if self.notifications:
+            if system == "Darwin":
+                if shutil.which("terminal-notifier"):
+                    notif_cmd = (
+                        f"terminal-notifier -title 'cecli' -message '{NOTIFICATION_MESSAGE}'"
+                    )
+                else:
+                    notif_cmd = f'osascript -e \'display notification "{NOTIFICATION_MESSAGE}" with title "cecli"\''
 
-        elif system == "Linux":
-            for cmd in ["notify-send", "zenity"]:
-                if shutil.which(cmd):
-                    if cmd == "notify-send":
-                        notif_cmd = f"notify-send 'cecli' '{NOTIFICATION_MESSAGE}'"
-                    elif cmd == "zenity":
-                        notif_cmd = f"zenity --notification --text='{NOTIFICATION_MESSAGE}'"
-                    break
+            elif system == "Linux":
+                for cmd in ["notify-send", "zenity"]:
+                    if shutil.which(cmd):
+                        if cmd == "notify-send":
+                            notif_cmd = f"notify-send 'cecli' '{NOTIFICATION_MESSAGE}'"
+                        elif cmd == "zenity":
+                            notif_cmd = f"zenity --notification --text='{NOTIFICATION_MESSAGE}'"
+                        break
 
-        elif system == "Windows":
-            ps_body = (
-                ' "try {{ Add-Type -AssemblyName System.Runtime.WindowsRuntime; $null ='
-                " [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
-                " ContentType = WindowsRuntime] }} catch {{}}; "
-                "$template ="
-                " [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent"
-                "([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
-                "$toastXml = $template.GetXml(); "
-                "$toastXml.GetElementsByTagName('text')[0].AppendChild"
-                "($template.CreateTextNode('cecli')) > $null; "
-                "$toastXml.GetElementsByTagName('text')[1].AppendChild"
-                f"($template.CreateTextNode('{NOTIFICATION_MESSAGE}')) > $null; "
-                "$toast = [Windows.UI.Notifications.ToastNotification]::new($toastXml); "
-                "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('cecli')"
-                '.Show($toast)"'
-            )
-            notif_cmd = f"powershell -WindowStyle Hidden -Command {ps_body}"
+            elif system == "Windows":
+                ps_body = (
+                    ' "try {{ Add-Type -AssemblyName System.Runtime.WindowsRuntime; $null ='
+                    " [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
+                    " ContentType = WindowsRuntime] }} catch {{}}; "
+                    "$template ="
+                    " [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent"
+                    "([Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+                    "$toastXml = $template.GetXml(); "
+                    "$toastXml.GetElementsByTagName('text')[0].AppendChild"
+                    "($template.CreateTextNode('cecli')) > $null; "
+                    "$toastXml.GetElementsByTagName('text')[1].AppendChild"
+                    f"($template.CreateTextNode('{NOTIFICATION_MESSAGE}')) > $null; "
+                    "$toast = [Windows.UI.Notifications.ToastNotification]::new($toastXml); "
+                    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('cecli')"
+                    '.Show($toast)"'
+                )
+                notif_cmd = f"powershell -WindowStyle Hidden -Command {ps_body}"
 
         # 3. Concatenate them based on bell preference
         if notif_cmd:
@@ -1794,8 +1812,10 @@ class InputOutput:
 
                 # Determine if this is a terminal bell command that should not be suppressed
                 is_bell_cmd = (
-                    "\\a" in self.notifications_command or "\a" in self.notifications_command
-                ) and re.search(r"(?:echo|print)", self.notifications_command, re.IGNORECASE)
+                    "\\a" in self.notifications_command
+                    or "\a" in self.notifications_command
+                    or "bel" in self.notifications_command
+                ) and re.search(r"(?:echo|print|tput)", self.notifications_command, re.IGNORECASE)
 
                 kwargs = {
                     "shell": True,

@@ -4,6 +4,7 @@ import time
 import weakref
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from cecli.decoding import safe_open
 from cecli.helpers import nested
 
 from .base_message import BaseMessage
@@ -354,20 +355,9 @@ class ConversationManager:
             import os
 
             os.makedirs(".cecli/logs", exist_ok=True)
-            with open(".cecli/logs/conversation.log", "w") as f:
+            with safe_open(".cecli/logs/conversation.log", "w") as f:
                 json.dump(messages_dict, f, indent=4, default=lambda o: "<not serializable>")
 
-        # Add cache control headers when getting all messages (for LLM consumption)
-        # Only add cache control if the coder has add_cache_headers = True
-        if tag is None:
-            if (
-                coder
-                and hasattr(coder, "add_cache_headers")
-                and coder.add_cache_headers
-                and hasattr(coder, "main_model")
-                and not coder.main_model.caches_by_default
-            ):
-                messages_dict = self._add_cache_control(messages_dict)
         return messages_dict
 
     def clear_tag(self, tag: str, ratio: float = 0) -> None:

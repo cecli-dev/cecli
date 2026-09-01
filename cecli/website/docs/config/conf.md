@@ -4,10 +4,9 @@ nav_order: 15
 description: How to configure cecli with a YAML config file.
 ---
 
-# YAML config file
+# YAML Config File
 
-Most of cecli's options can be set in an `.cecli.conf.yml` file.
-cecli will look for a this file in these locations:
+Most of cecli's options can be set in an `.cecli.conf.yml` file. cecli will look for a this file in these locations:
 
 - Your home directory.
 - The root of your git repo.
@@ -17,11 +16,140 @@ If the files above exist, they will be loaded in that order. Files loaded last w
 
 You can also specify the `--config <filename>` parameter, which will only load the one config file.
 
-{% include keys.md %}
+> **Tip:**
+> See the [API key configuration docs](api-keys.html) for information on how to configure and store your API keys.
 
 ## A note on lists
 
 Lists of values can be specified either as a bulleted list:
+
+## Merge Precedence
+
+There are two types of YAML config files with different merge behaviors:
+
+| Config File | Merge Behavior | Array Fields |
+|-------------|----------------|--------------|
+| `.cecli/conf.yml` | Shallow merge (later values replace earlier) | All fields |
+| `.cecli.conf.yml` | Deep merge (and arrays are concatenated with deduplication) | Array fields only |
+
+### How deep merge works
+
+When you have multiple `.cecli.conf.yml` files (e.g., in your home directory and git root), array fields are **concatenated** rather than replaced. Duplicate values are automatically removed, and the order of entries is preserved (earlier config files keep their position).
+
+```yaml
+# ~/.cecli.conf.yml
+read:
+  - ~/.cecli/rules/global.txt
+
+# project/.cecli.conf.yml
+read:
+  - ./project-rules.txt
+
+# Result: ["~/.cecli/rules/global.txt", "./project-rules.txt"]
+```
+
+### Array fields that support deep merge
+
+The following **top-level** array fields are deep-merged:
+
+- `rules` - Rules files to load
+- `file` - Files to edit
+- `read` - Read-only files
+- `mcp-servers-files` - MCP server configuration files
+- `set-env` - Environment variables
+- `api-key` - API keys
+- `alias` - Model aliases
+- `exempt-paths` - Exempt paths
+- `lint-cmd` - Lint commands
+
+The following **nested** array fields (inside `agent-config`) are also deep-merged:
+
+- `skills_paths` - Directories to search for skills
+- `skills_includelist` - Skills to include (whitelist)
+- `skills_excludelist` - Skills to exclude (blacklist)
+- `skills_init` - Skills to load on startup
+- `subagent_paths` - Directories for sub-agent definitions
+- `tools_paths` - Directories for tools
+- `tools_includelist` - Tools to include
+- `tools_excludelist` - Tools to exclude
+- `servers_includelist` - MCP servers to include
+- `servers_excludelist` - MCP servers to exclude
+- `allowed_commands` - Allowed shell commands
+
+### JSON/YAML string fields
+
+The following fields are stored as JSON/YAML strings but are **internally deep-merged** at the dict/list level:
+
+- `agent-config` - Agent configuration
+- `mcp-servers` - MCP server definitions
+- `hooks` - Hook configurations
+- `model-providers` - Model provider configurations
+- `security-config` - Security settings
+- `retries` - Retry configuration
+- `custom` - Custom configurations
+- `tui-config` - TUI configuration
+
+### Examples
+
+#### Adding skills directories
+
+```yaml
+# ~/.cecli.conf.yml
+agent-config: '{"skills_paths": [".cecli/skills"]}'
+
+# project/.cecli.conf.yml
+agent-config: '{"skills_paths": ["./project-skills"]}'
+
+# Result: skills_paths contains both ".cecli/skills" and "./project-skills"
+```
+
+#### Extending allowed commands
+
+```yaml
+# ~/.cecli.conf.yml
+allowed-commands:
+  - git
+  - npm
+
+# project/.cecli.conf.yml
+allowed-commands:
+  - docker
+  - git
+
+# Result: ["git", "npm", "docker"] (git appears only once, order preserved)
+```
+
+#### Adding lint commands
+
+```yaml
+# ~/.cecli.conf.yml
+lint-cmd:
+  - python: flake8
+
+# project/.cecli.conf.yml
+lint-cmd:
+  - javascript: eslint
+
+# Result: Both lint commands are active
+```
+
+### Deduplication
+
+Entries are deduplicated based on value equality. For primitive values (strings, numbers), equality is checked with `==`. For dicts, `json.dumps` comparison is used. The first occurrence of a value is preserved, ensuring consistent ordering.
+
+```yaml
+# config1
+skills-includelist:
+  - skill-a
+  - skill-b
+
+# config2
+skills-includelist:
+  - skill-b
+  - skill-c
+
+# Result: ["skill-a", "skill-b", "skill-c"] (skill-b not duplicated)
+```
 
 ```
 read:
@@ -38,19 +166,8 @@ read: [CONVENTIONS.md, anotherfile.txt, thirdfile.py]
 
 ## Sample YAML config file
 
-Below is a sample of the YAML config file, which you
-can also
-[download from GitHub](https://github.com/cecli-dev/cecli/blob/main/cecli/website/assets/sample.cecli.conf.yml).
+Below is a sample of the YAML config file, which you can also [download from GitHub](https://github.com/cecli-dev/cecli/blob/main/cecli/website/assets/sample.cecli.conf.yml).
 
-<!--[[[cog
-from cecli.args import get_sample_yaml
-from pathlib import Path
-text=get_sample_yaml()
-Path("cecli/website/assets/sample.cecli.conf.yml").write_text(text)
-cog.outl("```")
-cog.out(text)
-cog.outl("```")
-]]]-->
 ```
 ##########################################################
 # Sample .cecli.conf.yml
@@ -510,4 +627,3 @@ cog.outl("```")
 #shell-completions: xxx
 
 ```
-<!--[[[end]]]-->

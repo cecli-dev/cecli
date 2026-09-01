@@ -9,6 +9,7 @@ import pytest
 from cecli.coders.base_coder import Coder
 from cecli.helpers.responses import (
     _repair_local_model_json_text,
+    coerce_tool_structure,
     extract_tools_from_content_json,
     merge_glued_json_objects,
     parse_tool_arguments,
@@ -82,7 +83,9 @@ def test_expand_concatenated_json_merges_instead_of_splitting(monkeypatch):
 
 def test_grep_format_output_empty_searches_does_not_crash_tool_footer():
     coder = SimpleNamespace(
-        io=SimpleNamespace(tool_error=Mock(), tool_output=Mock(), tool_warning=Mock()),
+        io=SimpleNamespace(
+            tool_error=Mock(), tool_output=Mock(), tool_warning=Mock(), _last_type=False
+        ),
         verbose=False,
         pretty=False,
         tui=lambda: None,
@@ -296,3 +299,96 @@ def test_parse_tool_arguments_uneven_glued_objects_with_list():
     # The function tries to parse, failing on the mixed glued content
     assert "@error" in result
     assert "Could not merge glued JSON objects" in result["@error"]
+
+
+def test_coerce_tool_structure_dict_value():
+    """A single 'arguments' key wrapping a dict should be unwrapped."""
+    assert coerce_tool_structure({"arguments": {"query": "x"}}) == {"query": "x"}
+
+
+def test_coerce_tool_structure_json_string_value():
+    """A single 'arguments' key holding a JSON-encoded string should be unwrapped."""
+    assert coerce_tool_structure({"arguments": '{"query": "x"}'}) == {"query": "x"}
+
+
+def test_coerce_tool_structure_parameters_key():
+    """'parameters' and 'params' wrappers should also be unwrapped."""
+    assert coerce_tool_structure({"parameters": {"path": "."}}) == {"path": "."}
+    assert coerce_tool_structure({"params": {"path": "."}}) == {"path": "."}
+
+
+def test_coerce_tool_structure_ignores_multi_key_dict():
+    """A dict with other keys alongside 'arguments' is not a wrapper and is left alone."""
+    wrapped = {"arguments": {"query": "x"}, "extra": 1}
+    assert coerce_tool_structure(wrapped) is wrapped
+
+
+def test_coerce_tool_structure_ignores_non_dict_values():
+    """Non-dict (or unparsable) wrapper values are left alone."""
+    assert coerce_tool_structure({"arguments": 5}) == {"arguments": 5}
+    assert coerce_tool_structure({"arguments": ["a"]}) == {"arguments": ["a"]}
+    assert coerce_tool_structure({"arguments": "not json"}) == {"arguments": "not json"}
+
+
+def test_coerce_tool_structure_ignores_empty():
+    """An empty dict is not a wrapper."""
+    assert coerce_tool_structure({}) == {}
+
+
+def test_parse_tool_arguments_unwraps_wire_format_wrapper():
+    """A model mirroring the OpenAI wire format should still bind real params."""
+    assert parse_tool_arguments('{"arguments": {"query": "repo:cecli"}}') == {"query": "repo:cecli"}
+
+
+def test_parse_tool_arguments_unwraps_wire_format_string():
+    """JSON-encoded string form of the wire-format wrapper should be unwrapped."""
+    assert parse_tool_arguments('{"arguments": "{\\"query\\": \\"repo:cecli\\"}"}') == {
+        "query": "repo:cecli"
+    }
+
+
+class _FakeMcpSession:
+    """Minimal stand-in for an mcp ClientSession that records the call."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def call_tool(self, name=None, arguments=None):
+        self.calls.append((name, arguments))
+        return SimpleNamespace(content=[])
+
+
+def _make_mini_coder():
+    class MiniCoder(Coder):
+        def __init__(self):
+            pass
+
+    return MiniCoder.__new__(MiniCoder)
+
+
+async def test_call_mcp_tool_from_session_unwraps_arguments_key():
+    """call_mcp_tool_from_session must unwrap a wire-format wrapper before session.call_tool."""
+    coder = _make_mini_coder()
+    session = _FakeMcpSession()
+    tool_call = {
+        "function": {
+            "name": "github--search_code",
+            "arguments": '{"arguments": "{\\"query\\": \\"repo:cecli\\"}"}',
+        }
+    }
+    await coder.call_mcp_tool_from_session(session, tool_call)
+    assert session.calls == [("github--search_code", {"query": "repo:cecli"})]
+
+
+async def test_call_mcp_tool_from_session_passes_plain_params_through():
+    """Normal params must pass through call_mcp_tool_from_session unchanged."""
+    coder = _make_mini_coder()
+    session = _FakeMcpSession()
+    tool_call = {
+        "function": {
+            "name": "github--list_issues",
+            "arguments": '{"owner": "cecli-dev", "repo": "cecli"}',
+        }
+    }
+    await coder.call_mcp_tool_from_session(session, tool_call)
+    assert session.calls == [("github--list_issues", {"owner": "cecli-dev", "repo": "cecli"})]

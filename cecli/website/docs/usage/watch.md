@@ -1,41 +1,17 @@
 ---
-title: cecli in your IDE
+title: Watch Mode
 #highlight_image: /assets/browser.jpg
 parent: Usage
 nav_order: 750
 description: cecli can watch your files and respond to AI comments you add in your favorite IDE or text editor.
 ---
 
-# cecli in your IDE
+# Watch Mode
 
-<div class="video-container">
-  <video controls loop poster="/assets/watch.jpg">
-    <source src="/assets/watch.mp4" type="video/mp4">
-    <a href="/assets/watch.mp4">cecli browser UI demo video</a>
-  </video>
-</div>
-
-<style>
-.video-container {
-  position: relative;
-  padding-bottom: 102.7%; /1.027 */
-  height: 0;
-  overflow: hidden;
-}
-
-.video-container video {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-</style>
 
 ## AI comments
 
-If you run cecli with `--watch-files`, it will watch all files in your repo
-and look for any AI coding instructions you add using your favorite IDE or text editor.
+If you run cecli with `--watch-files`, it will watch all files in your repo and look for any AI coding instructions you add using your favorite IDE or text editor.
 
 Specifically, cecli looks for one-liner comments (# ... or // ...) that either start or end with `AI`, `AI!` or `AI?` like these:
 
@@ -50,16 +26,10 @@ Or in `//` comment languages...
 // Write a protein folding prediction engine. AI!
 ```
 
-cecli will take note of all the comments that start or end with `AI`.
-Comments that include `AI!` with an exclamation point or `AI?` with a question
-mark are special.
-They trigger cecli to take action to collect *all* the AI comments and use them
-as your instructions.
+Cecli will take note of all the comments that start or end with `AI`. Comments that include `AI!` with an exclamation point or `AI?` with a question mark are special. They trigger cecli to take action to collect *all* the AI comments and use them as your instructions.
 
 - `AI!` triggers cecli to make changes to your code.
 - `AI?` triggers cecli to answer your question.
-
-See the demo video above that shows cecli working with AI comments in VSCode.
 
 
 ## Example
@@ -84,7 +54,7 @@ function factorial(n) {
 
 ## Comment styles
 
-cecli only watches for these types of **one-liner** comments:
+Cecli only watches for these types of **one-liner** comments:
 
 ```
 # Python and bash style
@@ -92,9 +62,7 @@ cecli only watches for these types of **one-liner** comments:
 -- SQL style
 ```
 
-cecli will look for those comment types in all files.
-You can use them into any code file you're editing, even if they aren't the
-correct comment syntax for that language.
+Cecli will look for those comment types in all files. You can use them into any code file you're editing, even if they aren't the correct comment syntax for that language.
 
 ## Multiple uses
 
@@ -102,8 +70,7 @@ This capability is quite flexible and powerful, and can be used in many ways.
 
 ### In-context instructions
 
-You can add an AI comment in the function you want changed,
-explaining the change request in-context right where you want the changes.
+You can add an AI comment in the function you want changed, explaining the change request in-context right where you want the changes.
 
 ```javascript
 app.get('/sqrt/:n', (req, res) => {
@@ -118,11 +85,7 @@ app.get('/sqrt/:n', (req, res) => {
 
 ### Multiple comments
 
-You can add multiple `AI` comments without the `!`,
-before triggering cecli with a final `AI!`.
-Also keep in mind that you can spread the AI comments across
-multiple files, if you want to coordinate changes in multiple places.
-Just use `AI!` last, to trigger cecli.
+You can add multiple `AI` comments without the `!`, before triggering cecli with a final `AI!`. Also keep in mind that you can spread the AI comments across multiple files, if you want to coordinate changes in multiple places. Just use `AI!` last, to trigger cecli.
 
 ```python
 @app.route('/factorial/<int:n>')
@@ -143,9 +106,7 @@ def factorial(n):
 
 ### Long form instructions
 
-You can add a block of comments, with longer instructions.
-Just be sure to start or end one of the lines with `AI` or `AI!` to draw
-cecli's attention to the block.
+You can add a block of comments, with longer instructions. Just be sure to start or end one of the lines with `AI` or `AI!` to draw cecli's attention to the block.
 
 ```python
 # Make these changes: AI!
@@ -160,50 +121,30 @@ if __name__ == "__main__":
 
 ### Add a file to the cecli chat
 
-Rather than using `/add` to add a file inside the cecli chat, you can
-simply put an `#AI` comment in it and save the file.
-You can undo/remove the comment immediately if you like, the file
-will still be added to the cecli chat.
+Rather than using `/add` to add a file inside the cecli chat, you can simply put an `#AI` comment in it and save the file. You can undo/remove the comment immediately if you like, the file will still be added to the cecli chat.
 
 ## Also use cecli chat in the terminal
 
-It can be really helpful to get a change started with AI comments.
-But sometimes you want to build on or refine those changes.
-You can of course continue to do that with AI comments,
-but it can sometimes be effective to switch over to the cecli terminal chat.
-The chat has the history of the AI comments you just made,
-so you can continue on naturally from there.
+It can be really helpful to get a change started with AI comments. But sometimes you want to build on or refine those changes. You can of course continue to do that with AI comments, but it can sometimes be effective to switch over to the cecli terminal chat. The chat has the history of the AI comments you just made, so you can continue on naturally from there.
 
-You can also use the normal cecli chat in your terminal to work with
-many of cecli's more advanced features:
+You can also use the normal cecli chat in your terminal to work with many of cecli's more advanced features:
 
 - Use `/undo` to revert changes you don't like. Although you may also be able to use your IDE's undo function to step back in the file history.
-- Use [chat modes](https://cecli.dev/docs/usage/modes.html) to ask questions or get help.
+- Use [chat modes](modes.html) to ask questions or get help.
 - Manage the chat context with `/tokens`, `/clear`, `/drop`, `/reset`.
-Adding an AI comment will add the file to the chat.
-Periodically, you may want remove extra context that is no longer needed.
-- [Fix lint and test errors](https://cecli.dev/docs/usage/lint-test.html).
+Adding an AI comment will add the file to the chat. Periodically, you may want remove extra context that is no longer needed.
+- [Fix lint and test errors](lint-test.html).
 - Run shell commands.
 - Etc.
 
 
 ## You can be lazy
 
-The examples above all show AI
-comments with full sentences, proper capitalization, punctuation, etc.
-This was done to help explain how AI comments work, but is not needed in practice.
+The examples above all show AI comments with full sentences, proper capitalization, punctuation, etc. This was done to help explain how AI comments work, but is not needed in practice.
 
-Most LLMs are perfectly capable of dealing with ambiguity and
-inferring implied intent.
-This often allows you to be quite lazy with your AI comments.
-In particular, you can start and end comments with lowercase `ai` and `ai!`,
-but you can also be much more terse with the request itself.
-Below are simpler versions of some of the examples given above.
+Most LLMs are perfectly capable of dealing with ambiguity and inferring implied intent. This often allows you to be quite lazy with your AI comments. In particular, you can start and end comments with lowercase `ai` and `ai!`, but you can also be much more terse with the request itself. Below are simpler versions of some of the examples given above.
 
-When the context clearly implies the needed action, `ai!` might be all you
-need. For example, to implement a factorial function
-in a program full of other math functions either of these
-approaches would probably work:
+When the context clearly implies the needed action, `ai!` might be all you need. For example, to implement a factorial function in a program full of other math functions either of these approaches would probably work:
 
 ```js
 function factorial(n) // ai!
@@ -215,9 +156,7 @@ Or...
 // add factorial() ai!
 ```
 
-Rather than a long, explicit comment like "Add error handling for NaN and less than zero,"
-you can let cecli infer more about the request.
-This simpler comment may be sufficient:
+Rather than a long, explicit comment like "Add error handling for NaN and less than zero," you can let cecli infer more about the request. This simpler comment may be sufficient:
 
 ```javascript
 app.get('/sqrt/:n', (req, res) => {
@@ -249,17 +188,13 @@ def factorial(n):
     return jsonify(result=result)
 ```
 
-As you use cecli with your chosen LLM, you can develop a sense for how
-explicit you need to make your AI comments.
+As you use cecli with your chosen LLM, you can develop a sense for how explicit you need to make your AI comments.
 
 ## Behind the scenes
 
-cecli sends your AI comments to the LLM with the
-[repo map](https://cecli.dev/docs/repomap.html)
-and all the other code context you've added to the chat.
+Cecli sends your AI comments to the LLM with the [repo map](../repomap.html) and all the other code context you've added to the chat.
 
-It also pulls out and highlights the AI comments with specific context, showing the LLM
-exactly how they fit into the code base.
+It also pulls out and highlights the AI comments with specific context, showing the LLM exactly how they fit into the code base.
 
 ```
 The "AI" comments below marked with █ can be found in the code files I've shared with you.
@@ -289,6 +224,4 @@ todo_app.py:
 
 #### Credits
 
-*This feature was inspired by
-the way [Override](https://github.com/oi-overide) watches for file changes
-to find prompts embedded within `//> a specific set of delimiters <//`.*
+*This feature was inspired by the way [Override](https://github.com/oi-overide) watches for file changes to find prompts embedded within `//> a specific set of delimiters <//`.*

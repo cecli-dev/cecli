@@ -3,7 +3,7 @@
 Historically cecli kept separate modules per provider (OpenRouter vs OpenAI-like).
 Those grew unwieldy and duplicated caching, request, and normalization logic.
 This helper centralizes that behavior so every OpenAI-compatible endpoint defines
-a small config blob and inherits the same cache + LiteLLM registration plumbing.
+a small config blob and inherits the same cache + routing plumbing.
 Provider configs remain curated via ``scripts/generate_providers.py`` and the
 static per-model fallback metadata is still cleaned up with ``clean_metadata.py``.
 """
@@ -17,24 +17,13 @@ import re
 import time
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import requests
 
 from cecli.helpers.file_searcher import handle_core_files
 
 RESOURCE_FILE = "providers.json"
-_PROVIDERS_REGISTERED = False
-_CUSTOM_HANDLERS: Dict[str, "Any"] = {}
-
-
-def _coerce_str(value):
-    """Return the first string representation that litellm expects."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list) and value:
-        return value[0]
-    return None
 
 
 def _first_env_value(names):
@@ -50,198 +39,6 @@ def _first_env_value(names):
         if val:
             return val
     return None
-
-
-def _get_json_openai_handler(slug: str, config: Dict) -> Any:
-    """Create a custom handler for OpenAI-compatible providers, lazily importing litellm."""
-    try:
-        from litellm.llms.openai_like.chat.handler import OpenAILikeChatHandler
-    except Exception:
-        return None
-
-    class _JSONOpenAIProvider(OpenAILikeChatHandler):
-        """CustomLLM wrapper that routes OpenAI-compatible providers through LiteLLM."""
-
-        def __init__(self, slug: str, config: Dict):
-            try:
-                from litellm.llms.custom_llm import CustomLLM
-            except Exception:
-                CustomLLM = None
-
-            if CustomLLM is None:
-                raise RuntimeError("litellm custom handler support unavailable")
-
-            super().__init__()
-            self.slug = slug
-            self.config = config
-
-        def _resolve_api_base(self, api_base: Optional[str]) -> str:
-            base = (
-                api_base
-                or _first_env_value(self.config.get("base_url_env"))
-                or self.config.get("api_base")
-            )
-            if not base:
-                try:
-                    from litellm.llms.custom_llm import CustomLLMError
-                except Exception:
-                    CustomLLMError = Exception
-
-                raise CustomLLMError(500, f"{self.slug} missing base URL")
-            return base.rstrip("/")
-
-        def _resolve_api_key(self, api_key: Optional[str]) -> Optional[str]:
-            if api_key:
-                return api_key
-            env_val = _first_env_value(self.config.get("api_key_env"))
-            return env_val
-
-        def _apply_special_handling(self, messages):
-            special = self.config.get("special_handling") or {}
-            if special.get("convert_content_list_to_string"):
-                from litellm.litellm_core_utils.prompt_templates.common_utils import (
-                    handle_messages_with_content_list_to_str_conversion,
-                )
-
-                return handle_messages_with_content_list_to_str_conversion(messages)
-            return messages
-
-        def _inject_headers(self, headers):
-            defaults = self.config.get("default_headers") or {}
-            combined = dict(defaults)
-            combined.update(headers or {})
-            return combined
-
-        def _normalize_model_name(self, model: str) -> str:
-            if not isinstance(model, str):
-                return model
-            trimmed = model
-            if trimmed.startswith(f"{self.slug}/"):
-                trimmed = trimmed.split("/", 1)[1]
-            hf_namespace = self.config.get("hf_namespace")
-            if hf_namespace and not trimmed.startswith("hf:"):
-                trimmed = f"hf:{trimmed}"
-            return trimmed
-
-        def _build_request_params(self, optional_params, stream: bool):
-            params = dict(optional_params or {})
-            default_headers = dict(self.config.get("default_headers") or {})
-            headers = params.setdefault("extra_headers", default_headers)
-            if headers is default_headers and default_headers:
-                params["extra_headers"] = dict(default_headers)
-            if stream:
-                params["stream"] = True
-            return params
-
-        def completion(self, *args, **kwargs):
-            kwargs["api_base"] = self._resolve_api_base(kwargs.get("api_base", None))
-            kwargs["api_key"] = self._resolve_api_key(kwargs.get("api_key", None))
-            kwargs["headers"] = self._inject_headers(kwargs.get("headers", None))
-            kwargs["optional_params"] = self._build_request_params(
-                kwargs.get("optional_params", None), False
-            )
-            kwargs["messages"] = self._apply_special_handling(kwargs.get("messages", []))
-            kwargs["model"] = self._normalize_model_name(kwargs.get("model", None))
-            kwargs["custom_llm_provider"] = "openai"
-            return super().completion(*args, **kwargs)
-
-        async def acompletion(self, *args, **kwargs):
-            kwargs["api_base"] = self._resolve_api_base(kwargs.get("api_base", None))
-            kwargs["api_key"] = self._resolve_api_key(kwargs.get("api_key", None))
-            kwargs["headers"] = self._inject_headers(kwargs.get("headers", None))
-            kwargs["optional_params"] = self._build_request_params(
-                kwargs.get("optional_params", None), False
-            )
-            kwargs["messages"] = self._apply_special_handling(kwargs.get("messages", []))
-            kwargs["model"] = self._normalize_model_name(kwargs.get("model", None))
-            kwargs["custom_llm_provider"] = "openai"
-            kwargs["acompletion"] = True
-            return await super().completion(*args, **kwargs)
-
-        def streaming(self, *args, **kwargs):
-            kwargs["api_base"] = self._resolve_api_base(kwargs.get("api_base", None))
-            kwargs["api_key"] = self._resolve_api_key(kwargs.get("api_key", None))
-            kwargs["headers"] = self._inject_headers(kwargs.get("headers", None))
-            kwargs["optional_params"] = self._build_request_params(
-                kwargs.get("optional_params", None), True
-            )
-            kwargs["messages"] = self._apply_special_handling(kwargs.get("messages", []))
-            kwargs["model"] = self._normalize_model_name(kwargs.get("model", None))
-            kwargs["custom_llm_provider"] = "openai"
-            response = super().completion(*args, **kwargs)
-            for chunk in response:
-                yield self.get_generic_chunk(chunk)
-
-        async def astreaming(self, *args, **kwargs):
-            kwargs["api_base"] = self._resolve_api_base(kwargs.get("api_base", None))
-            kwargs["api_key"] = self._resolve_api_key(kwargs.get("api_key", None))
-            kwargs["headers"] = self._inject_headers(kwargs.get("headers", None))
-            kwargs["optional_params"] = self._build_request_params(
-                kwargs.get("optional_params", None), True
-            )
-            kwargs["messages"] = self._apply_special_handling(kwargs.get("messages", []))
-            kwargs["model"] = self._normalize_model_name(kwargs.get("model", None))
-            kwargs["custom_llm_provider"] = "openai"
-            kwargs["acompletion"] = True
-            response = await super().completion(*args, **kwargs)
-            async for chunk in response:
-                yield self.get_generic_chunk(chunk)
-
-        def get_generic_chunk(self, chunk):
-            choice = chunk.choices[0] if chunk.choices else None
-            delta = choice.delta if choice else None
-            text_content = delta.content if delta and delta.content else ""
-            tool_calls = delta.tool_calls if delta and delta.tool_calls else None
-            if tool_calls and len(tool_calls):
-                tool_calls = tool_calls[0]
-            usage_data = getattr(chunk, "usage", None)
-            if hasattr(usage_data, "model_dump"):
-                usage_dict = usage_data.model_dump()
-            elif isinstance(usage_data, dict):
-                usage_dict = usage_data
-            else:
-                usage_dict = {"completion_tokens": 0, "prompt_tokens": 0, "total_tokens": 0}
-            generic_chunk = {
-                "finish_reason": choice.finish_reason if choice else None,
-                "index": choice.index if choice else 0,
-                "is_finished": bool(choice.finish_reason) if choice else False,
-                "text": text_content,
-                "tool_use": tool_calls,
-                "usage": usage_dict,
-            }
-            return generic_chunk
-
-    return _JSONOpenAIProvider(slug, config)
-
-
-def _register_provider_with_litellm(slug: str, config: Dict) -> None:
-    """Register provider metadata and custom handlers with LiteLLM."""
-    try:
-        from litellm.llms.openai_like.json_loader import JSONProviderRegistry
-    except Exception:
-        return
-    JSONProviderRegistry.load()
-    base_url = config.get("api_base")
-    api_key_env = _coerce_str(config.get("api_key_env"))
-    if not base_url or not api_key_env:
-        return
-    try:
-        import litellm
-    except Exception:
-        return
-    handler = _CUSTOM_HANDLERS.get(slug)
-    if handler is None:
-        handler = _get_json_openai_handler(slug, config)
-        _CUSTOM_HANDLERS[slug] = handler
-    if handler is None:
-        return
-    already_present = any(item.get("provider") == slug for item in litellm.custom_provider_map)
-    if not already_present:
-        litellm.custom_provider_map.append({"provider": slug, "custom_handler": handler})
-        try:
-            litellm.custom_llm_setup()
-        except Exception:
-            pass
 
 
 def _deep_merge(base: Dict, override: Dict) -> Dict:
@@ -290,7 +87,12 @@ class ModelProviderManager:
         self.verify_ssl = verify_ssl
 
     def merge_provider_configs(self, user_configs: Dict[str, Dict]) -> None:
-        """Merge user-defined provider configs into the existing provider configs."""
+        """Merge user-defined provider configs into the existing provider configs.
+
+        Merges into both this instance and the module-level ``PROVIDER_CONFIGS``
+        so freshly-constructed managers (e.g. the llms dispatcher's config
+        resolver) see the same user providers without sharing instance state.
+        """
         for slug, cfg in user_configs.items():
             if slug in self.provider_configs:
                 self.provider_configs[slug] = _deep_merge(self.provider_configs[slug], cfg)
@@ -298,6 +100,11 @@ class ModelProviderManager:
                 self.provider_configs[slug] = deepcopy(cfg)
                 self._provider_cache[slug] = None
                 self._cache_loaded[slug] = False
+
+            if slug in PROVIDER_CONFIGS:
+                PROVIDER_CONFIGS[slug] = _deep_merge(PROVIDER_CONFIGS[slug], cfg)
+            else:
+                PROVIDER_CONFIGS[slug] = deepcopy(cfg)
 
     def supports_provider(self, provider: Optional[str]) -> bool:
         return bool(provider and provider in self.provider_configs)
@@ -581,23 +388,7 @@ class ModelProviderManager:
         return None
 
 
-def register_user_providers_with_litellm(user_configs: Dict[str, Dict]) -> None:
-    """Register user-defined providers with LiteLLM for custom handler support."""
-    for slug, cfg in user_configs.items():
-        _register_provider_with_litellm(slug, cfg)
-
-
-def ensure_litellm_providers_registered() -> None:
-    """One-time registration guard for LiteLLM provider metadata."""
-    global _PROVIDERS_REGISTERED
-    if _PROVIDERS_REGISTERED:
-        return
-    for slug, cfg in PROVIDER_CONFIGS.items():
-        _register_provider_with_litellm(slug, cfg)
-    _PROVIDERS_REGISTERED = True
-
-
-_NUMBER_RE = re.compile("-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?")
+_NUMBER_RE = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
 def _cost_per_token(val: Optional[str | float | int]) -> Optional[float]:

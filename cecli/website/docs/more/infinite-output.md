@@ -6,55 +6,21 @@ description: cecli can handle "infinite output" from models that support prefill
 
 # Infinite output
 
-LLM providers limit how much output a model can generate from a single request.
-This is usually called the output token limit.
+LLM providers limit how much output a model can generate from a single request. This is usually called the output token limit.
 
-cecli is able to work around this limit with models that support
-"prefilling" the assistant response.
-When you use cecli with a model that supports prefill, you will see
-"infinite output" noted in the announcement lines displayed at launch:
+Cecli is able to work around this limit with models that support "prefilling" the assistant response. When you use cecli with a model that supports prefill, you will see "infinite output" noted in the announcement lines displayed at launch:
 
 ```
 cecli v0.58.0
 Main model: claude-3-5-sonnet-20240620 with diff edit format, prompt cache, infinite output
 ```
 
-Models that support prefill can be primed to think they started their response
-with a specific piece of text.
-You can put words in their mouth, and they will continue generating
-text from that point forward.
+Models that support prefill can be primed to think they started their response with a specific piece of text. You can put words in their mouth, and they will continue generating text from that point forward.
 
-When cecli is collecting code edits from a model and
-it hits the output token limit,
-cecli simply initiates another LLM request with the partial
-response prefilled.
-This prompts the model to continue where it left off,
-generating more of the desired response.
-This prefilling of the partially completed response can be repeated,
-allowing for very long outputs.
-Joining the text across these output limit boundaries 
-requires some heuristics, but is typically fairly reliable.
+When cecli is collecting code edits from a model and it hits the output token limit, cecli simply initiates another LLM request with the partial response prefilled. This prompts the model to continue where it left off, generating more of the desired response. This prefilling of the partially completed response can be repeated, allowing for very long outputs. Joining the text across these output limit boundaries requires some heuristics, but is typically fairly reliable.
 
-cecli supports "infinite output" for models that support "prefill",
-such as:
+Cecli supports "infinite output" for models that support "prefill", such as:
 
-<!--[[[cog
-import requests
-import json
-
-# Fetch the JSON data
-url = "https://raw.githubusercontent.com/BerriAI/litellm/refs/heads/main/model_prices_and_context_window.json"
-response = requests.get(url)
-data = json.loads(response.text)
-
-# Process the JSON to find models with supports_assistant_prefill=true
-prefill_models = [model for model, info in data.items() if info.get('supports_assistant_prefill') == True]
-
-# Generate the list of models
-model_list = "\n".join(f"- {model}" for model in sorted(prefill_models))
-
-cog.out(model_list)
-]]]-->
 - anthropic.claude-3-5-haiku-20241022-v1:0
 - anthropic.claude-3-5-sonnet-20241022-v2:0
 - anthropic.claude-3-7-sonnet-20240620-v1:0
@@ -187,6 +153,3 @@ cog.out(model_list)
 - vertex_ai/claude-sonnet-4@20250514
 - vertex_ai/deepseek-ai/deepseek-r1-0528-maas
 - vertex_ai/deepseek-ai/deepseek-v3.1-maas
-<!--[[[end]]]-->
-
-

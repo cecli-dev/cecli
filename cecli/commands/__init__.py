@@ -5,12 +5,15 @@ This package contains individual command implementations that follow the
 BaseCommand pattern for modular, testable command execution.
 """
 
+from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
+
 from .add import AddCommand
 from .agent import AgentCommand
 from .agent_model import AgentModelCommand
 from .agent_tree import AgentTreeCommand
 from .architect import ArchitectCommand
 from .ask import AskCommand
+from .auto_memory import AutoMemoryCommand
 from .clear import ClearCommand
 from .code import CodeCommand
 from .command_prefix import CommandPrefixCommand
@@ -21,7 +24,7 @@ from .context_blocks import ContextBlocksCommand
 from .context_management import ContextManagementCommand
 from .copy import CopyCommand
 from .copy_context import CopyContextCommand
-from .core import Commands, ReloadProgramSignal, SwitchCoderSignal
+from .core import Commands
 from .diff import DiffCommand
 from .drop import DropCommand
 from .editor import EditCommand, EditorCommand
@@ -52,6 +55,7 @@ from .merge import MergeCommand
 from .model import ModelCommand
 from .models import ModelsCommand
 from .multiline_mode import MultilineModeCommand
+from .open import OpenCommand
 from .paste import PasteCommand
 from .queue import QueueCommand
 from .quit import QuitCommand
@@ -61,6 +65,7 @@ from .reap_agent import ReapAgentCommand
 from .reasoning_effort import ReasoningEffortCommand
 from .remove_hook import RemoveHookCommand
 from .remove_mcp import RemoveMcpCommand
+from .remove_memory import RemoveMemoryCommand
 from .remove_queue import RemoveQueueCommand
 from .remove_skill import RemoveSkillCommand
 from .report import ReportCommand
@@ -69,6 +74,7 @@ from .rules import RulesCommand
 from .run import RunCommand
 from .save import SaveCommand
 from .save_session import SaveSessionCommand
+from .search_memory import SearchMemoryCommand
 from .settings import SettingsCommand
 from .spawn_agent import SpawnAgentCommand
 from .switch_agent import SwitchAgentCommand
@@ -101,6 +107,7 @@ CommandRegistry.register(AgentModelCommand)
 CommandRegistry.register(AgentTreeCommand)
 CommandRegistry.register(ArchitectCommand)
 CommandRegistry.register(AskCommand)
+CommandRegistry.register(AutoMemoryCommand)
 CommandRegistry.register(ClearCommand)
 CommandRegistry.register(CodeCommand)
 CommandRegistry.register(CommandPrefixCommand)
@@ -145,6 +152,7 @@ CommandRegistry.register(MergeCommand)
 CommandRegistry.register(ModelCommand)
 CommandRegistry.register(ModelsCommand)
 CommandRegistry.register(MultilineModeCommand)
+CommandRegistry.register(OpenCommand)
 CommandRegistry.register(PasteCommand)
 CommandRegistry.register(QueueCommand)
 CommandRegistry.register(QuitCommand)
@@ -153,6 +161,7 @@ CommandRegistry.register(ReadOnlyStubCommand)
 CommandRegistry.register(ReasoningEffortCommand)
 CommandRegistry.register(RemoveHookCommand)
 CommandRegistry.register(RemoveMcpCommand)
+CommandRegistry.register(RemoveMemoryCommand)
 CommandRegistry.register(RemoveQueueCommand)
 CommandRegistry.register(RemoveSkillCommand)
 CommandRegistry.register(ReportCommand)
@@ -161,6 +170,7 @@ CommandRegistry.register(RulesCommand)
 CommandRegistry.register(RunCommand)
 CommandRegistry.register(SaveCommand)
 CommandRegistry.register(SaveSessionCommand)
+CommandRegistry.register(SearchMemoryCommand)
 CommandRegistry.register(SettingsCommand)
 CommandRegistry.register(TerminalSetupCommand)
 CommandRegistry.register(TestCommand)
@@ -180,6 +190,7 @@ __all__ = [
     "AgentTreeCommand",
     "ArchitectCommand",
     "AskCommand",
+    "AutoMemoryCommand",
     "BaseCommand",
     "ClearCommand",
     "CodeCommand",
@@ -231,6 +242,7 @@ __all__ = [
     "ModelCommand",
     "ModelsCommand",
     "MultilineModeCommand",
+    "OpenCommand",
     "parse_quoted_filenames",
     "PasteCommand",
     "quote_filename",
@@ -242,6 +254,7 @@ __all__ = [
     "ReloadProgramSignal",
     "RemoveHookCommand",
     "RemoveMcpCommand",
+    "RemoveMemoryCommand",
     "RemoveQueueCommand",
     "RemoveSkillCommand",
     "ReportCommand",
@@ -250,6 +263,7 @@ __all__ = [
     "RunCommand",
     "SaveCommand",
     "SaveSessionCommand",
+    "SearchMemoryCommand",
     "SettingsCommand",
     "SwitchCoderSignal",
     "TerminalSetupCommand",

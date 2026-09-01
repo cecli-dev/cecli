@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import textual.strip
+import xxhash
 from rich.color import ColorSystem
 from rich.style import Style
 from textual import events
@@ -16,12 +17,13 @@ from textual.app import App, ComposeResult
 from textual.theme import Theme
 
 from cecli import __version__
+from cecli.decoding import safe_open
 from cecli.editor import pipe_editor
+from cecli.helpers import queues
 from cecli.helpers.agents.service import AgentService
 from cecli.helpers.coroutines import is_active
 from cecli.helpers.file_system import FileSystemService
 from cecli.io import CommandCompletionException
-from cecli.tui.io import TextualInputOutput
 
 from .widgets import (
     CompletionBar,
@@ -44,6 +46,13 @@ class TUI(App):
     """Main Textual application for cecli TUI."""
 
     CSS_PATH = "styles.tcss"
+
+    # Enable Textual's global container text selection (Textual 8.2.0+)
+    # This allows users to click-and-drag to select text across mounted widget
+    # boundaries, which is essential since we use individual widget blocks
+    # instead of a monolithic RichLog.
+    ENABLE_SELECT_AUTO_SCROLL = True
+    SELECT_AUTO_SCROLL_SPEED = 20
 
     BINDINGS = [
         # Binding("ctrl+c", "quit", "Quit", show=True),
@@ -95,6 +104,8 @@ class TUI(App):
             variables={
                 "input-cursor-foreground": colors.get("input-cursor-foreground", "#00ff87"),
                 "input-cursor-text-style": other.get("input-cursor-text-style", "underline"),
+                "screen-selection-background": colors.get("background", "#1e1e1e"),
+                "screen-selection-foreground": colors.get("success", "#00aa00"),
             },
         )
 
@@ -241,6 +252,8 @@ class TUI(App):
             "variables": {
                 "input-cursor-foreground": "#00ff87",
                 "input-cursor-text-style": "underline",
+                "screen-selection-background": "#1e1e1e",
+                "screen-selection-foreground": "#00ff87",
             },
         }
 
@@ -352,16 +365,18 @@ class TUI(App):
         "cyan2",
         "cyan1",
         "bright_white",
+        "medium_spring_green",
     ]
 
+    E = f"[bold {BANNER_COLORS[6]}]▓▓▓[/bold {BANNER_COLORS[6]}]"
     # ASCII banner for startup
     BANNER = f"""
-[bold {BANNER_COLORS[0]}]   ▒▒▒▒▒▒╗▒▒▒▒▒▒▒╗ ▒▒▒▒▒▒╗▒▒╗     ▒▒╗[/bold {BANNER_COLORS[0]}]
-[bold {BANNER_COLORS[1]}]  ▒▒╔════╝▒▒╔════╝▒▒╔════╝▒▒║     ▒▒║[/bold {BANNER_COLORS[1]}]
-[bold {BANNER_COLORS[2]}]  ▒▒║     ▒▒▒▒▒╗  ▒▒║     ▒▒║     ▒▒║[/bold {BANNER_COLORS[2]}]
-[bold {BANNER_COLORS[3]}]  ▒▒║     ▒▒╔══╝  ▒▒║     ▒▒║     ▒▒║[/bold {BANNER_COLORS[3]}]
-[bold {BANNER_COLORS[4]}]  ╚▒▒▒▒▒▒╗▒▒▒▒▒▒▒╗╚▒▒▒▒▒▒╗▒▒▒▒▒▒▒╗▒▒║[/bold {BANNER_COLORS[4]}]
-[bold {BANNER_COLORS[5]}]   ╚═════╝╚══════╝ ╚═════╝╚══════╝╚═╝ v{__version__}[/bold {BANNER_COLORS[5]}]
+[bold {BANNER_COLORS[0]}]                       ▒▒╗▒▒╗[/bold {BANNER_COLORS[0]}]
+[bold {BANNER_COLORS[1]}]   ▒▒▒▒▒╗ ▒▒▒▒▒╗ ▒▒▒▒▒╗▒▒║╚═╝[/bold {BANNER_COLORS[1]}]
+[bold {BANNER_COLORS[2]}]  ▒▒╔═══╝▒▒{E}▒║▒▒╔═══╝▒▒║▒▒╗[/bold {BANNER_COLORS[2]}]
+[bold {BANNER_COLORS[3]}]  ▒▒║    ▒▒╔═══╝▒▒║    ▒▒║▒▒║[/bold {BANNER_COLORS[3]}]
+[bold {BANNER_COLORS[4]}]  ╚▒▒▒▒▒╗╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒║▒▒║[/bold {BANNER_COLORS[4]}]
+[bold {BANNER_COLORS[5]}]   ╚════╝ ╚════╝ ╚════╝╚═╝╚═╝ v{__version__}[/bold {BANNER_COLORS[5]}]
 
 """
 
@@ -487,18 +502,17 @@ class TUI(App):
         self.update_key_hints_left(KeyHints.DEFAULT_LEFT_TEXT)
 
     def _load_git_info(self):
-        """Load git branch and dirty count (deferred to avoid blocking startup)."""
+        """Load git branch (deferred to avoid blocking startup)."""
         footer = self.query_one(MainFooter)
         if self.worker.coder.repo:
             try:
                 branch = self.worker.coder.repo.repo.active_branch.name or "main"
-                dirty = self.worker.coder.repo.get_dirty_files()
-                footer.update_git(branch, len(dirty) if dirty else 0)
+                footer.update_git(branch)
             except Exception:
                 if self.worker.coder.repo:
-                    footer.update_git("main", 0)
+                    footer.update_git("main")
                 else:
-                    footer.update_git("No Repo", 0)
+                    footer.update_git("No Repo")
 
     def check_output_queue(self):
         """Process messages from coder worker."""
@@ -733,6 +747,19 @@ class TUI(App):
 
         input_area.focus()
 
+    def copy_to_clipboard(self, text: str) -> None:
+        import pyperclip
+
+        try:
+            pyperclip.copy(text)
+            self._clipboard = text
+        except Exception:  # pragma: no cover - system clipboard errors
+            self.worker.coder.io.tool_error("Failed to copy to system clipboard.")
+            self.worker.coder.io.tool_output(
+                "You may need to install xclip, xsel, or wl-clipboard on Linux, or pbcopy on macOS."
+            )
+            super().copy_to_clipboard(text)
+
     def update_spinner(self, msg, agent_name: str | None = None):
         """Update spinner in footer."""
         footer = self.query_one(MainFooter)
@@ -846,6 +873,26 @@ class TUI(App):
             self._switch_to_container(target_uuid)
             return
 
+        # Intercept /spawn-agent command to handle immediately without LLM
+        # processing so a new agent can be spawned even while the primary
+        # coder is generating.
+        if stripped == "/spawn-agent" or stripped.startswith("/spawn-agent "):
+            self._handle_spawn_agent_command(user_input, stripped)
+            return
+
+        # Intercept queue management commands (/queue, /list-queue, /remove-queue)
+        # to dispatch immediately without a full generation cycle - they only
+        # modify the active coder's prompt_queue.
+        if (
+            stripped == "/queue"
+            or stripped.startswith("/queue ")
+            or stripped == "/list-queue"
+            or stripped == "/remove-queue"
+            or stripped.startswith("/remove-queue ")
+        ):
+            self._handle_queue_command(stripped)
+            return
+
         # Save to history before clearing
         input_area = self.query_one("#input", InputArea)
         input_area.save_to_history(user_input)
@@ -897,16 +944,16 @@ class TUI(App):
 
             # Default (primary coder, actively generating sub-agent,
             # or sub-agent not found in tracking): append to conversation
-            ConversationService.get_manager(foreground_coder).add_message(
+            ConversationService.get_manager(foreground_coder).queue_message(
                 message_dict=dict(
                     role="user", content=foreground_coder.wrap_user_input(user_input)
                 ),
                 tag=MessageTag.CUR,
-                hash_key=("user_message", user_input, str(time.monotonic_ns())),
-                promotion=ConversationService.get_manager(
-                    foreground_coder
-                ).DEFAULT_TAG_PROMOTION_VALUE,
-                mark_for_demotion=1,
+                hash_key=(
+                    "user_message",
+                    xxhash.xxh3_128_hexdigest(user_input.encode("utf-8", errors="replace")),
+                    str(time.monotonic_ns()),
+                ),
             )
         else:
             self.update_key_hints(generating=True)
@@ -916,12 +963,121 @@ class TUI(App):
                 else None
             )
             # Route to per-coder queue when available
-            if coder_uuid and coder_uuid in TextualInputOutput._per_coder_queues:
-                TextualInputOutput._per_coder_queues[coder_uuid].put(
-                    {"text": user_input, "coder_uuid": coder_uuid}
-                )
+            if coder_uuid and coder_uuid in queues._per_coder_queues:
+                queues.push_coder_input(coder_uuid, {"text": user_input, "coder_uuid": coder_uuid})
             else:
                 self.input_queue.put({"text": user_input, "coder_uuid": coder_uuid})
+                queues.wake_input_waiters()
+
+    def _handle_queue_command(self, stripped: str) -> None:
+        """Dispatch /queue, /list-queue and /remove-queue immediately.
+
+        These commands only mutate the active coder's ``prompt_queue``, so they
+        are handled here without running a full generation cycle.
+        """
+        from cecli.helpers import command_queue
+        from cecli.helpers.agents.service import AgentService
+
+        input_area = self.query_one("#input", InputArea)
+        input_area.save_to_history(stripped)
+        input_area.value = ""
+        self.add_user_message(stripped)
+
+        active_coder = (
+            AgentService.get_instance(self.worker.coder).foreground_coder or self.worker.coder
+        )
+        cmd, _, args = stripped.partition(" ")
+        args = args.strip()
+
+        if cmd == "/queue":
+            if not args:
+                self.show_error("Usage: /queue <prompt text>")
+                return
+
+            try:
+                item = command_queue.enqueue_prompt(active_coder, args)
+            except (ValueError, RuntimeError) as e:
+                self.show_error(str(e))
+                return
+
+            position = command_queue.get_queue_length(active_coder)
+            self._get_visible_container().add_output(
+                f"Prompt queued at position {position} (id: {item['id']})"
+            )
+
+        elif cmd == "/list-queue":
+            items = command_queue.list_queue(active_coder)
+            if not items:
+                self._get_visible_container().add_output("Queue is empty.")
+                return
+
+            lines = []
+            for index, item in enumerate(items):
+                text = item["text"]
+                preview = text[:80] + ("..." if len(text) > 80 else "")
+                stamp = time.strftime("%H:%M:%S", time.localtime(item["timestamp"]))
+                lines.append(f"[{index + 1}] {preview} ({stamp})")
+
+            self._get_visible_container().add_output("\n".join(lines))
+
+        elif cmd == "/remove-queue":
+            if not args:
+                self.show_error("Usage: /remove-queue <index|*>")
+                return
+
+            if args == "*":
+                removed = command_queue.clear_queue(active_coder)
+                self._get_visible_container().add_output(
+                    f"Removed all {len(removed)} queued prompt(s)."
+                )
+                return
+
+            try:
+                index = int(args)
+            except ValueError:
+                self.show_error("Usage: /remove-queue <index|*>")
+                return
+
+            removed = command_queue.remove_from_queue(active_coder, index - 1)
+            if removed is None:
+                self.show_error(f"No queued prompt at index {index}.")
+                return
+
+            self._get_visible_container().add_output(
+                f"Removed queued prompt {index}: {removed['text'][:80]}"
+            )
+
+    def _handle_spawn_agent_command(self, user_input: str, stripped: str) -> None:
+        """Dispatch /spawn-agent immediately without a full generation cycle.
+
+        The spawn is scheduled on the worker's event loop so a new agent can
+        be started even while the primary coder is generating.
+        """
+        from cecli.commands.spawn_agent import SpawnAgentCommand
+
+        parts = stripped.split(maxsplit=1)
+        spawn_args = parts[1].strip() if len(parts) > 1 else ""
+
+        input_area = self.query_one("#input", InputArea)
+        input_area.value = ""
+
+        if not spawn_args:
+            self.show_error("Usage: /spawn-agent <name> [<prompt>]")
+            return
+
+        # Save to history and echo the command before dispatching
+        input_area.save_to_history(user_input)
+        self.add_user_message(user_input)
+
+        coder = self.worker.coder
+        if self.worker.loop is None:
+            self.show_error("Worker loop not available. Cannot spawn sub-agent.")
+            return
+
+        async def _run_spawn():
+            await SpawnAgentCommand.execute(coder.io, coder, spawn_args)
+
+        self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_spawn()))
 
     def set_input_value(self, text) -> None:
         """Find the input widget and set focus to it."""
@@ -958,11 +1114,10 @@ class TUI(App):
         output_container.action_page_down()
 
     def action_interrupt(self):
-        """Interrupt the current task.
-
-        Resolves the foreground coder (primary or sub-agent) so the interrupt
-        targets whichever agent is currently active in the TUI.
         """
+        Interrupt the current task, or copy selected text to clipboard.
+        """
+
         # Determine which coder is in the foreground
         coder = self.worker.coder if self.worker else None
         if coder:
@@ -1091,6 +1246,8 @@ class TUI(App):
         # Update input autocomplete data for the primary agent
         self.enable_input({}, coder=self.worker.coder)
 
+        self._refresh_footer()
+
     def action_switch_prev_agent(self) -> None:
         """Switch to the previous agent (primary or sub-agent), wrapping around."""
         if not self._sub_agent_containers:
@@ -1164,6 +1321,8 @@ class TUI(App):
             coder = agent_service.foreground_coder
             self.enable_input({}, coder=coder)
 
+        self._refresh_footer()
+
     def create_sub_agent_container(self, uuid: str, name: str) -> None:
         """Create an OutputContainer for a sub-agent."""
         from cecli.helpers.agents.service import AgentService
@@ -1222,9 +1381,44 @@ class TUI(App):
             agent_service.foreground_uuid = None
             primary = self.query_one("#output", OutputContainer)
             primary.display = True
+            self._refresh_footer()
 
         # Sync border title with mode and sub-agent info
         self._sync_sub_agent_display()
+
+    def _project_name_for_coder(self, coder) -> str:
+        """Compute a display project name for a coder's root (home-shortened)."""
+        home = str(Path.home())
+        repo = getattr(coder, "repo", None)
+        root = str(getattr(coder, "root", "") or "")
+        if not root and repo:
+            root = str(repo.root)
+        if not root:
+            root = str(Path.cwd())
+        if root.startswith(home):
+            project_name = root.replace(home, "~", 1)
+        else:
+            project_name = root
+        if len(project_name) >= 64:
+            project_name = project_name.split("/")[-1]
+        return project_name
+
+    def _refresh_footer(self):
+        """Refresh the footer with the active coder's project/root and git branch."""
+        try:
+            footer = self.query_one(MainFooter)
+            coder = self._get_visible_coder()
+            project_name = self._project_name_for_coder(coder)
+            branch = ""
+            repo = getattr(coder, "repo", None)
+            if repo:
+                try:
+                    branch = repo.repo.active_branch.name or "main"
+                except Exception:
+                    branch = branch or "main"
+            footer.update_info(project_name, branch)
+        except Exception:
+            pass
 
     def _sync_sub_agent_display(self) -> None:
         """Update the InputContainer border title with mode and sub-agent pills.
@@ -1249,6 +1443,19 @@ class TUI(App):
             return self._sub_agent_containers[coder_uuid]
 
         return self.query_one("#output", OutputContainer)
+
+    def get_selected_log_text(self) -> str | None:
+        """Get selected text from the visible output container or screen."""
+        output_container = self._get_visible_container()
+        return output_container.get_selected_text()
+
+    def copy_selected_log_text(self):
+        output_container = self._get_visible_container()
+        output_container.get_selected_text(copy=True)
+
+    def clear_selected_log_text(self):
+        output_container = self._get_visible_container()
+        output_container.clear_selection()
 
     def _get_visible_coder(self):
         """Return the currently visible coder (foreground or primary)."""
@@ -1327,12 +1534,13 @@ class TUI(App):
 
         coder_uuid = self._confirmation_coder_uuid
         # Route to per-coder queue when available
-        if coder_uuid and coder_uuid in TextualInputOutput._per_coder_queues:
-            TextualInputOutput._per_coder_queues[coder_uuid].put(
-                {"confirmed": message.result, "coder_uuid": coder_uuid}
+        if coder_uuid and coder_uuid in queues._per_coder_queues:
+            queues.push_coder_input(
+                coder_uuid, {"confirmed": message.result, "coder_uuid": coder_uuid}
             )
         else:
             self.input_queue.put({"confirmed": message.result, "coder_uuid": coder_uuid})
+            queues.wake_input_waiters()
         # Release the confirmation lock and process any pending confirmations
         self._confirmation_lock = False
         self._process_pending_confirmation()
@@ -1382,7 +1590,7 @@ class TUI(App):
 
         for fname in files_to_process:
             try:
-                with open(fname, "r", encoding="utf-8", errors="ignore") as f:
+                with safe_open(fname, "r", errors="ignore") as f:
                     content = f.read()
 
                 lexer = guess_lexer_for_filename(fname, content)
@@ -1406,27 +1614,36 @@ class TUI(App):
         should_sort = True
 
         if prefix:
-            matches = self._get_path_completions(prefix)
-            matches.extend(sorted([s for s in symbols if prefix_lower in s.lower()]))
+            matches, matches_set = self._get_path_completions(prefix)
+            # Use a set to efficiently filter out symbols already in matches
+            for s in symbols:
+                if prefix_lower in s.lower() and s not in matches_set:
+                    matches.append(s)
+                    matches_set.add(s)
             should_sort = False
         else:
             matches = list(symbols)
 
-        matches = list(dict.fromkeys(matches))
         return matches[:50] if not should_sort else sorted(matches)[:50]
 
-    def _get_path_completions(self, prefix: str) -> list[str]:
+    def _get_path_completions(self, prefix: str) -> tuple[list[str], set[str]]:
         """Get filesystem path completions relative to coder root.
 
         Uses FileSystemService when available for efficient trie/trigram
         lookups, with fallback to legacy filesystem iteration.
+
+        Returns:
+            tuple[list[str], set[str]]: A tuple of (ordered_list, fast_lookup_set)
+                containing the matched path completions.
         """
-        coder = self.worker.coder
+        coder = AgentService.get_instance(self.worker.coder).foreground_coder
         root = Path(coder.root) if hasattr(coder, "root") else Path.cwd()
 
         # Try FileSystemService first for efficient lookups
         try:
-            fs = FileSystemService.get_instance()
+            fs = getattr(coder, "fs", None) or FileSystemService.for_root(
+                str(root), repo=getattr(coder, "repo", None)
+            )
             if prefix:
                 if fs.trie:
                     is_fuzzy = False
@@ -1438,7 +1655,8 @@ class TUI(App):
                         matches = fs.search(prefix, threshold=0.1)
 
                     if matches:
-                        return matches if is_fuzzy else sorted(matches)
+                        result = sorted(matches) if not is_fuzzy else matches
+                        return result, set(result)
         except Exception:
             pass
 
@@ -1469,7 +1687,8 @@ class TUI(App):
         except (PermissionError, OSError):
             pass
 
-        return sorted(completions)
+        result = sorted(completions)
+        return result, set(result)
 
     def _get_suggestions(self, text: str) -> list[str]:
         """Get completion suggestions for given text."""
@@ -1526,7 +1745,7 @@ class TUI(App):
 
                 # Check if this command needs path-based completion
                 if cmd_name in self.PATH_COMPLETION_COMMANDS:
-                    suggestions = self._get_path_completions(arg_prefix)
+                    suggestions, suggestions_set = self._get_path_completions(arg_prefix)
                     # For /read-only and /read-only-stub, also include add completions
                     if cmd_name in {"/add", "/read-only", "/read-only-stub"}:
                         try:
@@ -1534,8 +1753,13 @@ class TUI(App):
                                 commands.get_completions(cmd_name, coder=active_coder) or []
                             )
                             for c in add_completions:
-                                if arg_prefix_lower in str(c).lower() and str(c) not in suggestions:
-                                    suggestions.append(str(c))
+                                c_str = str(c)
+                                if (
+                                    arg_prefix_lower in c_str.lower()
+                                    and c_str not in suggestions_set
+                                ):
+                                    suggestions.append(c_str)
+                                    suggestions_set.add(c_str)
                         except Exception:
                             pass
                 else:
@@ -1742,6 +1966,40 @@ class TUI(App):
         input_area.focus()
 
 
+def patch_color_name_to_rgb():
+    """Inject Rich 256-color names into Textual's COLOR_NAME_TO_RGB dict.
+
+    Textual's COLOR_NAME_TO_RGB only knows ANSI-16 + CSS named colors.
+    Rich's 256-color names (spring_green2, bright_cyan, etc.) are parsed
+    correctly by Content.from_markup() but silently dropped at render time
+    because Color.parse() doesn't recognize them.
+
+    This patch resolves every Rich color name to its truecolor RGB via
+    RichStyle.parse() and adds it to the dict, making all Rich color names
+    work natively in Textual's Static widgets.
+    """
+    from rich.color import ANSI_COLOR_NAMES
+    from rich.style import Style as RichStyle
+    from textual._color_constants import COLOR_NAME_TO_RGB
+
+    added = 0
+    for name in ANSI_COLOR_NAMES:
+        if name in COLOR_NAME_TO_RGB:
+            continue
+        try:
+            style = RichStyle.parse(name)
+        except Exception:
+            continue
+        if style.color is None or style.color.type is None:
+            continue
+        triplet = style.color.get_truecolor()
+        if triplet is not None:
+            COLOR_NAME_TO_RGB[name] = (triplet.red, triplet.green, triplet.blue)
+            added += 1
+
+    return added
+
+
 def patch_textual_strip_render_with_cache():
     # 1. Define the logic
     def modified_render_ansi(cls, style: Style, color_system: ColorSystem) -> str:
@@ -1774,5 +2032,6 @@ def patch_textual_strip_render_with_cache():
     textual.strip.Strip.render_ansi = classmethod(cached_version)
 
 
-# Execute the patch
+# Execute the patches
+patch_color_name_to_rgb()
 # patch_textual_strip_render_with_cache()

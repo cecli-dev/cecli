@@ -12,6 +12,7 @@ except ImportError:
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.decoding import safe_open
 
 
 class TerminalSetupCommand(BaseCommand):
@@ -177,7 +178,7 @@ class TerminalSetupCommand(BaseCommand):
                 data = {
                     "keyboard": {"bindings": [{"key": "Return", "mods": "Shift", "chars": "\n"}]}
                 }
-                with open(path, "w", encoding="utf-8") as f:
+                with safe_open(path, "w") as f:
                     tomlkit.dump(data, f)
                 io.tool_output("Created Alacritty config with shift+enter binding.")
                 return True
@@ -189,7 +190,7 @@ class TerminalSetupCommand(BaseCommand):
             io.tool_output(f"DRY-RUN: Would check Alacritty config at {path}")
             io.tool_output(f"DRY-RUN: Would add binding: {new_binding}")
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with safe_open(path, "r") as f:
                     data = tomlkit.load(f)
 
                 # Check if binding already exists
@@ -222,7 +223,7 @@ class TerminalSetupCommand(BaseCommand):
         cls._backup_file(path, io)
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with safe_open(path, "r") as f:
                 data = tomlkit.load(f)
 
             # Ensure keyboard section exists
@@ -253,7 +254,7 @@ class TerminalSetupCommand(BaseCommand):
             data["keyboard"]["bindings"].append(new_binding)
 
             # Write back to file
-            with open(path, "w", encoding="utf-8") as f:
+            with safe_open(path, "w") as f:
                 tomlkit.dump(data, f)
 
             io.tool_output("Updated Alacritty config.")
@@ -280,7 +281,7 @@ class TerminalSetupCommand(BaseCommand):
             else:
                 io.tool_output(f"Creating Kitty config at {path}")
                 # Create Kitty config with shift+enter binding
-                with open(path, "w", encoding="utf-8") as f:
+                with safe_open(path, "w") as f:
                     f.write(cls.KITTY_BINDING)
                 io.tool_output("Created Kitty config with shift+enter binding.")
                 return True
@@ -290,7 +291,7 @@ class TerminalSetupCommand(BaseCommand):
             io.tool_output(f"DRY-RUN: Would append binding:\n{cls.KITTY_BINDING.strip()}")
             # Simulate checking for duplicates
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with safe_open(path, "r") as f:
                     content = f.read()
                 if "map shift+enter send_text all \\n" in content:
                     io.tool_output("DRY-RUN: Kitty already configured.")
@@ -304,14 +305,14 @@ class TerminalSetupCommand(BaseCommand):
 
         cls._backup_file(path, io)
 
-        with open(path, "r", encoding="utf-8") as f:
+        with safe_open(path, "r") as f:
             content = f.read()
 
         if "map shift+enter send_text all \\n" in content:
             io.tool_output("Kitty already configured.")
             return False
 
-        with open(path, "a", encoding="utf-8") as f:
+        with safe_open(path, "a") as f:
             f.write(cls.KITTY_BINDING)
         io.tool_output("Updated Kitty config.")
         return True
@@ -336,7 +337,7 @@ class TerminalSetupCommand(BaseCommand):
                 return False
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with safe_open(path, "r") as f:
                 content = f.read()
 
             import re
@@ -359,7 +360,7 @@ class TerminalSetupCommand(BaseCommand):
 
                 cls._backup_file(path, io)
                 new_content = re.sub(pattern, new_rule, content, flags=re.MULTILINE)
-                with open(path, "w", encoding="utf-8") as f:
+                with safe_open(path, "w") as f:
                     f.write(new_content)
                 io.tool_output("Updated Konsole keytab rule.")
                 return True
@@ -369,7 +370,7 @@ class TerminalSetupCommand(BaseCommand):
                     return True
 
                 cls._backup_file(path, io)
-                with open(path, "a", encoding="utf-8") as f:
+                with safe_open(path, "a") as f:
                     f.write(f"\n{new_rule}\n")
                 io.tool_output("Added Konsole Return+Shift rule.")
                 return True
@@ -399,7 +400,7 @@ class TerminalSetupCommand(BaseCommand):
                 io.tool_output(f"Creating Windows Terminal config at {path}")
                 # Create minimal Windows Terminal config with shift+enter binding
                 data = {"actions": [cls.WT_ACTION], "keybindings": [cls.WT_KEYBINDING]}
-                with open(path, "w", encoding="utf-8") as f:
+                with safe_open(path, "w") as f:
                     json.dump(data, f, indent=4)
                 io.tool_output("Created Windows Terminal config with shift+enter binding.")
                 return True
@@ -412,7 +413,7 @@ class TerminalSetupCommand(BaseCommand):
             )
             # Simulate checking for duplicates
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with safe_open(path, "r") as f:
                     data = json.load(f)
 
                 # Check if already configured
@@ -451,7 +452,7 @@ class TerminalSetupCommand(BaseCommand):
                 return False
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with safe_open(path, "r") as f:
                 data = json.load(f)
 
             # Check if already configured
@@ -493,7 +494,7 @@ class TerminalSetupCommand(BaseCommand):
 
             cls._backup_file(path, io)
 
-            with open(path, "w", encoding="utf-8") as f:
+            with safe_open(path, "w") as f:
                 json.dump(data, f, indent=4)
             io.tool_output("Updated Windows Terminal config.")
             return True
@@ -522,7 +523,7 @@ class TerminalSetupCommand(BaseCommand):
                 io.tool_output(f"Creating VS Code keybindings.json at {path}")
                 # Create file with our binding
                 data = [cls.VSCODE_SHIFT_ENTER_BINDING]
-                with open(path, "w", encoding="utf-8") as f:
+                with safe_open(path, "w") as f:
                     json.dump(data, f, indent=4)
                 io.tool_output("Created VS Code config with shift+enter binding.")
                 return True
@@ -536,7 +537,7 @@ class TerminalSetupCommand(BaseCommand):
             # Simulate checking for duplicates
             try:
                 content = ""
-                with open(path, "r", encoding="utf-8") as f:
+                with safe_open(path, "r") as f:
                     content = f.read()
 
                 # Strip comments before parsing
@@ -580,7 +581,7 @@ class TerminalSetupCommand(BaseCommand):
 
         try:
             content = ""
-            with open(path, "r", encoding="utf-8") as f:
+            with safe_open(path, "r") as f:
                 content = f.read()
 
             # Strip comments before parsing
@@ -618,7 +619,7 @@ class TerminalSetupCommand(BaseCommand):
             data.append(cls.VSCODE_SHIFT_ENTER_BINDING)
 
             # Write back to file
-            with open(path, "w", encoding="utf-8") as f:
+            with safe_open(path, "w") as f:
                 json.dump(data, f, indent=4)
 
             io.tool_output("Updated VS Code config.")
@@ -647,7 +648,7 @@ class TerminalSetupCommand(BaseCommand):
             try:
                 if settings_path.exists():
                     content = ""
-                    with open(settings_path, "r", encoding="utf-8") as f:
+                    with safe_open(settings_path, "r") as f:
                         content = f.read()
 
                     content_no_comments = cls._strip_json_comments(content)
@@ -703,7 +704,7 @@ class TerminalSetupCommand(BaseCommand):
             if settings_path.exists():
                 cls._backup_file(settings_path, io)
                 content = ""
-                with open(settings_path, "r", encoding="utf-8") as f:
+                with safe_open(settings_path, "r") as f:
                     content = f.read()
 
                 # Strip comments before parsing
@@ -770,7 +771,7 @@ class TerminalSetupCommand(BaseCommand):
                 ]
 
             # Write back to file
-            with open(settings_path, "w", encoding="utf-8") as f:
+            with safe_open(settings_path, "w") as f:
                 json.dump(data, f, indent=4)
 
             io.tool_output("Updated VS Code settings.")

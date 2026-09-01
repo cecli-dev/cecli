@@ -60,13 +60,13 @@ class LoadMcpCommand(BaseCommand):
         # This moves them from "implicitly include all" to explicit state-machine
         # management, preventing the new server from being implicitly available
         # to all coders.
-        connected_names = {s.name for s in coder.mcp_manager.connected_servers}
+        connected_names = {s.name.lower() for s in coder.mcp_manager.connected_servers}
         if connected_names:
             for c in iter_all_coders(coder):
                 if not c.registered_servers["included"]:
                     included = set(connected_names) - c.registered_servers["excluded"]
                     if c.edit_format in ("agent", "subagent"):
-                        included.add("Local")  # "local" is always available
+                        included.add("local")  # "local" is always available
                     c.registered_servers["included"] = included
 
         # Process connections with interrupt support

@@ -126,31 +126,38 @@ class TestHelp:
 
     def test_fname_to_url_unix(self):
         # Test relative Unix-style paths
-        assert fname_to_url("website/docs/index.md") == "https://cecli.dev/docs"
-        assert fname_to_url("website/docs/usage.md") == "https://cecli.dev/docs/usage.html"
+        assert fname_to_url("website/docs/index.md") == "https://cecli.dev/docs/"
+        assert fname_to_url("website/docs/usage.md") == "https://cecli.dev/docs/usage/"
+        assert fname_to_url("website/docs/config/index.md") == "https://cecli.dev/docs/config/"
+        assert (
+            fname_to_url("website/docs/config/options.md")
+            == "https://cecli.dev/docs/config/options/"
+        )
+        assert fname_to_url("website/index.html") == "https://cecli.dev/index.html"
         assert fname_to_url("website/_includes/header.md") == ""
 
         # Test absolute Unix-style paths
-        assert fname_to_url("/home/user/project/website/docs/index.md") == "https://cecli.dev/docs"
+        assert fname_to_url("/home/user/project/website/docs/index.md") == "https://cecli.dev/docs/"
         assert (
             fname_to_url("/home/user/project/website/docs/usage.md")
-            == "https://cecli.dev/docs/usage.html"
+            == "https://cecli.dev/docs/usage/"
         )
         assert fname_to_url("/home/user/project/website/_includes/header.md") == ""
 
     def test_fname_to_url_windows(self):
         # Test relative Windows-style paths
-        assert fname_to_url(r"website\docs\index.md") == "https://cecli.dev/docs"
-        assert fname_to_url(r"website\docs\usage.md") == "https://cecli.dev/docs/usage.html"
+        assert fname_to_url(r"website\docs\index.md") == "https://cecli.dev/docs/"
+        assert fname_to_url(r"website\docs\usage.md") == "https://cecli.dev/docs/usage/"
         assert fname_to_url(r"website\_includes\header.md") == ""
 
         # Test absolute Windows-style paths
         assert (
-            fname_to_url(r"C:\Users\user\project\website\docs\index.md") == "https://cecli.dev/docs"
+            fname_to_url(r"C:\Users\user\project\website\docs\index.md")
+            == "https://cecli.dev/docs/"
         )
         assert (
             fname_to_url(r"C:\Users\user\project\website\docs\usage.md")
-            == "https://cecli.dev/docs/usage.html"
+            == "https://cecli.dev/docs/usage/"
         )
         assert fname_to_url(r"C:\Users\user\project\website\_includes\header.md") == ""
 
@@ -164,3 +171,105 @@ class TestHelp:
 
         # Test path with 'website' in the wrong place
         assert fname_to_url("/home/user/website_project/docs/index.md") == ""
+
+    def test_fname_to_url_ignores_non_doc_sources(self):
+        # Build artifacts, partials and non-doc sources are not pages.
+        base = "/home/user/project/website"
+        assert fname_to_url(f"{base}/_site/docs/okf/index.md") == ""
+        assert fname_to_url(f"{base}/.docmd-test/docs/okf/concepts/config-subagents.md") == ""
+        assert fname_to_url(f"{base}/.docmd-site/okf/concepts/config-subagents.md") == ""
+        assert fname_to_url(f"{base}/_includes/help.md") == ""
+        assert fname_to_url(f"{base}/share/index.md") == ""
+
+        # Real docs map under /docs/.
+        assert (
+            fname_to_url(f"{base}/docs/config/subagents.md")
+            == "https://cecli.dev/docs/config/subagents/"
+        )
+        assert fname_to_url(f"{base}/docs/config/index.md") == "https://cecli.dev/docs/config/"
+
+    def test_help_falls_back_when_extras_check_fails(self):
+        # A broken/circular-import dependency (e.g. ``datasets``) used to leak out
+        # of the help setup as a raw "Unable to complete help" error. It must now
+        # be caught and fall back to basic help instead of crashing.
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        from cecli.commands.help import HelpCommand
+
+        io = InputOutput(pretty=False, yes=True)
+        coder = SimpleNamespace(args=None)
+
+        with patch.object(HelpCommand, "_basic_help", new=AsyncMock()) as basic_help:
+            with patch(
+                "cecli.help.install_help_extra",
+                side_effect=AttributeError("partially initialized module 'datasets'"),
+            ):
+                result = asyncio.run(HelpCommand.execute(io, coder, "how do I configure subagents"))
+
+        basic_help.assert_awaited_once()
+        assert result is not None
+
+    def test_check_pip_install_extra_retries_on_ssl_flake(self):
+        # The OpenSSL CONF module's lazy init can make the first SSL context
+        # creation fail (WSL2 + OpenSSL 3.5 + Py3.14). check_pip_install_extra
+        # must retry the import once and succeed, mirroring llms.runtime.make_client.
+        import builtins
+        import ssl
+        import types
+        from unittest.mock import patch
+
+        from cecli.utils import check_pip_install_extra
+
+        class FakeIO:
+            def tool_warning(self, *a, **k):
+                pass
+
+            def tool_error(self, *a, **k):
+                pass
+
+            async def confirm_ask(self, *a, **k):
+                return False
+
+        calls = {"n": 0}
+        sentinel = types.ModuleType("sentinel")
+
+        def flaky_import(name, *a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ssl.SSLError("unknown error (0x0) (_ssl.c:3187)")
+            return sentinel
+
+        with patch.object(builtins, "__import__", side_effect=flaky_import):
+            result = asyncio.run(
+                check_pip_install_extra(
+                    FakeIO(),
+                    "llama_index.embeddings.huggingface",
+                    None,
+                    ["pip", "install", "x"],
+                )
+            )
+
+        assert result is True
+        assert calls["n"] == 2
+
+    def test_help_falls_back_when_index_build_fails(self):
+        # A failure while building the help index (e.g. an SSL error downloading
+        # the embedding model) must fall back to basic help instead of crashing.
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+
+        from cecli.commands.help import HelpCommand
+
+        io = InputOutput(pretty=False, yes=True)
+        coder = SimpleNamespace(args=None)
+
+        with patch.object(HelpCommand, "_basic_help", new=AsyncMock()) as basic_help:
+            with patch(
+                "cecli.help.Help",
+                side_effect=OSError("unknown error (0x0) (_ssl.c:3187)"),
+            ):
+                result = asyncio.run(HelpCommand.execute(io, coder, "how do I configure subagents"))
+
+        basic_help.assert_awaited_once()
+        assert result is not None

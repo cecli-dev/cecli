@@ -4,6 +4,8 @@ import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
 
+from cecli.decoding import safe_open
+
 
 class Voice:
     def __init__(self, audio_format="wav", device_name=None):
@@ -76,7 +78,7 @@ def _run_record_process(stdin_fd, audio_format, device_name, history, language):
                 file.write(q.get())
 
         # 3. Transcription
-        with open(temp_path, "rb") as fh:
+        with safe_open(temp_path, "rb") as fh:
             print("\nTranscribing...")
             transcript = litellm.transcription(
                 model="whisper-1", file=fh, prompt=history, language=language

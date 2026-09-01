@@ -42,7 +42,8 @@ and suggestions for improvement.
 |-------|----------|-------------|
 | `name` | Yes | Unique name used to reference the sub-agent in commands and the Delegate tool |
 | `model` | No | Model override for this sub-agent. If omitted, inherits the parent agent's model |
-| `hooks` | No | Per-agent hooks configuration (see [Hooks](/config/hooks) for syntax) |
+| `hooks` | No | Per-agent hooks configuration (see [Hooks](hooks.html) for syntax) |
+| `agent-config` | No | Override `agent-config` property of cecli configuration with custom values for sub agent |
 | `auto_reap` | No | Controls whether this sub-agent is automatically reaped when the limit is reached. Defaults to `true` if omitted |
 
 #### System Prompt
@@ -56,7 +57,7 @@ Add sub-agent paths to your YAML configuration file:
 ```yaml
 # .cecli.conf.yml or ~/.cecli.conf.yml
 agent-config:
-    max_sub_agents: 3  # Maximum concurrent sub-agents (default: 3)
+    max_sub_agents: 30  # Maximum concurrent sub-agents (default: 3)
     subagent_paths:
         - ".cecli/subagents"  # Default path
         - "~/team-agents"     # Custom path for shared agent definitions
@@ -72,6 +73,7 @@ agent-config:
 |---------|-------------|
 | `/spawn-agent <name>` | Spawn a sub-agent without a prompt (non-blocking — waits for user input) |
 | `/spawn-agent <name> <prompt>` | Spawn a sub-agent with a prompt (non-blocking — starts processing immediately) |
+| `/open <name> <path>` | Register and open a `ws:{name}` workspace sub-agent rooted at `<path>` (ad-hoc, no config file required) |
 | `/reap-agent` | Force destroy the currently active sub-agent |
 
 > **Tip**: `/spawn-agent` supports tab completion of sub-agent names.
@@ -141,7 +143,7 @@ Each agent gets its own output container. When you switch agents:
 
 ### Max Sub-Agents
 
-The `max_sub_agents` setting (default: 3) limits how many concurrent sub-agents can exist. This prevents resource exhaustion.
+The `max_sub_agents` setting (default: 30) limits how many concurrent sub-agents can exist. This prevents resource exhaustion.
 
 When the limit is reached:
 
@@ -162,7 +164,7 @@ You are a code review specialist.
 ```
 
 - **`/spawn-agent`** always spawns sub-agents with `auto_reap=false` — since these agents are created manually by the user, they should persist until explicitly reaped with `/reap-agent`.
-- **`Delegate` tool** uses the sub-agent's configured `auto_reap` value from its definition. If not set in the `.md` front matter, it defaults to `true`.
+- **`Delegate` tool** uses the sub-agent's configured `auto_reap` value from its definition. If not set in the `.md` front matter, it defaults to `true`. A delegation may set `persist: true` to keep that sub-agent alive by passing `auto_reap: false`; by default `persist` is `false`, deferring to the sub-agent's configured behavior.
 
 Sub-agents with `auto_reap: true` that finish their work are candidates for automatic cleanup when the agent limit is reached. Sub-agents with `auto_reap: false` are never automatically reaped and must be cleaned up manually.
 
@@ -253,10 +255,10 @@ You are a testing specialist.
 Your job is to write comprehensive tests for code changes.
 ```
 
-The `hooks` field uses the same syntax as the global hooks configuration (see [Hooks](/config/hooks) for details).
+The `hooks` field uses the same syntax as the global hooks configuration (see [Hooks](hooks.html) for details).
 ## See Also
 
-- [Agent Mode](/config/agent-mode)
-- [Custom Commands](/config/custom-commands)
-- [Custom System Prompts](/config/custom-system-prompts)
-- [Hooks](/config/hooks)
+- [Agent Mode](agent-mode.html)
+- [Custom Commands](custom-commands.html)
+- [Custom System Prompts](custom-system-prompts.html)
+- [Hooks](hooks.html)

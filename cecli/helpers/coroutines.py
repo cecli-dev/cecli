@@ -1,6 +1,32 @@
 import asyncio
+import logging
 
 from cecli.helpers.threading import ThreadSafeEvent
+
+logger = logging.getLogger(__name__)
+
+
+# Strong reference pool to protect fire-and-forget tasks from garbage collection
+background_tasks: set = set()
+
+
+def _handle_result(task: asyncio.Task) -> None:
+    """Callback to clean up references and capture exceptions safely."""
+    background_tasks.discard(task)
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"Background task failed: {e}", exc_info=True)
+
+
+def fire_and_forget(coro) -> asyncio.Task:
+    """Safely schedule a background coroutine without awaiting it."""
+    task = asyncio.create_task(coro)
+    background_tasks.add(task)
+    task.add_done_callback(_handle_result)
+    return task
 
 
 async def interruptible_async_generator(async_generator, interrupt_event):

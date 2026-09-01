@@ -41,6 +41,10 @@ cecli/_version.py
 cecli/website/Gemfile.lock
 *.pyc
 env/
+__pycache__/
 
 # Ignore Folders
 cecli/website/_site/*
+cecli/website/.sass-cache/*
+cecli/website/.docmd-*/*
+cecli/website/node_modules/*

@@ -11,7 +11,11 @@ from cecli.io import InputOutput
 @pytest.fixture
 def mock_io():
     """Fixture for a mocked InputOutput object."""
-    return MagicMock(spec=InputOutput)
+    mock = MagicMock(spec=InputOutput)
+    # Coder.__init__ reads instance-only attributes (e.g. self.io.pretty) that
+    # are not covered by spec=InputOutput, so set them explicitly here.
+    mock.pretty = False
+    return mock
 
 
 @pytest.fixture
@@ -21,7 +25,7 @@ def mock_model():
     model.info = {"max_input_tokens": 10000}
     # Mock the name attribute that is used in Coder.create
     model.name = "mock_model"
-    model.edit_format = "wholefile"
+    model.edit_format = "whole"
     return model
 
 
@@ -31,7 +35,7 @@ async def test_generate_skips_compaction_for_clear_command(mock_io, mock_model):
     Verify that compact_context_if_needed is NOT called for the /clear command.
     """
     # Arrange
-    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="wholefile")
+    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="whole")
     coder.enable_context_compaction = True
     coder.compact_context_if_needed = AsyncMock()
     coder.run_one = AsyncMock()
@@ -51,7 +55,7 @@ async def test_generate_skips_compaction_for_exit_command(mock_io, mock_model):
     Verify that compact_context_if_needed is NOT called for the /exit command.
     """
     # Arrange
-    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="wholefile")
+    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="whole")
     coder.enable_context_compaction = True
     coder.compact_context_if_needed = AsyncMock()
     coder.run_one = AsyncMock()
@@ -71,7 +75,7 @@ async def test_generate_skips_compaction_for_quit_command(mock_io, mock_model):
     Verify that compact_context_if_needed is NOT called for the /quit command.
     """
     # Arrange
-    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="wholefile")
+    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="whole")
     coder.enable_context_compaction = True
     coder.compact_context_if_needed = AsyncMock()
     coder.run_one = AsyncMock()
@@ -91,7 +95,7 @@ async def test_generate_runs_compaction_for_regular_message(mock_io, mock_model)
     Verify that compact_context_if_needed IS called for a regular message.
     """
     # Arrange
-    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="wholefile")
+    coder = await Coder.create(main_model=mock_model, io=mock_io, edit_format="whole")
     coder.enable_context_compaction = True
     coder.compact_context_if_needed = AsyncMock()
     coder.run_one = AsyncMock()

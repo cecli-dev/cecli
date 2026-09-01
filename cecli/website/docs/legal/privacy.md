@@ -5,8 +5,7 @@ nav_order: 500
 
 # Privacy policy
 
-[cecli AI LLC](/docs/faq.html#what-is-cecli-ai-llc)
-(“cecli,” “we,” “our,” and/or “us”) values the privacy of individuals who use our website, programming tools, and related services (collectively, our “Services”). This privacy policy (the “Privacy Policy”) explains how we collect, use, and disclose information from users of our Services. By using our Services, you agree to the collection, use, disclosure, and procedures this Privacy Policy describes. 
+[cecli AI LLC](contributor-agreement.html) (“cecli,” “we,” “our,” and/or “us”) values the privacy of individuals who use our website, programming tools, and related services (collectively, our “Services”). This privacy policy (the “Privacy Policy”) explains how we collect, use, and disclose information from users of our Services. By using our Services, you agree to the collection, use, disclosure, and procedures this Privacy Policy describes.
 
 ### Information We Collect
 
@@ -25,7 +24,6 @@ We may collect a variety of information from or about you or your devices from v
 **Analytics Information.** If you use our programming tools, we may receive information about your interactions with the tools, such as how often certain features or commands are used, information about exceptions and errors, and which large language models are used. This information is associated with a randomly generated identifier, not any directly identifiable user information such as your name or email address. Please see the “Your Choices” section below for information on how to disable the collection of this information.
 
 **Information from Cookies and Other Tracking Technologies.** We and our third-party partners may collect information about your activities on our Services using cookies, pixel tags, SDKs, or other tracking technologies. Our third-party partners, such as analytics and security partners, may also use these technologies to collect information about your online activities over time and across different services. 
-
 
 ### How We Use the Information We Collect
 
@@ -55,9 +53,7 @@ We use the information we collect:
 
 ### Your Choices
 
-**Analytics Information.** You can turn off analytics collection when using our programming tools. Please visit this 
-[documentation page](/docs/more/analytics.html)
-for more information about the data collected and your options.
+**Analytics Information.** You can turn off analytics collection when using our programming tools. Please visit this [documentation page](../more/analytics.html) for more information about the data collected and your options.
 
 ### Third Parties
 
@@ -75,7 +71,6 @@ We do not knowingly collect, maintain, or use personal information from children
 
 Our Services are hosted in the United States and intended for visitors located within the United States. If you choose to use the Services from the European Union or other regions of the world with laws governing data collection and use that may differ from U.S. law, then please note that you are transferring your personal information outside of those regions to the U.S. for storage and processing. We may also transfer your data from the U.S. to other countries or regions in connection with storage and processing of data, fulfilling your requests, and operating the Services. By providing any information, including personal information, on or to the Services, you consent to such transfer, storage, and processing. 
 
-
 ### Changes to this Privacy Policy
 
 We will post any adjustments to the Privacy Policy on this page, and the revised version will be effective when it is posted. If we materially change the ways in which we use or disclose personal information previously collected from you through the Services, we will notify you through the Services, by email, or other communication.
@@ -88,17 +83,6 @@ If you have any questions, comments, or concerns about our processing activities
 
 <p class="post-date">
 Last updated 
-<!--[[[cog
-import subprocess
-import datetime
-
-result = subprocess.run(['git', 'log', '-1', '--format=%ct', 'cecli/website/docs/legal/privacy.md'], capture_output=True, text=True)
-if result.returncode == 0:
-    timestamp = int(result.stdout.strip())
-    date = datetime.datetime.fromtimestamp(timestamp)
-    cog.out(f"{date.strftime('%B %d, %Y.')}")
-]]]-->
-April 12, 2025.
-<!--[[[end]]]-->
+ April 12, 2025.
 
 </p>

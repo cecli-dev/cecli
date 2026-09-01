@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import cecli.models as models
+from cecli.helpers import nested
+from cecli.helpers.coroutines import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_SUMMARY_NO_SUMMARY = "(no summary)"
 DEFAULT_SUMMARY_COMPLETED = "(completed without explicit summary)"
 DEFAULT_SUMMARY_INTERRUPTED = "(interrupted)"
+
+# Sentinel model markers that resolve to a parent coder's models at runtime.
+# These can be used in the ``model`` field of sub-agent .md config files
+# to dynamically select the appropriate model without hard-coding a name.
+MODEL_SENTINEL_WEAK = "<weak_model>"
+MODEL_SENTINEL_AGENT = "<agent_model>"
+MODEL_SENTINEL_MAIN = "<main_model>"
+MODEL_SENTINEL_CURRENT = "<current>"
 
 
 class SubAgentStatus(Enum):
@@ -128,6 +138,15 @@ class AgentService:
         return cls._global_registry
 
     @classmethod
+    def get_primary_uuid(cls) -> Optional[str]:
+        """Return the primary coder's uuid for the current session (memoized).
+
+        Fixed on the first :meth:`get_instance` call, so every agent spawned
+        in a session resolves to the same shared base uuid.
+        """
+        return cls._primary_agent_uuid
+
+    @classmethod
     def get_all_agents(cls) -> List[Any]:
         """Return all live coder instances tracked in the global uuid map.
 
@@ -177,39 +196,86 @@ class AgentService:
                     return
 
     @classmethod
-    def build_registry(cls, paths: List[str]) -> None:
+    def build_registry(cls, paths: List[str], root: Optional[str] = None) -> None:
         """Scan directories for .md sub-agent definition files and load them.
 
         Each .md file should contain YAML front matter with:
+
           ---
           name: <agent-name>
           model: <optional-model-override>
           ---
           <system prompt body>
+
+        The ``model`` field supports sentinel placeholders that are resolved
+        at runtime to the parent coder's models:
+
+            ``<weak_model>``   - The parent coder's weak model
+            ``<agent_model>``  - The parent coder's agent model
+            ``<main_model>``   - The parent coder's main model
+            ``<current>``      - The currently active (foreground) coder's main model
+
+        Args:
+            paths: Directories to scan for sub-agent ``.md`` definition files.
+            root: Optional base directory used to resolve relative ``paths``
+                (e.g. the workspace or project root in multi-project workspaces).
         """
         from pathlib import Path
 
         from .config import parse_subagent_file
+
+        # Resolve relative sub-agent directories against ``root`` so
+        # multi-project workspaces can reference local sub-agent definitions
+        # relative to their project/workspace root. Absolute and ``~`` paths
+        # are left untouched.
+        base = Path(root).expanduser().resolve() if root else None
+
+        def _resolve(directory: str) -> str:
+            raw = Path(directory).expanduser()
+            if raw.is_absolute():
+                return str(raw)
+            if base is not None:
+                return str((base / raw).resolve())
+            return str(raw)
+
+        paths = [_resolve(directory) for directory in paths]
 
         # Always check the default sub-agents directory in the user's home
         default_dir = str(Path.home() / ".cecli" / "subagents")
         if default_dir not in paths:
             paths = [default_dir] + list(paths)
 
+        # Also check the local default sub-agents directory under the given root
+        # (e.g. {root}/.cecli/subagents) before the user-configured paths so
+        # project-scoped sub-agents take precedence over the global default.
+        if base is not None:
+            local_default_dir = str(base / ".cecli" / "subagents")
+            if local_default_dir not in paths:
+                paths.insert(1, local_default_dir)
+
+        # Also scan the built-in defaults directory for .yml definitions
+        import cecli.helpers.agents.defaults as _defaults_pkg
+
+        defaults_dir = str(Path(_defaults_pkg.__file__).parent)
+        if defaults_dir not in paths:
+            paths = [defaults_dir] + list(paths)
+
         for directory in paths:
             dir_path = Path(directory).expanduser()
             if not dir_path.is_dir():
                 continue
-            for md_file in sorted(dir_path.glob("*.md")):
+            for agent_file in sorted(list(dir_path.glob("*.md"))):
                 try:
-                    config = parse_subagent_file(str(md_file))
+                    config = parse_subagent_file(str(agent_file))
                     if config and config.name:
                         cls._global_registry[config.name] = config
-                        logger.info("Loaded sub-agent '%s' from %s", config.name, md_file)
+                        logger.info("Loaded sub-agent '%s' from %s", config.name, agent_file)
                 except (ValueError, OSError) as exc:
-                    logger.warning("Failed to parse sub-agent file %s: %s", md_file, exc)
+                    logger.warning("Failed to parse sub-agent file %s: %s", agent_file, exc)
                 except Exception as exc:
-                    logger.warning("Unexpected error parsing sub-agent file %s: %s", md_file, exc)
+                    logger.warning(
+                        "Unexpected error parsing sub-agent file %s: %s", agent_file, exc
+                    )
 
     # ------------------------------------------------------------------ #
     # Instance
@@ -228,7 +294,7 @@ class AgentService:
     @property
     def max_sub_agents(self) -> int:
         """Return the max number of sub-agents allowed for this coder."""
-        return getattr(self.coder, "max_sub_agents", 3)
+        return getattr(self.coder, "max_sub_agents", 30)
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -262,6 +328,42 @@ class AgentService:
             return tui_ref()
         # If it is already a plain reference (e.g., in tests), use it directly.
         return tui_ref
+
+    def _resolve_model_sentinel(self, value: str, parent_coder: Any):
+        """Resolve a sentinel model marker to the appropriate Model instance.
+
+        Allows sub-agent .md config files to use placeholders like
+        ``<weak_model>``, ``<agent_model>``, ``<main_model>``, or
+        ``<current>`` in the ``model`` field instead of hard-coding a
+        specific model name.  The sentinel is resolved at runtime using
+        the parent coder's model hierarchy.
+
+        Args:
+            value: The sentinel string (e.g. ``"<weak_model>"``) or a
+                   regular model name (returned as ``None``).
+            parent_coder: The parent coder instance whose models are used.
+
+        Returns:
+            A ``Model`` instance if *value* is a recognised sentinel,
+            ``None`` otherwise (so callers can fall through to the
+            normal ``Model()`` constructor path).
+        """
+        if value == MODEL_SENTINEL_WEAK:
+            model = parent_coder.main_model.weak_model
+            return model if model is not None else parent_coder.main_model
+        elif value == MODEL_SENTINEL_AGENT:
+            model = parent_coder.main_model.agent_model
+            return model if model is not None else parent_coder.main_model
+        elif value == MODEL_SENTINEL_MAIN:
+            return parent_coder.main_model
+        elif value == MODEL_SENTINEL_CURRENT:
+            # Use the foreground coder's model if set, otherwise fall back to parent
+            foreground = self.foreground_coder
+            if foreground is not None:
+                return foreground.main_model
+            return parent_coder.main_model
+
+        return None
 
     # ------------------------------------------------------------------ #
 
@@ -360,6 +462,16 @@ class AgentService:
             ConversationService.destroy_instances(info.coder.uuid)
         except (KeyError, AttributeError, RuntimeError):
             logger.warning("Failed to destroy conversation instances", exc_info=True)
+
+        # Unregister the sub-agent's input queue from the global registry so it
+        # does not leak for the process lifetime (IOProxy registers one queue
+        # per coder, including every sub-agent).
+        from cecli.helpers import queues as _queues
+
+        try:
+            _queues.unregister_coder_queue(info.coder.uuid)
+        except (KeyError, AttributeError, RuntimeError):
+            logger.warning("Failed to unregister coder queue", exc_info=True)
 
         # Destroy hook resources for the sub-agent
         from cecli.hooks.service import HookService
@@ -473,9 +585,28 @@ class AgentService:
 
         async with self._get_lock(self._spawn_locks, parent_coder.uuid):
             self._check_max_sub_agents()
-            new_uuid = str(uuid4())
+            new_uuid = str(uuid4()).split("-")[0]
 
         from cecli.coders import Coder
+
+        metadata = getattr(config, "metadata", {}).copy()
+        agent_config = metadata.get("agent-config", {})
+
+        # Optional per-sub-agent root override for multi-project workspaces.
+        configured_root = metadata.get("root")
+        if not configured_root and isinstance(agent_config, dict):
+            configured_root = agent_config.get("root")
+
+        # Workspace sub-agents (ws:*) inherit the parent/primary coder's
+        # agent_config as their default and additionally enable nested
+        # delegation so they can themselves serve as delegation bases. The
+        # ws-agent's own metadata agent-config is merged on top.
+        if name.startswith("ws:"):
+            inherited = dict(nested.getter(parent_coder, "agent_config", {}) or {})
+            incoming = dict(agent_config)
+            inherited.update(incoming)
+            inherited["allow_nested_delegation"] = True
+            agent_config = inherited
 
         kwargs = dict(
             io=parent_coder.io,
@@ -484,18 +615,44 @@ class AgentService:
             cur_messages=[],
             uuid=new_uuid,
             parent_uuid=parent_coder.uuid,
+            map_tokens=0,
+            init_metadata={"agent_config": agent_config},
         )
+        if configured_root:
+            kwargs["root"] = configured_root
+
+        if agent_config:
+            # Reset the per-instance tool/server filters so AgentCoder.post_init()
+            # rebuilds them from *this* sub-agent's own agent-config (tools_includelist/
+            # excludelist, servers_includelist/excludelist) instead of inheriting the
+            # parent's filters verbatim. Deliberately do NOT reset mcp_manager here:
+            # doing so used to discard the parent's already-connected MCP servers and
+            # replace them with a brand new, empty manager, making it impossible for a
+            # sub-agent's servers_includelist to ever match anything. Leaving mcp_manager
+            # unset lets it inherit from from_coder (see Coder.create()) so the same
+            # connected MCP servers remain available and can then be filtered.
+            kwargs.update(
+                dict(
+                    registered_tools=None,
+                    registered_servers=None,
+                )
+            )
 
         model_override = getattr(config, "model", None)
         if model_override:
-            kwargs["main_model"] = models.Model(
-                model_override,
-                from_model=parent_coder.main_model,
-                agent_model=model_override,
-            )
+            # Resolve model sentinels (e.g. "<weak_model>", "<agent_model>")
+            resolved = self._resolve_model_sentinel(model_override, parent_coder)
+            if resolved is not None:
+                kwargs["main_model"] = resolved
+            else:
+                kwargs["main_model"] = models.Model(
+                    model_override,
+                    from_model=parent_coder.main_model,
+                    agent_model=model_override,
+                )
 
         new_coder = await Coder.create(**kwargs)
-        new_coder.max_sub_agents = getattr(self.coder, "max_sub_agents", 3)
+        new_coder.max_sub_agents = getattr(self.coder, "max_sub_agents", 30)
         # IOProxy wrapping is handled by base_coder.py's Coder.__init__
 
         # Re-acquire the lock to register — we must re-check max agents since
@@ -575,7 +732,7 @@ class AgentService:
 
         Args:
 
-        .. note::
+        .. note:
 
             **Ordering dependency with mark_sub_agent_finished()**
 
@@ -605,6 +762,23 @@ class AgentService:
                 if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
                     info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
+
+                if info.auto_reap and info.independent:
+
+                    async def _cleanup():
+                        await asyncio.sleep(5)
+
+                        # Cleanup conversation resources
+                        from cecli.helpers.conversation.service import (
+                            ConversationService,
+                        )
+
+                        ConversationService.destroy_instances(info.coder.uuid)
+                        # Remove from tracking and clean up
+                        self._cleanup_sub_agent(info.coder.uuid)
+
+                    fire_and_forget(_cleanup())
+
             except asyncio.CancelledError:
                 await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.FINISHED
@@ -641,6 +815,53 @@ class AgentService:
             lambda t: _raise_if_signal(t.exception()) if not t.cancelled() else None
         )
         return task
+
+    def wake_primary(self, primary_coder: Any, message: str) -> str:
+        """Wake the primary coder so it processes *message*.
+
+        Unlike sub-agents, the primary coder does not use the
+        ``start_generate_task`` architecture; when it is idle its input loop
+        blocks in ``wait_for_input()``. Preserving the behaviour of
+        ``on_input_area_submit()``, we wake it by pushing the message onto its
+        per-coder input queue. If the primary is already generating, the
+        message is queued into its conversation instead so the running
+        ``generate`` loop picks it up.
+
+        Args:
+            primary_coder: The primary coder instance (``service.coder``).
+            message: The message text to deliver to the primary.
+
+        Returns:
+            A short mode string describing delivery: ``queued`` when the
+            primary is actively generating (message queued into its
+            conversation), ``started`` when the primary was idle and woken via
+            its input queue.
+        """
+        from cecli.helpers import queues
+        from cecli.helpers.conversation.service import ConversationService
+        from cecli.helpers.conversation.tags import MessageTag
+        from cecli.helpers.coroutines import is_active
+
+        def _queue_to_conversation() -> None:
+            ConversationService.get_manager(primary_coder).queue_message(
+                message_dict={"role": "user", "content": message},
+                tag=MessageTag.CUR,
+                hash_key=("broadcast", str(primary_coder.uuid), str(time.monotonic_ns())),
+            )
+
+        if is_active(getattr(primary_coder.io, "output_task", None)):
+            _queue_to_conversation()
+            return "queued"
+
+        delivered = queues.push_coder_input(
+            str(primary_coder.uuid),
+            {"text": message, "coder_uuid": str(primary_coder.uuid)},
+        )
+        if not delivered:
+            _queue_to_conversation()
+            return "queued"
+
+        return "started"
 
     async def _inject_sub_agent_result(self, info: SubAgentInfo) -> None:
         """Inject the sub-agent's result (summary/error) into the parent's conversation.
@@ -872,6 +1093,31 @@ class AgentService:
                 return parent_info.coder
 
         return self.coder
+
+    def get_agent_name(self, coder_or_uuid: Any) -> Optional[str]:
+        """Return the sub-agent name for the given coder or UUID.
+
+        Looks up the sub-agent info by UUID and returns its ``name`` field
+        (the configured sub-agent type, e.g. ``"worker"``, ``"memorizer"``).
+        Returns ``None`` if the given coder/UUID is not a known sub-agent
+        (e.g. it is the primary coder or has no entry in ``sub_agents``).
+
+        Args:
+            coder_or_uuid: A coder instance (with ``.uuid``) or a UUID string.
+
+        Returns:
+            The sub-agent name string, or ``None`` if not found.
+        """
+        if hasattr(coder_or_uuid, "uuid"):
+            uid = str(coder_or_uuid.uuid)
+        else:
+            uid = str(coder_or_uuid)
+
+        info = self.sub_agents.get(uid)
+        if info is not None:
+            return info.name
+
+        return None
 
     # ------------------------------------------------------------------ #
     # Foreground agent tracking

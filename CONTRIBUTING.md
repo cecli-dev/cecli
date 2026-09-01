@@ -23,7 +23,7 @@ ensure that your contributions can be integrated smoothly.
 
 ```bash
 # Clone the repository
-git clone https://github.com/dwash96/cecli.git
+git clone https://github.com/cecli-dev/cecli.git
 cd cecli
 
 # Make a venv
@@ -68,12 +68,12 @@ In order for your PR to be accepted it must:
 2. Comply with project coding standards (including running the pre-commit formatting hooks)
 3. Include test coverage
 4. Update relevant user-facing documentation:
-   - Primary documentation will live in `aider/website/docs/config/`
+   - Primary documentation will live in `cecli/website/docs/config/`
    - Check new cli arguments with the output of `/help` and `--help`
 
 ### Python Compatibility
 
-cecli supports Python versions 3.10, 3.11, 3.12, 3.13, and 3.14. When contributing code, ensure compatibility with these supported Python versions.
+Cecli supports Python versions 3.10, 3.11, 3.12, 3.13, and 3.14. When contributing code, ensure compatibility with these supported Python versions.
 
 ### Code Style
 
@@ -81,7 +81,7 @@ The project follows the [PEP 8](https://www.python.org/dev/peps/pep-0008/) style
 
 ### Testing
 
-The project uses [pytest](https://docs.pytest.org/en/latest/) for running unit tests. The test files are located in the `aider/tests` directory and follow the naming convention `test_*.py`.
+The project uses [pytest](https://docs.pytest.org/en/latest/) for running unit tests. The test files are located in the `tests` directory and follow the naming convention `test_*.py`.
 
 #### Running Tests
 
@@ -105,7 +105,7 @@ The project uses GitHub Actions for continuous integration. The testing workflow
 - `.github/workflows/ubuntu-tests.yml`: Runs tests on Ubuntu for Python versions 3.9 through 3.12.
 - `.github/workflows/windows-tests.yml`: Runs that on Windows
 
-These workflows are triggered on push and pull request events to the `main` branch, ignoring changes to the `aider/website/**` and `README.md` files.
+These workflows are triggered on push and pull request events to the `main` branch, ignoring changes to the `cecli/website/**` and `README.md` files.
 
 #### Docker Build and Test
 
@@ -113,9 +113,9 @@ The `.github/workflows/docker-build-test.yml` workflow is used to build a Docker
 
 #### Writing Tests
 
-When contributing new features or making changes to existing code, ensure that you write appropriate tests to maintain code coverage. Follow the existing patterns and naming conventions used in the `aider/tests` directory.
+When contributing new features or making changes to existing code, ensure that you write appropriate tests to maintain code coverage. Follow the existing patterns and naming conventions used in the `tests` directory.
 
-If you need to mock or create test data, consider adding it to the test files or creating separate fixtures or utility functions within the `aider/tests` directory.
+If you need to mock or create test data, consider adding it to the test files or creating separate fixtures or utility functions within the `tests` directory.
 
 #### Test Requirements
 
@@ -142,21 +142,27 @@ You can also pass one argument to `pip-compile.sh`, which will flow through to `
 
 ### Building the Documentation
 
-The project's documentation is built using Jekyll and hosted on GitHub Pages. To build the documentation locally, follow these steps:
+The project's documentation is built with [docmd](https://docmd.io) and hosted on GitHub Pages. To build the documentation locally, follow these steps:
 
-1. Install Ruby and Bundler (if not already installed).
-2. Navigate to the `aider/website` directory.
-3. Install the required gems:
+1. Install Node.js 18 or newer (the build uses `npx`).
+2. Navigate to the `cecli/website` directory.
+3. Install the required npm dependencies:
    ```
-   bundle install
+   npm install
    ```
 4. Build the documentation:
    ```
-   bundle exec jekyll build
+   npm run build
+   ```
+   Or run the full site build (homepage + docs + assets) with:
+   ```
+   bash ../../scripts/docmd_build.sh
    ```
 5. Preview the website while editing (optional):
    ```
-   bundle exec jekyll serve
+   npm run dev
    ```
+
+Built documentation is written to `cecli/website/_site` by `scripts/docmd_build.sh` (docs land in `_site/docs`, the homepage in `_site/index.html`).
 
 The built documentation will be available in the `cecli/website/_site` directory.

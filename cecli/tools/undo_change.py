@@ -1,6 +1,7 @@
 import traceback
 
 from cecli.tools.utils.base_tool import BaseTool
+from cecli.tools.utils.responses import ToolResponse
 
 
 class Tool(BaseTool):
@@ -34,12 +35,14 @@ class Tool(BaseTool):
         """
         # Note: Undo does not have a dry_run parameter as it's inherently about reverting a previous action.
         coder.edit_allowed = False
+        response = ToolResponse(cls.NORM_NAME)
 
         try:
             # Validate parameters
             if change_id is None and file_path is None:
                 coder.io.tool_error("Must specify either change_id or file_path for UndoChange")
-                return "Error: Must specify either change_id or file_path"
+                response.append_result("Error: Must specify either change_id or file_path")
+                return response
 
             # If file_path is specified, get the most recent change for that file
             if file_path:
@@ -49,14 +52,16 @@ class Tool(BaseTool):
                 change_id = coder.change_tracker.get_last_change(rel_path)
                 if not change_id:
                     coder.io.tool_error(f"No tracked changes found for file '{file_path}' to undo.")
-                    return f"Error: No changes found for file '{file_path}'"
+                    response.append_result(f"Error: No changes found for file '{file_path}'")
+                    return response
 
             # Attempt to get undo information from the tracker
             success, message, change_info = coder.change_tracker.undo_change(change_id)
 
             if not success:
                 coder.io.tool_error(f"Failed to undo change '{change_id}': {message}")
-                return f"Error: {message}"
+                response.append_result(f"Error: {message}")
+                return response
 
             # Apply the undo by restoring the original content
             if change_info:
@@ -72,15 +77,20 @@ class Tool(BaseTool):
                 coder.io.tool_output(
                     f"✓ Undid {change_type} change '{change_id}' in {file_path}", type="tool-result"
                 )
-                return f"Successfully undid {change_type} change '{change_id}'."
+                response.append_result(f"Successfully undid {change_type} change '{change_id}'.")
+                return response
             else:
                 # This case should ideally not be reached if tracker returns success
                 coder.io.tool_error(
                     f"Failed to undo change '{change_id}': Change info missing after successful"
                     " tracker update."
                 )
-                return f"Error: Failed to undo change '{change_id}' (missing change info)"
+                response.append_result(
+                    f"Error: Failed to undo change '{change_id}' (missing change info)"
+                )
+                return response
 
         except Exception as e:
             coder.io.tool_error(f"Error in UndoChange: {str(e)}\n{traceback.format_exc()}")
-            return f"Error: {str(e)}"
+            response.append_result(f"Error: {str(e)}")
+            return response

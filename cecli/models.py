@@ -1,26 +1,28 @@
 import asyncio
-import difflib
-import hashlib
 import importlib.resources
 import json
-import math
 import os
 import platform
-import random
 import sys
 import time
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Optional, Union
+from uuid import uuid4 as generate_unique_id
 
 import yaml
-from PIL import Image
 
-from cecli import __version__
+from cecli import __version__, utils
+from cecli.decoding import safe_open
 from cecli.dump import dump
 from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import coroutines, nested
-from cecli.helpers.file_searcher import generate_search_path_list, handle_core_files
+from cecli.helpers.file_searcher import (
+    generate_search_path_list,
+    handle_core_files,
+)
+from cecli.helpers.model_config import get_default_config
+from cecli.helpers.model_config.utils import get_entry_from_raw
 from cecli.helpers.model_providers import ModelProviderManager
 from cecli.helpers.nested import deep_merge
 from cecli.helpers.requests import model_request_parser
@@ -28,6 +30,7 @@ from cecli.llm import litellm
 from cecli.sendchat import sanity_check_messages
 from cecli.utils import check_pip_install_extra
 
+GLOBAL_ID = str(generate_unique_id())
 RETRY_TIMEOUT = 60
 COPY_PASTE_PREFIX = "cp:"
 request_timeout = 600
@@ -116,6 +119,7 @@ class ModelSettings:
     extra_params: Optional[dict] = None
     cache_control: bool = False
     caches_by_default: bool = False
+    uses_messages_api: bool = False
     use_system_prompt: bool = True
     use_temperature: Union[bool, float] = True
     streaming: bool = True
@@ -141,7 +145,6 @@ with importlib.resources.open_text("cecli.resources", "model-settings.yml") as f
 
 
 class ModelInfoManager:
-    MODEL_INFO_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
     CACHE_TTL = 60 * 60 * 24
 
     def __init__(self):
@@ -150,6 +153,7 @@ class ModelInfoManager:
         self.content = None
         self._raw_content = None
         self.local_model_metadata = {}
+        self.metadata_files = []
         self.verify_ssl = True
         self._cache_loaded = False
         self.provider_manager = ModelProviderManager()
@@ -175,73 +179,15 @@ class ModelInfoManager:
             pass
         self._cache_loaded = True
 
-    def _update_cache(self):
-        try:
-            import requests
-
-            response = requests.get(self.MODEL_INFO_URL, timeout=5, verify=self.verify_ssl)
-            if response.status_code == 200:
-                # Use json.dumps(response.json()) instead of response.text for
-                # compatibility with mocked responses in tests
-                parsed = response.json()
-                self._raw_content = json.dumps(parsed)
-                try:
-                    parsed = response.json()
-                    self.cache_file.write_text(json.dumps(parsed, indent=4))
-                except OSError:
-                    pass
-        except Exception as ex:
-            print(str(ex))
-            try:
-                self.cache_file.write_text("{}")
-            except OSError:
-                pass
-
     def _get_entry_from_raw(self, key):
         """Parse a single model entry from raw JSON string without loading the entire dict."""
-        if not self._raw_content:
-            return None
-        import re
-
-        escaped_key = re.escape(key)
-        pattern = rf'(?<!\w)"{escaped_key}"\s*:'
-        match = re.search(pattern, self._raw_content)
-        if not match:
-            return None
-        start = match.end()
-        while start < len(self._raw_content) and self._raw_content[start] in " \t\n\r":
-            start += 1
-        if start < len(self._raw_content) and self._raw_content[start] == "{":
-            depth = 1
-            pos = start + 1
-            in_string = False
-            escape = False
-            while pos < len(self._raw_content) and depth > 0:
-                ch = self._raw_content[pos]
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_string = not in_string
-                elif not in_string:
-                    if ch == "{":
-                        depth += 1
-                    elif ch == "}":
-                        depth -= 1
-                pos += 1
-            if depth == 0:
-                entry_str = self._raw_content[start:pos]
-                return json.loads(entry_str)
-        return None
+        return get_entry_from_raw(self._raw_content, key)
 
     def get_model_from_cached_json_db(self, model):
         data = self.local_model_metadata.get(model)
         if data:
             return data
         self._load_cache()
-        if not self._raw_content:
-            self._update_cache()
         if not self._raw_content:
             return dict()
         info = self._get_entry_from_raw(model)
@@ -253,6 +199,29 @@ class ModelInfoManager:
             if info and info.get("litellm_provider") == pieces[0]:
                 return info
         return dict()
+
+    def get_raw_metadata(self):
+        """Return the cached raw model metadata JSON string, or ``None``.
+
+        The model config pipeline consumes this raw string directly so the
+        metadata file is only ever held in memory once (no duplicate storage).
+        """
+        self._load_cache()
+        return self._raw_content
+
+    def get_metadata_sources(self):
+        """Return the metadata sources the model config pipeline should scan.
+
+        Prefers the model metadata files loaded via ``register_litellm_models``
+        (later files win, so user-supplied files override the bundled
+        resource), then the cached raw metadata string, else ``None`` so the
+        pipeline falls back to its bundled resource.
+        """
+        if self.metadata_files:
+            return list(self.metadata_files)
+
+        self._load_cache()
+        return self._raw_content
 
     def get_model_info(self, model):
         cached_info = self.get_model_from_cached_json_db(model)
@@ -323,7 +292,9 @@ class ModelInfoManager:
             import re
 
             if re.search(
-                f"The model\\s*.*{re.escape(url_part)}.* is not available", html, re.IGNORECASE
+                f"The model\\s*.*{re.escape(url_part)}.* is not available",
+                html,
+                re.IGNORECASE,
             ):
                 print(f"\x1b[91mError: Model '{url_part}' is not available\x1b[0m")
                 return {}
@@ -387,7 +358,7 @@ class ModelOverrides:
         for fname in model_overrides_files:
             try:
                 if Path(fname).exists():
-                    with open(fname, "r") as f:
+                    with safe_open(fname, "r") as f:
                         content = yaml.safe_load(f)
                         if content:
                             for model_name, tags in content.items():
@@ -531,7 +502,8 @@ class Model(ModelSettings):
                 "editor_model", nested.getter(from_model, "editor_model", None)
             )
             editor_edit_format = kwargs.get(
-                "editor_edit_format", nested.getter(from_model, "editor_edit_format", None)
+                "editor_edit_format",
+                nested.getter(from_model, "editor_edit_format", None),
             )
         else:
             agent_model = kwargs.get("agent_model", None)
@@ -542,6 +514,8 @@ class Model(ModelSettings):
         self.io = io
         self.verbose = verbose
         self.override_kwargs = override_kwargs or {}
+        self._default_reasoning_effort = None
+        self._default_thinking_budget = None
         self.copy_paste_mode = False
         self.copy_paste_transport = "api"
         if provided_model.startswith(COPY_PASTE_PREFIX):
@@ -570,9 +544,16 @@ class Model(ModelSettings):
         self.editor_model = None
         self.agent_model = None
         self.extra_model_settings = next(
-            (ms for ms in MODEL_SETTINGS if ms.name == "cecli/extra_params"), None
+            (ms for ms in MODEL_SETTINGS if ms.name == "cecli/extra_params"),
+            None,
         )
         self.info = self.get_model_info(model)
+        self.model_config_defaults = get_default_config(
+            model, model_info_manager.get_metadata_sources()
+        )
+        # Fill any gaps in the model info from the metadata-derived defaults;
+        # values already known (e.g. from litellm) win.
+        self.info = {**self.model_config_defaults.get("llm", {}), **self.info}
         self.litellm_provider = (self.info.get("litellm_provider") or "").lower()
         res = self.validate_environment()
         self.missing_keys = res.get("missing_keys")
@@ -581,6 +562,7 @@ class Model(ModelSettings):
         self.max_chat_history_tokens = min(max(max_input_tokens / 16, 1024), 8192)
         self.configure_model_settings(model)
         self._apply_provider_defaults()
+        self._apply_reasoning_defaults()
         self.get_weak_model(weak_model)
         self.get_agent_model(agent_model)
         self.retries = retries
@@ -635,70 +617,118 @@ class Model(ModelSettings):
                 self.accepts_settings.append("thinking_tokens")
             if "reasoning_effort" not in self.accepts_settings:
                 self.accepts_settings.append("reasoning_effort")
+        # Apply metadata-derived defaults from the model config pipeline before
+        # user-supplied override kwargs so explicit configuration wins. The llm
+        # block was already merged into ``self.info`` (existing values win), so
+        # only the api/agent defaults are applied here.
+        pipeline_defaults = dict(self.model_config_defaults)
+        # helpers carries callables (e.g. format_reasoning), not extra_params.
+        pipeline_defaults.pop("helpers", None)
+        self._apply_structured_kwargs(pipeline_defaults, self.name)
+
         if self.override_kwargs:
-            if not self.extra_params:
-                self.extra_params = {}
+            self._apply_structured_kwargs(self.override_kwargs, model)
 
-            valid_model_settings_fields = {f.name for f in fields(ModelSettings)}
+    def _apply_structured_kwargs(self, config, model_name):
+        """Apply api/llm/agent override groups to info, extra_params and settings.
 
-            # Detect structured keys: api_settings, api, llm_settings, or llm keys indicate the new format
-            has_structured_keys = any(
-                k in self.override_kwargs
-                for k in (
-                    "api_settings",
-                    "api-settings",
-                    "llm_settings",
-                    "llm-settings",
-                    "api",
-                    "llm",
-                    "agent",
-                )
+        Used for both the metadata-derived defaults (model config pipeline) and
+        user-supplied override kwargs so both share the same application rules.
+        """
+        if not config:
+            return
+
+        if not self.extra_params:
+            self.extra_params = {}
+
+        valid_model_settings_fields = {f.name for f in fields(ModelSettings)}
+
+        # Detect structured keys: api_settings, api, llm_settings, or llm keys
+        # indicate the new format.
+        has_structured_keys = any(
+            k in config
+            for k in (
+                "api_settings",
+                "api-settings",
+                "llm_settings",
+                "llm-settings",
+                "api",
+                "llm",
+                "agent",
             )
+        )
 
-            for key, value in self.override_kwargs.items():
-                if key in ("agent", "model_settings", "model-settings"):
-                    if not isinstance(value, dict):
+        for key, value in config.items():
+            if key in ("agent", "model_settings", "model-settings"):
+                if not isinstance(value, dict):
+                    raise ValueError(
+                        f"override_kwargs '{key}' must be a dict, got" f" {type(value)}"
+                    )
+
+                for setting_key, setting_value in value.items():
+                    if setting_key not in valid_model_settings_fields:
                         raise ValueError(
-                            f"override_kwargs '{key}' must be a dict, got {type(value)}"
+                            f"Invalid model_settings key '{setting_key}'. Must"
+                            f" be one of: {sorted(valid_model_settings_fields)}"
                         )
-                    for setting_key, setting_value in value.items():
-                        if setting_key not in valid_model_settings_fields:
-                            raise ValueError(
-                                f"Invalid model_settings key '{setting_key}'. "
-                                f"Must be one of: {sorted(valid_model_settings_fields)}"
-                            )
-                        setattr(self, setting_key, setting_value)
-                elif has_structured_keys and key in ("api", "api_settings", "api-settings"):
-                    # api_settings: merge each sub-key into extra_params
-                    if not isinstance(value, dict):
-                        raise ValueError(
-                            f"override_kwargs '{key}' must be a dict, got {type(value)}"
-                        )
-                    for api_key, api_value in value.items():
-                        if isinstance(api_value, dict) and isinstance(
-                            self.extra_params.get(api_key), dict
-                        ):
-                            self.extra_params[api_key] = {**self.extra_params[api_key], **api_value}
+
+                    setattr(self, setting_key, setting_value)
+
+            elif has_structured_keys and key in (
+                "api",
+                "api_settings",
+                "api-settings",
+            ):
+                # api_settings: merge each sub-key into extra_params
+                if not isinstance(value, dict):
+                    raise ValueError(f"override_kwargs '{key}' must be a dict, got {type(value)}")
+
+                for api_key, api_value in value.items():
+                    if api_key == "reasoning_effort":
+                        # Applied via set_reasoning_effort at init; remember the
+                        # default so later (user-supplied) values win.
+                        self._default_reasoning_effort = api_value
+                        continue
+
+                    if api_key == "thinking":
+                        if isinstance(api_value, dict):
+                            self._default_thinking_budget = api_value.get("budget_tokens")
                         else:
-                            self.extra_params[api_key] = api_value
-                elif has_structured_keys and key in ("llm", "llm_settings", "llm-settings"):
-                    # llm_settings: merge into self.info
-                    if not isinstance(value, dict):
-                        raise ValueError(
-                            f"override_kwargs '{key}' must be a dict, got {type(value)}"
-                        )
-                    self.info = {**self.info, **value}
+                            self._default_thinking_budget = api_value
+                        continue
 
-                    if not litellm.model_cost.get(model):
-                        litellm.model_cost[model] = {}
+                    if isinstance(api_value, dict) and isinstance(
+                        self.extra_params.get(api_key), dict
+                    ):
+                        self.extra_params[api_key] = {
+                            **self.extra_params[api_key],
+                            **api_value,
+                        }
+                    else:
+                        self.extra_params[api_key] = api_value
 
-                    litellm.model_cost[model].update(self.info)
-                    litellm.utils._invalidate_model_cost_lowercase_map()
-                    litellm.add_known_models(model_cost_map=litellm.model_cost)
-                elif isinstance(value, dict) and isinstance(self.extra_params.get(key), dict):
-                    self.extra_params[key] = {**self.extra_params[key], **value}
-                else:
-                    self.extra_params[key] = value
+            elif has_structured_keys and key in (
+                "llm",
+                "llm_settings",
+                "llm-settings",
+            ):
+                # llm_settings: merge into self.info
+                if not isinstance(value, dict):
+                    raise ValueError(f"override_kwargs '{key}' must be a dict, got {type(value)}")
+
+                self.info = {**self.info, **value}
+
+                if getattr(litellm, "model_cost", None) is not None:
+                    if not litellm.model_cost.get(model_name):
+                        litellm.model_cost[model_name] = {}
+
+                    litellm.model_cost[model_name].update(self.info)
+
+            elif isinstance(value, dict) and isinstance(self.extra_params.get(key), dict):
+                self.extra_params[key] = {**self.extra_params[key], **value}
+
+            else:
+                self.extra_params[key] = value
 
     def apply_generic_model_settings(self, model):
         if "/o3-mini" in model:
@@ -923,6 +953,8 @@ class Model(ModelSettings):
     def _apply_provider_defaults(self):
         provider = (self.info.get("litellm_provider") or "").lower()
         self.litellm_provider = provider or None
+        if self.info.get("supports_stream") is False:
+            self.streaming = False
         if not provider:
             return
         provider_config = model_info_manager.provider_manager.get_provider_config(provider)
@@ -944,6 +976,19 @@ class Model(ModelSettings):
         for key, value in provider_extra.items():
             if key not in self.extra_params:
                 self.extra_params[key] = value
+
+    def _apply_reasoning_defaults(self):
+        """Apply the default thinking/reasoning configuration at init time.
+
+        The model config pipeline's ``api`` block decides which mechanism a
+        model uses: anthropic-family models configure ``thinking`` tokens while
+        everything else uses a reasoning effort.  ``override_kwargs`` applied
+        later in ``_apply_structured_kwargs`` win over these defaults.
+        """
+        if self._default_thinking_budget is not None:
+            self.set_thinking_tokens(self._default_thinking_budget)
+        elif self._default_reasoning_effort is not None:
+            self.set_reasoning_effort(self._default_reasoning_effort)
 
     def tokenizer(self, text):
         return litellm.encode(model=self.name, text=text)
@@ -975,6 +1020,8 @@ class Model(ModelSettings):
         :param fname: The filename of the image.
         :return: The token cost for the image.
         """
+        import math
+
         width, height = self.get_image_size(fname)
         max_dimension = max(width, height)
         if max_dimension > 2048:
@@ -997,6 +1044,8 @@ class Model(ModelSettings):
         :param fname: The filename of the image.
         :return: A tuple (width, height) representing the image size in pixels.
         """
+        from PIL import Image
+
         with Image.open(fname) as img:
             return img.size
 
@@ -1081,20 +1130,62 @@ class Model(ModelSettings):
         return map_tokens
 
     def set_reasoning_effort(self, effort):
-        """Set the reasoning effort parameter for models that support it"""
-        if effort is not None:
-            if self.name.startswith("openrouter/"):
-                if not self.extra_params:
-                    self.extra_params = {}
-                if "extra_body" not in self.extra_params:
-                    self.extra_params["extra_body"] = {}
-                self.extra_params["extra_body"]["reasoning"] = {"effort": effort}
+        """Set the reasoning effort parameter for models that support it.
+
+        ``None`` or ``"none"`` clears any previously applied effort.  OpenRouter
+        models and models using the responses mode configure the nested
+        ``reasoning.effort`` field; everything else uses the flat
+        ``reasoning_effort`` field.  A provider-specific formatter supplied by
+        the model config pipeline (``helpers.format_reasoning``) then rewrites
+        the effort onto the provider's own field (e.g. Gemini's
+        ``thinking_level``).
+        """
+        if not self.extra_params:
+            self.extra_params = {}
+
+        extra_body = self.extra_params.setdefault("extra_body", {})
+
+        if effort is None or effort == "none":
+            # Unset any previously applied effort (flat and nested forms).
+            extra_body.pop("reasoning_effort", None)
+            reasoning = extra_body.get("reasoning")
+            if (
+                isinstance(reasoning, dict)
+                and "effort" in reasoning
+                and "max_tokens" not in reasoning
+            ):
+                extra_body.pop("reasoning", None)
+        else:
+            # Response mode comes from the model config pipeline's metadata-derived
+            # llm block (litellm's own info can disagree, e.g. gpt-5).
+            mode = nested.getter(self.model_config_defaults, "llm.mode") or self.info.get("mode")
+            if self.name.startswith("openrouter/") or mode == "responses":
+                # store/include for responses-mode reasoning are injected by the
+                # model config pipeline (deep-merged into extra_body).
+                extra_body["reasoning"] = {"effort": effort}
             else:
-                if not self.extra_params:
-                    self.extra_params = {}
-                if "extra_body" not in self.extra_params:
-                    self.extra_params["extra_body"] = {}
-                self.extra_params["extra_body"]["reasoning_effort"] = effort
+                extra_body["reasoning_effort"] = effort
+
+        # Let the model config pipeline rewrite the generic reasoning shape
+        # onto the provider-specific litellm param (noop by default).
+        format_reasoning = nested.getter(self.model_config_defaults, "helpers.format_reasoning")
+        if callable(format_reasoning):
+            format_reasoning(self.extra_params)
+
+    def get_reasoning_effort(self):
+        """Get reasoning effort value if available"""
+        effort = nested.getter(self.extra_params, "extra_body.reasoning.effort")
+        if effort is not None:
+            return effort
+        effort = nested.getter(self.extra_params, "extra_body.reasoning_effort")
+        if effort is not None:
+            return effort
+        effort = nested.getter(self.extra_params, "extra_body.thinking_level")
+        if effort is not None:
+            return effort
+        # Top-level litellm param written by the pipeline's format_reasoning
+        # helper (e.g. Gemini's reasoning_effort -> thinkingConfig).
+        return nested.getter(self.extra_params, "reasoning_effort")
 
     def parse_token_value(self, value):
         """
@@ -1133,33 +1224,46 @@ class Model(ModelSettings):
             self.use_temperature = False
             if not self.extra_params:
                 self.extra_params = {}
+
+            extra_body = self.extra_params.setdefault("extra_body", {})
+
             if self.name.startswith("openrouter/"):
-                if "extra_body" not in self.extra_params:
-                    self.extra_params["extra_body"] = {}
                 if num_tokens > 0:
-                    self.extra_params["extra_body"]["reasoning"] = {"max_tokens": num_tokens}
-                elif "reasoning" in self.extra_params["extra_body"]:
-                    del self.extra_params["extra_body"]["reasoning"]
+                    extra_body["reasoning"] = {"max_tokens": num_tokens}
+                elif "reasoning" in extra_body:
+                    del extra_body["reasoning"]
             elif num_tokens > 0:
-                self.extra_params["thinking"] = {"type": "enabled", "budget_tokens": num_tokens}
-            elif "thinking" in self.extra_params:
-                del self.extra_params["thinking"]
+                extra_body["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": num_tokens,
+                }
+                # extra_body is authoritative; drop any legacy top-level copy.
+                self.extra_params.pop("thinking", None)
+            else:
+                extra_body.pop("thinking", None)
+                self.extra_params.pop("thinking", None)
+
+        # Let the model config pipeline rewrite the generic thinking shape onto
+        # the provider-specific litellm param (noop by default).
+        format_thinking = nested.getter(self.model_config_defaults, "helpers.format_thinking")
+        if callable(format_thinking):
+            format_thinking(self.extra_params)
 
     def get_raw_thinking_tokens(self):
         """Get formatted thinking token budget if available"""
         budget = None
         if self.extra_params:
             if self.name.startswith("openrouter/"):
-                if (
-                    "extra_body" in self.extra_params
-                    and "reasoning" in self.extra_params["extra_body"]
-                    and "max_tokens" in self.extra_params["extra_body"]["reasoning"]
-                ):
-                    budget = self.extra_params["extra_body"]["reasoning"]["max_tokens"]
-            elif (
-                "thinking" in self.extra_params and "budget_tokens" in self.extra_params["thinking"]
-            ):
-                budget = self.extra_params["thinking"]["budget_tokens"]
+                reasoning = nested.getter(self.extra_params, "extra_body.reasoning")
+                if isinstance(reasoning, dict) and "max_tokens" in reasoning:
+                    budget = reasoning["max_tokens"]
+            else:
+                thinking = nested.getter(self.extra_params, "extra_body.thinking")
+                if isinstance(thinking, dict) and "budget_tokens" in thinking:
+                    budget = thinking["budget_tokens"]
+                elif isinstance(self.extra_params.get("thinking"), dict):
+                    # Legacy location (e.g. a flat override_kwargs entry).
+                    budget = self.extra_params["thinking"].get("budget_tokens")
         return budget
 
     def get_thinking_tokens(self):
@@ -1178,29 +1282,6 @@ class Model(ModelSettings):
                 else:
                     return f"{value:.1f}k"
         return None
-
-    def get_reasoning_effort(self):
-        """Get reasoning effort value if available"""
-        if self.extra_params:
-            if self.name.startswith("openrouter/"):
-                if (
-                    "extra_body" in self.extra_params
-                    and "reasoning" in self.extra_params["extra_body"]
-                    and "effort" in self.extra_params["extra_body"]["reasoning"]
-                ):
-                    return self.extra_params["extra_body"]["reasoning"]["effort"]
-            elif (
-                "extra_body" in self.extra_params
-                and "reasoning_effort" in self.extra_params["extra_body"]
-            ):
-                return self.extra_params["extra_body"]["reasoning_effort"]
-        return None
-
-    def is_deepseek(self):
-        name = self.name.lower()
-        if "deepseek" not in name:
-            return
-        return True
 
     def is_anthropic(self):
         name = self.name.lower()
@@ -1224,6 +1305,10 @@ class Model(ModelSettings):
         override_kwargs={},
         interrupt_event=None,
     ):
+        import random
+
+        import xxhash
+
         if os.environ.get("CECLI_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
         messages = model_request_parser(self, messages, tools)
@@ -1260,7 +1345,8 @@ class Model(ModelSettings):
 
         if effective_tools:
             sorted_tools = sorted(
-                effective_tools, key=lambda x: x.get("function", {}).get("name", "Invalid Name")
+                effective_tools,
+                key=lambda x: x.get("function", {}).get("name", "Invalid Name"),
             )
 
             try:
@@ -1290,7 +1376,10 @@ class Model(ModelSettings):
             if "name" in function:
                 tool_name = function.get("name")
                 if tool_name:
-                    kwargs["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
+                    kwargs["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": tool_name},
+                    }
 
         if self.extra_params:
             kwargs.update(self.extra_params)
@@ -1305,7 +1394,7 @@ class Model(ModelSettings):
                 num_ctx = int(self.token_count(messages) * 1.25) + 8192
                 kwargs["num_ctx"] = num_ctx
         key = json.dumps(kwargs, sort_keys=True).encode()
-        hash_object = hashlib.sha1(key)
+        hash_object = xxhash.xxh64(key)
         if "timeout" not in kwargs:
             kwargs["timeout"] = request_timeout
         if self.verbose:
@@ -1313,9 +1402,9 @@ class Model(ModelSettings):
 
         if self.debug:
             self._log_messages(messages)
-            kwargs["logger_fn"] = self._log_request
 
         kwargs["messages"] = messages
+        kwargs["prompt_cache_key"] = GLOBAL_ID
 
         if not self.is_anthropic() and not self.caches_by_default:
             kwargs["cache_control_injection_points"] = [
@@ -1328,13 +1417,11 @@ class Model(ModelSettings):
             kwargs["headers"].update(
                 {
                     "User-Agent": f"cecli/{__version__}",
-                    "Connection": "close",
                 }
             )
         else:
             kwargs["headers"] = {
                 "User-Agent": f"cecli/{__version__}",
-                "Connection": "close",
             }
 
         if "GITHUB_COPILOT_TOKEN" in os.environ or self.name.startswith("github_copilot/"):
@@ -1379,6 +1466,9 @@ class Model(ModelSettings):
 
                 kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
 
+                if self.debug:
+                    kwargs["logger_fn"] = self._log_request
+
                 completion_coro = litellm.acompletion(**kwargs)
                 res, interrupted = await coroutines.interruptible(completion_coro, interrupt_event)
                 if interrupted:
@@ -1393,10 +1483,15 @@ class Model(ModelSettings):
                 if ex_info.name == "ServiceUnavailableError":
                     should_retry = should_retry or self.retry_on_unavailable
 
-                if should_retry:
+                custom_retry_delay = self._extract_retry_delay(err)
+                if custom_retry_delay is not None:
+                    retry_delay = custom_retry_delay
+                    should_retry = True
+                elif should_retry:
                     retry_delay *= self.retry_backoff_factor
-                    if retry_delay > self.retry_timeout:
-                        should_retry = False
+
+                if retry_delay > self.retry_timeout:
+                    should_retry = False
 
                 # Check for non-retryable RateLimitError within ServiceUnavailableError
                 if (
@@ -1426,6 +1521,12 @@ class Model(ModelSettings):
                 else:
                     await asyncio.sleep(retry_delay)
                 continue
+            except Exception as err:
+                if self.debug:
+                    import traceback
+
+                    traceback.print_exc()
+                raise err
 
     async def simple_send_with_retries(
         self,
@@ -1481,10 +1582,16 @@ class Model(ModelSettings):
                 if ex_info.description:
                     print(ex_info.description)
                 should_retry = ex_info.retry
-                if should_retry:
+                custom_retry_delay = self._extract_retry_delay(err)
+                if custom_retry_delay is not None:
+                    retry_delay = custom_retry_delay
+                    should_retry = True
+                elif should_retry:
                     retry_delay *= 2
-                    if retry_delay > RETRY_TIMEOUT:
-                        should_retry = False
+
+                if retry_delay > RETRY_TIMEOUT:
+                    should_retry = False
+
                 if not should_retry:
                     return None
                 print(f"Retrying in {retry_delay:.1f} seconds...")
@@ -1505,7 +1612,7 @@ class Model(ModelSettings):
                     finish_reason="stop",
                     index=0,
                     message=litellm.Message(
-                        content="Model API Response Error. Please retry the previous request"
+                        content=("Model API Response Error. Please retry the previous request")
                     ),
                 )
             ],
@@ -1515,14 +1622,116 @@ class Model(ModelSettings):
     async def model_error_response_stream(self):
         yield self.model_error_response()
 
+    def _extract_retry_delay(self, err):
+        """
+        Extract suggested retry delay (in seconds) from a 429 rate-limit error.
+
+        1. Gemini payload body: Google RPC APIs return `google.rpc.RetryInfo` with
+           a `retryDelay` field (e.g. "15.2s") inside the `error.details` array.
+        2. HTTP headers fallback: Standard providers (OpenAI, Anthropic, Groq, etc.)
+           supply `retry-after` (seconds) or `retry-after-ms` (milliseconds) headers.
+        """
+        status_code = nested.getter(err, ["status_code", "response.status_code"], None)
+        if isinstance(status_code, (int, str, float)) and str(status_code) != "429":
+            return None
+
+        # 1. Check Gemini response payload for google.rpc.RetryInfo retryDelay
+        candidates = []
+        response = nested.getter(err, "response")
+        if callable(getattr(response, "json", None)):
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    candidates.append(data)
+            except Exception:
+                pass
+
+        sources = [
+            response,
+            nested.getter(err, "message"),
+            nested.getter(err, "body"),
+            nested.getter(err, "error"),
+            nested.getter(err, "raw_response"),
+            str(err) if isinstance(err, Exception) else None,
+            err,
+        ]
+
+        for src in sources:
+            if not src:
+                continue
+            if isinstance(src, dict):
+                candidates.append(src)
+            elif isinstance(src, (str, bytes)):
+                text_str = src.decode("utf-8", errors="ignore") if isinstance(src, bytes) else src
+                for chunk in utils.split_concatenated_json(text_str):
+                    try:
+                        parsed = json.loads(chunk)
+                        if isinstance(parsed, dict):
+                            candidates.append(parsed)
+                    except Exception:
+                        pass
+            else:
+                text = nested.getter(src, ["text", "content"])
+                if isinstance(text, (str, bytes)):
+                    text_str = (
+                        text.decode("utf-8", errors="ignore") if isinstance(text, bytes) else text
+                    )
+                    for chunk in utils.split_concatenated_json(text_str):
+                        try:
+                            parsed = json.loads(chunk)
+                            if isinstance(parsed, dict):
+                                candidates.append(parsed)
+                        except Exception:
+                            pass
+
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+
+            details = nested.getter(candidate, "error.details")
+            if isinstance(details, list):
+                for item in details:
+                    delay_val = nested.getter(item, "retryDelay")
+                    if delay_val is not None:
+                        delay_str = str(delay_val).strip()
+                        if delay_str.endswith("s"):
+                            delay_str = delay_str[:-1]
+                        try:
+                            return float(delay_str)
+                        except (ValueError, TypeError):
+                            pass
+
+        # 2. Check HTTP headers fallback (retry-after, retry-after-ms)
+        headers = nested.getter(err, ["response.headers", "headers"], None)
+        if headers is not None:
+            retry_after = nested.getter(headers, ["retry-after"], None)
+            if retry_after is not None:
+                try:
+                    return float(str(retry_after).strip())
+                except (ValueError, TypeError):
+                    pass
+
+            retry_after_ms = nested.getter(headers, ["retry-after-ms"], None)
+            if retry_after_ms is not None:
+                try:
+                    return float(str(retry_after_ms).strip()) / 1000.0
+                except (ValueError, TypeError):
+                    pass
+
+        return None
+
     def _log_messages(self, messages, name="message"):
         """
         Log conversation messages to a JSON file.
         """
         os.makedirs(".cecli/logs/messages", exist_ok=True)
-        with open(f".cecli/logs/messages/{name}-{time.time()}.log", "w") as f:
+        with safe_open(f".cecli/logs/messages/{name}-{time.time()}.log", "w") as f:
             json.dump(
-                messages, f, indent=4, ensure_ascii=False, default=lambda o: "<not serializable>"
+                messages,
+                f,
+                indent=4,
+                ensure_ascii=False,
+                default=lambda o: "<not serializable>",
             )
 
     def _log_request(self, model_call_dict):
@@ -1532,7 +1741,7 @@ class Model(ModelSettings):
         os.makedirs(".cecli/logs/litellm", exist_ok=True)
         log_file_path = f".cecli/logs/litellm/request-{time.time()}.log"
 
-        with open(log_file_path, "a", encoding="utf-8") as f:
+        with safe_open(log_file_path, "a") as f:
             json.dump(
                 model_call_dict,
                 f,
@@ -1551,7 +1760,7 @@ def register_models(model_settings_fnames):
         if not Path(model_settings_fname).read_text().strip():
             continue
         try:
-            with open(model_settings_fname, "r") as model_settings_file:
+            with safe_open(model_settings_fname, "r") as model_settings_file:
                 model_settings_list = yaml.safe_load(model_settings_file)
             for model_settings_dict in model_settings_list:
                 model_settings = ModelSettings(**model_settings_dict)
@@ -1579,6 +1788,8 @@ def register_litellm_models(model_fnames):
         except Exception as e:
             raise Exception(f"Error loading model definition from {model_fname}: {e}")
         files_loaded.append(model_fname)
+
+    model_info_manager.metadata_files = model_fnames
     return files_loaded
 
 
@@ -1620,14 +1831,14 @@ async def sanity_check_model(io, model):
             io.tool_output(f"- {key}: {status}")
         if platform.system() == "Windows":
             io.tool_output(
-                "Note: You may need to restart your terminal or command prompt for `setx` to take"
-                " effect."
+                "Note: You may need to restart your terminal or command prompt"
+                " for `setx` to take effect."
             )
     elif not model.keys_in_environment:
         show = True
         io.tool_warning(f"Warning for {model}: Unknown which environment variables are required.")
     await check_for_dependencies(io, model.name)
-    if not model.info:
+    if not (model.info.get("max_input_tokens") or model.info.get("max_tokens")):
         show = True
         io.tool_warning(
             f"Warning for {model}: Unknown context window size and costs, using sane defaults."
@@ -1650,7 +1861,10 @@ async def check_for_dependencies(io, model_name):
     """
     if model_name.startswith("bedrock/"):
         await check_pip_install_extra(
-            io, "boto3", "AWS Bedrock models require the boto3 package.", ["boto3"]
+            io,
+            "boto3",
+            "AWS Bedrock models require the boto3 package.",
+            ["boto3"],
         )
     elif model_name.startswith("vertex_ai/"):
         await check_pip_install_extra(
@@ -1714,6 +1928,7 @@ def get_chat_model_names(query: str = "") -> list:
 
 
 def fuzzy_match_models(name):
+    import difflib
     import fnmatch
 
     # Handle empty string case - return all models

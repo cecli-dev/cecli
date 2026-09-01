@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from cecli.mcp.server import HttpBasedMcpServer
-from tests.mcp.conftest import ServerStateInspector
+from tests.mcp.conftest import ServerStateInspector, _mock_transport_streams
 
 
 class TestKeepaliveTaskLifecycle:
@@ -117,7 +117,7 @@ class TestKeepaliveTaskLifecycle:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_transport = AsyncMock()
-        mock_transport.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock(), None))
+        mock_transport.__aenter__ = AsyncMock(return_value=_mock_transport_streams())
         server._create_transport = MagicMock(return_value=mock_transport)
         server._create_oauth_provider = AsyncMock(return_value=None)
         mock_session = AsyncMock()

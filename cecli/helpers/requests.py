@@ -13,8 +13,38 @@ def add_reasoning_content(messages):
     for msg in messages:
         if msg.get("role") == "assistant" and "reasoning_content" not in msg:
             msg["reasoning_content"] = ""
+
         if msg.get("provider_specific_fields", None):
             msg["provider_specific_fields"].pop("reasoning_content", None)
+
+            if (
+                msg["provider_specific_fields"].get("reasoning_items", None) is not None
+                and msg.get("reasoning_items", None) is None
+            ):
+                msg["reasoning_items"] = msg["provider_specific_fields"].pop(
+                    "reasoning_items", None
+                )
+                msg.pop("reasoning_content", None)
+
+            if (
+                msg["provider_specific_fields"].get("reasoning_text", None) is not None
+                and msg.get("reasoning_text", None) is None
+            ):
+                msg["reasoning_text"] = msg["provider_specific_fields"].pop("reasoning_text", None)
+                msg.pop("reasoning_content", None)
+
+            if (
+                msg["provider_specific_fields"].get("reasoning_opaque", None) is not None
+                and msg.get("reasoning_opaque", None) is None
+            ):
+                msg["reasoning_opaque"] = msg["provider_specific_fields"].pop(
+                    "reasoning_opaque", None
+                )
+                msg.pop("reasoning_content", None)
+
+            if msg.get("reasoning_content", None) == "":
+                msg.pop("reasoning_content", None)
+
     return messages
 
 
@@ -145,7 +175,7 @@ def add_continue_for_no_prefill(model, messages, tools):
 
     if not model.info.get("supports_assistant_prefill", False):
         # Only add "Continue" if the last message is not a user message
-        if not messages or messages[-1].get("role") != "user":
+        if not messages or messages[-1].get("role") not in ("user", "tool"):
             # Add a user message with content "Continue" to the messages list
             append_message = True
 
@@ -187,6 +217,7 @@ def prevent_consecutive_assistant_messages(messages):
 
 
 def model_request_parser(model, messages, tools):
+    messages = _copy_messages_for_request(messages)
     messages = thought_signature(model, messages)
     messages = remove_empty_tool_calls(messages)
     messages = concatenate_user_messages(messages)
@@ -195,3 +226,52 @@ def model_request_parser(model, messages, tools):
     messages = add_continue_for_no_prefill(model, messages, tools)
     messages = prevent_consecutive_assistant_messages(messages)
     return messages
+
+
+def _copy_psf_container(container):
+    """Shallow-copy a container dict and give its provider_specific_fields a fresh dict."""
+    container = dict(container)
+
+    psf = container.get("provider_specific_fields")
+    if isinstance(psf, dict):
+        container["provider_specific_fields"] = dict(psf)
+
+    return container
+
+
+def _copy_messages_for_request(messages):
+    """Return a shallow copy of the message list that request formatting can safely mutate.
+
+    The formatters in this module (``thought_signature``, ``add_reasoning_content``,
+    ``add_continue_for_no_prefill``, ``ensure_alternating_roles``, ...) mutate message
+    dicts in place.  The messages passed in come straight from the conversation store via
+    ``BaseMessage.to_dict()``, which shares the nested ``provider_specific_fields`` dicts
+    with the stored history, so a bare top-level copy would corrupt the stored messages —
+    e.g. ``reasoning_items`` (relied on for exact-prefix prompt caching) would be popped
+    out of ``provider_specific_fields`` and lost from the store.
+
+    Shallow-copy the top-level message dict plus the nested ``provider_specific_fields``
+    dicts (message-level and per tool-call) — the only structures the formatters mutate —
+    instead of deep-copying the whole message.
+    """
+    copied = []
+    for msg in messages:
+        msg = dict(msg)
+
+        psf = msg.get("provider_specific_fields")
+        if isinstance(psf, dict):
+            msg["provider_specific_fields"] = dict(psf)
+
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            msg["tool_calls"] = [
+                _copy_psf_container(call) if isinstance(call, dict) else call for call in tool_calls
+            ]
+
+        function_call = msg.get("function_call")
+        if isinstance(function_call, dict):
+            msg["function_call"] = _copy_psf_container(function_call)
+
+        copied.append(msg)
+
+    return copied

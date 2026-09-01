@@ -17,10 +17,14 @@ except ImportError:
     git = None
     ANY_GIT_ERROR = []
 
+import concurrent.futures
+import threading
+
 import pathspec
 
 import cecli.prompts.utils.system as prompts
 from cecli import utils
+from cecli.decoding import safe_open
 
 from .dump import dump  # noqa: F401
 
@@ -50,6 +54,39 @@ def set_git_env(var_name, value, original_value):
             os.environ[var_name] = original_value
         elif var_name in os.environ:
             del os.environ[var_name]
+
+
+def _close_git_repo(repo: "GitRepo") -> None:
+    """Safely close a GitRepo that was just opened but will not be used.
+
+    Prevents leaking the underlying ``git.Repo`` file handle when
+    ``GitRepoProxy.for_root`` discovers an already-cached repository.
+    """
+    try:
+        with repo._git_lock:
+            if getattr(repo, "repo", None) is not None:
+                repo.repo.close()
+    except Exception:
+        pass
+
+
+class CommitInfo:
+    """
+    Data-only container for extracted commit information.
+
+    Wraps the raw git-python commit data into simple Python types
+    so that callers never receive a reference to the underlying
+    ``git.Commit`` object (which could otherwise be used outside
+    of the repository lock, leading to deadlocks).
+    """
+
+    def __init__(self, hexsha: str, message: str, parents: tuple[str, ...]):
+        self.hexsha = hexsha
+        self.message = message
+        self.parents = parents
+
+    def __bool__(self):
+        return True
 
 
 class GitRepo:
@@ -98,13 +135,7 @@ class GitRepo:
         self.subtree_only = subtree_only
         self.git_commit_verify = git_commit_verify
         self.ignore_file_cache = {}
-        self.is_workspace = False
-        self.workspace_path = None
-        self.workspace_config = {}
-        self.workspace_layout = "clone"
-        self.workspace_ignore_specs = {}
-        self.workspace_ignore_ts = {}
-        # Workspace detection and config loading occurs later in __init__
+        self._git_lock = threading.RLock()
 
         if git_dname:
             check_fnames = [git_dname]
@@ -135,118 +166,32 @@ class GitRepo:
         if num_repos == 0:
             raise FileNotFoundError
         if num_repos > 1:
-            from cecli.helpers.monorepo.config import load_workspace_config_file
-            from cecli.helpers.monorepo.local_workspace import (
-                find_workspace_config_file,
+            self.io.tool_error(
+                "Files are in different git repos. Each coder operates on a single base path."
             )
-
-            ws_file = find_workspace_config_file(Path(repo_paths[0]))
-            if not ws_file:
-                self.io.tool_error(
-                    "Files are in different git repos. Add a .cecli.workspaces.yml at a"
-                    " common ancestor with path: entries for each project."
-                )
-                raise FileNotFoundError
-            self.workspace_config = load_workspace_config_file(ws_file)
-            primary = next(
-                (p for p in self.workspace_config.get("projects", []) if p.get("primary")),
-                None,
-            )
-            if primary and primary.get("path"):
-                self._init_repo_path = str(Path(str(primary["path"])).expanduser().resolve())
-            else:
-                self._init_repo_path = str(Path(repo_paths[0]).resolve())
-        else:
-            self._init_repo_path = repo_paths.pop()
-
-        # Detect if we're in a workspace
-        self.workspace_path = self._detect_workspace_path(self._init_repo_path)
-        if self.workspace_path:
-            self.is_workspace = True
-            self._load_workspace_config()
-            self.refresh_cecli_ignore()
+            raise FileNotFoundError
+        self._init_repo_path = repo_paths.pop()
 
         self.init_repo()
         if cecli_ignore_file:
             self.cecli_ignore_file = Path(cecli_ignore_file)
 
     def init_repo(self):
-        if not self.repo:
-            self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
-            self.root = utils.safe_abs_path(self.repo.working_tree_dir)
-
-        if self.is_workspace:
-            self.root = self.workspace_path
-
-        try:
-            commit = self.repo.head.commit
-            return commit
-        except ANY_GIT_ERROR:
-            if not self.is_workspace:
+        with self._git_lock:
+            if not self.repo:
                 self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
                 self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
-    def _load_workspace_config(self) -> None:
-        from cecli.helpers.monorepo.config import (
-            load_workspace_config,
-            load_workspace_config_file,
-        )
-        from cecli.helpers.monorepo.local_workspace import (
-            find_workspace_config_file,
-            read_workspace_metadata,
-            write_workspace_metadata,
-        )
-
-        ws_file = find_workspace_config_file(Path(self.workspace_path))
-        if ws_file:
-            self.workspace_layout = "local"
-            self.workspace_config = load_workspace_config_file(ws_file)
-            write_workspace_metadata(
-                Path(self.workspace_path), self.workspace_config, layout="local"
-            )
-            return
-        meta = read_workspace_metadata(Path(self.workspace_path))
-        if meta:
-            self.workspace_config, self.workspace_layout = meta
-            return
-        self.workspace_layout = "clone"
-        try:
-            self.workspace_config = load_workspace_config(name=Path(self.workspace_path).name)
-        except Exception:
-            self.workspace_config = {}
-
-    def _detect_workspace_path(self, start_path: str):
-        """Check if current directory is within a workspace"""
-        from cecli.helpers.monorepo.local_workspace import find_workspace_config_file
-
-        current = Path(start_path).resolve()
-        ws_file = find_workspace_config_file(current)
-        if ws_file:
-            return ws_file.parent.resolve()
-
-        workspace_root = Path("~/.cecli/workspaces").expanduser()
-
-        # Walk up directory tree looking for workspace root
-        while current != current.parent:
-            if workspace_root in current.parents or current == workspace_root:
-                # If we are inside the workspace root, the workspace is the first child of workspace_root
-                try:
-                    rel = current.relative_to(workspace_root)
-                    if rel.parts:
-                        return workspace_root / rel.parts[0]
-                except (IndexError, ValueError):
-                    pass
-
-            # Alternative check: look for .cecli-workspace.json
-            if (current / ".cecli-workspace.json").exists():
-                return current
-
-            current = current.parent
-        return None
+            try:
+                self.repo.head.commit  # just access to check for errors, discard
+            except ANY_GIT_ERROR:
+                self.repo = git.Repo(self._init_repo_path, odbt=git.GitCmdObjectDB)
+                self.root = utils.safe_abs_path(self.repo.working_tree_dir)
 
     def __del__(self):
-        if self.repo:
-            self.repo.close()
+        with self._git_lock:
+            if self.repo:
+                self.repo.close()
 
     async def commit(self, fnames=None, context=None, message=None, coder_edits=False, coder=None):
         """
@@ -318,15 +263,13 @@ class GitRepo:
         - User commit with explicit no-committer: coder_edits=False,
           --no-attribute-committer -> Author=You, Committer=You
         """
-        if self.is_workspace and getattr(self, "workspace_layout", "clone") == "local":
-            return await self._commit_local_workspace(fnames, context, message, coder_edits, coder)
+        with self._git_lock:
+            if not fnames and not self.repo.is_dirty():
+                return
 
-        if not fnames and not self.repo.is_dirty():
-            return
-
-        diffs = self.get_diffs(fnames)
-        if not diffs:
-            return
+            diffs = self.get_diffs(fnames)
+            if not diffs:
+                return
 
         if message:
             commit_message = message
@@ -397,70 +340,72 @@ class GitRepo:
 
         full_commit_message = commit_message + commit_message_trailer
 
-        cmd = ["-m", full_commit_message]
-        if not self.git_commit_verify:
-            cmd.append("--no-verify")
-        if fnames:
-            fnames = [str(self.abs_root_path(fn)) for fn in fnames]
-            added_fnames = []
-            for fname in fnames:
-                try:
-                    # Check if file is git-ignored before trying to add
-                    if (
-                        coder
-                        and hasattr(coder, "add_gitignore_files")
-                        and coder.add_gitignore_files
-                    ):
-                        rel_fname = self.get_rel_fname(fname)
-                        if self.git_ignored_file(rel_fname):
-                            # Skip git-ignored files when add_gitignore_files is enabled
-                            continue
-                    self.repo.git.add(fname)
-                    added_fnames.append(fname)
-                except ANY_GIT_ERROR as err:
-                    self.io.tool_error(f"Unable to add {fname}: {err}")
-            if added_fnames:
-                cmd += ["--"] + added_fnames
+        with self._git_lock:
+            cmd = ["-m", full_commit_message]
+            if not self.git_commit_verify:
+                cmd.append("--no-verify")
+            if fnames:
+                fnames = [str(self.abs_root_path(fn)) for fn in fnames]
+                added_fnames = []
+                for fname in fnames:
+                    try:
+                        # Check if file is git-ignored before trying to add
+                        if (
+                            coder
+                            and hasattr(coder, "add_gitignore_files")
+                            and coder.add_gitignore_files
+                        ):
+                            rel_fname = self.get_rel_fname(fname)
+                            if self.git_ignored_file(rel_fname):
+                                # Skip git-ignored files when add_gitignore_files is enabled
+                                continue
+                        self.repo.git.add(fname)
+                        added_fnames.append(fname)
+                    except ANY_GIT_ERROR as err:
+                        self.io.tool_error(f"Unable to add {fname}: {err}")
+                if added_fnames:
+                    cmd += ["--"] + added_fnames
+                else:
+                    # No files to commit (all were git-ignored or failed to add)
+                    return
             else:
-                # No files to commit (all were git-ignored or failed to add)
-                return
-        else:
-            cmd += ["-a"]
+                cmd += ["-a"]
 
-        original_user_name = self.repo.git.config("--get", "user.name")
-        original_committer_name_env = os.environ.get("GIT_COMMITTER_NAME")
-        original_author_name_env = os.environ.get("GIT_AUTHOR_NAME")
-        committer_name = f"{original_user_name} (cecli)"
+            original_user_name = self.repo.git.config("--get", "user.name")
+            original_committer_name_env = os.environ.get("GIT_COMMITTER_NAME")
+            original_author_name_env = os.environ.get("GIT_AUTHOR_NAME")
+            committer_name = f"{original_user_name} (cecli)"
 
-        try:
-            # Use context managers to handle environment variables
-            with contextlib.ExitStack() as stack:
-                if use_attribute_committer:
-                    stack.enter_context(
-                        set_git_env(
-                            "GIT_COMMITTER_NAME", committer_name, original_committer_name_env
+            try:
+                # Use context managers to handle environment variables
+                with contextlib.ExitStack() as stack:
+                    if use_attribute_committer:
+                        stack.enter_context(
+                            set_git_env(
+                                "GIT_COMMITTER_NAME", committer_name, original_committer_name_env
+                            )
                         )
-                    )
-                if use_attribute_author:
-                    stack.enter_context(
-                        set_git_env("GIT_AUTHOR_NAME", committer_name, original_author_name_env)
-                    )
+                    if use_attribute_author:
+                        stack.enter_context(
+                            set_git_env("GIT_AUTHOR_NAME", committer_name, original_author_name_env)
+                        )
 
-                # Perform the commit
-                self.repo.git.commit(cmd)
-                commit_hash = self.get_head_commit_sha(short=True)
-                self.io.tool_success(f"Commit {commit_hash} {commit_message}")
-                return commit_hash, commit_message
+                    # Perform the commit
+                    self.repo.git.commit(cmd)
+                    commit_hash = self.get_head_commit_sha(short=True)
+                    self.io.tool_success(f"Commit {commit_hash} {commit_message}")
+                    return commit_hash, commit_message
 
-        except ANY_GIT_ERROR as err:
-            self.io.tool_error(f"Unable to commit: {err}")
-            # No return here, implicitly returns None
+            except ANY_GIT_ERROR as err:
+                self.io.tool_error(f"Unable to commit: {err}")
+                # No return here, implicitly returns None
 
     def get_rel_repo_dir(self):
-        try:
-            return os.path.relpath(self.repo.git_dir, os.getcwd())
-        except (ValueError, OSError):
-            return self.repo.git_dir
+        with self._git_lock:
+            try:
+                return os.path.relpath(self.repo.git_dir, os.getcwd())
+            except (ValueError, OSError):
+                return self.repo.git_dir
 
     def get_rel_fname(self, fname):
         try:
@@ -530,255 +475,129 @@ class GitRepo:
     def get_diffs(self, fnames=None):
         # We always want diffs of index and working dir
 
-        current_branch_has_commits = False
-        try:
-            active_branch = self.repo.active_branch
+        with self._git_lock:
+            current_branch_has_commits = False
             try:
-                commits = self.repo.iter_commits(active_branch)
-                current_branch_has_commits = any(commits)
-            except ANY_GIT_ERROR:
+                active_branch = self.repo.active_branch
+                try:
+                    commits = self.repo.iter_commits(active_branch)
+                    current_branch_has_commits = any(commits)
+                except ANY_GIT_ERROR:
+                    pass
+            except (TypeError,) + ANY_GIT_ERROR:
                 pass
-        except (TypeError,) + ANY_GIT_ERROR:
-            pass
 
-        if not fnames:
-            fnames = []
+            if not fnames:
+                fnames = []
 
-        diffs = ""
-        for fname in fnames:
-            if not self.path_in_repo(fname):
-                diffs += f"Added {fname}\n"
+            diffs = ""
+            for fname in fnames:
+                if not self.path_in_repo(fname):
+                    diffs += f"Added {fname}\n"
 
-        try:
-            if current_branch_has_commits:
-                args = ["HEAD", "--"] + list(fnames)
-                diffs += self.repo.git.diff(*args, stdout_as_string=False).decode(
+            try:
+                if current_branch_has_commits:
+                    args = ["HEAD", "--"] + list(fnames)
+                    diffs += self.repo.git.diff(*args, stdout_as_string=False).decode(
+                        self.io.encoding, "replace"
+                    )
+                    return diffs
+
+                wd_args = ["--"] + list(fnames)
+                index_args = ["--cached"] + wd_args
+
+                diffs += self.repo.git.diff(*index_args, stdout_as_string=False).decode(
                     self.io.encoding, "replace"
                 )
+                diffs += self.repo.git.diff(*wd_args, stdout_as_string=False).decode(
+                    self.io.encoding, "replace"
+                )
+
                 return diffs
+            except ANY_GIT_ERROR as err:
+                self.io.tool_error(f"Unable to diff: {err}")
 
-            wd_args = ["--"] + list(fnames)
-            index_args = ["--cached"] + wd_args
+    def diff_commits(self, pretty, from_commit, to_commit=None):
+        with self._git_lock:
+            args = []
+            if pretty:
+                args += ["--color"]
+            else:
+                args += ["--color=never"]
 
-            diffs += self.repo.git.diff(*index_args, stdout_as_string=False).decode(
-                self.io.encoding, "replace"
-            )
-            diffs += self.repo.git.diff(*wd_args, stdout_as_string=False).decode(
+            if to_commit is not None:
+                args += [from_commit, to_commit]
+            else:
+                args += [from_commit]
+            diffs = self.repo.git.diff(*args, stdout_as_string=False).decode(
                 self.io.encoding, "replace"
             )
 
             return diffs
-        except ANY_GIT_ERROR as err:
-            self.io.tool_error(f"Unable to diff: {err}")
-
-    def diff_commits(self, pretty, from_commit, to_commit=None):
-        args = []
-        if pretty:
-            args += ["--color"]
-        else:
-            args += ["--color=never"]
-
-        if to_commit is not None:
-            args += [from_commit, to_commit]
-        else:
-            args += [from_commit]
-        diffs = self.repo.git.diff(*args, stdout_as_string=False).decode(
-            self.io.encoding, "replace"
-        )
-
-        return diffs
 
     def get_tracked_files(self):
-        if not self.repo:
-            return []
+        with self._git_lock:
+            if not self.repo:
+                return []
 
-        self.init_repo()
-
-        try:
-            commit = self.repo.head.commit
-        except ValueError:
-            commit = None
-        except ANY_GIT_ERROR as err:
-            self.git_repo_error = err
-            self.io.tool_error(f"Unable to list files in git repo: {err}")
-            self.io.tool_output("Is your git repo corrupted?")
-            return []
-
-        files = set()
-        if commit:
-            if self._tree_cache is not None and self._tree_cache[0] == commit.hexsha:
-                files = self._tree_cache[1]
-            else:
-                try:
-                    iterator = commit.tree.traverse()
-                    blob = None  # Initialize blob
-                    while True:
-                        try:
-                            blob = next(iterator)
-                            if blob.type == "blob":  # blob is a file
-                                # Use sys.intern() to deduplicate path strings in memory
-                                files.add(sys.intern(blob.path))
-                        except IndexError:
-                            # Handle potential index error during tree traversal
-                            # without relying on potentially unassigned 'blob'
-                            self.io.tool_warning(
-                                "GitRepo: Index error encountered while reading git tree object."
-                                " Skipping."
-                            )
-                            continue
-                        except StopIteration:
-                            break
-                except ANY_GIT_ERROR as err:
-                    self.git_repo_error = err
-                    self.io.tool_error(f"Unable to list files in git repo: {err}")
-                    self.io.tool_output("Is your git repo corrupted?")
-                    return []
-                files = set(self.normalize_path(path) for path in files)
-                # Use single-entry cache (not per-commit dict) to limit memory growth
-                # Store only the SHA string (not the Commit object) to avoid retaining
-                # the entire git object graph (tree, blobs, parent commits, etc.)
-                self._tree_cache = (commit.hexsha, files)
-
-        # Add staged files
-        index = self.repo.index
-        try:
-            staged_files = [path for path, _ in index.entries.keys()]
-            files.update(self.normalize_path(path) for path in staged_files)
-        except ANY_GIT_ERROR as err:
-            self.io.tool_error(f"Unable to read staged files: {err}")
-
-        res = [fname for fname in files if not self.ignored_file(fname)]
-
-        return res
-
-    async def _commit_local_workspace(
-        self, fnames=None, context=None, message=None, coder_edits=False, coder=None
-    ):
-        from collections import defaultdict
-
-        from cecli.helpers.monorepo.local_workspace import resolve_workspace_file_path
-
-        layout = getattr(self, "workspace_layout", "local")
-        config = self.workspace_config or {}
-        readonly = {
-            str(p.get("name"))
-            for p in config.get("projects", [])
-            if p.get("readonly") and p.get("name")
-        }
-
-        by_root: dict[str, list[str]] = defaultdict(list)
-        if fnames:
-            for fname in fnames:
-                resolved = resolve_workspace_file_path(
-                    Path(self.workspace_path), str(fname), config, layout=layout
-                )
-                if not resolved:
-                    continue
-                git_root, _abs_path, in_repo = resolved
-                parts = Path(str(fname)).parts
-                if parts and parts[0] in readonly:
-                    continue
-                if in_repo:
-                    by_root[str(git_root)].append(in_repo)
-        else:
-            for proj in config.get("projects", []):
-                name = proj.get("name")
-                if not name or name in readonly:
-                    continue
-                from cecli.helpers.monorepo.local_workspace import project_git_root
-
-                git_root = project_git_root(Path(self.workspace_path), proj, layout=layout)
-                if not git_root:
-                    continue
-                sub = GitRepo(self.io, [str(git_root)], None)
-                for rel in sub.get_dirty_files() or []:
-                    by_root[str(git_root)].append(rel)
-
-        last = None
-        for root, rels in by_root.items():
-            sub = GitRepo(self.io, [root], None)
-            last = await sub.commit(
-                rels, context=context, message=message, coder_edits=coder_edits, coder=coder
-            )
-        return last
-
-    def get_workspace_files(self):
-        """
-        If in a workspace, return all tracked files from all projects.
-        Paths are relative to the workspace root.
-        """
-        if not self.workspace_path:
-            return self.get_tracked_files()
-
-        import hashlib
-
-        layout = getattr(self, "workspace_layout", "clone")
-        config = self.workspace_config or {}
-        if not config.get("projects"):
-            return self.get_tracked_files()
-
-        from cecli.helpers.monorepo.local_workspace import (
-            project_head_shas,
-            union_tracked_files,
-        )
-
-        project_shas = project_head_shas(Path(self.workspace_path), config, layout=layout)
-        cache_key = hashlib.sha1(",".join(project_shas).encode()).hexdigest()
-
-        if hasattr(self, "_workspace_files_cache"):
-            cached_key, cached_files = self._workspace_files_cache
-            if cached_key == cache_key:
-                return cached_files
-
-        if layout == "local":
-            all_files = union_tracked_files(
-                Path(self.workspace_path),
-                config,
-                layout=layout,
-                ignored_file=self.ignored_file,
-            )
-            self._workspace_files_cache = (cache_key, all_files)
-            return all_files
-
-        import json
-        import subprocess
-
-        metadata_path = self.workspace_path / ".cecli-workspace.json"
-        if not metadata_path.exists():
-            return self.get_tracked_files()
-
-        try:
-            with open(metadata_path, "r") as f:
-                config = json.load(f)
-        except Exception:
-            return self.get_tracked_files()
-
-        all_files = []
-        for proj in config.get("projects", []):
-            proj_name = proj.get("name")
-            if not proj_name:
-                continue
-
-            proj_root = self.workspace_path / proj_name / "main"
-            if not proj_root.exists():
-                continue
+            self.init_repo()
 
             try:
-                res = subprocess.check_output(
-                    ["git", "-C", str(proj_root), "ls-files"],
-                    stderr=subprocess.DEVNULL,
-                    encoding="utf-8",
-                ).splitlines()
+                commit = self.repo.head.commit
+            except ValueError:
+                commit = None
+            except ANY_GIT_ERROR as err:
+                self.git_repo_error = err
+                self.io.tool_error(f"Unable to list files in git repo: {err}")
+                self.io.tool_output("Is your git repo corrupted?")
+                return []
 
-                for f in res:
-                    rel_path = f"{proj_name}/main/{f}"
-                    if not self.ignored_file(rel_path):
-                        all_files.append(rel_path)
-            except Exception:
-                continue
+            files = set()
+            if commit:
+                if self._tree_cache is not None and self._tree_cache[0] == commit.hexsha:
+                    files = self._tree_cache[1]
+                else:
+                    try:
+                        iterator = commit.tree.traverse()
+                        blob = None  # Initialize blob
+                        while True:
+                            try:
+                                blob = next(iterator)
+                                if blob.type == "blob":  # blob is a file
+                                    # Use sys.intern() to deduplicate path strings in memory
+                                    files.add(sys.intern(blob.path))
+                            except IndexError:
+                                # Handle potential index error during tree traversal
+                                # without relying on potentially unassigned 'blob'
+                                self.io.tool_warning(
+                                    "GitRepo: Index error encountered while reading git tree object."
+                                    " Skipping."
+                                )
+                                continue
+                            except StopIteration:
+                                break
+                    except ANY_GIT_ERROR as err:
+                        self.git_repo_error = err
+                        self.io.tool_error(f"Unable to list files in git repo: {err}")
+                        self.io.tool_output("Is your git repo corrupted?")
+                        return []
+                    files = set(self.normalize_path(path) for path in files)
+                    # Use single-entry cache (not per-commit dict) to limit memory growth
+                    # Store only the SHA string (not the Commit object) to avoid retaining
+                    # the entire git object graph (tree, blobs, parent commits, etc.)
+                    self._tree_cache = (commit.hexsha, files)
 
-        self._workspace_files_cache = (cache_key, all_files)
-        return all_files
+            # Add staged files
+            index = self.repo.index
+            try:
+                staged_files = [path for path, _ in index.entries.keys()]
+                files.update(self.normalize_path(path) for path in staged_files)
+            except ANY_GIT_ERROR as err:
+                self.io.tool_error(f"Unable to read staged files: {err}")
+
+            res = [fname for fname in files if not self.ignored_file(fname)]
+
+            return res
 
     def normalize_path(self, path):
         orig_path = path
@@ -786,35 +605,18 @@ class GitRepo:
         if res:
             return res
 
-        if self.is_workspace:
-            try:
-                # In workspace mode, try to make it relative to workspace_path first
-                path = str(
-                    Path(
-                        PurePosixPath(
-                            (Path(self.workspace_path) / path).relative_to(self.workspace_path)
-                        )
-                    )
-                )
-            except ValueError:
-                # Fallback to standard relative_to(self.root)
-                path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
-        else:
-            path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
+        path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
 
         self.normalized_path[orig_path] = path
         return path
 
     def refresh_cecli_ignore(self):
-        if not self.cecli_ignore_file and not self.is_workspace:
+        if not self.cecli_ignore_file:
             return
 
         current_time = time.time()
         if current_time - self.cecli_ignore_last_check < 1:
             return
-
-        if self.is_workspace:
-            self._refresh_workspace_ignores()
 
         self.cecli_ignore_last_check = current_time
 
@@ -831,35 +633,6 @@ class GitRepo:
                 lines,
             )
 
-    def _refresh_workspace_ignores(self):
-        if not hasattr(self, "workspace_config") or not self.workspace_config:
-            return
-
-        if not hasattr(self, "workspace_ignore_specs"):
-            self.workspace_ignore_specs = {}
-            self.workspace_ignore_ts = {}
-
-        projects = self.workspace_config.get("projects", [])
-        for proj in projects:
-            proj_name = proj.get("name")
-            ignore_file = proj.get("ignore")
-            if not proj_name or not ignore_file:
-                continue
-
-            ignore_path = self.workspace_path / f"{proj_name}.ignore"
-            if not ignore_path.is_file():
-                continue
-
-            mtime = ignore_path.stat().st_mtime
-            if mtime != self.workspace_ignore_ts.get(proj_name):
-                self.workspace_ignore_ts[proj_name] = mtime
-                self.ignore_file_cache = {}
-                lines = ignore_path.read_text().splitlines()
-                self.workspace_ignore_specs[proj_name] = pathspec.PathSpec.from_lines(
-                    pathspec.patterns.GitWildMatchPattern,
-                    lines,
-                )
-
     def _get_gitignore_spec(self, dir_path):
         """Get or create a GitIgnoreSpec for a directory, caching for performance."""
         dir_path = Path(dir_path).resolve()
@@ -873,7 +646,7 @@ class GitRepo:
         gitignore_path = dir_path / ".gitignore"
         if gitignore_path.is_file():
             try:
-                with open(gitignore_path, "r") as f:
+                with safe_open(gitignore_path, "r") as f:
                     patterns = [
                         line.rstrip("\n") for line in f if line.strip() and not line.startswith("#")
                     ]
@@ -971,32 +744,6 @@ class GitRepo:
             if cwd_path not in fname_path.parents and fname_path != cwd_path:
                 return True
 
-        if self.is_workspace:
-            # Check project-specific ignores
-            try:
-                fname_rel = self.normalize_path(fname)
-                parts = Path(fname_rel).parts
-                if parts:
-                    proj_name = parts[0]
-                    if (
-                        hasattr(self, "workspace_ignore_specs")
-                        and proj_name in self.workspace_ignore_specs
-                    ):
-                        # Check against project-specific spec
-                        # The spec expects paths relative to the project root (usually proj/main/)
-                        layout = getattr(self, "workspace_layout", "clone")
-                        if layout == "clone" and len(parts) > 2 and parts[1] == "main":
-                            proj_rel_path = str(Path(*parts[2:]))
-                        else:
-                            proj_rel_path = str(Path(*parts[1:]))
-
-                        if self.workspace_ignore_specs[proj_name].match_file(proj_rel_path):
-                            return True
-                # If not matched by project-specific ignore, continue to global ignore
-                # but don't return False yet as there might be a global .cecli.ignore
-            except (ValueError, IndexError):
-                pass
-
         if not self.cecli_ignore_file or not self.cecli_ignore_file.is_file():
             return False
 
@@ -1025,35 +772,22 @@ class GitRepo:
         if not self.cecli_ignore_spec:
             return []
 
-        try:
-            all_files = self.repo.git.ls_files(
-                "--others", "--cached", f"--exclude-from={str(self.cecli_ignore_file)}"
-            ).splitlines()
+        with self._git_lock:
+            try:
+                all_files = self.repo.git.ls_files(
+                    "--others", "--cached", f"--exclude-from={str(self.cecli_ignore_file)}"
+                ).splitlines()
 
-            return [f for f in all_files if not self.ignored_file(f)]
-        except Exception as e:
-            # Fall back to empty set if there's an error
-            self.io.tool_warning(f"Error getting ignored files from root: {e}")
-            return []
+                return [f for f in all_files if not self.ignored_file(f)]
+            except Exception as e:
+                # Fall back to empty set if there's an error
+                self.io.tool_warning(f"Error getting ignored files from root: {e}")
+                return []
 
     def get_repo_files(self) -> list[str]:
         """
-        Get all relevant files from the repository, respecting workspace
-        structure and custom ignore rules.
-
-        This is a unified file collection method that encapsulates the
-        logic for choosing the right file source depending on the repo's
-        configuration:
-
-        - Workspace repos (``workspace_path`` is set) → ``get_workspace_files()``
-        - Non-workspace with ``cecli_ignore`` file → ``get_non_ignored_files_from_root()``
-        - Non-workspace without ``cecli_ignore`` → ``get_tracked_files()``
-
-        Returns:
-            Sorted list of root-relative file paths
+        Get all relevant files from the repository for this single base path.
         """
-        if hasattr(self, "workspace_path") and self.workspace_path:
-            return self.get_workspace_files()
         if self.cecli_ignore_file and self.cecli_ignore_file.is_file():
             return self.get_non_ignored_files_from_root()
         return self.get_tracked_files()
@@ -1070,19 +804,20 @@ class GitRepo:
         Returns:
             SHA-256 hex digest, or empty string if repo is unavailable
         """
-        import hashlib
+        with self._git_lock:
+            import hashlib
 
-        if not self.repo:
-            return ""
+            if not self.repo:
+                return ""
 
-        sha = self.get_head_commit_sha() or ""
-        try:
-            staged = [item.a_path for item in self.repo.index.diff("HEAD")]
-        except ANY_GIT_ERROR:
-            staged = []
+            sha = self.get_head_commit_sha() or ""
+            try:
+                staged = [item.a_path for item in self.repo.index.diff("HEAD")]
+            except ANY_GIT_ERROR:
+                staged = []
 
-        combined = sha + "|" + "".join(sorted(staged))
-        return hashlib.sha256(combined.encode()).hexdigest()
+            combined = sha + "|" + "".join(sorted(staged))
+            return hashlib.sha256(combined.encode()).hexdigest()
 
     def path_in_repo(self, path):
         if not self.repo:
@@ -1094,19 +829,6 @@ class GitRepo:
         return self.normalize_path(path) in tracked_files
 
     def abs_root_path(self, path):
-        if self.is_workspace and getattr(self, "workspace_layout", "clone") == "local":
-            from cecli.helpers.monorepo.local_workspace import (
-                resolve_workspace_file_path,
-            )
-
-            resolved = resolve_workspace_file_path(
-                Path(self.workspace_path),
-                str(path),
-                self.workspace_config or {},
-                layout="local",
-            )
-            if resolved:
-                return utils.safe_abs_path(resolved[1])
         res = Path(self.root) / path
         return utils.safe_abs_path(res)
 
@@ -1115,40 +837,295 @@ class GitRepo:
         Returns a list of all files which are dirty (not committed), either staged or in the working
         directory.
         """
-        dirty_files = set()
+        with self._git_lock:
+            dirty_files = set()
 
-        # Get staged files
-        staged_files = self.repo.git.diff("--name-only", "--cached").splitlines()
-        dirty_files.update(staged_files)
+            # Get staged files
+            staged_files = self.repo.git.diff("--name-only", "--cached").splitlines()
+            dirty_files.update(staged_files)
 
-        # Get unstaged files
-        unstaged_files = self.repo.git.diff("--name-only").splitlines()
-        dirty_files.update(unstaged_files)
+            # Get unstaged files
+            unstaged_files = self.repo.git.diff("--name-only").splitlines()
+            dirty_files.update(unstaged_files)
 
-        return list(dirty_files)
+            return list(dirty_files)
 
     def is_dirty(self, path=None):
-        if path and not self.path_in_repo(path):
-            return True
+        with self._git_lock:
+            if path and not self.path_in_repo(path):
+                return True
 
-        return self.repo.is_dirty(path=path)
+            return self.repo.is_dirty(path=path)
 
     def get_head_commit(self):
-        try:
-            return self.repo.head.commit
-        except (ValueError,) + ANY_GIT_ERROR:
-            return None
+        with self._git_lock:
+            try:
+                commit = self.repo.head.commit
+                return CommitInfo(
+                    hexsha=commit.hexsha,
+                    message=commit.message,
+                    parents=tuple(p.hexsha for p in commit.parents),
+                )
+            except (ValueError,) + ANY_GIT_ERROR:
+                return None
 
     def get_head_commit_sha(self, short=False):
-        commit = self.get_head_commit()
-        if not commit:
-            return
-        if short:
-            return commit.hexsha[:7]
-        return commit.hexsha
+        with self._git_lock:
+            try:
+                commit = self.repo.head.commit
+            except (ValueError,) + ANY_GIT_ERROR:
+                return
+            if not commit:
+                return
+            if short:
+                return commit.hexsha[:7]
+            return commit.hexsha
 
     def get_head_commit_message(self, default=None):
-        commit = self.get_head_commit()
-        if not commit:
-            return default
-        return commit.message
+        with self._git_lock:
+            try:
+                commit = self.repo.head.commit
+            except (ValueError,) + ANY_GIT_ERROR:
+                return default
+            if not commit:
+                return default
+            return commit.message
+
+
+class _GitObjectProxy:
+    """Routes all operations on a git sub-object through a shared single-thread executor.
+
+    Wraps objects like ``git.Repo.git``, ``git.Repo.head``, ``git.Repo.index``
+    so that every method call and attribute access is dispatched on the
+    executor thread, preventing deadlocks when the underlying ``git.Repo``
+    is accessed from multiple asyncio workers.
+
+    Iterators returned by git-python methods are eagerly materialised into
+    lists so that iteration happens on the executor thread, not the caller's.
+    """
+
+    def __init__(self, obj, executor):
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_executor", executor)
+
+    def __getattr__(self, name):
+        attr = getattr(self._obj, name)
+
+        # Recursively wrap git-python objects (check FIRST since git.cmd.Git
+        # is callable via __call__, but we want chained access like
+        # ``repo.git.status(...)`` to stay on the executor thread).
+        cls = type(attr)
+        if cls.__module__ and cls.__module__.startswith("git"):
+            return _GitObjectProxy(attr, self._executor)
+
+        if callable(attr):
+
+            def proxy_fn(*args, **kwargs):
+                future = self._executor.submit(attr, *args, **kwargs)
+                result = future.result()
+                # Materialise iterators eagerly in the executor thread so
+                # iteration never touches git objects from the caller's thread.
+                if hasattr(result, "__iter__") and not isinstance(result, (str, bytes, dict)):
+                    try:
+                        return list(result)
+                    except TypeError:
+                        pass
+                return result
+
+            return proxy_fn
+
+        return attr
+
+
+class GitRepoProxy:
+    """Thread-safe proxy for ``GitRepo`` that serialises all git operations
+    through a single dedicated thread.
+
+    Prevents deadlocks by ensuring only one thread ever touches the
+    underlying ``git.Repo`` at any time.  Follows the same delegation
+    pattern as ``IOProxy``:
+
+    * Sync methods that access ``self.repo`` are explicitly dispatched
+      to the executor and block on the result.
+    * Non-git attributes and methods are forwarded transparently via
+      ``__getattr__`` / ``__setattr__``.
+    * Access to ``.repo`` (the raw ``git.Repo``) returns a
+      ``_GitObjectProxy`` that routes every attribute and call through
+      the same executor, so even callers that reach through to the
+      underlying git object stay thread-safe.
+
+    Usage::
+
+        repo = GitRepoProxy(GitRepo(io, fnames, git_dname))
+        files = repo.get_tracked_files()   # runs on executor thread
+        sha = repo.get_head_commit_sha()   # runs on executor thread
+    """
+
+    def __init__(self, target):
+        self._target = target
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="git-repo"
+        )
+
+    _instances: dict[str, "GitRepoProxy"] = {}
+
+    @classmethod
+    def for_root(
+        cls,
+        root: str | None,
+        io,
+        fnames=None,
+        git_dname=None,
+        cecli_ignore_file=None,
+        **kwargs,
+    ) -> "GitRepoProxy":
+        """
+        Return a per-base-path ``GitRepoProxy`` singleton.
+
+        Coders that share a base path share one proxy (and its underlying
+        ``git.Repo`` plus single-thread executor), so multi-repository work can
+        keep each repository on its own proxy while coders on the same base path
+        stay consistent. Coders on different base paths get independent proxies.
+
+        If *root* is provided it is used as the registry key and to discover the
+        repository; otherwise it is derived from *fnames* (the same discovery the
+        ``GitRepo`` constructor performs).
+        """
+        if root is None:
+            target = GitRepo(io, fnames, git_dname, cecli_ignore_file, **kwargs)
+            key = os.path.normpath(os.path.abspath(target.root))
+            proxy = cls._instances.get(key)
+            if proxy is None:
+                proxy = cls(target)
+                cls._instances[key] = proxy
+            else:
+                _close_git_repo(target)  # Discard the just-opened duplicate
+            return proxy
+
+        key = os.path.normpath(os.path.abspath(root))
+        proxy = cls._instances.get(key)
+        if proxy is None:
+            target = GitRepo(io, fnames or [root], git_dname, cecli_ignore_file, **kwargs)
+            proxy = cls(target)
+            cls._instances[key] = proxy
+        return proxy
+
+    @classmethod
+    def evict(cls, root: str | None = None) -> None:
+        """Drop the proxy for a base path (e.g. on coder teardown)."""
+        if root is None:
+            return
+        key = os.path.normpath(os.path.abspath(root))
+        cls._instances.pop(key, None)
+
+    @classmethod
+    def reset_instances(cls) -> None:
+        """Reset all per-base-path proxies — used primarily in test teardown."""
+        cls._instances.clear()
+
+    # ------------------------------------------------------------------
+    # Sync methods that access self.repo (the git.Repo object)
+    # ------------------------------------------------------------------
+    # Sync methods that access self.repo (the git.Repo object)
+    # ------------------------------------------------------------------
+
+    def init_repo(self):
+        return self._executor.submit(self._target.init_repo).result()
+
+    @classmethod
+    def unwrap(cls, repo):
+        """Unwrap a ``GitRepoProxy`` to get the underlying ``GitRepo``.
+
+        If *repo* is already a ``GitRepo`` (not a proxy) it is returned
+        unchanged.  This mirrors ``IOProxy.unwrap()`` and prevents nested
+        proxy chains during coder switching (``SwitchCoderSignal``).
+
+        Usage::
+
+            raw = GitRepoProxy.unwrap(maybe_proxied_repo)
+        """
+        return repo._target if isinstance(repo, cls) else repo
+
+    def __del__(self):
+        try:
+            if hasattr(self, "_target") and self._target is not None:
+                self._executor.submit(self._target.__del__).result(timeout=5)
+        except Exception:
+            pass
+
+    def get_rel_repo_dir(self):
+        return self._executor.submit(self._target.get_rel_repo_dir).result()
+
+    def get_diffs(self, fnames=None):
+        return self._executor.submit(self._target.get_diffs, fnames).result()
+
+    def diff_commits(self, pretty, from_commit, to_commit=None):
+        return self._executor.submit(
+            self._target.diff_commits, pretty, from_commit, to_commit
+        ).result()
+
+    def get_tracked_files(self):
+        return self._executor.submit(self._target.get_tracked_files).result()
+
+    def path_in_repo(self, path):
+        return self._executor.submit(self._target.path_in_repo, path).result()
+
+    def get_dirty_files(self):
+        return self._executor.submit(self._target.get_dirty_files).result()
+
+    def is_dirty(self, path=None):
+        return self._executor.submit(self._target.is_dirty, path).result()
+
+    def get_head_commit(self):
+        return self._executor.submit(self._target.get_head_commit).result()
+
+    def get_head_commit_sha(self, short=False):
+        return self._executor.submit(self._target.get_head_commit_sha, short).result()
+
+    def get_head_commit_message(self, default=None):
+        return self._executor.submit(self._target.get_head_commit_message, default).result()
+
+    def get_cache_key(self):
+        return self._executor.submit(self._target.get_cache_key).result()
+
+    def git_ignored_file(self, path):
+        return self._executor.submit(self._target.git_ignored_file, path).result()
+
+    def get_non_ignored_files_from_root(self):
+        return self._executor.submit(self._target.get_non_ignored_files_from_root).result()
+
+    def get_repo_files(self):
+        return self._executor.submit(self._target.get_repo_files).result()
+
+    # ------------------------------------------------------------------
+    # Async methods  –  called from the main asyncio task only, and
+    # already protected by ``_git_lock`` on the target; we do *not*
+    # proxy them through the executor because they mix git operations
+    # with LLM calls (``get_commit_message``) that must stay async.
+    # ------------------------------------------------------------------
+
+    # commit() is forwarded via __getattr__
+
+    # ------------------------------------------------------------------
+    # Access to the raw ``git.Repo``  –  return a sub-proxy that routes
+    # every call through the same executor, so callers that reach
+    # through to the underlying git object stay thread-safe.
+    # ------------------------------------------------------------------
+
+    @property
+    def repo(self):
+        raw = self._target.repo
+        return _GitObjectProxy(raw, self._executor) if raw is not None else None
+
+    # ------------------------------------------------------------------
+    # Non-git attributes  –  transparent forwarding
+    # ------------------------------------------------------------------
+
+    def __getattr__(self, name):
+        return getattr(self._target, name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_") or name in ("_target", "_executor"):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._target, name, value)

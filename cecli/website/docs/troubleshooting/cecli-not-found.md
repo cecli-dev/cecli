@@ -5,10 +5,7 @@ nav_order: 28
 
 # cecli not found
 
-In some environments the `cecli` command may not be available
-on your shell path.
-This can occur because of permissions/security settings in your OS,
-and often happens to Windows users.
+In some environments the `cecli` command may not be available on your shell path. This can occur because of permissions/security settings in your OS, and often happens to Windows users.
 
 You may see an error message like this:
 
@@ -20,5 +17,4 @@ Below is the most fail safe way to run cecli in these situations:
 python -m cecli
 ```
 
-You should also consider 
-[installing cecli using cecli-install, uv or pipx](/docs/install.html).
+You should also consider [installing cecli using cecli-install, uv or pipx](../install.html).

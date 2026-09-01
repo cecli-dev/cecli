@@ -1,47 +1,54 @@
 ---
-nav_exclude: true
+title: Documentation
 ---
 
 # Documentation
 
-This documentation will help you get the most out of cecli.
+It's a terminal agent! LLMs yap enough and I won't belabor the point.
 
-<div class="toc">
-{% assign pages_list = site.html_pages | sort: "nav_order" %}
+## Getting Started
 
-<ul>
-{% for page in pages_list %}
-  {% if page.title and page.url != "/" and page.parent == nil and page.nav_exclude != true %}
-    <li>
-      <a href="{{ page.url | absolute_url }}">{{ page.title }}</a>{% if page.description %} <span style="font-size: 0.9em; font-style: italic;">— {{ page.description }}</span>{% endif %}
-      
-      {% assign children = site.html_pages | where: "parent", page.title | sort: "nav_order" %}
-      {% if children.size > 0 %}
-        <ul>
-        {% for child in children %}
-          {% if child.title %}
-            <li>
-              <a href="{{ child.url | absolute_url }}">{{ child.title }}</a>{% if child.description %} <span style="font-size: 0.9em; font-style: italic;">— {{ child.description }}</span>{% endif %}
-              
-              {% assign grandchildren = site.html_pages | where: "parent", child.title | sort: "nav_order" %}
-              {% if grandchildren.size > 0 %}
-                <ul>
-                {% for grandchild in grandchildren %}
-                  {% if grandchild.title %}
-                    <li>
-                      <a href="{{ grandchild.url | absolute_url }}">{{ grandchild.title }}</a>{% if grandchild.description %} <span style="font-size: 0.9em; font-style: italic;">— {{ grandchild.description }}</span>{% endif %}
-                    </li>
-                  {% endif %}
-                {% endfor %}
-                </ul>
-              {% endif %}
-            </li>
-          {% endif %}
-        {% endfor %}
-        </ul>
-      {% endif %}
-    </li>
-  {% endif %}
-{% endfor %}
-</ul>
-</div>
+```bash
+uv pip install cecli-dev
+
+# Change directory into your codebase
+cd /to/your/project
+
+# Claude 5 Sonnet
+cecli --model claude-sonnet-5 --api-key anthropic=<key>
+
+# Gemini 3.5 Flash
+cecli --model gemini/gemini-3.5-flash-preview --api-key gemini=<key>
+
+# GPT-5.6 Luna
+cecli --model openai/gpt-5.6-luna --api-key openai=<key>
+
+# DeepSeek V4 Flash
+cecli --model deepseek/deepseek-v4-flash --api-key deepseek=<key>
+```
+
+## More Information
+
+### Documentation
+
+Everything you need to get started and make the most of cecli.
+
+- [Installation Guide](install.html)
+- [Usage Guide](usage.html)
+- [Connecting to LLMs](llms.html)
+- [Configuration Options](config.html)
+- [Troubleshooting](troubleshooting.html)
+
+### Community & Resources
+
+Connect with other users and find additional resources.
+
+- [GitHub Repository](https://github.com/cecli-dev/cecli)
+- [Discord Community](https://discord.gg/AX9ZEA7nJn)
+- [Release notes](https://github.com/cecli-dev/cecli/releases)
+- [LLM Leaderboards](leaderboards/index.html)
+
+## Reference
+
+- [In-chat commands](usage/commands.html)
+- [Options reference](config/options.html)

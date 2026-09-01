@@ -9,9 +9,11 @@ import json_repair
 
 from cecli import utils
 from cecli.helpers import nested
+from cecli.llm import litellm
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
 
 def preprocess_json(response: str) -> str:
@@ -39,7 +41,8 @@ def extract_tools_from_content_json(content: str) -> Optional[List[ChatCompletio
     Simple extraction of JSON-like structures that look like tool calls.
     This handles models that write JSON in text instead of using native calling.
     """
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
     if not content or ("{" not in content and "[" not in content):
         return None
@@ -117,7 +120,8 @@ def extract_tools_from_content_xml(content: str) -> Optional[List[ChatCompletion
     </parameter>
     </function>
     """
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
     if not content or ("<function=" not in content and "<name=" not in content):
         return None
@@ -168,7 +172,8 @@ def extract_tools_from_pseudo_json(content: str) -> Optional[List[ChatCompletion
     Example:
     [Local--ReadFile(show=[{"file_path": "agent.py", "start_text": "class A"}], verbose=true, mode="strict")]
     """
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
     if not content or "[" not in content:
         return None
@@ -288,7 +293,8 @@ def prefix_tool_call(tool_call, server_name: str):
     Returns:
         New tool call with prefixed function name (same type as input)
     """
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
     # Handle ChatCompletionMessageToolCall objects
     if hasattr(tool_call, "function") and hasattr(tool_call.function, "name"):
@@ -328,7 +334,8 @@ def unprefix_tool_call(tool_call):
         Tuple of (server_name, unprefixed_tool_call) where server_name may be empty string
         if no prefix is found (same type as input)
     """
-    from litellm.types.utils import ChatCompletionMessageToolCall, Function  # noqa
+    ChatCompletionMessageToolCall = litellm.types.utils.ChatCompletionMessageToolCall
+    Function = litellm.types.utils.Function
 
     # Handle ChatCompletionMessageToolCall objects
     if hasattr(tool_call, "function") and hasattr(tool_call.function, "name"):
@@ -359,21 +366,34 @@ def unprefix_tool_call(tool_call):
     return server_name, result
 
 
-def parse_tool_arguments(args_string: str) -> dict:
-    """Parse tool-call arguments, merging glued ``{…}{} {…}`` object fragments."""
+def parse_tool_arguments(args_string: str) -> dict | list:
+    """Parse tool-call arguments, merging glued ``{…}{} {…}`` object fragments.
+
+    Also unwraps a single ``arguments``/``parameters``/``params`` wrapper key
+    that some models emit when mirroring the OpenAI wire format.
+
+    Returns a dict in almost all cases. A bare top-level JSON array (e.g. a
+    model emitting ``[...]`` directly as the arguments instead of wrapping it
+    under the tool's single required array parameter, as EditFile's `edits`
+    or ReadFile's `read`) is returned as-is rather than collapsed to ``{}``,
+    so ``BaseTool.process_response`` can still wrap it using the tool's
+    schema instead of silently losing the data.
+    """
     text = (args_string or "").strip()
     if not text:
         return {}
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
+            return coerce_tool_structure(parsed)
+        if isinstance(parsed, list):
             return parsed
     except json.JSONDecodeError:
         pass
 
     parsed = try_parse_json_value(text)
     if isinstance(parsed, dict):
-        return parsed
+        return coerce_tool_structure(parsed)
 
     chunks = utils.split_concatenated_json(text)
     if len(chunks) <= 1:
@@ -381,18 +401,24 @@ def parse_tool_arguments(args_string: str) -> dict:
             return {}
         lone = try_parse_json_value(chunks[0])
         if isinstance(lone, dict):
+            return coerce_tool_structure(lone)
+        if isinstance(lone, list):
             return lone
         try:
             json_string = json_repair.repair_json(chunks[0], ensure_ascii=False)
             single = json.loads(json_string)
         except json.JSONDecodeError as err:
             return {"@error": f"Malformed JSON arguments: {err}"}
-        return single if isinstance(single, dict) else {}
+        if isinstance(single, dict):
+            return coerce_tool_structure(single)
+        if isinstance(single, list):
+            return single
+        return {}
 
     merged = merge_glued_json_objects(chunks)
 
     if merged is not None:
-        return merged
+        return coerce_tool_structure(merged)
 
     return {
         "@error": "Could not merge glued JSON objects: argument fragments are not all JSON objects"
@@ -611,3 +637,40 @@ def _parse_bracket_arguments(payload_str: str) -> dict:
             arguments[key] = val_str
 
     return arguments
+
+
+def coerce_tool_structure(args: dict) -> dict:
+    """Unwrap a single ``arguments``/``parameters``/``params`` wrapper key.
+
+    Some models mirror the OpenAI wire format and emit the real params nested
+    under a single top-level ``arguments`` key (as a dict or a JSON-encoded
+    string) instead of as the params dict itself. Without normalization the
+    wrapper key is forwarded verbatim to the tool, which then fails required
+    parameter validation (e.g. MCP servers reporting "missing required
+    parameter").
+
+    Only unwraps when ``args`` has exactly one key matching one of the wrapper
+    names and that value is a dict (or a JSON string that parses to a dict), so
+    tools that legitimately declare a parameter named ``arguments`` are never
+    clobbered.
+    """
+    if not isinstance(args, dict) or len(args) != 1:
+        return args
+
+    for key in ("arguments", "parameters", "params"):
+        if key not in args:
+            continue
+
+        value = args[key]
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return args
+
+        if isinstance(value, dict):
+            return value
+
+        return args
+
+    return args

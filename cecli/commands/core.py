@@ -1,8 +1,6 @@
-import asyncio
 import json
 import re
 import sys
-import time
 import weakref
 from pathlib import Path
 
@@ -10,49 +8,7 @@ from cecli.commands.utils.registry import CommandRegistry
 from cecli.helpers import nested, plugin_manager
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.helpers.threading import ThreadSafeEvent
-from cecli.repo import ANY_GIT_ERROR
-
-
-class SwitchCoderSignal(BaseException):
-    """
-     Signal to switch the current Coder instance to a new configuration.
-
-     This is NOT an error - it's a control flow signal used to propagate
-     coder switching requests up through the async call stack. It carries
-     the kwargs needed to create a new Coder instance.
-
-     Note: Inherits from BaseException (like KeyboardInterrupt and SystemExit)
-    to avoid being caught by generic `except Exception` handlers, making the
-     non-error nature of this signal explicit.
-
-     Attributes:
-         kwargs: Configuration dict passed to Coder.create() for the new instance
-         placeholder: Optional placeholder text for the input prompt
-    """
-
-    def __init__(self, placeholder=None, **kwargs):
-        self.kwargs = kwargs
-        self.placeholder = placeholder
-        super().__init__()
-
-
-class ReloadProgramSignal(BaseException):
-    """
-    Signal to reload the entire program configuration.
-
-    This is NOT an error - it's a control flow signal used to trigger
-    a full program reload, re-parsing config files and re-initializing
-    all components. Useful for hot-reloading when configuration files
-    change.
-
-    Note: Inherits from BaseException (like KeyboardInterrupt and SystemExit)
-    to avoid being caught by generic `except Exception` handlers.
-    """
-
-    def __init__(self, message="Reloading program configuration...", **kwargs):
-        self.kwargs = kwargs
-        self.message = message
-        super().__init__(self.message)
+from cecli.signals import SwitchCoderSignal
 
 
 class Commands:
@@ -133,116 +89,53 @@ class Commands:
         self.cmd_running_event.set()
         self.last_command_show_notification = True
 
-        # Prompt queue for CLI-33: in-memory FIFO queue for deferred prompt processing
-        self.prompt_queue = []
-        self._queue_counter = 0
-        self._queue_lock = asyncio.Lock()
-        self._processing_queue = False
-
         # Commands that should NOT trigger auto-processing of the queue
         self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue"}
 
-    # ── Queue Management Methods (CLI-33) ──────────────────────────────
+    # ── Queue Management Methods (CLI-33) ────────────────────────────── #
+    #
+    # The prompt queue itself lives on the coder (Coder.prompt_queue) and
+    # is managed by cecli.helpers.command_queue. These thin wrappers keep
+    # the /queue, /list-queue and /remove-queue command implementations
+    # stable while operating on the coder that owns this Commands
+    # instance, so each sub-agent's commands manage that sub-agent's own
+    # queue.
+
+    @property
+    def prompt_queue(self):
+        """Proxy to the owning coder's prompt queue."""
+        coder = self.coder
+        return coder.prompt_queue if coder is not None else []
 
     def _enqueue_prompt(self, text: str) -> dict:
-        """Add a prompt to the queue and return the queued item.
+        """Add a prompt to the owning coder's queue."""
+        from cecli.helpers import command_queue
 
-        Args:
-            text: The prompt text to enqueue.
-
-        Returns:
-            dict with keys: id (str), text (str), timestamp (float).
-
-        Raises:
-            ValueError: If text is empty, None, or exceeds 10000 characters.
-            RuntimeError: If the queue is at max capacity (100 items).
-        """
-        if not text or not text.strip():
-            raise ValueError("Cannot enqueue empty prompt")
-        if len(text) > 10000:
-            raise ValueError("Prompt exceeds maximum length of 10000 characters")
-        if len(self.prompt_queue) >= 100:
-            raise RuntimeError("Queue is full (max 100 items)")
-
-        self._queue_counter += 1
-        item = {
-            "id": str(self._queue_counter),
-            "text": text,
-            "timestamp": time.time(),
-        }
-        self.prompt_queue.append(item)
-        return item
+        return command_queue.enqueue_prompt(self.coder, text)
 
     def _dequeue_prompt(self) -> dict | None:
-        """Remove and return the first item from the queue (FIFO).
+        """Remove and return the first item from the owning coder's queue."""
+        from cecli.helpers import command_queue
 
-        Returns:
-            The dequeued item dict, or None if the queue is empty.
-        """
-        if not self.prompt_queue:
-            return None
-        return self.prompt_queue.pop(0)
+        return command_queue.dequeue_prompt(self.coder)
 
     def _get_queue_length(self) -> int:
-        """Return the current number of items in the queue."""
-        return len(self.prompt_queue)
+        """Return the current number of items in the owning coder's queue."""
+        from cecli.helpers import command_queue
+
+        return command_queue.get_queue_length(self.coder)
 
     def _remove_from_queue(self, index: int) -> dict | None:
-        """Remove and return the item at the given index.
+        """Remove and return the item at the given index from the owning coder's queue."""
+        from cecli.helpers import command_queue
 
-        Args:
-            index: 0-based index of the item to remove.
-
-        Returns:
-            The removed item dict, or None if the index is out of bounds.
-        """
-        if index < 0 or index >= len(self.prompt_queue):
-            return None
-        return self.prompt_queue.pop(index)
+        return command_queue.remove_from_queue(self.coder, index)
 
     def _clear_queue(self) -> list:
-        """Remove all items from the queue and return them.
+        """Remove all items from the owning coder's queue and return them."""
+        from cecli.helpers import command_queue
 
-        Returns:
-            List of all items that were in the queue.
-        """
-        items = list(self.prompt_queue)
-        self.prompt_queue.clear()
-        return items
-
-    async def _process_queued_prompts(self):
-        """Process all prompts currently in the queue sequentially.
-
-        This method is called from the finally block of execute() after
-        cmd_running_event is set, ensuring the system is idle before
-        processing queued prompts. Management commands (queue, list-queue,
-        remove-queue) are excluded from triggering this method.
-
-        Uses _processing_queue flag to prevent re-entrant processing
-        (e.g., if a queued prompt itself queues another prompt).
-        """
-        self._processing_queue = True
-        try:
-            while self.prompt_queue:
-                item = self._dequeue_prompt()
-                if not item:
-                    break
-                if self.io:
-                    self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
-                try:
-                    await self.run(item["text"])
-                except SwitchCoderSignal:
-                    raise
-                except ReloadProgramSignal:
-                    raise
-                except Exception as e:
-                    if self.io:
-                        self.io.tool_error(
-                            f"Error processing queued prompt (id: {item['id']}): {e}"
-                        )
-                    continue
-        finally:
-            self._processing_queue = False
+        return command_queue.clear_queue(self.coder)
 
     def _load_custom_commands(self, custom_commands):
         """
@@ -328,6 +221,8 @@ class Commands:
         return sorted(commands)
 
     async def execute(self, cmd_name, args, coder=None, **kwargs):
+        from cecli.repo import ANY_GIT_ERROR
+
         active_coder = coder or self.coder
         command_class = CommandRegistry.get_command(cmd_name)
 
@@ -368,13 +263,6 @@ class Commands:
             self.cmd_running_event.set()
             if self.coder.tui and self.coder.tui():
                 self.coder.tui().refresh()
-            # Queue processing integration: auto-process queued prompts when system is idle
-            if (
-                self.prompt_queue
-                and cmd_name not in self._MANAGEMENT_COMMANDS
-                and not self._processing_queue
-            ):
-                await self._process_queued_prompts()
 
     def matching_commands(self, inp):
         words = inp.strip().split()

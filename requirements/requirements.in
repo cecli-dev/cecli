@@ -1,60 +1,97 @@
-pydub>=0.25.1
+# configuration
 configargparse>=1.7.1
-GitPython>=3.1.45
-jsonschema>=4.25.0
-rich>=14.1.0
-prompt_toolkit
-backoff>=2.2.1
-pathspec>=0.12.1
-diskcache>=5.6.3
-packaging>=25.0
-sounddevice>=0.5.2
-soundfile>=0.13.1
-beautifulsoup4>=4.13.4
-PyYAML>=6.0.2
-diff-match-patch>=20241021
-pypandoc>=1.15
-litellm>=1.80.11,!=1.82.7,!=1.82.8
-flake8>=7.3.0
-importlib_resources
-pyperclip>=1.9.0
+shtab>=1.7.2
+python-dotenv>=1.0.1
+
+# operating system integration
+oslex>=0.1.3
 pexpect>=4.9.0
-json5>=0.12.0
 psutil>=7.0.0
 watchfiles>=1.1.0
-socksio>=1.0.0
-pillow>=11.3.0
-shtab>=1.7.2
-oslex>=0.1.3
+charset-normalizer>=3.4.7
+
+# git
+GitPython>=3.1.45
+pathspec>=0.12.1
+
+# communication
+# token counts are estimated (no BPE tokenizer); tiktoken was ~30-95MB RSS
+# NOTE: requests is imported directly by cecli (models/onboarding/versioncheck);
+# it used to come in transitively via tiktoken, so declare it explicitly now.
+requests>=2.32.0
 mcp>=1.24.0
-textual>=6.0.0
-tomlkit>=0.14.0
+socksio>=1.0.0
 truststore
-xxhash>=3.6.0
-py-cymbal>=0.2.1
+
+# crypt
 cryptography>=42.0.0
+xxhash>=3.6.0
+
+# scraping (OPTIONAL: only used by the scrape command; bs4 already imported lazily in cecli/scrape.py)
+# TODO: split into a `[scrape]` extra (requirements-scrape.in) after making pypandoc lazy
+beautifulsoup4>=4.13.4
+pypandoc>=1.15
+
+# storage/caching
+chromadb>=1.5.9
+diskcache>=5.6.3
+
+# general string parsing
 json-repair>=0.60.1
+jsonschema>=4.25.0
+PyYAML>=6.0.2
+tomli>=2.3.0; python_version <= "3.10"
+tomlkit>=0.14.0
 
-# File system lookup aids
+# search & replace in legacy modes
+diff-match-patch>=20241021
+tqdm>3.0.0
+
+# copying and pasting
+pyperclip>=1.9.0
+
+# audio (OPTIONAL: only used by the voice command; imported lazily in cecli/voice.py)
+# TODO: split into a `[voice]` extra (requirements-voice.in) - safe because imports are lazy
+pydub>=0.25.1
+sounddevice>=0.5.2
+soundfile>=0.13.1
+
+# images (PIL import)
+pillow>=11.3.0
+
+# rendering
+prompt_toolkit
+rich>=14.1.0
+textual>=8.2.8
+
+# server utilities
+blinker>=1.9.0
+websockets>=16.1.1
+
+# file system lookup aids (OPTIONAL: only used for fuzzy model-name search; imported lazily in cecli/models.py)
+# TODO: split into a `[search]` extra (requirements-search.in) - safe because imports are lazy
 marisa-trie>=1.0
-rapidfuzz>=3.0
 ngram>=4.0.3
+rapidfuzz>=3.0
 
-# Replaced networkx with rustworkx for better performance in repomap
+# replaced networkx with rustworkx for better performance in repomap
 rustworkx>=0.15.0
 
-# scipy is still needed for other parts of the codebase
-scipy>=1.15.3
+# NOTE: scipy was removed - unused across the whole repo (grep for `scipy` finds nothing).
+# It previously pulled in the numpy stack (~100 modules) for zero usage.
 
-# dependencies added because litellm is so mid and doesn't declare all of its deps properly
+# fast JSON serialization (kept pinned for tooling/performance)
 orjson>=3.11.6
 
-# GitHub Release action failing on "KeyError: 'home-page'"
-# https://github.com/pypa/twine/blob/6fbf880ee60915cf1666348c4bdd78a10415f2ac/twine/__init__.py#L40
-# Uses importlib-metadata
-importlib-metadata>=7.2.1
+# tool helpers
+py-cymbal>=0.2.1
 
-tomli>=2.3.0; python_version <= "3.10"
+# python internal
+importlib-metadata>=7.2.1
+importlib_resources
+packaging>=25.0
+
+# all my homies love tree sitter
 tree-sitter==0.23.2; python_version < "3.10"
 tree-sitter>=0.25.1; python_version >= "3.10"
 tree-sitter-language-pack<=0.13.0

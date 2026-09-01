@@ -1,7 +1,9 @@
 import asyncio
 import os
 import shutil
+import stat
 import struct
+import sys
 from unittest import mock
 
 import pytest
@@ -82,6 +84,16 @@ def mock_repo_wrapper(repo_obj, git_repo_error=None):
     return mock_repo
 
 
+def _rmtree_readonly(func, path, exc):
+    """Retry a failed rmtree operation after clearing the read-only attribute.
+
+    Git marks loose object files read-only, which prevents them from being
+    deleted on Windows (PermissionError: [WinError 5] Access is denied).
+    """
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 async def test_detached_head_state(create_repo, mock_io):
     repo_path, repo = create_repo
     # Detach the HEAD
@@ -160,8 +172,14 @@ async def test_bare_repository(create_repo, mock_io, tmp_path):
 
 async def test_sanity_check_repo_with_corrupt_repo(create_repo, mock_io):
     repo_path, repo = create_repo
-    # Simulate a corrupt repository by removing the .git directory
-    shutil.rmtree(os.path.join(repo_path, ".git"))
+    # Simulate a corrupt repository by removing the .git directory.
+    # Git stores loose objects as read-only files, so on Windows we must
+    # clear the read-only attribute before they can be deleted.
+    git_dir = os.path.join(repo_path, ".git")
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(git_dir, onexc=_rmtree_readonly)
+    else:
+        shutil.rmtree(git_dir, onerror=_rmtree_readonly)
 
     # Create the mock 'repo' object with GitError
     git_error = GitError("Unable to read git repository, it may be corrupt?")

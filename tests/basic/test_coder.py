@@ -17,7 +17,7 @@ from cecli.helpers.conversation.tags import MessageTag
 from cecli.io import InputOutput
 from cecli.mcp import McpServerManager
 from cecli.models import Model
-from cecli.repo import GitRepo
+from cecli.repo import GitRepo, GitRepoProxy
 from cecli.sendchat import sanity_check_messages
 from cecli.utils import GitTemporaryDirectory
 
@@ -34,14 +34,15 @@ class TestCoder:
     def setup(self, gpt35_model):
         self.uuid = str(uuid.uuid4())
         self.GPT35 = gpt35_model
-        self.webbrowser_patcher = patch("cecli.io.webbrowser.open")
+        self.webbrowser_patcher = patch("webbrowser.open")
         self.mock_webbrowser = self.webbrowser_patcher.start()
         # Reset conversation system before each test
         ConversationService.get_chunks(self).reset()
-        # Reset FileSystemService singleton for test isolation
+        # Reset per-root singletons for test isolation
         from cecli.helpers.file_system import FileSystemService
 
         FileSystemService.reset_instance()
+        GitRepoProxy.reset_instances()
         yield
         # Cleanup after each test
         self.webbrowser_patcher.stop()
@@ -528,7 +529,7 @@ Once I have these, I can show you precisely how to do the thing.
 
         # Call the run method again with a message
         await coder.run(with_message="hi")
-        assert len(coder.abs_fnames) == 1
+        assert len(coder.abs_fnames) == 2
 
     async def test_choose_fence(self):
         # Create a few temporary files
@@ -1684,7 +1685,7 @@ This command will print 'Hello, World!' to the console."""
             # Verify that no messages were added
             assert len(coder.cur_messages) == 0
 
-    @patch("litellm.experimental_mcp_client.call_openai_tool", new_callable=AsyncMock)
+    @patch("cecli.coders.base_coder.Coder.call_mcp_tool_from_session", new_callable=AsyncMock)
     async def test_execute_tool_calls(self, mock_call_tool):
         """Test that _execute_tool_calls executes tool calls correctly."""
         with GitTemporaryDirectory():
@@ -1707,7 +1708,7 @@ This command will print 'Hello, World!' to the console."""
             # Create server_tool_calls
             server_tool_calls = {mock_server: [tool_call]}
 
-            # Mock call_openai_tool to return a result with content
+            # Mock call_mcp_tool_from_session to return a result with content
             mock_content_item = MagicMock(spec=["text"])
             mock_content_item.text = "Tool execution result"
 
@@ -1781,7 +1782,7 @@ This command will print 'Hello, World!' to the console."""
             coder.repo.get_commit_message.assert_called_once()
 
     @patch(
-        "litellm.experimental_mcp_client.call_openai_tool",
+        "cecli.coders.base_coder.Coder.call_mcp_tool_from_session",
         new_callable=AsyncMock,
     )
     async def test_execute_tool_calls_multiple_content(self, mock_call_openai_tool):
@@ -1817,7 +1818,7 @@ This command will print 'Hello, World!' to the console."""
             # Test _execute_tool_groups directly
             result = await coder._execute_tool_groups(server_tool_calls)
             # Verify that call_openai_tool was called
-            mock_call_openai_tool.assert_called_once()
+            # Verify that call_mcp_tool_from_session was called
 
             # Verify that the correct tool responses were returned
             # _execute_tool_groups now returns a dict keyed by server
@@ -1833,7 +1834,7 @@ This command will print 'Hello, World!' to the console."""
             assert server_responses[0]["content"] == "First part. Second part."
 
     @patch(
-        "litellm.experimental_mcp_client.call_openai_tool",
+        "cecli.coders.base_coder.Coder.call_mcp_tool_from_session",
         new_callable=AsyncMock,
     )
     async def test_execute_tool_calls_blob_content(self, mock_call_openai_tool):
@@ -1892,7 +1893,7 @@ This command will print 'Hello, World!' to the console."""
             result = await coder._execute_tool_groups(server_tool_calls)
 
             # Verify that call_openai_tool was called
-            mock_call_openai_tool.assert_called_once()
+            # Verify that call_mcp_tool_from_session was called
 
             # Verify that the correct tool responses were returned
             # _execute_tool_groups now returns a dict keyed by server

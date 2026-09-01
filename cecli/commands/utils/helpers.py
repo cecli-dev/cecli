@@ -159,7 +159,7 @@ def get_file_completions(
     root = Path(coder.root) if hasattr(coder, "root") else Path.cwd()
 
     # Try using FileSystemService for efficient lookups
-    fs = FileSystemService.get_instance()
+    fs = getattr(coder, "fs", None) or FileSystemService.get_instance()
     fs_available = fs.trie is not None or fs.ngram is not None
 
     if completion_type == "glob":
@@ -348,7 +348,7 @@ def update_server_registration(coder, server_name, operation, force=False):
                When False, respect the opposing set (excluded wins
                for include, included wins for exclude).
     """
-    name = server_name
+    name = server_name.lower()
     included = coder.registered_servers["included"]
     excluded = coder.registered_servers["excluded"]
 
@@ -379,7 +379,7 @@ def is_server_globally_excluded(coder, server_name):
     Returns:
         True if the server is excluded from every coder.
     """
-    name = server_name
+    name = server_name.lower()
     for other in iter_all_coders(coder):
         incl = other.registered_servers["included"]
         excl = other.registered_servers["excluded"]

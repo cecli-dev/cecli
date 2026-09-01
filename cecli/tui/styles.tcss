@@ -78,7 +78,7 @@ Input > .input--placeholder, TextArea > .text-area--placeholder  {
 }
 
 TextArea > .text-area--selection {
-    color: $background;
+    color: $success;
     background: $foreground;
 }
 

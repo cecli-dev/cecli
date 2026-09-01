@@ -1,4 +1,5 @@
 from cecli.exceptions import ExInfo, LiteLLMExceptions
+from cecli.llm import litellm
 
 
 def test_litellm_exceptions_load():
@@ -19,7 +20,7 @@ def test_get_ex_info():
     ex = LiteLLMExceptions()
 
     # Test with a known exception type
-    from litellm import AuthenticationError
+    AuthenticationError = litellm.AuthenticationError
 
     auth_error = AuthenticationError(
         message="Invalid API key", llm_provider="openai", model="gpt-4"
@@ -45,7 +46,7 @@ def test_get_ex_info():
 def test_rate_limit_error():
     """Test specific handling of RateLimitError"""
     ex = LiteLLMExceptions()
-    from litellm import RateLimitError
+    RateLimitError = litellm.RateLimitError
 
     rate_error = RateLimitError(message="Rate limit exceeded", llm_provider="openai", model="gpt-4")
     ex_info = ex.get_ex_info(rate_error)
@@ -56,7 +57,7 @@ def test_rate_limit_error():
 def test_bad_gateway_error():
     """Test specific handling of BadGatewayError"""
     ex = LiteLLMExceptions()
-    from litellm import BadGatewayError
+    BadGatewayError = litellm.BadGatewayError
 
     bad_gateway_error = BadGatewayError(message="Bad Gateway", llm_provider="openai", model="gpt-4")
     ex_info = ex.get_ex_info(bad_gateway_error)
@@ -67,7 +68,7 @@ def test_bad_gateway_error():
 def test_context_window_error():
     """Test specific handling of ContextWindowExceededError"""
     ex = LiteLLMExceptions()
-    from litellm import ContextWindowExceededError
+    ContextWindowExceededError = litellm.ContextWindowExceededError
 
     ctx_error = ContextWindowExceededError(
         message="Context length exceeded", model="gpt-4", llm_provider="openai"
@@ -79,7 +80,7 @@ def test_context_window_error():
 def test_openrouter_error():
     """Test specific handling of OpenRouter API errors"""
     ex = LiteLLMExceptions()
-    from litellm import APIConnectionError
+    APIConnectionError = litellm.APIConnectionError
 
     # Create an APIConnectionError with OpenrouterException message
     openrouter_error = APIConnectionError(

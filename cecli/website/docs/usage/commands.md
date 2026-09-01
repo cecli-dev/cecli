@@ -4,20 +4,9 @@ nav_order: 50
 description: Control cecli with in-chat commands like /add, /model, etc.
 ---
 
-# In-chat commands
-{: .no_toc }
+# Slash Commands
 
-- TOC
-{:toc}
-
-## Slash commands
-
-cecli supports commands from within the chat, which all start with `/`.
-
-<!--[[[cog
-from cecli.commands import get_help_md
-cog.out(get_help_md())
-]]]-->
+Cecli supports commands from within the chat, which all start with `/`.
 
 |Command|Description|
 |:------|:----------|
@@ -68,7 +57,7 @@ cog.out(get_help_md())
 | **/weak-model** | Switch the Weak Model to a new LLM |
 | **/web** | Scrape a webpage, convert to markdown and send in a message |
 
-<!--[[[end]]]-->
+> **Tip:** You can easily re-send commands or messages. Use the up arrow ⬆ to scroll back or CONTROL-R to search your message history.
 
 ## Prompt Queue Management
 
@@ -178,19 +167,34 @@ You can easily re-send commands or messages.
 Use the up arrow ⬆ to scroll back
 or CONTROL-R to search your message history.
 
-## Entering multi-line chat messages
+## Non-TUI Related Notes
 
-{% include multi-line.md %}
+### Multi-line Chat Messages
 
-## Interrupting with CONTROL-C
+You can send long, multi-line messages in the chat in a few ways:
+  - Paste a multi-line message directly into the chat.
+  - Enter `{` alone on the first line to start a multiline message and `}` alone on the last line to end it.
+    - Or, start with `{tag` (where "tag" is any sequence of letters/numbers) and end with `tag}`. This is useful when you need to include closing braces `}` in your message.
+  - Use Meta-ENTER to start a new line without sending the message (Esc+ENTER in some environments).
+  - Use `/paste` to paste text from the clipboard into the chat.
+  - Use the `/editor` command (or press `Ctrl-X Ctrl-E` if your terminal allows) to open your editor to create the next chat message. See [editor configuration docs](../config/editor.html) for more info.
+  - Use multiline-mode, which swaps the function of Meta-Enter and Enter, so that Enter inserts a newline, and Meta-Enter submits your command. To enable multiline mode:
+    - Use the `/multiline-mode` command to toggle it during a session.
+    - Use the `--multiline` switch.
+  
+Example with a tag:
+```
+{python
+def hello():
+    print("Hello}")  # Note: contains a brace
+python}
+```
 
-It's always safe to use Control-C to interrupt cecli if it isn't providing a useful response. The partial response remains in the conversation, so you can refer to it when you reply to the LLM with more information or direction.
-
-## Keybindings
+### Key Bindings
 
 The interactive prompt is built with [prompt-toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) which provides emacs and vi keybindings. 
 
-### Emacs
+#### Emacs
 
 - `Up Arrow` : Move up one line in the current message.
 - `Down Arrow` : Move down one line in the current message.
@@ -209,8 +213,7 @@ The interactive prompt is built with [prompt-toolkit](https://github.com/prompt-
 - `Ctrl-X Ctrl-E` : Open the current input in an external editor
 - `Ctrl-Y` : Paste (yank) text that was previously cut.
 
-
-### Vi
+#### Vi
 
 To use vi/vim keybindings, run cecli with the `--vim` switch.
 

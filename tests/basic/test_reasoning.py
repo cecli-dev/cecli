@@ -228,7 +228,7 @@ class TestReasoning:
         with (
             patch.object(model, "send_completion", return_value=(mock_hash, async_chunks())),
             patch.object(model, "token_count", return_value=10),
-            patch("litellm.stream_chunk_builder", return_value=None),
+            patch("cecli.llm.litellm.stream_chunk_builder", return_value=None),
         ):  # Mock token count and stream_chunk_builder to avoid serialization issues
             # Set mdstream directly on the coder object
             coder.mdstream = mock_mdstream
@@ -384,7 +384,7 @@ class TestReasoning:
         # Mock the model's send_completion to return the hash and completion
         with (
             patch.object(model, "send_completion", return_value=(mock_hash, async_chunks())),
-            patch("litellm.stream_chunk_builder", return_value=None),
+            patch("cecli.llm.litellm.stream_chunk_builder", return_value=None),
         ):
             # Set mdstream directly on the coder object
             coder.mdstream = mock_mdstream
@@ -570,7 +570,7 @@ End"""
         with (
             patch.object(model, "send_completion", return_value=(mock_hash, async_chunks())),
             patch.object(model, "token_count", return_value=10),
-            patch("litellm.stream_chunk_builder", return_value=None),
+            patch("cecli.llm.litellm.stream_chunk_builder", return_value=None),
         ):  # Mock token count and stream_chunk_builder to avoid serialization issues
             # Set mdstream directly on the coder object
             coder.mdstream = mock_mdstream

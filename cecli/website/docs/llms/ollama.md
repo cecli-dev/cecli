@@ -5,11 +5,13 @@ nav_order: 500
 
 # Ollama
 
-cecli can connect to local Ollama models.
+Cecli can connect to local Ollama models.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your Ollama API endpoint (usually the default):
 
@@ -33,13 +35,9 @@ cd /to/your/project
 cecli --model ollama_chat/<model>
 ```
 
-{: .note }
-Using `ollama_chat/` is recommended over `ollama/`.
+> **Note:** Using `ollama_chat/` is recommended over `ollama/`.
 
-
-See the [model warnings](warnings.html)
-section for information on warnings which will occur
-when working with models that cecli is not familiar with.
+See the [model warnings](warnings.html) section for information on warnings which will occur when working with models that cecli is not familiar with.
 
 ## API Key
 
@@ -52,24 +50,14 @@ setx   OLLAMA_API_KEY <api-key> # Windows, restart shell after setx
 
 ## Setting the context window size
 
-[Ollama uses a 2k context window by default](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-specify-the-context-window-size),
-which is very small for working with cecli.
-It also **silently** discards context that exceeds the window. 
-This is especially dangerous because many users don't even realize that most of their data
-is being discarded by Ollama.
+[Ollama uses a 2k context window by default](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-specify-the-context-window-size), which is very small for working with cecli. It also **silently** discards context that exceeds the window. This is especially dangerous because many users don't even realize that most of their data is being discarded by Ollama.
  
-By default, cecli sets Ollama's context window 
-to be large enough for each request you send plus 8k tokens for the reply.
-This ensures data isn't silently discarded by Ollama.
+By default, cecli sets Ollama's context window to be large enough for each request you send plus 8k tokens for the reply. This ensures data isn't silently discarded by Ollama.
 
-If you'd like you can configure a fixed sized context window instead
-with an
-[`.cecli.model.settings.yml` file](https://cecli.dev/docs/config/adv-model-settings.html#model-settings)
-like this:
+If you'd like you can configure a fixed sized context window instead with an [`.cecli.model.settings.yml` file](../config/adv-model-settings.html#advanced-model-settings-model-settings) like this:
 
 ```
 - name: ollama/qwen2.5-coder:32b-instruct-fp16
   extra_params:
     num_ctx: 65536
 ```
-

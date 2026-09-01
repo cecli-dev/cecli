@@ -12,6 +12,7 @@ pre-commit
 cogapp
 semver
 codespell
+flake8>=7.3.0
 uv
 memray; sys_platform != 'win32'
 objgraph

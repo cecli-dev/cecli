@@ -5,6 +5,8 @@ import secrets
 import socketserver
 from pathlib import Path
 
+from cecli.decoding import safe_open
+
 from .server import McpServer
 
 
@@ -59,7 +61,7 @@ def _parse_mcp_servers_from_json_string(json_string, io, verbose=False, mcp_tran
             if verbose:
                 io.tool_output(f"Loaded {len(servers)} MCP servers")
             return servers
-        else:
+        elif config:
             io.tool_warning("No 'mcpServers' key found in MCP config")
     except json.JSONDecodeError:
         io.tool_error("Invalid JSON in MCP config")
@@ -132,7 +134,7 @@ def _parse_mcp_servers_from_file(file_path, io, verbose=False, mcp_transport="st
     resolved_file_path = _resolve_mcp_config_path(file_path, io, verbose)
 
     try:
-        with open(resolved_file_path, "r") as f:
+        with safe_open(resolved_file_path, "r") as f:
             json_string = f.read()
 
         if verbose:

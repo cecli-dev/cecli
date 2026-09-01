@@ -214,16 +214,23 @@ class TreeContext:
             # reset
             output += "\033[0m\n"
 
-        dots = not (0 in self.show_lines)
+        # dots = not (0 in self.show_lines)
+        in_gap = False
+        gap_start = -1
         for i, line in enumerate(self.lines):
             if i not in self.show_lines:
-                if dots:
-                    if self.line_number:
-                        output += "...⋮...\n"
-                    else:
-                        output += "⋮\n"
-                    dots = False
+                if not in_gap:
+                    in_gap = True
+                    gap_start = i
                 continue
+
+            if in_gap:
+                omitted = i - gap_start
+                if self.line_number:
+                    output += f"...⋮... [{omitted} lines omitted (L{gap_start + 1}–L{i})]\n"
+                else:
+                    output += f"⋮ [{omitted} lines omitted]\n"
+                in_gap = False
 
             if i in self.lines_of_interest and self.mark_lois:
                 spacer = "█"
@@ -237,7 +244,7 @@ class TreeContext:
                 line_output = f"{i + 1: 3}" + line_output
             output += line_output + "\n"
 
-            dots = True
+            # dots = True
 
         return output
 

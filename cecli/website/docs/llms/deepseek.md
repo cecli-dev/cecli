@@ -5,13 +5,13 @@ nav_order: 500
 
 # DeepSeek
 
-cecli can connect to the DeepSeek.com API.
-To work with DeepSeek's models, you need to set the `DEEPSEEK_API_KEY` environment variable with your [DeepSeek API key](https://platform.deepseek.com/api_keys).  
-The DeepSeek Chat V3 model has a top score on cecli's code editing benchmark.
+Cecli can connect to the DeepSeek.com API. To work with DeepSeek's models, you need to set the `DEEPSEEK_API_KEY` environment variable with your [DeepSeek API key](https://platform.deepseek.com/api_keys). The DeepSeek Chat V3 model has a top score on cecli's code editing benchmark.
 
 First, install cecli:
 
-{% include install.md %}
+```bash
+uv tool install cecli-dev
+```
 
 Then configure your API keys:
 
@@ -29,4 +29,3 @@ cd /to/your/project
 # Use DeepSeek Chat v3
 cecli --model deepseek/deepseek-chat
 ```
-

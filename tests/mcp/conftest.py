@@ -1,5 +1,5 @@
 from typing import Any, AsyncGenerator, Dict
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -70,7 +70,7 @@ def http_based_server(http_server_config, mock_io) -> HttpBasedMcpServer:
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_transport = AsyncMock()
-    mock_transport.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock(), None))
+    mock_transport.__aenter__ = AsyncMock(return_value=_mock_transport_streams())
     server._create_transport = MagicMock(return_value=mock_transport)
     # Mock OAuth provider to avoid creating OAuth callback server
     server._create_oauth_provider = AsyncMock(return_value=None)
@@ -91,7 +91,7 @@ def http_streaming_server(http_streaming_server_config, mock_io) -> HttpStreamin
     from unittest.mock import AsyncMock
 
     mock_transport = AsyncMock()
-    mock_transport.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock(), None))
+    mock_transport.__aenter__ = AsyncMock(return_value=_mock_transport_streams())
     server._create_transport = MagicMock(return_value=mock_transport)
     # Mock OAuth provider
     server._create_oauth_provider = AsyncMock(return_value=None)
@@ -136,3 +136,18 @@ class ServerStateInspector:
 def server_inspector():
     """Fixture providing a server state inspector."""
     return ServerStateInspector()
+
+
+def _mock_transport_streams():
+    """Return transport streams matching the installed mcp SDK version.
+
+    mcp SDK 1.x yields (read, write, session_id_getter); SDK 2.x yields
+    (read, write).
+    """
+    mock_read = AsyncMock()
+    mock_write = AsyncMock()
+
+    if mcp_server._get_mcp_major_version() >= 2:
+        return mock_read, mock_write
+
+    return mock_read, mock_write, None

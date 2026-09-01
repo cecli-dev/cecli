@@ -6,12 +6,9 @@ description: Using a .env file to store LLM API keys for cecli.
 
 # Config with .env
 
-You can use a `.env` file to store API keys and other settings for the
-models you use with cecli.
-You can also set many general cecli options
-in the `.env` file.
+You can use a `.env` file to store API keys and other settings for the models you use with cecli. You can also set many general cecli options in the `.env` file.
 
-cecli will look for a `.env` file in these locations:
+Cecli will look for a `.env` file in these locations:
 
 - Your home directory.
 - The root of your git repo.
@@ -20,23 +17,13 @@ cecli will look for a `.env` file in these locations:
 
 If the files above exist, they will be loaded in that order. Files loaded last will take priority.
 
-{% include keys.md %}
+> **Tip:**
+> See the [API key configuration docs](api-keys.html) for information on how to configure and store your API keys.
 
 ## Sample .env file
 
-Below is a sample `.env` file, which you
-can also
-[download from GitHub](https://github.com/cecli-dev/cecli/blob/main/cecli/website/assets/sample.env).
+Below is a sample `.env` file, which you can also [download from GitHub](https://github.com/cecli-dev/cecli/blob/main/cecli/website/assets/sample.env).
 
-<!--[[[cog
-from cecli.args import get_sample_dotenv
-from pathlib import Path
-text=get_sample_dotenv()
-Path("cecli/website/assets/sample.env").write_text(text)
-cog.outl("```")
-cog.out(text)
-cog.outl("```")
-]]]-->
 ```
 ##########################################################
 # Sample cecli .env file.
@@ -487,4 +474,3 @@ cog.outl("```")
 ## Use o1-preview model for the main chat (deprecated, use --model)
 #CECLI_O1_PREVIEW=false
 ```
-<!--[[[end]]]-->

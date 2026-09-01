@@ -34,6 +34,7 @@ class DummyCoder:
         self.abs_fnames = set()
         self.abs_read_only_fnames = set()
         self.large_file_token_threshold = 25000
+        self.file_read_cache = set()
 
         from unittest.mock import MagicMock
 
@@ -75,7 +76,7 @@ def test_pattern_with_zero_line_number_is_allowed(coder_with_file):
     )
 
     # read_file now returns a new formatted context message
-    assert "Retrieved context for 1 operation(s)" in result
+    assert "Retrieved context for 1 operation(s)" in str(result)
     coder.io.tool_error.assert_not_called()
 
 
@@ -95,7 +96,7 @@ def test_empty_pattern_uses_line_number(coder_with_file):
     )
 
     # read_file now returns a static success message
-    assert "Retrieved context for 1 operation(s)" in result
+    assert "Retrieved context for 1 operation(s)" in str(result)
     coder.io.tool_error.assert_not_called()
 
 
@@ -115,7 +116,7 @@ def test_conflicting_pattern_and_line_number_raise(coder_with_file):
         ],
     )
 
-    assert "Provide both 'range_start' and 'range_end'" in result
+    assert "Provide both 'range_start' and 'range_end'" in str(result)
     coder.io.tool_error.assert_called()
 
 
@@ -151,7 +152,7 @@ def test_multiline_pattern_search(coder_with_file):
         ],
     )
 
-    assert "Retrieved context for 1 operation(s)" in result
+    assert "Retrieved context for 1 operation(s)" in str(result)
     coder.io.tool_error.assert_not_called()
 
 
@@ -177,7 +178,7 @@ def test_empty_file_includes_edit_hint(tmp_path):
             ],
         )
 
-    assert "pubspec.yaml is empty" in result
-    assert "EditFile" in result
-    assert "readfile again" in result.lower()
+    assert "pubspec.yaml is empty" in str(result)
+    assert "EditFile" in str(result)
+    assert "readfile again" in str(result).lower()
     coder.io.tool_error.assert_not_called()

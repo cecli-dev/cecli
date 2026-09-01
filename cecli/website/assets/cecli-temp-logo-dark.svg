@@ -1,0 +1,32 @@
+<svg viewBox="0 0 150 48" width="150" height="48" xmlns="http://www.w3.org/2000/svg">
+    <rect width="150" height="48" rx="8" fill="#0d1117" />
+    <defs>
+        <!-- x1, x2 being equal makes it vertical -->
+        <linearGradient id="textGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%"   stop-color="#00EE76" /> <!-- spring_green2 -->
+            <stop offset="20%"  stop-color="#00FF7F" /> <!-- spring_green1 -->
+            <stop offset="40%"  stop-color="#00FA9A" /> <!-- medium_spring_green -->
+            <stop offset="60%"  stop-color="#00EEEE" /> <!-- cyan2 -->
+            <stop offset="80%"  stop-color="#00FFFF" /> <!-- cyan1 -->
+            <stop offset="100%" stop-color="#FFFFFF" /> <!-- bright_white -->
+        </linearGradient>
+    </defs>
+
+    <style>
+        .circle-text {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 36px;
+            font-weight: bold;
+            /* Reference the gradient ID here */
+            fill: url(#textGradient);
+        }
+    </style>
+
+    <text x="80" y="22"
+        class="circle-text"
+        text-anchor="middle"
+        dominant-baseline="central"
+    >
+        cecli_
+    </text>
+</svg>
