@@ -338,6 +338,15 @@ class Coder(metaclass=UsageMeta):
             kwargs = use_kwargs
             from_coder.ok_to_warm_cache = False
 
+            # Preserve the prompt queue across a model switch (same coder
+            # identity) but NOT when spawning a distinct sub-agent (which is
+            # assigned a fresh uuid in its kwargs). Model switches keep
+            # from_coder.uuid; sub-agents override it with a new uuid.
+            is_model_switch = from_coder.uuid == kwargs.get("uuid", "")
+            if is_model_switch:
+                kwargs.setdefault("prompt_queue", from_coder.prompt_queue)
+                kwargs.setdefault("_queue_counter", from_coder._queue_counter)
+
         res = None
         if (
             getattr(main_model, "copy_paste_mode", False)
@@ -355,6 +364,14 @@ class Coder(metaclass=UsageMeta):
             if from_coder:
                 # Preserve TUI ref in all child coders
                 if from_coder.tui:
+                    res.tui = from_coder.tui
+
+                # Preserve prompt queue state across model switches (CLI-33).
+                # The queue lives on the coder (see command_queue.py) so the
+                # new coder instance must inherit the list and counter, while
+                # the lock and processing flag are intentionally fresh.
+                res.prompt_queue = from_coder.prompt_queue
+                res._queue_counter = from_coder._queue_counter
                     res.tui = from_coder.tui
 
                 # Sub-agents get a dedicated, independent MCP manager so they
@@ -457,6 +474,8 @@ class Coder(metaclass=UsageMeta):
         root=None,
         primary_root=None,
         init_metadata={},
+        prompt_queue=None,
+        _queue_counter=None,
     ):
         from cecli.helpers.agents.service import AgentService
 
@@ -611,12 +630,12 @@ class Coder(metaclass=UsageMeta):
         self.commands = commands or Commands(self.io, self, args=args)
         self.commands.coder = self
 
-        # Prompt queue for CLI-33: in-memory FIFO queue for deferred prompt
-        # processing. The queue lives on the coder so primary agents and
-        # sub-agents each have their own independent queue, managed by
-        # cecli.helpers.command_queue.
-        self.prompt_queue = []
-        self._queue_counter = 0
+        # Prompt queue for CLI-33: in-memory FIFO queue managed by
+        # cecli.helpers.command_queue. The queue lives on the Coder so it
+        # survives model switches (Coder.create preserves identity) while each
+        # sub-agent gets its own isolated queue.
+        self.prompt_queue = list(prompt_queue) if prompt_queue else []
+        self._queue_counter = _queue_counter if _queue_counter else 0
         self._queue_lock = threading.Lock()
         self._processing_queue = False
 
@@ -1962,97 +1981,119 @@ class Coder(metaclass=UsageMeta):
         else:
             message = user_message
 
-        if self.commands.is_command(user_message) and not self.commands.is_test_command(
-            user_message
-        ):
-            return
+        # Queue-management commands (/queue, /list-queue, /remove-queue) must
+        # not trigger auto-processing of the queue (CLI-33). Every other
+        # message/command drains the queue once it has fully completed, so
+        # queued prompts are sent to the LLM after the current prompt finishes.
+        is_management_command = self._is_queue_management_command(user_message)
 
-        if not self.commands.is_command(user_message):
-            ConversationService.get_chunks(self).flush_removals()
-            self.last_user_message = user_message
-            self.error_code = None
-            self.num_tool_calls = 0
-            # Trim memory in the background so it doesn't delay the response
-            coroutines.fire_and_forget(asyncio.to_thread(trim_memory))
-            # Fire memorizer after each user request
-            # if self.auto_memory and self.edit_format not in ["subagent"]:
-            #    from cecli.helpers.memory.utils import invoke_memorizer
-            #
-            #    context = "If the user has stated any preferences, please remember them"
-            #    asyncio.create_task(invoke_memorizer(self, additional_context=context))
-
-        while True:
-            self.reflected_message = None
-            self.empty_response = False
-            self.tool_reflection = False
-
-            if float(self.total_cost) > self.cost_multiplier * (
-                nested.getter(self.args, "cost_limit", float("inf")) or float("inf")
+        try:
+            if self.commands.is_command(user_message) and not self.commands.is_test_command(
+                user_message
             ):
-                if await self.io.confirm_ask(
-                    "You have reached your configured cost limit. Continue?",
-                    group_response="Cost Limit",
-                    explicit_yes_required=True,
+                return
+
+            if not self.commands.is_command(user_message):
+                ConversationService.get_chunks(self).flush_removals()
+                self.last_user_message = user_message
+                self.error_code = None
+                self.num_tool_calls = 0
+                # Trim memory in the background so it doesn't delay the response
+                coroutines.fire_and_forget(asyncio.to_thread(trim_memory))
+                # Fire memorizer after each user request
+                # if self.auto_memory and self.edit_format not in ["subagent"]:
+                #    from cecli.helpers.memory.utils import invoke_memorizer
+                #
+                #    context = "If the user has stated any preferences, please remember them"
+                #    asyncio.create_task(invoke_memorizer(self, additional_context=context))
+
+            while True:
+                self.reflected_message = None
+                self.empty_response = False
+                self.tool_reflection = False
+
+                if float(self.total_cost) > self.cost_multiplier * (
+                    nested.getter(self.args, "cost_limit", float("inf")) or float("inf")
                 ):
-                    Coder.cost_multiplier += 1
-                else:
-                    return
+                    if await self.io.confirm_ask(
+                        "You have reached your configured cost limit. Continue?",
+                        group_response="Cost Limit",
+                        explicit_yes_required=True,
+                    ):
+                        Coder.cost_multiplier += 1
+                    else:
+                        return
 
-            async for _ in self.send_message(message):
-                pass
+                async for _ in self.send_message(message):
+                    pass
 
-            await self.hot_reload()
+                await self.hot_reload()
 
-            if not self.empty_response:
-                if not self.reflected_message:
+                if not self.empty_response:
+                    if not self.reflected_message:
+                        await self.auto_save_session(force=True)
+                        break
+
+                    if self.num_reflections >= self.max_reflections:
+                        self.io.tool_warning(
+                            f"Only {self.max_reflections} reflections allowed, stopping."
+                        )
+                        break
+
+                    self.num_reflections += 1
+
+                    if self.tool_reflection:
+                        self.num_reflections -= 1
+
+                    if self.reflected_message is True:
+                        message = None
+                    else:
+                        message = self.reflected_message
+                elif self.stop_on_empty:
                     await self.auto_save_session(force=True)
                     break
 
-                if self.num_reflections >= self.max_reflections:
-                    self.io.tool_warning(
-                        f"Only {self.max_reflections} reflections allowed, stopping."
-                    )
+                if self.enable_context_compaction:
+                    await self.compact_context_if_needed()
+
+                if nested.getter(self, "agent_finished", False):
+                    await self.auto_save_session(force=True)
                     break
 
-                self.num_reflections += 1
-
-                if self.tool_reflection:
-                    self.num_reflections -= 1
-
-                if self.reflected_message is True:
-                    message = None
-                else:
-                    message = self.reflected_message
-            elif self.stop_on_empty:
                 await self.auto_save_session(force=True)
-                break
-
-            if self.enable_context_compaction:
-                await self.compact_context_if_needed()
-
-            if nested.getter(self, "agent_finished", False):
-                await self.auto_save_session(force=True)
-                break
-
-            await self.auto_save_session(force=True)
-
-        # Move to the next queued prompt (CLI-33) only after the current message
-        # has fully completed, so the queue drains within run_one() instead of
-        # being watched by the generation loops.
-        if self.prompt_queue and not self._processing_queue:
-            self._processing_queue = True
-            try:
-                item = command_queue.dequeue_prompt(self)
-            finally:
-                self._processing_queue = False
-
-            if item is not None:
-                self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
-                await self.run_one(item["text"], preproc)
+        finally:
+            # Drain the queue once the current message/command has fully
+            # completed, so queued prompts are sent to the LLM (CLI-33).
+            if not is_management_command:
+                await self._drain_prompt_queue(preproc)
 
         if not await HookIntegration.call_end_hooks(self):
             self.io.tool_warning("Execution stopped by end hook")
             return
+
+    def _is_queue_management_command(self, user_message):
+        """Return True if user_message is a queue-management command (CLI-33)."""
+        if not self.commands or not self.commands.is_command(user_message):
+            return False
+        words = user_message.strip().split()
+        if not words:
+            return False
+        cmd_name = words[0][1:]
+        return cmd_name in getattr(self.commands, "_MANAGEMENT_COMMANDS", set())
+
+    async def _drain_prompt_queue(self, preproc):
+        """Process the next queued prompt (FIFO) after the current message completes."""
+        if not self.prompt_queue or self._processing_queue:
+            return
+        self._processing_queue = True
+        try:
+            item = command_queue.dequeue_prompt(self)
+        finally:
+            self._processing_queue = False
+
+        if item is not None:
+            self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
+            await self.run_one(item["text"], preproc)
 
     def _is_url_allowed(self, url):
         allowed_domains = self.security_config.get("allowed-domains")
@@ -4141,7 +4182,7 @@ class Coder(metaclass=UsageMeta):
         # exact-prefix prompt caching keeps working across turns, so we collect the
         # fields ourselves and concatenate list-valued entries.
         message_provider_specific_fields = {}
-        for chunk in self.partial_response_chunks:
+о†る—        for chunk in self.partial_response_chunks:
             try:
                 if chunk.choices and chunk.choices[0].delta:
                     psf = getattr(chunk.choices[0].delta, "provider_specific_fields", None)
@@ -4279,7 +4320,7 @@ class Coder(metaclass=UsageMeta):
         index_lookup = {}
         last_key = None
 
-        for chunk in self.partial_response_chunks:
+о─용—        for chunk in self.partial_response_chunks:
             try:
                 if not (chunk.choices and chunk.choices[0].delta):
                     continue
