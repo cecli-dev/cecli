@@ -370,8 +370,11 @@ class Coder(metaclass=UsageMeta):
                 # The queue lives on the coder (see command_queue.py) so the
                 # new coder instance must inherit the list and counter, while
                 # the lock and processing flag are intentionally fresh.
-                res.prompt_queue = from_coder.prompt_queue
-                res._queue_counter = from_coder._queue_counter
+                # Only model switches inherit the queue; sub-agents get their
+                # own isolated queue (each agent has its own context/queue).
+                if is_model_switch:
+                    res.prompt_queue = from_coder.prompt_queue
+                    res._queue_counter = from_coder._queue_counter
                 res.tui = from_coder.tui
 
                 # Sub-agents get a dedicated, independent MCP manager so they
