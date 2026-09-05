@@ -22,11 +22,45 @@ from unittest.mock import MagicMock
 import pytest
 
 # Import the actual classes to test
-from cecli.commands.core import Commands, ReloadProgramSignal, SwitchCoderSignal
+from cecli.commands.core import Commands
 from cecli.commands.list_queue import ListQueueCommand
 from cecli.commands.queue import QueueCommand
 from cecli.commands.remove_queue import RemoveQueueCommand
 from cecli.commands.utils.registry import CommandRegistry
+from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
+
+
+def _make_coder():
+    """Build a minimal coder-like object with the queue attributes the
+    ``command_queue`` helpers require (``prompt_queue``, ``_queue_counter``,
+    ``_queue_lock``)."""
+    coder = MagicMock()
+    import uuid
+
+    coder.uuid = str(uuid.uuid4())
+    coder.prompt_queue = []
+    coder._queue_counter = 0
+    return coder
+
+
+@pytest.fixture(autouse=True)
+def _reset_agent_service():
+    """Reset the AgentService singleton between tests.
+
+    ``command_queue.get_active_coder`` resolves the foreground coder through
+    ``AgentService``, whose ``_instances`` and ``_primary_agent_uuid`` are
+    class-level state. Without a reset, the first test's coder becomes the
+    "primary" and every later test is routed to that coder's queue, causing
+    cross-test pollution.
+    """
+    from cecli.helpers.agents.service import AgentService
+
+    AgentService._instances = {}
+    AgentService._primary_agent_uuid = None
+    yield
+    AgentService._instances = {}
+    AgentService._primary_agent_uuid = None
+
 
 # ============================================================================
 # Test Fixtures (Section 10.6, TDS-01 through TDS-04)
@@ -46,8 +80,8 @@ def mock_io():
 @pytest.fixture
 def mock_coder():
     """Create a mock coder with commands attribute pointing to a Commands instance."""
-    coder = MagicMock()
-    commands = Commands(io=None, coder=None)
+    coder = _make_coder()
+    commands = Commands(io=None, coder=coder)
     coder.commands = commands
     coder.io = None
     coder.tui = None
@@ -57,7 +91,7 @@ def mock_coder():
 @pytest.fixture
 def clean_commands():
     """Create a fresh Commands instance with empty queue for isolated testing."""
-    return Commands(io=None, coder=None)
+    return Commands(io=None, coder=_make_coder())
 
 
 @pytest.fixture
@@ -72,7 +106,7 @@ def populated_queue(clean_commands):
 @pytest.fixture
 def full_queue():
     """Create Commands with queue filled to max capacity (100 items)."""
-    commands = Commands(io=None, coder=None)
+    commands = Commands(io=None, coder=_make_coder())
     for i in range(100):
         commands._enqueue_prompt(f"prompt_{i}")
     return commands
