@@ -372,7 +372,7 @@ class Coder(metaclass=UsageMeta):
                 # the lock and processing flag are intentionally fresh.
                 res.prompt_queue = from_coder.prompt_queue
                 res._queue_counter = from_coder._queue_counter
-                    res.tui = from_coder.tui
+                res.tui = from_coder.tui
 
                 # Sub-agents get a dedicated, independent MCP manager so they
                 # can rebuild a custom tool list (their own LocalServer tools /
@@ -1981,10 +1981,11 @@ class Coder(metaclass=UsageMeta):
         else:
             message = user_message
 
-        # Queue-management commands (/queue, /list-queue, /remove-queue) must
-        # not trigger auto-processing of the queue (CLI-33). Every other
-        # message/command drains the queue once it has fully completed, so
-        # queued prompts are sent to the LLM after the current prompt finishes.
+        # /list-queue and /remove-queue must not trigger auto-processing of the
+        # queue (CLI-33). Every other message/command — including /queue, so a
+        # prompt queued while idle processes immediately — drains the queue once
+        # it has fully completed, so queued prompts are sent to the LLM after
+        # the current prompt finishes.
         is_management_command = self._is_queue_management_command(user_message)
 
         try:
@@ -2072,28 +2073,46 @@ class Coder(metaclass=UsageMeta):
             return
 
     def _is_queue_management_command(self, user_message):
-        """Return True if user_message is a queue-management command (CLI-33)."""
+        """Return True if user_message is a read-only queue-management command.
+
+        Only /list-queue and /remove-queue are excluded from auto-processing:
+        they inspect or mutate the queue without the user asking queued prompts
+        to run. /queue is deliberately NOT management here, so a prompt queued
+        while the coder is idle drains (and processes) immediately afterward.
+        """
         if not self.commands or not self.commands.is_command(user_message):
             return False
         words = user_message.strip().split()
         if not words:
             return False
         cmd_name = words[0][1:]
-        return cmd_name in getattr(self.commands, "_MANAGEMENT_COMMANDS", set())
+        return cmd_name in ("list-queue", "remove-queue")
 
     async def _drain_prompt_queue(self, preproc):
-        """Process the next queued prompt (FIFO) after the current message completes."""
-        if not self.prompt_queue or self._processing_queue:
+        """Process all queued prompts (FIFO) once the current message completes.
+
+        Runs each queued prompt through ``run_one`` so it is sent to the LLM
+        exactly like a user-typed prompt. A single failing queued prompt is
+        logged and does not stop the remaining ones (``SwitchCoderSignal`` and
+        ``ReloadProgramSignal`` are BaseExceptions and propagate unchanged).
+        """
+        if self._processing_queue:
             return
         self._processing_queue = True
         try:
-            item = command_queue.dequeue_prompt(self)
+            while True:
+                item = command_queue.dequeue_prompt(self)
+                if item is None:
+                    break
+                text = item["text"]
+                preview = text if len(text) <= 80 else text[:80] + "..."
+                self.io.tool_output(f"Processing queued prompt: {preview}")
+                try:
+                    await self.run_one(text, preproc)
+                except Exception as e:
+                    self.io.tool_error(f"Error processing queued prompt: {e}")
         finally:
             self._processing_queue = False
-
-        if item is not None:
-            self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
-            await self.run_one(item["text"], preproc)
 
     def _is_url_allowed(self, url):
         allowed_domains = self.security_config.get("allowed-domains")
@@ -4182,7 +4201,7 @@ class Coder(metaclass=UsageMeta):
         # exact-prefix prompt caching keeps working across turns, so we collect the
         # fields ourselves and concatenate list-valued entries.
         message_provider_specific_fields = {}
-о†る—        for chunk in self.partial_response_chunks:
+        for chunk in self.partial_response_chunks:
             try:
                 if chunk.choices and chunk.choices[0].delta:
                     psf = getattr(chunk.choices[0].delta, "provider_specific_fields", None)
@@ -4320,7 +4339,7 @@ class Coder(metaclass=UsageMeta):
         index_lookup = {}
         last_key = None
 
-о─용—        for chunk in self.partial_response_chunks:
+        for chunk in self.partial_response_chunks:
             try:
                 if not (chunk.choices and chunk.choices[0].delta):
                     continue

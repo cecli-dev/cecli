@@ -1005,6 +1005,20 @@ class TUI(App):
                 f"Prompt queued at position {position} (id: {item['id']})"
             )
 
+            # Process the queued prompt immediately when the coder is idle (no
+            # active output task). The TUI dispatches queue commands directly
+            # here instead of through run_one(), so without this the queued
+            # prompt would only run after the user submits yet another prompt.
+            worker_loop = getattr(self.worker, "loop", None)
+            if (
+                worker_loop is not None
+                and not is_active(getattr(active_coder.io, "output_task", None))
+                and not getattr(active_coder, "_processing_queue", False)
+            ):
+                worker_loop.call_soon_threadsafe(
+                    lambda: worker_loop.create_task(active_coder._drain_prompt_queue(True))
+                )
+
         elif cmd == "/list-queue":
             items = command_queue.list_queue(active_coder)
             if not items:
