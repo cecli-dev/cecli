@@ -1062,8 +1062,11 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--voice-language",
         metavar="VOICE_LANGUAGE",
-        default="en",
-        help="Specify the language for voice using ISO 639-1 code (default: auto)",
+        default=None,
+        help=(
+            "Specify the language for voice using ISO 639-1 code "
+            "(default: resolve from the voice setting, then chat language)"
+        ),
     )
     group.add_argument(
         "--voice-input-device",

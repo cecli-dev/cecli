@@ -56,6 +56,9 @@ pydub>=0.25.1
 sounddevice>=0.5.2
 soundfile>=0.13.1
 
+# on-device speech-to-text for the voice command (Moonshine small English model)
+moonshine-voice>=0.1.5
+
 # images (PIL import)
 pillow>=11.3.0
 

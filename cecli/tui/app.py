@@ -192,6 +192,13 @@ class TUI(App):
             self._encode_keys(self.get_keys_for("quit")), "quit", description="Quit", show=True
         )
 
+        self.bind(
+            self._encode_keys(self.get_keys_for("voice")),
+            "start_voice",
+            description="Record Voice",
+            show=True,
+        )
+
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
 
@@ -272,7 +279,8 @@ class TUI(App):
             "prev_agent": "alt+ctrl+left",
             "main_agent": "alt+ctrl+up",
             "editor": "ctrl+o",
-            "history": "ctrl+r",
+            "history": "alt+shift+h",
+            "voice": "ctrl+r",
             "focus": "ctrl+f",
             "cancel": "ctrl+c",
             "clear": "ctrl+l",
@@ -1214,6 +1222,36 @@ class TUI(App):
         # Get current input text to use as initial content
         input_area = self.query_one("#input", InputArea)
         input_area.post_message(input_area.Submit("/history-search"))
+
+    def action_start_voice(self):
+        """Start voice recording via the /voice command (keyboard shortcut)."""
+        from cecli.helpers.agents.service import AgentService
+
+        coder = self.worker.coder
+        foreground_coder = AgentService.get_instance(coder).foreground_coder
+        coder_uuid = (
+            str(foreground_coder.uuid)
+            if foreground_coder and hasattr(foreground_coder, "uuid")
+            else None
+        )
+        agent_name = self._resolve_agent_name(coder_uuid)
+
+        # Surface the recording state in the footer spinner (the /voice
+        # command updates it as it runs).
+        footer = self.query_one(MainFooter)
+        footer.start_spinner("Recording...", agent_name=agent_name or "")
+
+        if coder:
+            coder.io.start_spinner("Recording...", coder_uuid=coder_uuid)
+
+        # Forward "/voice" to the coder via the normal agent-loop queue so it
+        # is dispatched as a command, without echoing it or saving it to
+        # history.
+        if coder_uuid and coder_uuid in queues._per_coder_queues:
+            queues.push_coder_input(coder_uuid, {"text": "/voice", "coder_uuid": coder_uuid})
+        else:
+            self.input_queue.put({"text": "/voice", "coder_uuid": coder_uuid})
+            queues.wake_input_waiters()
 
     def action_open_editor(self):
         """Open an external editor to compose a prompt (keyboard shortcut)."""

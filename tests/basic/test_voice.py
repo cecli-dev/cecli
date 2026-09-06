@@ -24,14 +24,17 @@ def mock_soundfile():
 
 
 @pytest.fixture
-def mock_litellm():
-    mock_llm = MagicMock()
-    mock_llm.transcription = MagicMock(return_value=MagicMock(text="Test transcription"))
-    return mock_llm
+def mock_audio_libs():
+    """Expose fake sounddevice/soundfile modules so ``Voice()`` can be built."""
+    with patch.dict(
+        "sys.modules",
+        {"sounddevice": MagicMock(), "soundfile": MagicMock()},
+    ):
+        yield
 
 
 @pytest.mark.asyncio
-async def test_voice_init_default():
+async def test_voice_init_default(mock_audio_libs):
     """Test Voice initialization with default parameters."""
     voice = Voice()
     assert voice.audio_format == "wav"
@@ -40,7 +43,7 @@ async def test_voice_init_default():
 
 
 @pytest.mark.asyncio
-async def test_voice_init_with_device():
+async def test_voice_init_with_device(mock_audio_libs):
     """Test Voice initialization with specific device name."""
     voice = Voice(device_name="test_device", audio_format="mp3")
     assert voice.device_name == "test_device"
@@ -48,7 +51,7 @@ async def test_voice_init_with_device():
 
 
 @pytest.mark.asyncio
-async def test_record_and_transcribe_success():
+async def test_record_and_transcribe_success(mock_audio_libs):
     """Test successful recording and transcription."""
     voice = Voice()
 
@@ -79,8 +82,8 @@ async def test_record_and_transcribe_success():
 
 
 @pytest.mark.asyncio
-async def test_record_and_transcribe_exception():
-    """Test that exceptions in transcription are caught and return None."""
+async def test_record_and_transcribe_exception(mock_audio_libs):
+    """Test that exceptions in transcription propagate to the caller."""
     voice = Voice()
 
     # Mock the executor's run_in_executor to raise an exception
@@ -93,13 +96,12 @@ async def test_record_and_transcribe_exception():
     ):
         mock_loop.return_value.run_in_executor = MagicMock(return_value=mock_future)
 
-        result = await voice.record_and_transcribe()
-
-        assert result is None
+        with pytest.raises(Exception, match="Test error"):
+            await voice.record_and_transcribe()
 
 
 @pytest.mark.asyncio
-async def test_record_and_transcribe_with_device():
+async def test_record_and_transcribe_with_device(mock_audio_libs):
     """Test recording with specific device name."""
     voice = Voice(device_name="test_device")
 
@@ -131,12 +133,10 @@ def test_run_record_process_device_selection():
     mock_sd = MagicMock()
     mock_sf = MagicMock()
     mock_sf.SoundFile = MagicMock()
-    mock_litellm = MagicMock()
-    mock_litellm.transcription = MagicMock(return_value=MagicMock(text="Test transcription"))
 
     with (
         patch.dict("sys.modules", {"sounddevice": mock_sd, "soundfile": mock_sf}),
-        patch("cecli.llm.litellm", mock_litellm),
+        patch("cecli.voice._transcribe_local", return_value="Test transcription"),
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
         patch("builtins.open", mock_open()),
         patch("os.remove"),
@@ -223,11 +223,7 @@ def test_run_record_process_no_device_found():
 
         mock_sf.SoundFile.return_value.__enter__.return_value.write = MagicMock()
 
-        # Mock litellm
-        mock_litellm = MagicMock()
-        mock_litellm.transcription = MagicMock(return_value=MagicMock(text="Test transcription"))
-
-        with patch("cecli.llm.litellm", mock_litellm):
+        with patch("cecli.voice._transcribe_local", return_value="Test transcription"):
             # Mock stdin.readline to simulate user pressing ENTER
             with patch("sys.stdin.readline", return_value=""):
                 from cecli.voice import _run_record_process
@@ -236,3 +232,22 @@ def test_run_record_process_no_device_found():
 
                 # Should still work with device_id=None
                 assert result == "Test transcription"
+
+
+def test_resolve_moonshine_language():
+    """Test language resolution precedence for the Moonshine model."""
+    from cecli.voice import resolve_moonshine_language
+
+    # Explicit voice-language value wins.
+    assert resolve_moonshine_language("es", "English") == "es"
+    assert resolve_moonshine_language("english", None) == "en"
+
+    # Falls back to the detected user/chat language.
+    assert resolve_moonshine_language(None, "Spanish") == "es"
+    assert resolve_moonshine_language(None, "Chinese") == "zh"
+    assert resolve_moonshine_language(None, "Mandarin") == "zh"
+
+    # Unsupported/absent languages fall back to English.
+    assert resolve_moonshine_language(None, "Russian") == "en"
+    assert resolve_moonshine_language(None, None) == "en"
+    assert resolve_moonshine_language("", None) == "en"
