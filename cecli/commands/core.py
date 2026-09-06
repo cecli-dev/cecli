@@ -130,6 +130,12 @@ class Commands:
 
         return command_queue.enqueue_prompt(self._active_coder(), text)
 
+    def _insert_prompt(self, text: str, index: int) -> dict:
+        """Insert a prompt at the given index in the active coder's queue."""
+        from cecli.helpers import command_queue
+
+        return command_queue.insert_prompt(self._active_coder(), text, index)
+
     def _dequeue_prompt(self) -> dict | None:
         """Remove and return the first item from the active coder's queue."""
         from cecli.helpers import command_queue
