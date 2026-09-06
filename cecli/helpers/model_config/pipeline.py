@@ -133,7 +133,7 @@ def _build_config(context):
     route = context["route"]
     record = context["record"]
     llm = derive_llm_config(provider, route, record)
-    api = derive_api_config(provider, route, record)
+    api = derive_api_config(provider, route, record, context["model_name"])
     agent = derive_agent_config(provider, route, record)
 
     if llm.get("mode") == "responses":

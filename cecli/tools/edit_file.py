@@ -101,7 +101,7 @@ class Tool(BaseTool):
                                 "start_line": {
                                     "type": "string",
                                     "description": (
-                                        "The first line of the edit: "
+                                        "The first line of the edit (inclusive): "
                                         "its exact text if unique, its hashed prefix "
                                         f"(e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}') if duplicated, "
                                         "or '@000' for empty files."

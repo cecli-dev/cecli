@@ -248,6 +248,15 @@ def test_reasoning_effort_defaults_to_medium():
     )
 
 
+def test_glm_and_kimi_default_to_high_reasoning_effort():
+    """GLM/Kimi models default to ``high`` effort, not ``medium``."""
+    glm = _record(litellm_provider="zai")
+    kimi = _record(litellm_provider="moonshot")
+
+    assert get_default_config("glm-4.6", [{"glm-4.6": glm}])["api"]["reasoning_effort"] == "high"
+    assert get_default_config("kimi-k2", [{"kimi-k2": kimi}])["api"]["reasoning_effort"] == "high"
+
+
 def test_vision_flag():
     vision = _record(supports_vision=True)
     no_vision = _record(supports_vision=False)

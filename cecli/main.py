@@ -1120,36 +1120,21 @@ async def main_async(
             "Model setting 'remove_reasoning' is deprecated, please use 'reasoning_tag' instead."
         )
     if args.reasoning_effort is not None:
-        if (
-            not args.check_model_accepts_settings
-            or main_model.accepts_settings
-            and "reasoning_effort" in main_model.accepts_settings
-        ):
-            main_model.set_reasoning_effort(args.reasoning_effort)
+        main_model.set_reasoning_effort(args.reasoning_effort)
+        if agent_model_obj:
+            agent_model_obj.set_reasoning_effort(args.reasoning_effort)
+        if weak_model_obj:
+            weak_model_obj.set_reasoning_effort(args.reasoning_effort)
+        if editor_model_obj:
+            editor_model_obj.set_reasoning_effort(args.reasoning_effort)
     if args.thinking_tokens is not None:
-        if (
-            not args.check_model_accepts_settings
-            or main_model.accepts_settings
-            and "thinking_tokens" in main_model.accepts_settings
-        ):
-            main_model.set_thinking_tokens(args.thinking_tokens)
-    if args.check_model_accepts_settings:
-        settings_to_check = [
-            {"arg": args.reasoning_effort, "name": "reasoning_effort"},
-            {"arg": args.thinking_tokens, "name": "thinking_tokens"},
-        ]
-        for setting in settings_to_check:
-            if setting["arg"] is not None and (
-                not main_model.accepts_settings
-                or setting["name"] not in main_model.accepts_settings
-            ):
-                io.tool_warning(
-                    f"Warning: {main_model.name} does not support '{setting['name']}', ignoring."
-                )
-                io.tool_output(
-                    f"Use --no-check-model-accepts-settings to force the '{setting['name']}'"
-                    " setting."
-                )
+        main_model.set_thinking_tokens(args.thinking_tokens)
+        if agent_model_obj:
+            agent_model_obj.set_thinking_tokens(args.thinking_tokens)
+        if weak_model_obj:
+            weak_model_obj.set_thinking_tokens(args.thinking_tokens)
+        if editor_model_obj:
+            editor_model_obj.set_thinking_tokens(args.thinking_tokens)
     if args.copy_paste and args.edit_format is None:
         if main_model.edit_format in ("diff", "whole", "diff-fenced"):
             main_model.edit_format = "editor-" + main_model.edit_format
@@ -1374,8 +1359,7 @@ async def main_async(
     if args.copy_paste:
         ClipboardWatcher(coder.io, verbose=args.verbose)
     if args.show_prompts:
-        coder.cur_messages += [dict(role="user", content="Hello!")]
-        messages = coder.format_messages().all_messages()
+        messages = coder.format_messages()
         utils.show_messages(messages)
         return await graceful_exit(coder)
     if args.lint:

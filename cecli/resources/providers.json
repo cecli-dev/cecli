@@ -326,14 +326,16 @@
     "api_key_env": [
       "OPENCODE_GO_API_KEY"
     ],
-    "display_name": "opencode-go"
+    "display_name": "opencode-go",
+    "session_header": "x-opencode-session"
   },
   "opencode-zen": {
     "api_base": "https://opencode.ai/zen/v1",
     "api_key_env": [
       "OPENCODE_ZEN_API_KEY"
     ],
-    "display_name": "opencode-zen"
+    "display_name": "opencode-zen",
+    "session_header": "x-opencode-session"
   },
   "ovhcloud": {
     "api_base": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",

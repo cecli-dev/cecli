@@ -682,7 +682,24 @@ class Tool(BaseTool):
     def format_model_response(
         cls, coder, rel_path, s_idx, e_idx, hashed_lines, current=False, skip_truncation=False
     ):
-        """Format a file's context range as hash-prefixed lines for the model."""
+        """Format a file's context range as hash-prefixed lines for the model.
+
+        When ``current`` is True the range is already present in the persisted
+        FILE_CONTEXTS block, so we return a lightweight reference instead of
+        re-sending the content (avoids duplicating context on repeated reads).
+        """
+
+        if current:
+            return {
+                "file_path": rel_path,
+                "status": "current",
+                "start_line": s_idx + 1,
+                "end_line": e_idx + 1,
+                "total_lines": len(hashed_lines),
+                "prefixed_contents": "",
+                "outline": "",
+                "note": "Already in context from a previous read; content not re-sent.",
+            }
 
         hashed_content = "\n".join(hashed_lines[s_idx : e_idx + 1])
         token_count = coder.main_model.token_count(hashed_content)

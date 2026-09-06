@@ -22,6 +22,7 @@ from cecli.helpers.file_searcher import (
     handle_core_files,
 )
 from cecli.helpers.model_config import get_default_config
+from cecli.helpers.model_config.registry import register_default
 from cecli.helpers.model_config.utils import get_entry_from_raw
 from cecli.helpers.model_providers import ModelProviderManager
 from cecli.helpers.nested import deep_merge
@@ -980,15 +981,23 @@ class Model(ModelSettings):
     def _apply_reasoning_defaults(self):
         """Apply the default thinking/reasoning configuration at init time.
 
-        The model config pipeline's ``api`` block decides which mechanism a
-        model uses: anthropic-family models configure ``thinking`` tokens while
-        everything else uses a reasoning effort.  ``override_kwargs`` applied
-        later in ``_apply_structured_kwargs`` win over these defaults.
+        The model config pipeline's ``api`` block carries the reasoning effort
+        and/or thinking budget the model uses; the config registry records the
+        defaults so they initialize from the api block or an explicit user
+        override.  ``override_kwargs`` applied later in
+        ``_apply_structured_kwargs`` win over these defaults.
         """
+        register_default(
+            self.name,
+            reasoning=self._default_reasoning_effort,
+            thinking=self._default_thinking_budget,
+        )
+
+        if self._default_reasoning_effort is not None:
+            self.set_reasoning_effort(self._default_reasoning_effort)
+
         if self._default_thinking_budget is not None:
             self.set_thinking_tokens(self._default_thinking_budget)
-        elif self._default_reasoning_effort is not None:
-            self.set_reasoning_effort(self._default_reasoning_effort)
 
     def tokenizer(self, text):
         return litellm.encode(model=self.name, text=text)
@@ -1140,6 +1149,8 @@ class Model(ModelSettings):
         the effort onto the provider's own field (e.g. Gemini's
         ``thinking_level``).
         """
+        register_default(self.name, reasoning=effort)
+
         if not self.extra_params:
             self.extra_params = {}
 
@@ -1221,6 +1232,7 @@ class Model(ModelSettings):
         """
         if value is not None:
             num_tokens = self.parse_token_value(value)
+            register_default(self.name, thinking=num_tokens)
             self.use_temperature = False
             if not self.extra_params:
                 self.extra_params = {}

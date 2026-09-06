@@ -72,6 +72,7 @@ class TUI(App):
         self._symbols_cache = None
         self._symbols_files_hash = None
         self._mouse_hold_timer = None
+        self._git_branch_fp = None
         self._currently_generating = False
 
         # Sub-agent tracking
@@ -394,6 +395,11 @@ class TUI(App):
         self.begin_capture_print(output_container, stdout=True, stderr=True)
 
         self.set_interval(0.05, self.check_output_queue)
+
+        # Cheap poll for git branch changes (HEAD) rather than a full git
+        # resolve on a fixed cadence; only refresh the footer when it changes.
+        self.set_interval(5, self._check_git_branch)
+
         self.worker.start()
         self.query_one("#input").focus()
 
@@ -880,6 +886,14 @@ class TUI(App):
             self._handle_spawn_agent_command(user_input, stripped)
             return
 
+        # Intercept /workspace <ws:name> to open an already-registered workspace
+        # sub-agent immediately, mirroring /spawn-agent.
+        if stripped == "/workspace" or stripped.startswith("/workspace "):
+            parts = stripped.split(maxsplit=1)
+            if len(parts) == 2 and parts[1].strip().startswith("ws:"):
+                self._handle_workspace_command(user_input, stripped)
+                return
+
         # Intercept queue management commands (/queue, /list-queue, /remove-queue,
         # /insert-queue) to dispatch immediately without a full generation cycle -
         # they only modify the active coder's prompt_queue.
@@ -1128,6 +1142,41 @@ class TUI(App):
             await SpawnAgentCommand.execute(coder.io, coder, spawn_args)
 
         self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_spawn()))
+
+    def _handle_workspace_command(self, user_input: str, stripped: str) -> None:
+        """Dispatch /workspace <ws:name> immediately without a full generation cycle.
+
+        Opening an already-registered workspace sub-agent mirrors /spawn-agent, so
+        it is scheduled on the worker's event loop to allow spawning while the
+        primary coder is generating.
+        """
+        from cecli.commands.workspace import WorkspaceCommand
+
+        parts = stripped.split(maxsplit=1)
+        spawn_args = parts[1].strip() if len(parts) > 1 else ""
+
+        input_area = self.query_one("#input", InputArea)
+        input_area.value = ""
+
+        if not spawn_args:
+            self.show_error("Usage: /workspace <ws:name>")
+            return
+
+        # Save to history and echo the command before dispatching
+        input_area.save_to_history(user_input)
+        self.add_user_message(user_input)
+
+        coder = self.worker.coder
+        if self.worker.loop is None:
+            self.show_error("Worker loop not available. Cannot open workspace sub-agent.")
+            return
+
+        async def _run_workspace():
+            await WorkspaceCommand.execute(coder.io, coder, spawn_args)
+
+        self.worker.loop.call_soon_threadsafe(
+            lambda: self.worker.loop.create_task(_run_workspace())
+        )
 
     def set_input_value(self, text) -> None:
         """Find the input widget and set focus to it."""
@@ -1469,6 +1518,37 @@ class TUI(App):
             footer.update_info(project_name, branch)
         except Exception:
             pass
+
+    def _git_branch_fingerprint(self):
+        """Return a cheap signature for the active repo's checked-out branch.
+
+        The ``.git/HEAD`` file holds the branch reference (``ref: refs/heads/<name>``)
+        and is rewritten on every checkout/switch and on rename of the current
+        branch, so its content alone is enough to detect a displayed-branch-name
+        change without running git.  Returns ``None`` when there is no usable repo.
+        """
+        repo = getattr(self._get_visible_coder(), "repo", None)
+        if not repo:
+            return None
+
+        try:
+            git_dir = Path(repo.repo.git_dir)
+        except Exception:
+            return None
+
+        try:
+            return (git_dir / "HEAD").read_text(errors="replace").strip()
+        except OSError:
+            return None
+
+    def _check_git_branch(self):
+        """Cheap poll: refresh the footer only when the branch fingerprint changed."""
+        fingerprint = self._git_branch_fingerprint()
+        if fingerprint is None or fingerprint == self._git_branch_fp:
+            return
+
+        self._git_branch_fp = fingerprint
+        self._refresh_footer()
 
     def _sync_sub_agent_display(self) -> None:
         """Update the InputContainer border title with mode and sub-agent pills.

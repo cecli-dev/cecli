@@ -987,6 +987,53 @@ class SkillsManager:
             # The caller should handle the exception
             raise
 
+    def format_active_skill_message(self, skill_content: SkillContent) -> str:
+        """Format a single skill's content as a context block message."""
+        metadata = skill_content.metadata
+        result = '<context name="active_skill" from="agent">\n'
+        result += f"### Skill: {metadata.name}\n\n"
+        result += f"**Description**: {metadata.description}\n\n"
+
+        if metadata.license:
+            result += f"**License**: {metadata.license}\n\n"
+
+        if metadata.allowed_tools:
+            result += f"**Allowed Tools**: {', '.join(metadata.allowed_tools)}\n\n"
+
+        result += "#### Instructions\n\n"
+        result += f"{skill_content.instructions}\n\n"
+
+        if skill_content.references:
+            result += "#### References\n\n"
+            result += f"Available reference files ({len(skill_content.references)}):\n\n"
+            for ref_name, ref_path in skill_content.references.items():
+                result += f"- **{ref_name}**: `{ref_path}`\n"
+            result += "\n"
+
+        if skill_content.scripts:
+            result += "#### Scripts\n\n"
+            result += f"Available script files ({len(skill_content.scripts)}):\n\n"
+            for script_name, script_path in skill_content.scripts.items():
+                result += f"- **{script_name}**: `{script_path}`\n"
+            result += "\n"
+
+        if skill_content.assets:
+            result += f"#### Assets ({len(skill_content.assets)} file(s))\n\n"
+            result += "Available asset files:\n\n"
+            for asset_name, asset_path in skill_content.assets.items():
+                result += f"- **{asset_name}**: `{asset_path}`\n"
+            result += "\n"
+
+        if skill_content.evals:
+            result += f"#### Evals ({len(skill_content.evals)} file(s))\n\n"
+            result += "Available eval files:\n\n"
+            for eval_name, eval_path in skill_content.evals.items():
+                result += f"- **{eval_name}**: `{eval_path}`\n"
+            result += "\n"
+
+        result += "</context>"
+        return result
+
     def get_skills_context(self) -> Optional[str]:
         """
         Generate a context block for available skills.

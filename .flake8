@@ -1,3 +1,4 @@
 [flake8]
 ignore = E203,W503
 max-line-length = 120
+exclude = *.md,*.markdown

@@ -346,3 +346,54 @@ def test_on_input_area_submit_intercepts_spawn_agent(tui_instance):
         "/spawn-agent reviewer review the code",
         "/spawn-agent reviewer review the code",
     )
+
+
+def test_handle_workspace_command_dispatches_to_worker_loop(tui_instance):
+    """Workspace open dispatch is scheduled on the worker loop without a generate cycle."""
+    worker = MagicMock()
+    worker.loop = MagicMock()
+    worker.coder = MagicMock()
+    worker.coder.io = MagicMock()
+    tui_instance.worker = worker
+
+    input_area = MagicMock()
+    tui_instance.query_one = MagicMock(return_value=input_area)
+    tui_instance.add_user_message = MagicMock()
+
+    tui_instance._handle_workspace_command("/workspace ws:app", "/workspace ws:app")
+
+    # Input cleared, history saved, command echoed
+    assert input_area.value == ""
+    input_area.save_to_history.assert_called_once_with("/workspace ws:app")
+    tui_instance.add_user_message.assert_called_once_with("/workspace ws:app")
+
+    # Dispatch is scheduled on the worker loop
+    worker.loop.call_soon_threadsafe.assert_called_once()
+    callback = worker.loop.call_soon_threadsafe.call_args[0][0]
+    callback()
+    worker.loop.create_task.assert_called_once()
+    coro = worker.loop.create_task.call_args[0][0]
+
+    import asyncio
+
+    with patch(
+        "cecli.commands.workspace.WorkspaceCommand.execute", new=AsyncMock()
+    ) as mock_execute:
+        asyncio.run(coro)
+        mock_execute.assert_awaited_once_with(worker.coder.io, worker.coder, "ws:app")
+
+
+def test_on_input_area_submit_intercepts_workspace(tui_instance):
+    """'/workspace <ws:name>' is handled directly without reaching the generate path."""
+    tui_instance.query_one = MagicMock(return_value=MagicMock())
+    tui_instance._handle_workspace_command = MagicMock()
+
+    message = MagicMock()
+    message.value = "/workspace ws:app"
+
+    tui_instance.on_input_area_submit(message)
+
+    tui_instance._handle_workspace_command.assert_called_once_with(
+        "/workspace ws:app",
+        "/workspace ws:app",
+    )

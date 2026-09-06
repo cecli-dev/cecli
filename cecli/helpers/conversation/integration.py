@@ -762,8 +762,8 @@ class ConversationChunks:
             if not ranges:
                 continue
 
-            # Generate context content
-            context_content = ConversationService.get_files(coder).get_file_context(file_path)
+            # Generate context content (append-only delta: only new ranges are emitted)
+            context_content = ConversationService.get_files(coder).get_new_file_context(file_path)
             if not context_content:
                 continue
 
@@ -774,6 +774,9 @@ class ConversationChunks:
                 "role": "user",
                 "content": f"ID-Prefixed Context For:\n{rel_fname}\n\n{context_content}",
             }
+
+            # Append-only: new FILE_CONTEXTS blocks are added, never removed, so
+            # the conversation message stream stays a log (no prefix rewrite).
 
             # Add to conversation manager
             content_hash = xxhash.xxh3_128_hexdigest(context_content.encode("utf-8"))
@@ -850,8 +853,7 @@ class ConversationChunks:
         """
         Add pre-message context blocks to conversation (priority 125).
 
-        Pre-message blocks include: symbol_outline, git_status, todo_list,
-        loaded_skills, context_summary
+        Pre-message blocks include: symbol_outline, git_status, todo_list, context_summary
         """
         coder = self.get_coder()
         if not coder:
@@ -875,10 +877,6 @@ class ConversationChunks:
                 block = coder.get_cached_context_block("git_status")
                 if block:
                     message_blocks["git_status"] = block
-            if "skills" in coder.allowed_context_blocks:
-                block = coder._generate_context_block("loaded_skills")
-                if block:
-                    message_blocks["loaded_skills"] = block
 
         # Process other blocks
         for block_type, block_content in message_blocks.items():
@@ -888,6 +886,58 @@ class ConversationChunks:
                 priority=125,  # Between REPO (100) and READONLY_FILES (200)
                 hash_key=("pre_message", block_type),
                 force=True,
+            )
+
+    def add_active_skills_messages(self, skills_manager) -> None:
+        """Add a distinct message per active (loaded) skill.
+
+        Unlike the prior single ``loaded_skills`` context block, this emits one
+        message per loaded skill so the model can see each skill's content in
+        isolation. Replacement is driven by a stable per-skill hash key, and any
+        message for a skill that is no longer loaded is pruned.
+
+        Args:
+            skills_manager: The SkillsManager instance from which to source
+                active skills.
+        """
+        coder = self.get_coder()
+        if not coder:
+            return
+
+        if not skills_manager:
+            return
+
+        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
+            return
+
+        loaded_skills = getattr(skills_manager, "_loaded_skills", set())
+
+        # Prune messages for skills that are no longer loaded.
+        def is_stale_skill(hash_key) -> bool:
+            if not hash_key or hash_key[0] != "active_skill":
+                return False
+            return hash_key[1] not in loaded_skills
+
+        ConversationService.get_manager(coder).remove_messages_by_hash_key_pattern(is_stale_skill)
+
+        if not loaded_skills:
+            return
+
+        for skill_name in sorted(loaded_skills):
+            skill_content = skills_manager.get_skill_content(skill_name)
+            if not skill_content:
+                continue
+
+            block = skills_manager.format_active_skill_message(skill_content)
+            if not block:
+                continue
+
+            ConversationService.get_manager(coder).add_message(
+                message_dict={"role": "user", "content": block},
+                tag=MessageTag.ACTIVE_SKILLS,
+                hash_key=("active_skill", skill_name),
+                force=True,
+                update_timestamp=False,
             )
 
     def add_post_message_context_blocks(self) -> None:

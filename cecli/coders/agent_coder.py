@@ -463,7 +463,6 @@ class AgentCoder(Coder):
                 "skills",
                 "servers",
                 "sub_agents",
-                "loaded_skills",
                 "orchestration",
             ]
             for block_type in block_types:
@@ -499,8 +498,6 @@ class AgentCoder(Coder):
             content = self.get_skills_context()
         elif block_name == "servers":
             content = self.get_servers_context()
-        elif block_name == "loaded_skills":
-            content = self.get_skills_content()
         elif block_name == "orchestration":
             content = self.get_orchestration_context()
         elif block_name == "sub_agents" and (
@@ -642,6 +639,10 @@ class AgentCoder(Coder):
 
         # Add pre-message context blocks (priority 125 - between REPO and READONLY_FILES)
         ConversationService.get_chunks(self).add_pre_message_context_blocks()
+
+        ConversationService.get_chunks(self).add_active_skills_messages(
+            getattr(self, "skills_manager", None)
+        )
 
         ConversationService.get_chunks(self).add_readonly_files_messages()
         ConversationService.get_chunks(self).add_chat_files_messages()

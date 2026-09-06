@@ -136,6 +136,15 @@ class ModelProviderManager:
             return []
         return list(config.get("api_key_env", []))
 
+    def get_provider_session_header(self, provider: Optional[str]) -> Optional[str]:
+        """Return the configured session header name (if any) for a provider."""
+        config = self.get_provider_config(provider)
+
+        if not config:
+            return None
+
+        return config.get("session_header")
+
     def get_model_info(self, model: str) -> Dict:
         provider, route = self._split_model(model)
         if not provider or not self._ensure_provider_state(provider):

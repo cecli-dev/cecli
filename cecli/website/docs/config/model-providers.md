@@ -27,6 +27,7 @@ Each provider is defined as a JSON object with the following keys:
 | `supports_stream` | No | Set to `false` if the provider does not support streaming responses |
 | `requires_api_key` | No | Set to `false` if the provider does not require an API key (default: `true`) |
 | `base_url_env` | No | A list of environment variable names that can override `api_base` (takes precedence if set) |
+| `session_header` | No | Name of a request header that carries a per-session unique key |
 
 
 ## Configuration File Usage
@@ -146,16 +147,69 @@ Cecli ships with several built-in providers defined in `providers.json`. These a
 
 | Provider | Slug | API Base |
 |----------|------|----------|
+| AI21 Labs | `ai21` | `https://api.ai21.com/studio/v1` |
+| Anyscale | `anyscale` | `https://api.endpoints.anyscale.com/v1` |
 | Apertis | `apertis` | `https://api.stima.tech/v1` |
+| Azure OpenAI | `azure` | `https://{resource}.openai.azure.com/openai/deployments/{deployment}` |
+| Azure AI | `azure_ai` | `https://{resource}.services.ai.azure.com` |
+| Baseten | `baseten` | `https://inference.baseten.co/v1` |
+| AWS Bedrock | `bedrock` | `https://bedrock-runtime.{region}.amazonaws.com` |
+| Bedrock Mantle | `bedrock_mantle` | `https://bedrock-mantle.{region}.api.aws/v1` |
+| Cerebras | `cerebras` | `https://api.cerebras.ai/v1` |
+| ChatGPT | `chatgpt` | `https://chatgpt.com/backend-api/codex` |
 | Chutes | `chutes` | `https://llm.chutes.ai/v1/` |
+| Cloudflare | `cloudflare` | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` |
+| Codestral | `codestral` | `https://codestral.mistral.ai/v1` |
+| Crusoe | `crusoe` | `https://managed-inference-api-proxy.crusoecloud.com/v1` |
+| Darkbloom | `darkbloom` | `https://api.darkbloom.dev/v1` |
+| DashScope | `dashscope` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| Databricks | `databricks` | `https://{workspace}.cloud.databricks.com` |
+| DeepInfra | `deepinfra` | `https://api.deepinfra.com/v1/openai` |
+| Featherless AI | `featherless_ai` | `https://api.featherless.ai/v1` |
 | Fireworks AI | `fireworks_ai` | `https://api.fireworks.ai/inference/v1` |
+| Friendli AI | `friendliai` | `https://api.friendli.ai/serverless/v1` |
+| GMI Cloud | `gmi` | `https://api.gmi-serving.com/v1` |
+| Gradient AI | `gradient_ai` | `https://inference.do-ai.run/v1` |
+| Groq | `groq` | `https://api.groq.com/openai/v1` |
 | Helicone | `helicone` | `https://ai-gateway.helicone.ai/` |
+| Hyperbolic | `hyperbolic` | `https://api.hyperbolic.xyz/v1` |
+| Inception Labs | `inception` | `https://api.inceptionlabs.ai/v1` |
+| Lambda | `lambda_ai` | `https://api.lambda.ai/v1` |
+| Lemonade | `lemonade` | `http://localhost:8000/api/v1` |
+| LibertAI | `libertai` | `https://api.libertai.io/v1` |
+| LlamaGate | `llamagate` | `https://api.llamagate.dev/v1` |
+| Meta Llama | `meta_llama` | `https://api.llama.com/compat/v1` |
+| MiniMax | `minimax` | `https://api.minimax.io/v1` |
+| Mistral | `mistral` | `https://api.mistral.ai/v1` |
+| Moonshot AI | `moonshot` | `https://api.moonshot.ai/v1` |
+| Morph | `morph` | `https://api.morphllm.com/v1` |
 | Nano-GPT | `nano-gpt` | `https://nano-gpt.com/api/v1` |
+| Nebius AI Studio | `nebius` | `https://api.studio.nebius.ai/v1` |
+| Novita AI | `novita` | `https://api.novita.ai/v3/openai` |
+| Nscale | `nscale` | `https://inference.api.nscale.com/v1` |
+| Ollama | `ollama` | `http://localhost:11434/v1` |
+| OpenCode Go | `opencode-go` | `https://opencode.ai/zen/go/v1` |
+| OpenCode Zen | `opencode-zen` | `https://opencode.ai/zen/v1` |
+| OVHcloud | `ovhcloud` | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` |
+| Perplexity | `perplexity` | `https://api.perplexity.ai` |
+| Pinstripes | `pinstripes` | `https://pinstripes.io/v1` |
 | Poe | `poe` | `https://api.poe.com/v1` |
 | PublicAI | `publicai` | `https://api.publicai.co/v1` |
+| SambaNova | `sambanova` | `https://api.sambanova.ai/v1` |
+| Sarvam | `sarvam` | `https://api.sarvam.ai/v1` |
+| Scaleway | `scaleway` | `https://api.scaleway.ai/v1` |
 | Synthetic | `synthetic` | `https://api.synthetic.new/openai/v1` |
+| Tencent | `tencent` | `https://tokenhub-intl.tencentcloudmaas.com/v1` |
+| TensorMesh | `tensormesh` | `https://serverless.tensormesh.ai/v1` |
+| Together AI | `together_ai` | `https://api.together.xyz/v1` |
+| v0 | `v0` | `https://api.v0.dev/v1` |
 | Venice AI | `veniceai` | `https://api.venice.ai/api/v1` |
+| Vercel AI Gateway | `vercel_ai_gateway` | `https://ai-gateway.vercel.sh/v1` |
+| Volcengine | `volcengine` | `https://ark.cn-beijing.volces.com/api/v3` |
+| Weights & Biases | `wandb` | `https://api.inference.wandb.ai/v1` |
+| xAI | `xai` | `https://api.x.ai/v1` |
 | Xiaomi MiMo | `xiaomi_mimo` | `https://api.xiaomimimo.com/v1` |
+| Z.ai | `zai` | `https://api.z.ai/api/paas/v4` |
 
 ## Troubleshooting
 

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cecli.commands.open import OpenCommand
+from cecli.commands.workspace import WorkspaceCommand
 
 
 @pytest.fixture
@@ -22,24 +22,36 @@ def mock_io():
 
 @pytest.fixture
 def mock_agent_service():
-    with patch("cecli.commands.open.AgentService") as MockAgentService:
-        agent_service = MockAgentService.get_instance.return_value
+    agent_service = MagicMock()
+    with patch("cecli.helpers.agents.service.AgentService") as MockAgentService:
+        MockAgentService.get_instance.return_value = agent_service
         MockAgentService.get_registry.return_value = {
             "ws:app": MagicMock(metadata={"root": "/abs/app"})
         }
         yield agent_service
 
 
-class TestOpenCommand:
+class TestWorkspaceCommand:
     @pytest.mark.asyncio
-    async def test_execute_missing_args(self, mock_coder, mock_io):
-        await OpenCommand.execute(mock_io, mock_coder, "")
-        mock_io.tool_error.assert_called_once_with("Usage: /open <name> <path>")
+    async def test_execute_lists_agents_when_no_args(self, mock_coder, mock_io):
+        with patch("cecli.helpers.agents.service.AgentService") as MockAgentService:
+            MockAgentService.get_registry.return_value = {
+                "ws:app": MagicMock(metadata={"root": "/abs/app", "layout": "local"}),
+                "worker": MagicMock(metadata={}),
+            }
+
+            await WorkspaceCommand.execute(mock_io, mock_coder, "")
+
+        mock_io.print.assert_any_call("Workspace Sub-Agents:")
+        mock_io.print.assert_any_call("  - ws:app")
+        mock_io.print.assert_any_call("    Root:   /abs/app")
 
     @pytest.mark.asyncio
     async def test_execute_invalid_path(self, mock_coder, mock_io):
-        with patch("cecli.commands.open.register_workspace_subagents", return_value=[]):
-            await OpenCommand.execute(mock_io, mock_coder, "app /no/such/path")
+        with patch(
+            "cecli.helpers.workspaces.subagents.register_workspace_subagents", return_value=[]
+        ):
+            await WorkspaceCommand.execute(mock_io, mock_coder, "app /no/such/path")
 
         open_path = Path("/no/such/path").expanduser()
         mock_io.tool_error.assert_called_once_with(
@@ -52,8 +64,11 @@ class TestOpenCommand:
         info.coder.uuid = "sub-uuid-1"
         mock_agent_service.spawn = AsyncMock(return_value=(MagicMock(), info))
 
-        with patch("cecli.commands.open.register_workspace_subagents", return_value=["ws:app"]):
-            await OpenCommand.execute(mock_io, mock_coder, "app /abs/app")
+        with patch(
+            "cecli.helpers.workspaces.subagents.register_workspace_subagents",
+            return_value=["ws:app"],
+        ):
+            await WorkspaceCommand.execute(mock_io, mock_coder, "app /abs/app")
 
         # spawn is non-blocking with no prompt; the sub-agent becomes the foreground agent.
         mock_agent_service.spawn.assert_awaited_once_with(
@@ -74,8 +89,11 @@ class TestOpenCommand:
         info.coder.uuid = "sub-uuid-1"
         mock_agent_service.spawn = AsyncMock(return_value=(MagicMock(), info))
 
-        with patch("cecli.commands.open.register_workspace_subagents", return_value=["ws:app"]):
-            await OpenCommand.execute(mock_io, mock_coder, "app /abs/app")
+        with patch(
+            "cecli.helpers.workspaces.subagents.register_workspace_subagents",
+            return_value=["ws:app"],
+        ):
+            await WorkspaceCommand.execute(mock_io, mock_coder, "app /abs/app")
 
         tui.call_from_thread.assert_called_once_with(tui._switch_to_container, "sub-uuid-1")
         mock_io.tool_output.assert_called_once_with(
@@ -88,8 +106,11 @@ class TestOpenCommand:
         info.coder.uuid = "sub-uuid-1"
         mock_agent_service.spawn = AsyncMock(return_value=(MagicMock(), info))
 
-        with patch("cecli.commands.open.register_workspace_subagents", return_value=["ws:app"]):
-            await OpenCommand.execute(mock_io, mock_coder, "ws:app /abs/app")
+        with patch(
+            "cecli.helpers.workspaces.subagents.register_workspace_subagents",
+            return_value=["ws:app"],
+        ):
+            await WorkspaceCommand.execute(mock_io, mock_coder, "ws:app /abs/app")
 
         mock_agent_service.spawn.assert_awaited_once_with(
             "ws:app", prompt=None, parent=mock_coder, auto_reap=False, independent=True
@@ -99,20 +120,37 @@ class TestOpenCommand:
     async def test_execute_spawn_error(self, mock_coder, mock_io, mock_agent_service):
         mock_agent_service.spawn = AsyncMock(side_effect=RuntimeError("boom"))
 
-        with patch("cecli.commands.open.register_workspace_subagents", return_value=["ws:app"]):
-            await OpenCommand.execute(mock_io, mock_coder, "app /abs/app")
+        with patch(
+            "cecli.helpers.workspaces.subagents.register_workspace_subagents",
+            return_value=["ws:app"],
+        ):
+            await WorkspaceCommand.execute(mock_io, mock_coder, "app /abs/app")
 
         mock_io.tool_error.assert_called_once_with(
             "Error opening workspace sub-agent 'ws:app': boom"
         )
 
+    @pytest.mark.asyncio
+    async def test_execute_single_arg_opens_existing(self, mock_coder, mock_io, mock_agent_service):
+        info = MagicMock()
+        info.coder.uuid = "sub-uuid-1"
+        mock_agent_service.spawn = AsyncMock(return_value=(MagicMock(), info))
+
+        await WorkspaceCommand.execute(mock_io, mock_coder, "ws:app")
+
+        mock_agent_service.spawn.assert_awaited_once_with(
+            "ws:app", prompt=None, parent=mock_coder, auto_reap=False, independent=True
+        )
+        assert mock_agent_service.foreground_uuid == "sub-uuid-1"
+        mock_io.tool_output.assert_called_once_with("Opened workspace sub-agent 'ws:app'.")
+
     def test_get_help(self):
-        assert "(/open <name> <path>)" in OpenCommand.get_help()
+        assert "/workspace <name> <path>" in WorkspaceCommand.get_help()
 
     def test_get_completions(self):
-        with patch("cecli.commands.open.AgentService") as MockAgentService:
+        with patch("cecli.helpers.agents.service.AgentService") as MockAgentService:
             MockAgentService.get_registry.return_value = {
                 "ws:app": MagicMock(),
                 "worker": MagicMock(),
             }
-            assert OpenCommand.get_completions(MagicMock(), MagicMock(), "") == ["ws:app"]
+            assert WorkspaceCommand.get_completions(MagicMock(), MagicMock(), "") == ["ws:app"]

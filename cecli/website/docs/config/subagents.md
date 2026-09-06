@@ -73,7 +73,7 @@ agent-config:
 |---------|-------------|
 | `/spawn-agent <name>` | Spawn a sub-agent without a prompt (non-blocking — waits for user input) |
 | `/spawn-agent <name> <prompt>` | Spawn a sub-agent with a prompt (non-blocking — starts processing immediately) |
-| `/open <name> <path>` | Register and open a `ws:{name}` workspace sub-agent rooted at `<path>` (ad-hoc, no config file required) |
+| `/workspace <name> <path>` | Register and open a `ws:{name}` workspace sub-agent rooted at `<path>` (ad-hoc, no config file required) |
 | `/reap-agent` | Force destroy the currently active sub-agent |
 
 > **Tip**: `/spawn-agent` supports tab completion of sub-agent names.

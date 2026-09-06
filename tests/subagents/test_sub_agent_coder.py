@@ -146,6 +146,7 @@ class TestSubAgentCoder:
         mock_chunks.add_file_list_reminder.assert_called_once()
         mock_chunks.add_rules_messages.assert_called_once()
         mock_chunks.add_repo_map_messages.assert_called_once()
+        mock_chunks.add_active_skills_messages.assert_called_once()
         mock_chunks.add_readonly_files_messages.assert_called_once()
         mock_chunks.add_chat_files_messages.assert_called_once()
         mock_chunks.add_randomized_cta.assert_called_once()

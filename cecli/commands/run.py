@@ -85,7 +85,7 @@ class RunCommand(BaseCommand):
                 io.placeholder = "What's wrong? Fix"
 
         if add_on_nonzero_exit and not exit_status:
-            return ""  # No test failures
+            return "Test command ran by user. All tests passed."  # No test failures
 
         # Return None if output wasn't added or command succeeded
         return format_command_result(io, "run", "Command executed successfully")

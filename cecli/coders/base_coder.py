@@ -2982,6 +2982,17 @@ class Coder(metaclass=UsageMeta):
 
         edited = await self.apply_updates()
 
+        # Run tests before committing so failing tests abort the commit and
+        # reflect the errors back for the model to fix first.
+        if edited and self.auto_test and self.test_cmd:
+            test_errors = await self.commands.execute("test", self.test_cmd)
+            self.test_outcome = not test_errors
+            if test_errors:
+                ok = await self.io.confirm_ask("Attempt to fix test errors?")
+                if ok:
+                    self.reflected_message = test_errors
+                    return
+
         if edited:
             self.coder_edited_files.update(edited)
             saved_message = await self.auto_commit(edited)
@@ -3053,15 +3064,6 @@ class Coder(metaclass=UsageMeta):
                 promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
                 mark_for_demotion=1,
             )
-
-        if edited and self.auto_test and self.test_cmd:
-            test_errors = await self.commands.execute("test", self.test_cmd)
-            self.test_outcome = not test_errors
-            if test_errors:
-                ok = await self.io.confirm_ask("Attempt to fix test errors?")
-                if ok:
-                    self.reflected_message = test_errors
-                    return
 
         # Turn complete: drop the per-turn LLM stream buffers.  They are reset at
         # the start of the next send(), so holding on to them while idle only

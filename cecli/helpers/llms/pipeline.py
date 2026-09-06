@@ -58,6 +58,17 @@ async def acompletion(
 
     headers = dict(resolved.get("extra_headers") or {})
     headers.update(extra_headers or {})
+
+    # Some providers expose a ``session_header`` that carries the per-session
+    # prompt cache key (unique per agent session).
+    session_header = resolved.get("session_header")
+
+    if session_header:
+        prompt_cache_key = kwargs.get("prompt_cache_key")
+
+        if prompt_cache_key:
+            headers[session_header] = prompt_cache_key
+
     headers = provider.build_headers(resolved, key, family, headers)
 
     if stream:

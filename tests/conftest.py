@@ -1,6 +1,14 @@
 import pytest
 
+from cecli.helpers.model_config.registry import clear_default_registry
 from cecli.models import Model
+
+
+# Model Fixtures
+@pytest.fixture(autouse=True)
+def _clear_model_config_default_registry():
+    """Reset the per-model default registry between tests."""
+    clear_default_registry()
 
 
 # Model Fixtures

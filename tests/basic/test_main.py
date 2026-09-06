@@ -747,69 +747,6 @@ def test_boolean_flags(flag_arg, attr_name, expected, dummy_io, git_temp_dir):
     assert getattr(coder, attr_name) == expected
 
 
-@pytest.mark.parametrize(
-    "model,setting_flag,setting_value,method_name,check_flag,should_warn,should_call",
-    [
-        (
-            "anthropic/claude-3-7-sonnet-20250219",
-            "--thinking-tokens",
-            "1000",
-            "set_thinking_tokens",
-            None,
-            False,
-            True,
-        ),
-        (
-            "gpt-4o",
-            "--thinking-tokens",
-            "1000",
-            "set_thinking_tokens",
-            "--check-model-accepts-settings",
-            True,
-            False,
-        ),
-        ("o1", "--reasoning-effort", "3", "set_reasoning_effort", None, False, True),
-        ("gpt-3.5-turbo", "--reasoning-effort", "3", "set_reasoning_effort", None, True, False),
-    ],
-    ids=[
-        "thinking_tokens_accepted",
-        "thinking_tokens_rejected",
-        "reasoning_effort_accepted",
-        "reasoning_effort_rejected",
-    ],
-)
-def test_accepts_settings_warnings(
-    dummy_io,
-    git_temp_dir,
-    mocker,
-    model,
-    setting_flag,
-    setting_value,
-    method_name,
-    check_flag,
-    should_warn,
-    should_call,
-):
-    mock_warning = mocker.patch("cecli.io.InputOutput.tool_warning")
-    mock_method = mocker.patch(f"cecli.models.Model.{method_name}")
-    args = ["--model", model, setting_flag, setting_value, "--yes-always", "--exit"]
-    if check_flag:
-        args.insert(4, check_flag)
-    main(args, **dummy_io)
-    setting_name = setting_flag.lstrip("--").replace("-", "_")
-    warnings = [call[0][0] for call in mock_warning.call_args_list]
-    warning_shown = any(setting_name in w for w in warnings)
-    assert (
-        warning_shown == should_warn
-    ), f"Expected warning={should_warn} for {setting_name} but got {warning_shown}"
-    if should_call:
-        # The CLI value must reach the setter; the setters are also invoked at
-        # init time with pipeline defaults, so use assert_any_call.
-        mock_method.assert_any_call(setting_value)
-    else:
-        mock_method.assert_not_called()
-
-
 def test_no_verify_ssl_sets_model_info_manager(dummy_io, git_temp_dir, mocker):
     mock_set_verify_ssl = mocker.patch("cecli.models.ModelInfoManager.set_verify_ssl")
     mock_model = mocker.patch("cecli.models.Model")
@@ -1248,23 +1185,6 @@ def test_list_models_includes_openai_provider(dummy_io, git_temp_dir, mocker, ca
             manager._cache_loaded.pop(provider_name, None)
 
 
-def test_check_model_accepts_settings_flag(dummy_io, git_temp_dir, mocker):
-    mock_set_thinking = mocker.patch("cecli.models.Model.set_thinking_tokens")
-    main(
-        [
-            "--model",
-            "gpt-4o",
-            "--thinking-tokens",
-            "1000",
-            "--check-model-accepts-settings",
-            "--yes-always",
-            "--exit",
-        ],
-        **dummy_io,
-    )
-    mock_set_thinking.assert_not_called()
-
-
 def test_list_models_with_direct_resource_patch(dummy_io, mocker, capsys):
     test_file = Path(os.getcwd()) / "test-model-metadata.json"
     test_resource_models = {
@@ -1301,36 +1221,6 @@ def test_reasoning_effort_applied_without_check_flag(dummy_io, mocker):
         **dummy_io,
     )
     mock_set_reasoning.assert_called_once_with("3")
-
-
-def test_model_accepts_settings_attribute(dummy_io, git_temp_dir, mocker):
-    MockModel = mocker.patch("cecli.models.Model")
-    mock_instance = MockModel.return_value
-    mock_instance.name = "test-model"
-    mock_instance.accepts_settings = ["reasoning_effort"]
-    mock_instance.validate_environment.return_value = {
-        "missing_keys": [],
-        "keys_in_environment": [],
-    }
-    mock_instance.info = {}
-    mock_instance.weak_model_name = None
-    mock_instance.get_weak_model.return_value = None
-    main(
-        [
-            "--model",
-            "test-model",
-            "--reasoning-effort",
-            "3",
-            "--thinking-tokens",
-            "1000",
-            "--check-model-accepts-settings",
-            "--yes-always",
-            "--exit",
-        ],
-        **dummy_io,
-    )
-    mock_instance.set_reasoning_effort.assert_called_once_with("3")
-    mock_instance.set_thinking_tokens.assert_not_called()
 
 
 def test_argv_file_respects_git(dummy_io, git_temp_dir):

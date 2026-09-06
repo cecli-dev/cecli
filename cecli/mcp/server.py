@@ -288,7 +288,8 @@ class McpServer:
                         # retrieved" warning.
                         self._session_ready.cancel()
                     else:
-                        logging.error(f"Error initializing server {self.name}: {exc}")
+                        if self.name != "unnamed-server":
+                            logging.error(f"Error initializing server {self.name}: {exc}")
                         self._session_ready.set_exception(exc)
 
                 return
@@ -305,14 +306,16 @@ class McpServer:
             except asyncio.CancelledError:
                 pass
             except Exception as e:
-                logging.error(f"Error during cleanup of server {self.name}: {e}")
+                if self.name != "unnamed-server":
+                    logging.error(f"Error during cleanup of server {self.name}: {e}")
 
             try:
                 await exit_stack.aclose()
             except (asyncio.CancelledError, RuntimeError, GeneratorExit):
                 pass
             except Exception as e:
-                logging.error(f"Error during cleanup of server {self.name}: {e}")
+                if self.name != "unnamed-server":
+                    logging.error(f"Error during cleanup of server {self.name}: {e}")
 
             # Only the current owner may clear shared state; if a newer session
             # has taken over, leave its session/loop fields alone.
@@ -590,20 +593,16 @@ class HttpStreamingServer(HttpBasedMcpServer):
         return streamable_http_client(url, http_client=http_client)
 
 
-class SseServer(McpServer):
-    """SSE (Server-Sent Events) MCP server using mcp.client.sse_client."""
+class SseServer(HttpBasedMcpServer):
+    """SSE (Server-Sent Events) MCP server using mcp.client.sse_client.
 
-    async def _open_session(self):
-        url = self.config.get("url")
-        headers = self.config.get("headers", {})
+    Inherits keepalive pings and exponential-backoff auto-reconnect from
+    HttpBasedMcpServer so dropped SSE connections recover automatically.
+    """
 
-        sse_transport = await self.exit_stack.enter_async_context(sse_client(url, headers=headers))
-        read, write = sse_transport
-        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        self.session = session
-
-        return session
+    def _create_transport(self, url, http_client):
+        """Create the SSE transport. The shared http_client is used for keepalive pings."""
+        return sse_client(url, headers=self.config.get("headers", {}))
 
 
 class LocalServer(McpServer):

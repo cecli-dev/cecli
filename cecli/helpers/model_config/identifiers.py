@@ -64,6 +64,16 @@ def is_meta(provider, route, record):
     return provider == "meta" or record_provider == "meta"
 
 
+def is_glm(provider, route, record):
+    """True when the model is a GLM-series model (Zhipu AI / Z.ai)."""
+    return "glm" in _haystack(provider, route, record)
+
+
+def is_kimi(provider, route, record):
+    """True when the model is a Kimi-series model (Moonshot AI)."""
+    return "kimi" in _haystack(provider, route, record)
+
+
 def gpt_version(route):
     """Return the leading ``gpt-`` model version, or 0 when not a gpt model.
 

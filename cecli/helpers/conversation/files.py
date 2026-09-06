@@ -39,6 +39,9 @@ class ConversationFiles:
         self._image_files: Dict[str, bool] = {}
         self._numbered_contexts: Dict[str, List[Tuple[int, int]]] = {}
         self._last_merged_ranges: Dict[str, List[Tuple[int, int]]] = {}
+        self._emitted_contexts: Dict[str, List[Tuple[int, int]]] = (
+            {}
+        )  # intervals already delivered as FILE_CONTEXTS
         self._initialized = True
 
     @classmethod
@@ -388,6 +391,7 @@ class ConversationFiles:
             self._file_stub_contents.clear()
             self._file_json_contents.clear()
             self._file_to_message_id.clear()
+            self._emitted_contexts.clear()
             if clear_contexts:
                 self._numbered_contexts.clear()
         else:
@@ -402,6 +406,7 @@ class ConversationFiles:
             self._file_json_contents.pop(abs_fname, None)
             self._file_to_message_id.pop(abs_fname, None)
             self._image_files.pop(abs_fname, None)
+            self._emitted_contexts.pop(abs_fname, None)
             if clear_contexts:
                 self._numbered_contexts.pop(abs_fname, None)
 
@@ -463,7 +468,9 @@ class ConversationFiles:
 
         if diff_version != context_version:
             self._file_context_versions[abs_fname] = diff_version
-        # auto clear on edit
+            # Content changed: force re-emission of context (stale blocks won't
+            # refresh otherwise).
+            self._emitted_contexts.pop(abs_fname, None)
         # existing_ranges = []
 
         # Add new range
@@ -642,6 +649,73 @@ class ConversationFiles:
 
         return None
 
+    def get_new_file_context(self, file_path: str) -> str:
+        """Return hashline content for ranges NOT yet emitted as FILE_CONTEXTS.
+
+        Append-only delta: only genuinely-new line ranges are emitted against
+        the previously-emitted intervals, so overlapping reads don't re-send
+        content already in the conversation. Nothing is removed, so the
+        conversation stays an append-only log.
+        """
+        abs_fname = os.path.abspath(file_path)
+        current = sorted(self._numbered_contexts.get(abs_fname, []))
+        if not current:
+            return ""
+        emitted = sorted(self._emitted_contexts.get(abs_fname, []))
+        delta = _subtract_intervals(current, emitted)
+        if not delta:
+            return ""
+        rendered = self._render_context_ranges(abs_fname, delta)
+        if not rendered:
+            return ""
+        # Mark everything currently requested as emitted so future reads only
+        # emit the overlap-free remainder.
+        self._emitted_contexts[abs_fname] = current
+        return rendered
+
+    def _render_context_ranges(self, abs_fname: str, ranges: List[Tuple[int, int]]) -> str:
+        """Render hashline content for the given 1-based line ranges. Returns JSON or ''."""
+        coder = self.get_coder()
+        if not coder:
+            return ""
+        try:
+            content = coder.io.read_text(abs_fname, silent=True)
+            if not content:
+                return ""
+        except Exception:
+            return ""
+        content_lines = content.splitlines()
+        results = []
+        for start_line, end_line in ranges:
+            start_line_adj = max(1, start_line)
+            end_line_adj = min(len(content_lines), end_line)
+            if start_line_adj > end_line_adj:
+                continue
+            # Hash the full file so adjacent-line hashes are consistent with ReadFile.
+            full_prefixed, _ = hashline_formatted(
+                content,
+                file_name=abs_fname,
+                total_lines=len(content_lines),
+                start_line=1,
+            )
+            prefixed_lines = full_prefixed.splitlines()
+            range_prefixed_lines = prefixed_lines[start_line_adj - 1 : end_line_adj]
+            range_prefixed_content = "\n".join(range_prefixed_lines)
+            json_str = json.dumps(
+                {
+                    "file_name": abs_fname,
+                    "start_line": start_line_adj,
+                    "end_line": end_line_adj,
+                    "total_lines": len(content_lines),
+                    "prefixed_contents": range_prefixed_content,
+                },
+                ensure_ascii=False,
+            )
+            results.append(json.loads(json_str))
+        if results:
+            return json.dumps({"file_path": abs_fname, "results": results}, ensure_ascii=False)
+        return ""
+
     def remove_file_context(self, file_path: str) -> None:
         """
         Remove all cached context for a file.
@@ -738,3 +812,30 @@ class ConversationFiles:
             "diff_count": len(self._file_diffs),
             "message_mappings": len(self._file_to_message_id),
         }
+
+
+def _subtract_intervals(
+    base: List[Tuple[int, int]], remove: List[Tuple[int, int]]
+) -> List[Tuple[int, int]]:
+    """Return the portions of ``base`` not covered by ``remove``.
+
+    Both inputs are lists of inclusive, disjoint, 1-based ``(start, end)``
+    intervals already sorted by start line. Used to compute the append-only
+    FILE_CONTEXTS delta (only genuinely-new ranges are emitted).
+    """
+    remaining = []
+    for a, b in base:
+        parts = [(a, b)]
+        for r0, r1 in remove:
+            new_parts = []
+            for s, e in parts:
+                if e < r0 or s > r1:
+                    new_parts.append((s, e))
+                else:
+                    if s < r0:
+                        new_parts.append((s, r0 - 1))
+                    if e > r1:
+                        new_parts.append((r1 + 1, e))
+            parts = new_parts
+        remaining.extend(parts)
+    return remaining

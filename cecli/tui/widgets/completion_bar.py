@@ -113,8 +113,8 @@ class CompletionBar(Widget, can_focus=False):
             self._display_names = []
             return
 
-        # Check if these look like file paths (contain /)
-        has_paths = any("/" in s for s in self.suggestions)
+        # Check if these look like file paths (contain a path separator)
+        has_paths = any(os.sep in s or (os.altsep and os.altsep in s) for s in self.suggestions)
 
         if not has_paths:
             # Commands or non-path items - show as-is
@@ -122,26 +122,35 @@ class CompletionBar(Widget, can_focus=False):
             self._display_names = self.suggestions[:]
             return
 
+        # Absolute path completions (e.g. a /workspace path argument) must stay
+        # rooted at the filesystem/drive root. Converting them with relpath
+        # would turn them into misleading "../.." relative paths.
+        is_absolute = all(os.path.isabs(s) for s in self.suggestions)
+
+        if is_absolute:
+            candidates = self.suggestions
+        else:
+            candidates = [os.path.relpath(s) for s in self.suggestions]
+
         # Find common directory prefix
-        dirs = [os.path.dirname(s) for s in self.suggestions]
+        dirs = [os.path.dirname(s) for s in candidates]
         if dirs and all(d == dirs[0] for d in dirs) and dirs[0]:
             # All in same directory
-            self._common_prefix = dirs[0] + "/"
-            self._display_names = [os.path.basename(s) for s in self.suggestions]
+            self._common_prefix = dirs[0] + os.sep
+            self._display_names = [os.path.basename(s) for s in candidates]
         else:
             # Find longest common path prefix
-            self.suggestions = [os.path.relpath(suggestion) for suggestion in self.suggestions]
-            common = os.path.commonpath(self.suggestions) if self.suggestions else ""
-            if common and "/" in common:
+            common = os.path.commonpath(candidates) if candidates else ""
+            if common and os.sep in common:
                 # Use the directory part of common prefix
-                self._common_prefix = common.rsplit("/", 1)[0] + "/" if "/" in common else ""
+                self._common_prefix = common.rsplit(os.sep, 1)[0] + os.sep
                 if self._common_prefix:
-                    self._display_names = [s[len(self._common_prefix) :] for s in self.suggestions]
+                    self._display_names = [s[len(self._common_prefix) :] for s in candidates]
                 else:
-                    self._display_names = self.suggestions[:]
+                    self._display_names = candidates[:]
             else:
                 self._common_prefix = ""
-                self._display_names = self.suggestions[:]
+                self._display_names = candidates[:]
 
     def compose(self) -> ComposeResult:
         """Create the bar layout."""

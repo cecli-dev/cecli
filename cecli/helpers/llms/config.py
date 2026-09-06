@@ -159,6 +159,7 @@ def resolve_model_config(model: str) -> Dict[str, Any]:
         "extra_headers": extra_headers,
         "extra_body": extra_body,
         "extra_query": dict(pcfg.get("extra_query") or {}),
+        "session_header": mpm.get_provider_session_header(provider),
         "api_block": api_block,
         "llm_block": llm_block,
         "agent_block": agent_block,

@@ -5,6 +5,7 @@ import re
 import traceback
 
 from cecli.helpers import responses
+from cecli.helpers.hashline import strip_hashline
 
 
 class ToolError(Exception):
@@ -280,7 +281,15 @@ def apply_change(
     """
     Writes the new content, tracks the change, and updates coder state.
     Returns the final change ID. Raises ToolError on tracking failure.
+
+    Both ``original_content`` and ``new_content`` are stripped of any HashPos/hashline
+    content-ID prefixes before being written or tracked, so the Base1024 IDs (which
+    may contain non-ASCII characters) can never leak into the on-disk source and
+    break the parser.
     """
+    new_content = strip_hashline(new_content)
+    original_content = strip_hashline(original_content)
+
     coder.io.write_text(abs_path, new_content)
     try:
         final_change_id = coder.change_tracker.track_change(

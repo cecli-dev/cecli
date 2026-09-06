@@ -119,6 +119,7 @@ class LoadMcpCommand(BaseCommand):
                 server.name
                 for server in coder.mcp_manager
                 if server not in coder.mcp_manager.connected_servers
+                and server.name != "unnamed-server"
             ]
             return server_names
         except Exception:
