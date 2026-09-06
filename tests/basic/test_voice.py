@@ -251,3 +251,180 @@ def test_resolve_moonshine_language():
     assert resolve_moonshine_language(None, "Russian") == "en"
     assert resolve_moonshine_language(None, None) == "en"
     assert resolve_moonshine_language("", None) == "en"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [None, False, 0, "", lambda: None])
+async def test_stop_bridge_accepts_any_payload(payload):
+    import queue
+
+    from cecli.voice import _bridge_stop_queue
+
+    source = queue.Queue()
+    destination = queue.Queue()
+    task = asyncio.create_task(_bridge_stop_queue(source, destination))
+    await asyncio.sleep(0)
+    assert not task.done()
+    source.put(payload)
+    await asyncio.wait_for(task, 1)
+    assert destination.get_nowait() is None
+    assert source.empty()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("worker_error", [False, True])
+async def test_cancellation_waits_before_manager_shutdown(mock_audio_libs, worker_error):
+    import queue
+
+    loop = asyncio.get_running_loop()
+    worker_future = loop.create_future()
+    manager = MagicMock()
+    worker_stop_queue = queue.Queue()
+    manager.Queue.return_value = worker_stop_queue
+
+    with (
+        patch("multiprocessing.Manager", return_value=manager),
+        patch("cecli.voice.ProcessPoolExecutor"),
+        patch("cecli.voice.sys.stdin") as stdin,
+        patch.object(loop, "run_in_executor", return_value=worker_future) as submit,
+    ):
+        stdin.fileno.side_effect = AssertionError("queue mode accessed stdin")
+        voice = Voice()
+        task = asyncio.create_task(voice.record_and_transcribe(stop_queue=queue.Queue()))
+        await asyncio.sleep(0)
+        submit.assert_called_once()
+        assert submit.call_args.args[2] is None
+        assert submit.call_args.args[-1] is worker_stop_queue
+        task.cancel()
+        await asyncio.sleep(0)
+        assert worker_stop_queue.get_nowait() is None
+        assert not task.done()
+        assert not worker_future.cancelled()
+        manager.shutdown.assert_not_called()
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        manager.shutdown.assert_not_called()
+
+        if worker_error:
+            worker_future.set_exception(RuntimeError("worker failed while stopping"))
+        else:
+            worker_future.set_result("finished")
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        manager.shutdown.assert_called_once()
+        stdin.fileno.assert_not_called()
+        voice.close()
+        voice._executor.shutdown.assert_called_once_with(wait=True)
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("payload", [None, False])
+def test_worker_queue_mode_skips_stdin(streaming, payload):
+    import queue
+    from types import SimpleNamespace
+
+    from cecli.voice import _STREAM_END, _run_record_process
+
+    stop_queue = queue.Queue()
+    stop_queue.put(payload)
+    text_queue = queue.Queue()
+    status_queue = queue.Queue()
+    sounddevice = MagicMock()
+    sounddevice.query_devices.return_value = {"default_samplerate": 16000}
+    transcriber = MagicMock()
+    transcriber.stop.return_value = SimpleNamespace(lines=[SimpleNamespace(text="hello")])
+
+    with (
+        patch.dict(
+            "sys.modules",
+            {
+                "sounddevice": sounddevice,
+                "soundfile": MagicMock(),
+                "moonshine_voice.transcriber": MagicMock(),
+            },
+        ),
+        patch("cecli.voice.sys.stdin") as stdin,
+        patch("cecli.voice.os.dup") as dup,
+        patch("cecli.voice.os.fdopen") as fdopen,
+        patch("cecli.voice.tempfile.NamedTemporaryFile") as tempfile,
+        patch("cecli.voice.os.path.exists", return_value=False),
+        patch("cecli.voice._transcribe_local", return_value="hello"),
+        patch("cecli.voice._build_transcriber", return_value=transcriber),
+    ):
+        tempfile.return_value.__enter__.return_value.name = "unused.wav"
+        result = _run_record_process(
+            None,
+            "wav",
+            None,
+            None,
+            "en" if streaming else "ko",
+            text_queue,
+            status_queue,
+            "ctrl+r",
+            stop_queue,
+        )
+        assert result == "hello"
+        assert stop_queue.empty()
+        stdin.fileno.assert_not_called()
+        stdin.readline.assert_not_called()
+        dup.assert_not_called()
+        fdopen.assert_not_called()
+        assert text_queue.get_nowait() == _STREAM_END
+        assert "ctrl+r" in status_queue.get_nowait()
+
+        if streaming:
+            transcriber.close.assert_called_once()
+            transcriber.stop.assert_called_once()
+            tempfile.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["start", "record", "stop"])
+def test_streaming_closes_transcriber_on_errors(failure):
+    import queue
+
+    from cecli.voice import _record_and_stream
+
+    sounddevice = MagicMock()
+    transcriber = MagicMock()
+    stop_queue = queue.Queue()
+    stop_queue.put(None)
+
+    if failure == "record":
+        sounddevice.InputStream.return_value.__enter__.side_effect = RuntimeError("record")
+    else:
+        getattr(transcriber, failure).side_effect = RuntimeError(failure)
+
+    with (
+        patch.dict(
+            "sys.modules",
+            {
+                "sounddevice": sounddevice,
+                "moonshine_voice.transcriber": MagicMock(),
+            },
+        ),
+        patch("cecli.voice._build_transcriber", return_value=transcriber),
+    ):
+        with pytest.raises(RuntimeError, match=failure):
+            _record_and_stream(
+                queue.Queue(),
+                MagicMock(),
+                16000,
+                None,
+                "en",
+                queue.Queue(),
+                status_queue=queue.Queue(),
+                stop_queue=stop_queue,
+            )
+
+    transcriber.close.assert_called_once()
+
+
+def test_wait_for_stop_preserves_cli_readline():
+    from cecli.voice import _wait_for_stop
+
+    with patch("cecli.voice.sys.stdin") as stdin:
+        _wait_for_stop(None)
+        stdin.readline.assert_called_once_with()

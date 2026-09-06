@@ -79,6 +79,9 @@ class TUI(App):
         self._sub_agent_containers = {}  # uuid -> OutputContainer
         self._primary_coder_uuid = self.worker.coder.uuid
 
+        self._voice_stop_queue = None
+        self._voice_stopping = False
+
         # Confirmation lock and pending queue — ensures one confirmation at a time
         self._confirmation_lock = False
         self._confirmation_coder_uuid = None
@@ -477,6 +480,14 @@ class TUI(App):
         except Exception:
             pass
 
+    def set_voice_hint(self, text: str):
+        """Set the key-hint right panel while voice recording is active."""
+        try:
+            hints = self.query_one(KeyHints)
+            hints.update_right(text)
+        except Exception:
+            pass
+
     def _update_key_hints_for_commands(self, text: str, is_completion: bool = False):
         """
         Update key hints left area with command description.
@@ -810,8 +821,15 @@ class TUI(App):
         if not user_input.strip():
             return
 
-        # Intercept /editor and /edit commands to handle with TUI suspension
         stripped = user_input.strip()
+
+        if stripped == "/voice":
+            input_area = self.query_one("#input", InputArea)
+            input_area.value = ""
+            self.action_start_voice()
+            return
+
+        # Intercept /editor and /edit commands to handle with TUI suspension
         if (
             stripped in ("/editor", "/edit")
             or stripped.startswith("/editor ")
@@ -1224,34 +1242,18 @@ class TUI(App):
         input_area.post_message(input_area.Submit("/history-search"))
 
     def action_start_voice(self):
-        """Start voice recording via the /voice command (keyboard shortcut)."""
-        from cecli.helpers.agents.service import AgentService
+        """Toggle background recording without entering the agent's input queue."""
+        if self._voice_stop_queue is not None:
+            if not self._voice_stopping:
+                self._voice_stop_queue.put(None)
+                self._voice_stopping = True
 
-        coder = self.worker.coder
-        foreground_coder = AgentService.get_instance(coder).foreground_coder
-        coder_uuid = (
-            str(foreground_coder.uuid)
-            if foreground_coder and hasattr(foreground_coder, "uuid")
-            else None
-        )
-        agent_name = self._resolve_agent_name(coder_uuid)
+            return
 
-        # Surface the recording state in the footer spinner (the /voice
-        # command updates it as it runs).
-        footer = self.query_one(MainFooter)
-        footer.start_spinner("Recording...", agent_name=agent_name or "")
-
-        if coder:
-            coder.io.start_spinner("Recording...", coder_uuid=coder_uuid)
-
-        # Forward "/voice" to the coder via the normal agent-loop queue so it
-        # is dispatched as a command, without echoing it or saving it to
-        # history.
-        if coder_uuid and coder_uuid in queues._per_coder_queues:
-            queues.push_coder_input(coder_uuid, {"text": "/voice", "coder_uuid": coder_uuid})
-        else:
-            self.input_queue.put({"text": "/voice", "coder_uuid": coder_uuid})
-            queues.wake_input_waiters()
+        coder = self._get_visible_coder()
+        self._voice_stop_queue = queue.Queue()
+        self._voice_stopping = False
+        self.run_worker(self._run_voice(coder, self._voice_stop_queue), group="voice")
 
     def action_open_editor(self):
         """Open an external editor to compose a prompt (keyboard shortcut)."""
@@ -2082,6 +2084,20 @@ class TUI(App):
 
         input_area.completion_active = False
         input_area.focus()
+
+    async def _run_voice(self, coder, stop_queue):
+        """Run voice callbacks on the UI thread and release the toggle on completion."""
+        from cecli.commands.voice import VoiceCommand
+
+        try:
+            self.set_voice_hint("⬤ recording")
+            await VoiceCommand.execute(coder.io, coder, "", stop_queue=stop_queue)
+        except Exception as err:
+            self.show_error(f"Unable to record voice: {err}")
+        finally:
+            self._voice_stop_queue = None
+            self._voice_stopping = False
+            self.update_key_hints(generating=self._currently_generating)
 
 
 def patch_color_name_to_rgb():

@@ -86,32 +86,49 @@ class Voice:
         self._executor = ProcessPoolExecutor(max_workers=1)
 
     async def record_and_transcribe(
-        self, history=None, language=None, on_text=None, on_status=None, stop_binding=None
+        self,
+        history=None,
+        language=None,
+        on_text=None,
+        on_status=None,
+        stop_binding=None,
+        stop_queue=None,
     ):
-        loop = asyncio.get_running_loop()
-        stdin_fd = sys.stdin.fileno()
+        """Record until Enter, or until any item arrives on ``stop_queue``.
 
+        ``stop_queue`` is a caller-owned, thread-safe ``queue.Queue``. Queue
+        mode never accesses stdin. Cancellation signals the worker in queue
+        mode and waits for it to finish before releasing IPC resources. In
+        CLI mode the worker still needs Enter before cancellation can finish.
+        """
+        import multiprocessing
+
+        loop = asyncio.get_running_loop()
+        stdin_fd = sys.stdin.fileno() if stop_queue is None else None
+        manager = None
         text_queue = None
         status_queue = None
-        drain_task = None
-        status_drain_task = None
-        manager = None
+        worker_stop_queue = None
+        stop_task = None
+        drain_tasks = []
 
-        if on_text is not None or on_status is not None:
-            import multiprocessing
-
-            manager = multiprocessing.Manager()
+        try:
+            if on_text is not None or on_status is not None or stop_queue is not None:
+                manager = multiprocessing.Manager()
 
             if on_text is not None:
                 text_queue = manager.Queue()
-                drain_task = loop.create_task(_drain_text_queue(text_queue, on_text))
+                drain_tasks.append(loop.create_task(_drain_text_queue(text_queue, on_text)))
 
             if on_status is not None:
                 status_queue = manager.Queue()
-                status_drain_task = loop.create_task(_drain_status_queue(status_queue, on_status))
+                drain_tasks.append(loop.create_task(_drain_status_queue(status_queue, on_status)))
 
-        try:
-            return await loop.run_in_executor(
+            if stop_queue is not None:
+                worker_stop_queue = manager.Queue()
+                stop_task = loop.create_task(_bridge_stop_queue(stop_queue, worker_stop_queue))
+
+            worker_future = loop.run_in_executor(
                 self._executor,
                 _run_record_process,
                 stdin_fd,
@@ -122,22 +139,50 @@ class Voice:
                 text_queue,
                 status_queue,
                 stop_binding,
+                worker_stop_queue,
             )
+
+            try:
+                return await asyncio.shield(worker_future)
+            except asyncio.CancelledError:
+                if worker_stop_queue is not None:
+                    worker_stop_queue.put(None)
+
+                while not worker_future.done():
+                    try:
+                        await asyncio.shield(worker_future)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+
+                if not worker_future.cancelled():
+                    worker_future.exception()
+
+                raise
+
         finally:
-            if drain_task is not None:
+            if stop_task is not None:
+                stop_task.cancel()
+                await asyncio.gather(stop_task, return_exceptions=True)
+
+            for drain_task in drain_tasks:
                 try:
                     await asyncio.wait_for(drain_task, timeout=5)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     drain_task.cancel()
 
-            if status_drain_task is not None:
-                try:
-                    await asyncio.wait_for(status_drain_task, timeout=5)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    status_drain_task.cancel()
-
             if manager is not None:
                 manager.shutdown()
+
+    def close(self):
+        """Shut down the owned executor after recording has finished.
+
+        This synchronous method waits for worker processes to exit. Stop and
+        await any active recording before calling it; a Voice cannot be used
+        again after it is closed.
+        """
+        self._executor.shutdown(wait=True)
 
 
 def _run_record_process(
@@ -149,6 +194,7 @@ def _run_record_process(
     text_queue=None,
     status_queue=None,
     stop_binding=None,
+    stop_queue=None,
 ):
     """Record mic audio and transcribe it on-device with Moonshine.
 
@@ -164,8 +210,9 @@ def _run_record_process(
     import sounddevice as sd
     import soundfile as sf
 
-    # Re-link terminal input so `sys.stdin.readline()` below waits for ENTER.
-    sys.stdin = os.fdopen(os.dup(stdin_fd))
+    if stop_queue is None:
+        # Only the CLI worker owns terminal input.
+        sys.stdin = os.fdopen(os.dup(stdin_fd))
 
     q = queue.Queue()
 
@@ -195,6 +242,7 @@ def _run_record_process(
                 text_queue,
                 status_queue,
                 stop_binding,
+                stop_queue,
             )
 
         # Buffered path: record into a temp WAV, then transcribe the whole clip.
@@ -205,8 +253,8 @@ def _run_record_process(
             with sd.InputStream(
                 samplerate=sample_rate, channels=1, callback=callback, device=device_id
             ):
-                _status(status_queue, f"\nRecording... Press {stop_binding or 'Enter'} to stop.")
-                sys.stdin.readline()
+                _status(status_queue, f"\n⬤ recording: {stop_binding or 'Enter'} to stop")
+                _wait_for_stop(stop_queue)
 
             # Write buffered audio using the named path.
             total_energy = 0.0
@@ -229,7 +277,7 @@ def _run_record_process(
                 )
 
             # On-device transcription.
-            _status(status_queue, "\nTranscribing...")
+            _status(status_queue, "\n⬤ Transcribing")
             return _transcribe_local(temp_path, language)
         finally:
             # Manual cleanup since delete=False was used.
@@ -244,14 +292,22 @@ def _run_record_process(
 
 
 def _record_and_stream(
-    q, callback, sample_rate, device_id, language, text_queue, status_queue=None, stop_binding=None
+    q,
+    callback,
+    sample_rate,
+    device_id,
+    language,
+    text_queue,
+    status_queue=None,
+    stop_binding=None,
+    stop_queue=None,
 ):
-    """Stream mic audio into a Moonshine transcriber, pushing partial text out.
+    """Stream microphone audio and return the assembled transcript.
 
-    A feeder thread drains the recording queue into ``Transcriber.add_audio()``
-    so the sounddevice callback stays non-blocking. The running transcript is
-    forwarded cumulatively to ``text_queue`` so the caller can show the full
-    transcript so far; the final assembled text is also returned.
+    A feeder thread keeps the sounddevice callback non-blocking. Partial text
+    is pushed cumulatively; the feeder is joined before the transcriber is
+    closed, including on recording errors. Any stop queue item ends recording;
+    without a queue, Enter ends recording as in the CLI buffered path.
     """
     import threading
 
@@ -259,17 +315,16 @@ def _record_and_stream(
     from moonshine_voice.transcriber import LineCompleted, LineStarted, LineTextChanged
 
     transcriber = _build_transcriber(language)
-
     completed_lines = []
     current_line = ""
-
     last_pushed = ""
+    total_energy = 0.0
+    total_samples = 0
 
     def _push_cumulative():
         nonlocal last_pushed
 
         parts = [part.strip() for part in completed_lines if part and part.strip()]
-
         current = current_line.strip()
 
         if current:
@@ -303,12 +358,6 @@ def _record_and_stream(
             current_line = ""
             _push_cumulative()
 
-    transcriber.add_listener(on_event)
-    transcriber.start()
-
-    total_energy = 0.0
-    total_samples = 0
-
     def feed():
         nonlocal total_energy, total_samples
 
@@ -323,32 +372,33 @@ def _record_and_stream(
             total_energy += float((block * block).sum())
             total_samples += block.size
 
-    feed_thread = threading.Thread(target=feed, daemon=True)
-    feed_thread.start()
-
     try:
-        with sd.InputStream(
-            samplerate=sample_rate, channels=1, callback=callback, device=device_id
-        ):
-            _status(status_queue, f"\nRecording... Press {stop_binding or 'Enter'} to stop.")
-            sys.stdin.readline()
-    finally:
-        q.put(None)
-        feed_thread.join()
+        transcriber.add_listener(on_event)
+        transcriber.start()
+        feed_thread = threading.Thread(target=feed, daemon=True)
+        feed_thread.start()
 
-    if total_samples and (total_energy / total_samples) ** 0.5 < _SILENCE_RMS_THRESHOLD:
-        _status(
-            status_queue,
-            "\nNo audio detected on the input device - check that your microphone is "
-            "selected, unmuted, and reachable from this session.",
-        )
+        try:
+            with sd.InputStream(
+                samplerate=sample_rate, channels=1, callback=callback, device=device_id
+            ):
+                _status(status_queue, f"\n⬤ recording: {stop_binding or 'Enter'} to stop")
+                _wait_for_stop(stop_queue)
+        finally:
+            q.put(None)
+            feed_thread.join()
 
-    try:
+        if total_samples and (total_energy / total_samples) ** 0.5 < _SILENCE_RMS_THRESHOLD:
+            _status(
+                status_queue,
+                "\nNo audio detected on the input device - check that your microphone is "
+                "selected, unmuted, and reachable from this session.",
+            )
+
         transcript = transcriber.stop()
+        return _join_transcript(transcript)
     finally:
         transcriber.close()
-
-    return _join_transcript(transcript)
 
 
 def _transcribe_local(wav_path, language="en"):
@@ -476,3 +526,29 @@ def _status(status_queue, message):
 def _silent_progress(fraction, file):
     """No-op progress callback used to silence Moonshine's tqdm download bar."""
     pass
+
+
+def _wait_for_stop(stop_queue):
+    """Wait for any queue item, or Enter in the legacy CLI mode."""
+    if stop_queue is not None:
+        stop_queue.get()
+    else:
+        sys.stdin.readline()
+
+
+async def _bridge_stop_queue(stop_queue, worker_stop_queue):
+    """Poll caller-owned input without tying up an executor thread.
+
+    Only arrival matters, so forward a fixed token rather than requiring the
+    caller's payload to be picklable.
+    """
+    import queue
+
+    while True:
+        try:
+            stop_queue.get_nowait()
+        except queue.Empty:
+            await asyncio.sleep(0.05)
+        else:
+            worker_stop_queue.put(None)
+            return
