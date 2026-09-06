@@ -37,6 +37,7 @@ from .help import HelpCommand
 from .history_search import HistorySearchCommand
 from .hooks import HooksCommand
 from .hot_reload import HotReloadCommand
+from .import_skill import ImportSkillCommand
 from .include_skill import IncludeSkillCommand
 from .lint import LintCommand
 from .list_mcp import ListMcpCommand
@@ -134,6 +135,7 @@ CommandRegistry.register(ReapAgentCommand)
 CommandRegistry.register(SpawnAgentCommand)
 CommandRegistry.register(SwitchAgentCommand)
 CommandRegistry.register(IncludeSkillCommand)
+CommandRegistry.register(ImportSkillCommand)
 CommandRegistry.register(LintCommand)
 CommandRegistry.register(ListMcpCommand)
 CommandRegistry.register(ListQueueCommand)
@@ -221,6 +223,7 @@ __all__ = [
     "HooksCommand",
     "HotReloadCommand",
     "IncludeSkillCommand",
+    "ImportSkillCommand",
     "ReapAgentCommand",
     "SpawnAgentCommand",
     "SwitchAgentCommand",

@@ -104,6 +104,33 @@ agent-config: |
   }
 ```
 
+## Importing Skills
+
+You can import a skills from the cecli community registry or from [skills.sh](https://www.skills.sh). Importing is only available in Agent Mode.
+
+In the chat, use the `/import-skill` command:
+
+```
+/import-skill <skill-name>          # Import into the project's .cecli/skills
+/import-skill --global <skill-name> # Import into ~/.cecli/skills
+```
+
+The skill name may be a path within the registry, for example `web/browser-harness`, `files/docx`, or `pdf`. cecli looks the skill up in the community registry (`cecli-dev/community-resources`) first and falls back to skills.sh if it is not found there.
+
+- `/import-skill <skill-name>` downloads the skill into the project's `.cecli/skills` directory.
+- `/import-skill --global <skill-name>` (or `-g`) downloads the skill into `~/.cecli/skills`, making it available across all projects.
+
+For example:
+
+```
+/import-skill files/docx # Import the docx skill from the community registry
+/import-skill --global pdf # Install the PDF skill globally
+```
+
+After importing, the skill is added to the current session just like `/include-skill`. If your configuration has a `skills_includelist`, the skill is also added to it so it survives restarts; otherwise the skill is auto-discovered in future sessions.
+
+See the [community-resources repository](https://github.com/cecli-dev/community-resources) for the list of available skills.
+
 ## Creating Custom Skills
 
 To create a custom skill:
