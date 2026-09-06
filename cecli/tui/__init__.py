@@ -74,8 +74,10 @@ async def launch_tui(coder, output_queue, input_queue, args):
     Returns:
         Exit code from TUI
     """
-    # Pin tqdm's class lock before the TUI captures stdout/stderr (see _pin_tqdm_lock).
+    # Prepare tqdm and multiprocessing before the TUI captures stdout/stderr
+    # (fileno() == -1), so later subprocesses can still spawn (see helpers below).
     _pin_tqdm_lock()
+    _pre_start_resource_tracker()
 
     worker = None
     return_code = 0
@@ -120,5 +122,23 @@ def _pin_tqdm_lock():
         import tqdm.std
 
         tqdm.std.tqdm.set_lock(threading.RLock())
+    except Exception:
+        pass
+
+
+def _pre_start_resource_tracker():
+    """Start multiprocessing's resource tracker before the TUI captures stdout/stderr.
+
+    The Textual TUI replaces ``sys.stdout``/``sys.stderr`` with capture streams whose
+    ``fileno()`` returns ``-1``. ``multiprocessing`` launches a resource tracker
+    subprocess through those fds, so starting it after the swap makes ``spawnv_passfds``
+    raise ``"ValueError: bad value(s) in fds_to_keep"``. Starting it while the real fds
+    are still present lets forked workers (e.g. the ``ProcessPoolExecutor`` behind /voice)
+    register locks and semaphores without re-launching the tracker.
+    """
+    try:
+        import multiprocessing.resource_tracker as resource_tracker
+
+        resource_tracker.ensure_running()
     except Exception:
         pass

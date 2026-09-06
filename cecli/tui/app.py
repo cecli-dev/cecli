@@ -79,6 +79,9 @@ class TUI(App):
         self._sub_agent_containers = {}  # uuid -> OutputContainer
         self._primary_coder_uuid = self.worker.coder.uuid
 
+        self._voice_stop_queue = None
+        self._voice_stopping = False
+
         # Confirmation lock and pending queue — ensures one confirmation at a time
         self._confirmation_lock = False
         self._confirmation_coder_uuid = None
@@ -192,6 +195,13 @@ class TUI(App):
             self._encode_keys(self.get_keys_for("quit")), "quit", description="Quit", show=True
         )
 
+        self.bind(
+            self._encode_keys(self.get_keys_for("voice")),
+            "start_voice",
+            description="Record Voice",
+            show=True,
+        )
+
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
 
@@ -272,7 +282,8 @@ class TUI(App):
             "prev_agent": "alt+ctrl+left",
             "main_agent": "alt+ctrl+up",
             "editor": "ctrl+o",
-            "history": "ctrl+r",
+            "history": "alt+shift+h",
+            "voice": "ctrl+r",
             "focus": "ctrl+f",
             "cancel": "ctrl+c",
             "clear": "ctrl+l",
@@ -466,6 +477,14 @@ class TUI(App):
         try:
             container = self.query_one(InputContainer)
             container.update_cost(cost_text)
+        except Exception:
+            pass
+
+    def set_voice_hint(self, text: str):
+        """Set the key-hint right panel while voice recording is active."""
+        try:
+            hints = self.query_one(KeyHints)
+            hints.update_right(text)
         except Exception:
             pass
 
@@ -802,8 +821,15 @@ class TUI(App):
         if not user_input.strip():
             return
 
-        # Intercept /editor and /edit commands to handle with TUI suspension
         stripped = user_input.strip()
+
+        if stripped == "/voice":
+            input_area = self.query_one("#input", InputArea)
+            input_area.value = ""
+            self.action_start_voice()
+            return
+
+        # Intercept /editor and /edit commands to handle with TUI suspension
         if (
             stripped in ("/editor", "/edit")
             or stripped.startswith("/editor ")
@@ -1214,6 +1240,20 @@ class TUI(App):
         # Get current input text to use as initial content
         input_area = self.query_one("#input", InputArea)
         input_area.post_message(input_area.Submit("/history-search"))
+
+    def action_start_voice(self):
+        """Toggle background recording without entering the agent's input queue."""
+        if self._voice_stop_queue is not None:
+            if not self._voice_stopping:
+                self._voice_stop_queue.put(None)
+                self._voice_stopping = True
+
+            return
+
+        coder = self._get_visible_coder()
+        self._voice_stop_queue = queue.Queue()
+        self._voice_stopping = False
+        self.run_worker(self._run_voice(coder, self._voice_stop_queue), group="voice")
 
     def action_open_editor(self):
         """Open an external editor to compose a prompt (keyboard shortcut)."""
@@ -2044,6 +2084,20 @@ class TUI(App):
 
         input_area.completion_active = False
         input_area.focus()
+
+    async def _run_voice(self, coder, stop_queue):
+        """Run voice callbacks on the UI thread and release the toggle on completion."""
+        from cecli.commands.voice import VoiceCommand
+
+        try:
+            self.set_voice_hint("⬤ recording")
+            await VoiceCommand.execute(coder.io, coder, "", stop_queue=stop_queue)
+        except Exception as err:
+            self.show_error(f"Unable to record voice: {err}")
+        finally:
+            self._voice_stop_queue = None
+            self._voice_stopping = False
+            self.update_key_hints(generating=self._currently_generating)
 
 
 def patch_color_name_to_rgb():

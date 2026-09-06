@@ -239,6 +239,25 @@ class InputArea(TextArea):
         if self.disabled:
             return
 
+        # Route hotkey bindings directly and stop TextArea from inserting a
+        # printable character (e.g. alt+shift+h would otherwise type an "h").
+        if self.app.is_key_for("voice", event.key):
+            event.stop()
+            event.prevent_default()
+            self.app.action_start_voice()
+            return
+
+        if self.app.is_key_for("history", event.key):
+            event.stop()
+            event.prevent_default()
+            self.app.action_history_search()
+            return
+
+        # Reserve any other alt+shift combination for hotkeys (no character input).
+        if event.key and "alt+shift" in event.key:
+            event.stop()
+            event.prevent_default()
+            return
         # Reset cycling if not a cycle command
         is_cycle = self.app.is_key_for("cycle_forward", event.key) or self.app.is_key_for(
             "cycle_backward", event.key

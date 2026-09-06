@@ -17,6 +17,8 @@ def tui_instance(monkeypatch):
     tui._confirmation_lock = False
     tui._confirmations_pending = []
     tui._sub_agent_containers = {}
+    tui._voice_stop_queue = None
+    tui._voice_stopping = False
     return tui
 
 
@@ -397,3 +399,108 @@ def test_on_input_area_submit_intercepts_workspace(tui_instance):
         "/workspace ws:app",
         "/workspace ws:app",
     )
+
+
+@pytest.mark.asyncio
+async def test_voice_toggle_runs_background_and_stops_only_once(tui_instance):
+    import queue
+
+    coder = MagicMock(uuid="foreground")
+    tui_instance._get_visible_coder = MagicMock(return_value=coder)
+    tui_instance.run_worker = MagicMock()
+    tui_instance.input_queue = queue.Queue()
+    tui_instance.show_error = MagicMock()
+
+    with (
+        patch("cecli.commands.voice.VoiceCommand.execute", new_callable=AsyncMock) as execute,
+        patch("cecli.tui.app.queues.push_coder_input") as push_input,
+        patch("cecli.tui.app.queues.wake_input_waiters") as wake_input,
+    ):
+        tui_instance.action_start_voice()
+        stop_queue = tui_instance._voice_stop_queue
+        coroutine = tui_instance.run_worker.call_args.args[0]
+
+        try:
+            assert isinstance(stop_queue, queue.Queue)
+            assert stop_queue.empty()
+            assert not tui_instance._voice_stopping
+            tui_instance.run_worker.assert_called_once_with(coroutine, group="voice")
+            tui_instance.action_start_voice()
+            tui_instance.action_start_voice()
+            tui_instance.action_start_voice()
+            assert tui_instance._voice_stopping
+            assert stop_queue.get_nowait() is None
+            assert stop_queue.empty()
+            assert tui_instance.run_worker.call_count == 1
+            tui_instance._get_visible_coder.assert_called_once_with()
+            assert tui_instance.input_queue.empty()
+            push_input.assert_not_called()
+            wake_input.assert_not_called()
+        finally:
+            await coroutine
+
+    execute.assert_awaited_once_with(coder.io, coder, "", stop_queue=stop_queue)
+    assert tui_instance._voice_stop_queue is None
+    assert not tui_instance._voice_stopping
+    coder.io.start_spinner.assert_called_once_with("⬤ recording", coder_uuid="foreground")
+    coder.io.stop_spinner.assert_called_once_with(coder_uuid="foreground")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+async def test_run_voice_resets_state_on_every_outcome(tui_instance, outcome):
+    import asyncio
+    import queue
+
+    coder = MagicMock(uuid="sub-agent")
+    stop_queue = queue.Queue()
+    tui_instance._voice_stop_queue = stop_queue
+    tui_instance._voice_stopping = True
+    tui_instance.show_error = MagicMock()
+    error = {"success": None, "error": RuntimeError("failed"), "cancel": asyncio.CancelledError()}[
+        outcome
+    ]
+
+    with patch(
+        "cecli.commands.voice.VoiceCommand.execute", new=AsyncMock(side_effect=error)
+    ) as execute:
+        if outcome == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await tui_instance._run_voice(coder, stop_queue)
+        else:
+            await tui_instance._run_voice(coder, stop_queue)
+
+    execute.assert_awaited_once_with(coder.io, coder, "", stop_queue=stop_queue)
+    assert tui_instance._voice_stop_queue is None
+    assert not tui_instance._voice_stopping
+    coder.io.stop_spinner.assert_called_once_with(coder_uuid="sub-agent")
+
+    if outcome == "error":
+        tui_instance.show_error.assert_called_once_with("Unable to record voice: failed")
+    else:
+        tui_instance.show_error.assert_not_called()
+
+
+@pytest.mark.parametrize("text", ["/voice", "  /voice \n"])
+def test_submit_voice_intercepts_without_agent_queue(tui_instance, text):
+    import queue
+
+    input_area = MagicMock(value=text)
+    tui_instance.query_one = MagicMock(return_value=input_area)
+    tui_instance.action_start_voice = MagicMock()
+    tui_instance.add_user_message = MagicMock()
+    tui_instance.input_queue = queue.Queue()
+
+    with (
+        patch("cecli.tui.app.queues.push_coder_input") as push_input,
+        patch("cecli.tui.app.queues.wake_input_waiters") as wake_input,
+    ):
+        tui_instance.on_input_area_submit(MagicMock(value=text))
+
+    assert input_area.value == ""
+    tui_instance.action_start_voice.assert_called_once_with()
+    input_area.save_to_history.assert_not_called()
+    tui_instance.add_user_message.assert_not_called()
+    assert tui_instance.input_queue.empty()
+    push_input.assert_not_called()
+    wake_input.assert_not_called()
