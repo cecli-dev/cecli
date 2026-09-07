@@ -139,6 +139,7 @@ CommandRegistry.register(InsertQueueCommand)
 CommandRegistry.register(LintCommand)
 CommandRegistry.register(ListMcpCommand)
 CommandRegistry.register(ListQueueCommand)
+CommandRegistry.register(RemoveQueueCommand)
 CommandRegistry.register(ListSessionsCommand)
 CommandRegistry.register(ListSkillsCommand)
 CommandRegistry.register(LoadCommand)
@@ -229,6 +230,7 @@ __all__ = [
     "SwitchAgentCommand",
     "LintCommand",
     "ListSessionsCommand",
+    "ListQueueCommand",
     "ListSkillsCommand",
     "LoadCommand",
     "LoadHookCommand",
@@ -247,6 +249,7 @@ __all__ = [
     "PasteCommand",
     "quote_filename",
     "QueueCommand",
+    "RemoveQueueCommand",
     "QuitCommand",
     "ReadOnlyCommand",
     "ReadOnlyStubCommand",

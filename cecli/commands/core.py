@@ -88,9 +88,13 @@ class Commands:
         self.cmd_running_event = ThreadSafeEvent()
         self.cmd_running_event.set()
         self.last_command_show_notification = True
+        self.prompt_queue = []
+        self._queue_counter = 0
+        self._queue_lock = ThreadSafeEvent()
+        self._processing_queue = False
 
         # Commands that should NOT trigger auto-processing of the queue
-        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue"}
+        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue", "insert-queue"}
 
     # ── Queue Management Methods (CLI-33) ────────────────────────────── #
     #
@@ -129,6 +133,32 @@ class Commands:
         from cecli.helpers import command_queue
 
         return command_queue.enqueue_prompt(self._active_coder(), text)
+
+    async def _process_queued_prompts(self, preproc):
+        """Process all queued prompts (FIFO) once the current message completes.
+
+        Runs each queued prompt through ``run_one`` so it is sent to the LLM
+        exactly like a user-typed prompt. A single failing queued prompt is
+        logged and does not stop the remaining ones (``SwitchCoderSignal`` and
+        ``ReloadProgramSignal`` are BaseExceptions and propagate unchanged).
+        """
+        if self._processing_queue:
+            return
+        self._processing_queue = True
+        try:
+            while True:
+                item = self._dequeue_prompt()
+                if item is None:
+                    break
+                text = item["text"]
+                preview = text if len(text) <= 80 else text[:80] + "..."
+                self.io.tool_output(f"Processing queued prompt: {preview}")
+                try:
+                    await self.coder.run_one(text, preproc)
+                except Exception as e:
+                    self.io.tool_error(f"Error processing queued prompt: {e}")
+        finally:
+            self._processing_queue = False
 
     def _insert_prompt(self, text: str, index: int) -> dict:
         """Insert a prompt at the given index in the active coder's queue."""
@@ -285,6 +315,14 @@ class Commands:
         finally:
             self.cmd_running_event.set()
             if self.coder.tui and self.coder.tui():
+                self.coder.tui().refresh()
+            # NEW: Queue processing integration
+            if (
+                self.prompt_queue
+                and cmd_name not in self._MANAGEMENT_COMMANDS
+                and not self._processing_queue
+            ):
+                await self._process_queued_prompts(self.coder.args.preproc)
                 self.coder.tui().refresh()
 
     def matching_commands(self, inp):
