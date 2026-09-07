@@ -125,7 +125,7 @@ class ChatSummary:
 
         for model in self.models:
             try:
-                summary = await model.simple_send_with_retries(summarize_messages)
+                summary, _ = await model.simple_send_with_retries(summarize_messages)
                 if summary is not None:
                     summary = prompts.summary_prefix + summary
                     return [dict(role="user", content=summary)]
@@ -141,10 +141,12 @@ class ChatSummary:
 
         for model in self.models:
             try:
-                summary = await model.simple_send_with_retries(
+                summary, response = await model.simple_send_with_retries(
                     messages, max_tokens=max_tokens, coder=coder
                 )
                 if summary is not None:
+                    if coder is not None and response is not None:
+                        coder.record_background_usage_and_cost(messages, response, model=model)
                     return summary
             except Exception as e:
                 print(f"Summarization failed for model {model.name}: {str(e)}")

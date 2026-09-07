@@ -579,6 +579,18 @@ def get_parser(default_config_files, git_root):
     )
 
     ##########
+    group = parser.add_argument_group("Rate limiting")
+    group.add_argument(
+        "--tokens-per-minute",
+        type=int,
+        default=1000000,
+        help=(
+            "Set the maximum tokens sent per minute before rate limiting sleeps are"
+            " inserted before LLM API calls (default: 1000000, use 0 to disable)"
+        ),
+    )
+
+    ##########
     group = parser.add_argument_group("Repomap settings")
     group.add_argument(
         "--map-tokens",

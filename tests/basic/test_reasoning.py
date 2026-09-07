@@ -623,4 +623,4 @@ And this text should remain"""))]
             expected = """Here is some text
 
 And this text should remain"""
-            assert result == expected
+            assert result[0] == expected

@@ -68,6 +68,7 @@ async def test_compact_context_with_observations():
     coder.last_user_message = "Last user msg"
     coder.io = MagicMock()
     coder.args = {}
+    coder._rate_limit_sleep = AsyncMock()
 
     # Mock observation manager with some observations
     obs_manager = ObservationService.get_instance(coder)
@@ -140,6 +141,7 @@ async def test_compact_context_with_observations_integration():
     coder.last_user_message = "Last user msg"
     coder.io = MagicMock()
     coder.args = {}
+    coder._rate_limit_sleep = AsyncMock()
 
     # Mock observation manager with some observations
     obs_manager = ObservationService.get_instance(coder)
@@ -209,6 +211,7 @@ async def test_run_observation_uses_formatted_chat_chunks():
     coder.gpt_prompts = MagicMock()
     coder.gpt_prompts.observation_prompt = "Observation Prompt"
     coder.summarizer = MagicMock()
+    coder._rate_limit_sleep = AsyncMock()
 
     def fake_summarize(messages, prompt, max_tokens=None, coder=None):
         # Mirror ChatSummary.summarize_all_as_text: appends the prompt in place

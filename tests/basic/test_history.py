@@ -42,7 +42,7 @@ class TestChatSummary(TestCase):
         self.assertEqual(tokenized, [(2, messages[0]), (2, messages[1])])
 
     async def test_summarize_all(self):
-        self.mock_model.simple_send_with_retries.return_value = "This is a summary"
+        self.mock_model.simple_send_with_retries.return_value = ("This is a summary", None)
         messages = [
             {"role": "user", "content": "Hello world"},
             {"role": "assistant", "content": "Hi there"},
@@ -87,7 +87,9 @@ class TestChatSummary(TestCase):
 
         mock_model2 = mock.Mock(spec=Model)
         mock_model2.name = "gpt-3.5-turbo"
-        mock_model2.simple_send_with_retries = mock.Mock(return_value="Summary from Model 2")
+        mock_model2.simple_send_with_retries = mock.Mock(
+            return_value=("Summary from Model 2", None)
+        )
         mock_model2.info = {"max_input_tokens": 4096}
         mock_model2.token_count = lambda msg: len(msg["content"].split())
 

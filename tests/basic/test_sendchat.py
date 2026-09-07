@@ -93,7 +93,8 @@ class TestSendChat:
             self.mock_messages, coder=coder
         )
 
-        assert result == "summary"
+        content, _ = result
+        assert content == "summary"
 
         # send_completion must receive the coder's tools so summarization /
         # observation requests share the same (messages + tools) prefix as the main chat
@@ -110,7 +111,7 @@ class TestSendChat:
 
         # Should return None on AttributeError
         result = await Model(self.mock_model).simple_send_with_retries(self.mock_messages)
-        assert result is None
+        assert result == (None, None)
 
     @patch("cecli.llm.litellm.acompletion")
     @patch("builtins.print")
@@ -127,7 +128,7 @@ class TestSendChat:
         model.verbose = True
 
         result = await model.simple_send_with_retries(self.mock_messages)
-        assert result is None
+        assert result == (None, None)
         # Should only print the error message
         assert mock_print.call_count > 0
 

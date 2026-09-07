@@ -1316,6 +1316,7 @@ class Model(ModelSettings):
         max_wait=2,
         override_kwargs={},
         interrupt_event=None,
+        uuid=None,
     ):
         import random
 
@@ -1416,7 +1417,7 @@ class Model(ModelSettings):
             self._log_messages(messages)
 
         kwargs["messages"] = messages
-        kwargs["prompt_cache_key"] = GLOBAL_ID
+        kwargs["prompt_cache_key"] = uuid or GLOBAL_ID
 
         if not self.is_anthropic() and not self.caches_by_default:
             kwargs["cache_control_injection_points"] = [
@@ -1575,6 +1576,7 @@ class Model(ModelSettings):
                     tools=tools,
                     max_tokens=max_tokens,
                     override_kwargs=override_kwargs,
+                    uuid=nested.getter(coder, "uuid"),
                 )
                 if (
                     not response
@@ -1583,11 +1585,11 @@ class Model(ModelSettings):
                     or nested.getter(response, "choices.0.message.content")
                     == nested.getter(self.model_error_response(), "choices.0.message.content")
                 ):
-                    return None
+                    return None, None
                 res = response.choices[0].message.content
                 from cecli.reasoning_tags import remove_reasoning_content
 
-                return remove_reasoning_content(res, self.reasoning_tag)
+                return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
                 ex_info = litellm_ex.get_ex_info(err)
                 print(str(err))
@@ -1605,12 +1607,12 @@ class Model(ModelSettings):
                     should_retry = False
 
                 if not should_retry:
-                    return None
+                    return None, None
                 print(f"Retrying in {retry_delay:.1f} seconds...")
                 time.sleep(retry_delay)
                 continue
             except AttributeError:
-                return None
+                return None, None
             except KeyboardInterrupt:
                 # An interrupt was not caught within the async run loop.
                 # We'll just pass to allow the thread to exit gracefully
@@ -1716,14 +1718,14 @@ class Model(ModelSettings):
         # 2. Check HTTP headers fallback (retry-after, retry-after-ms)
         headers = nested.getter(err, ["response.headers", "headers"], None)
         if headers is not None:
-            retry_after = nested.getter(headers, ["retry-after"], None)
+            retry_after = nested.getter(headers, ["retry-after", "Retry-After"], None)
             if retry_after is not None:
                 try:
                     return float(str(retry_after).strip())
                 except (ValueError, TypeError):
                     pass
 
-            retry_after_ms = nested.getter(headers, ["retry-after-ms"], None)
+            retry_after_ms = nested.getter(headers, ["retry-after-ms", "Retry-After-Ms"], None)
             if retry_after_ms is not None:
                 try:
                     return float(str(retry_after_ms).strip()) / 1000.0

@@ -77,6 +77,11 @@ def responses_payload(
         payload["temperature"] = temperature
 
     extra_body = dict(kwargs.get("extra_body") or {})
+    # Preserve the caller's cache key for providers that support Responses caching.
+    prompt_cache_key = kwargs.get("prompt_cache_key")
+    if prompt_cache_key:
+        payload["prompt_cache_key"] = prompt_cache_key
+
     # The Responses API controls reasoning via the nested ``reasoning.effort``
     # field (already handled above); a generic top-level ``thinking`` budget
     # (or flat ``reasoning_effort``) has no wire equivalent and would be

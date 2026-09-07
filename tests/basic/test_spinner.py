@@ -22,10 +22,10 @@ def mock_model():
     )
     model.token_count = MagicMock(return_value=10)
     model.info = {"max_input_tokens": 100000}
-    model.simple_send_with_retries = MagicMock(return_value="test commit")
+    model.simple_send_with_retries = MagicMock(return_value=("test commit", None))
 
     async def _async_simple_send(*args, **kwargs):
-        return "test commit"
+        return ("test commit", None)
 
     model.simple_send_with_retries = _async_simple_send
     return model

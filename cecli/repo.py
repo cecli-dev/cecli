@@ -450,7 +450,7 @@ class GitRepo:
             if max_tokens and num_tokens > max_tokens:
                 continue
 
-            commit_message = await model.simple_send_with_retries(
+            commit_message, _ = await model.simple_send_with_retries(
                 messages,
                 override_kwargs={
                     "reasoning_effort": None,

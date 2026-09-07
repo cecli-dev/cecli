@@ -74,6 +74,9 @@ from ..prompts.utils.registry import PromptObject, PromptRegistry
 
 GLOBAL_DATE = date.today().isoformat()
 
+# Default per-minute token budget used for rate limiting when not configured.
+DEFAULT_TOKENS_PER_MINUTE = 1000000
+
 
 class UnknownEditFormat(ValueError):
     def __init__(self, edit_format, valid_formats):
@@ -119,6 +122,8 @@ class UsageMeta(type):
     _total_tokens_sent = 0
     _total_tokens_received = 0
     _total_cached_tokens = 0
+    _token_usage_buffer = {}
+    _token_usage_window = 60.0
 
     @property
     def total_cost(cls):
@@ -151,6 +156,47 @@ class UsageMeta(type):
     @total_cached_tokens.setter
     def total_cached_tokens(cls, value):
         UsageMeta._total_cached_tokens = value
+
+    @classmethod
+    def _purge_token_usage(cls, model, now=None):
+        """Drop a model's token-usage entries older than the rolling window."""
+        if now is None:
+            now = time.time()
+        cutoff = now - UsageMeta._token_usage_window
+        entries = UsageMeta._token_usage_buffer.get(model, [])
+        UsageMeta._token_usage_buffer[model] = [
+            (tokens, ts) for tokens, ts in entries if ts >= cutoff
+        ]
+
+    @classmethod
+    def _record_token_usage(cls, model, delta, now=None):
+        """Record a model's request prompt-token usage as (tokens, timestamp)."""
+        if delta <= 0 or model is None:
+            return
+        if now is None:
+            now = time.time()
+        UsageMeta._token_usage_buffer.setdefault(model, []).append((delta, now))
+        UsageMeta._purge_token_usage(model, now)
+
+    @classmethod
+    def _get_token_usage_stats(cls, model, now=None):
+        """Return a model's (tokens_last_minute, max_single_request, requests_per_minute)."""
+        if now is None:
+            now = time.time()
+        UsageMeta._purge_token_usage(model, now)
+        buffer = UsageMeta._token_usage_buffer.get(model, [])
+        tokens_last_minute = sum(tokens for tokens, _ in buffer)
+        max_single_request = max((tokens for tokens, _ in buffer), default=0)
+        requests_per_minute = len(buffer)
+        return tokens_last_minute, max_single_request, requests_per_minute
+
+    @classmethod
+    def _reset_token_usage(cls, model=None):
+        """Clear the rolling token-usage buffer for one model, or all when model is None."""
+        if model is None:
+            UsageMeta._token_usage_buffer = {}
+        else:
+            UsageMeta._token_usage_buffer.pop(model, None)
 
 
 class Coder(metaclass=UsageMeta):
@@ -187,6 +233,10 @@ class Coder(metaclass=UsageMeta):
     @total_cached_tokens.setter
     def total_cached_tokens(self, value):
         type(self).total_cached_tokens = value
+
+    def _reset_token_usage(self):
+        """Clear rolling token usage after restoring a saved session."""
+        UsageMeta._reset_token_usage()
 
     abs_fnames = None
     abs_read_only_fnames = None
@@ -2293,6 +2343,7 @@ class Coder(metaclass=UsageMeta):
 
                         asyncio.create_task(invoke_memorizer(self, additional_context=text))
 
+            await self._rate_limit_sleep()
             if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
                 await summarize_and_update(done_messages, MessageTag.DONE)
 
@@ -3756,6 +3807,7 @@ class Coder(metaclass=UsageMeta):
 
             while True:
                 try:
+                    await self._rate_limit_sleep(model)
                     completion_coro = model.send_completion(
                         messages,
                         functions,
@@ -3764,6 +3816,7 @@ class Coder(metaclass=UsageMeta):
                         tools=tools,
                         override_kwargs=self.model_kwargs.copy(),
                         interrupt_event=self.interrupt_event,
+                        uuid=self.uuid,
                     )
 
                     try:
@@ -4471,6 +4524,7 @@ class Coder(metaclass=UsageMeta):
             self.message_tokens_sent += prompt_tokens
 
         self.message_tokens_received += completion_tokens
+        UsageMeta._record_token_usage(self.get_active_model().name, prompt_tokens)
 
         # Build tokens string as "{prompt} CH {hit_rate:.1f}% ↑ {completion} ↓"
         if prompt_tokens > 0:
@@ -4544,37 +4598,165 @@ class Coder(metaclass=UsageMeta):
             return f"{value:.{max(2, 2 - int(math.log10(magnitude)))}f}"
 
     def compute_costs_from_tokens(
-        self, prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens
+        self, prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens, model=None
     ):
         cost = 0
+        active_model = model or self.get_active_model()
+        info = getattr(active_model, "info", {}) or {}
 
-        input_cost_per_token = self.get_active_model().info.get("input_cost_per_token") or 0
-        output_cost_per_token = self.get_active_model().info.get("output_cost_per_token") or 0
+        input_cost_per_token = info.get("input_cost_per_token") or 0
+        output_cost_per_token = info.get("output_cost_per_token") or 0
         input_cost_per_token_cache_hit = (
-            self.get_active_model().info.get("input_cost_per_token_cache_hit")
-            or self.get_active_model().info.get("cache_read_input_token_cost")
+            info.get("input_cost_per_token_cache_hit")
+            or info.get("cache_read_input_token_cost")
             or 0
         )
-
-        # deepseek
-        # prompt_cache_hit_tokens + prompt_cache_miss_tokens
-        #    == prompt_tokens == total tokens that were sent
-        #
-        # Anthropic
-        # cache_creation_input_tokens + cache_read_input_tokens + prompt
-        #    == total tokens that were
 
         if input_cost_per_token_cache_hit:
             cost += cache_hit_tokens * input_cost_per_token_cache_hit
             cost += (prompt_tokens - cache_hit_tokens) * input_cost_per_token
         else:
-            # hard code the anthropic adjustments, no-ops for other models since cache_x_tokens==0
             cost += cache_write_tokens * input_cost_per_token * 1.25
             cost += cache_hit_tokens * input_cost_per_token * 0.10
             cost += (prompt_tokens - cache_hit_tokens) * input_cost_per_token
 
         cost += completion_tokens * output_cost_per_token
         return cost
+
+    def record_background_usage_and_cost(self, messages, completion=None, model=None):
+        """Account for token usage and cost of a background model call."""
+        active_model = model or self.get_active_model()
+        prompt_tokens = 0
+        completion_tokens = 0
+        cache_hit_tokens = 0
+        cache_write_tokens = 0
+        usage = nested.getter(completion, "usage") if completion else None
+
+        if usage is not None:
+            prompt_tokens = (
+                nested.getter(usage, "prompt_tokens", 0)
+                or nested.getter(usage, "prompt_eval_count", 0)
+                or 0
+            )
+            completion_tokens = (
+                nested.getter(usage, "completion_tokens", 0)
+                or nested.getter(usage, "eval_count", 0)
+                or 0
+            )
+            cache_hit_tokens = (
+                nested.getter(usage, "prompt_cache_hit_tokens", 0)
+                or nested.getter(usage, "cache_read_input_tokens", 0)
+                or nested.getter(usage, "prompt_tokens_details.cached_tokens", 0)
+                or 0
+            )
+            cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
+        elif active_model is not None:
+            prompt_tokens = active_model.token_count(messages)
+
+        model_name = getattr(active_model, "name", None)
+        UsageMeta._record_token_usage(model_name, prompt_tokens)
+        self.total_tokens_sent += prompt_tokens
+        self.total_tokens_received += completion_tokens
+        self.total_cached_tokens += cache_hit_tokens
+
+        info = getattr(active_model, "info", {}) or {}
+        if not info.get("input_cost_per_token"):
+            return
+
+        try:
+            cost = litellm.completion_cost(completion_response=completion)
+        except Exception:
+            cost = 0
+
+        if not cost:
+            cost = self.compute_costs_from_tokens(
+                prompt_tokens,
+                completion_tokens,
+                cache_write_tokens,
+                cache_hit_tokens,
+                model=active_model,
+            )
+
+        self.total_cost += cost
+
+    def calculate_dynamic_sleep(self, model=None):
+        """Compute how long to sleep before the next LLM API call to stay under the configured per-minute token limit.
+
+        Uses the rolling token-usage buffer (last 60s) to estimate:
+
+        * ``used_last_min`` - prompt tokens already consumed in the window
+        * ``max_request`` - largest single request observed in the window
+        * ``requests_per_min`` - request rate observed in the window
+
+        Returns a sleep duration (seconds) that is ``0`` when the current
+        trajectory stays within 90% of ``tokens_per_minute`` both over the next
+        15 seconds and, if sustained, over a full minute. Otherwise it returns a
+        pause rounded up to the nearest 0.25s interval.
+        """
+        limit = nested.getter(
+            getattr(self, "args", None), "tokens_per_minute", DEFAULT_TOKENS_PER_MINUTE
+        )
+        if not isinstance(limit, (int, float)):
+            limit = DEFAULT_TOKENS_PER_MINUTE
+        if limit <= 0:
+            return 0.0
+
+        active_model = model or getattr(self, "main_model", None)
+        if active_model is None:
+            get_active_model = getattr(self, "get_active_model", None)
+            if callable(get_active_model):
+                active_model = get_active_model()
+
+        model_name = getattr(active_model, "name", None)
+        if not model_name:
+            return 0.0
+
+        budget = limit * 0.9
+        used_last_min, max_request, requests_per_min = UsageMeta._get_token_usage_stats(model_name)
+
+        if max_request <= 0 or requests_per_min <= 0:
+            # No recent usage to throttle.
+            return 0.0
+
+        # Tokens we would consume in the next 15 seconds at the current rate.
+        projected_15s = max_request * (requests_per_min / 60.0) * 15.0
+
+        # If the current trajectory stays within budget (both over the next 15s
+        # and if sustained for a full minute) there is nothing to do.
+        if (used_last_min + projected_15s) <= budget and (max_request * requests_per_min) <= budget:
+            return 0.0
+
+        # Slow the request rate so a sustained minute at max_request size fits
+        # the budget.
+        sustainable_rpm = budget / max_request
+        sustainable_interval = 60.0 / sustainable_rpm if sustainable_rpm > 0 else 60.0
+        current_interval = 60.0 / requests_per_min
+        sleep = max(0.0, sustainable_interval - current_interval)
+
+        # If the next 15 seconds (plus what we've already used) would breach the
+        # budget, wait for the rolling window to drain enough to absorb it.
+        overshoot = (used_last_min + projected_15s) - budget
+        if overshoot > 0:
+            drain = 60.0 * (overshoot / max(used_last_min, 1.0))
+            sleep = max(sleep, drain)
+
+        # Cap at one full window; round up to the nearest 0.25s.
+        sleep = min(sleep, UsageMeta._token_usage_window)
+        return math.ceil(sleep / 0.25) * 0.25
+
+    async def _rate_limit_sleep(self, model=None):
+        """Sleep (if needed) before an LLM API call to respect the per-minute token limit.
+
+        Best-effort: an interrupt simply skips the pause and is handled at the
+        next interruptible API point.
+        """
+        delay = self.calculate_dynamic_sleep(model=model)
+        if delay <= 0:
+            return
+
+        _, interrupted = await coroutines.interruptible(asyncio.sleep(delay), self.interrupt_event)
+        if interrupted:
+            return
 
     def show_usage_report(self):
         if not self.usage_report:

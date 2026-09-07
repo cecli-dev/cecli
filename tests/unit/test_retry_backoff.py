@@ -441,7 +441,7 @@ def test_simple_send_with_retries_retry_after_integration():
 
         assert len(slept_delays) == 1
         assert slept_delays[0] == 1.5
-        assert result == "generated commit"
+        assert result[0] == "generated commit"
 
     asyncio.run(run_test())
 
@@ -493,7 +493,7 @@ def test_simple_send_with_retries_gemini_payload_integration():
 
         assert len(slept_delays) == 1
         assert slept_delays[0] == 2.0
-        assert result == "summary output"
+        assert result[0] == "summary output"
 
     asyncio.run(run_test())
 
@@ -531,6 +531,6 @@ def test_simple_send_with_retries_exceeds_retry_timeout():
             )
 
         assert len(slept_delays) == 0
-        assert result is None
+        assert result == (None, None)
 
     asyncio.run(run_test())
