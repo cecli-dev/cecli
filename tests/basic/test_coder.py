@@ -735,7 +735,7 @@ three
 
             saved_diffs = []
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 saved_diffs.append(diffs)
                 return "commit message"
 
@@ -815,7 +815,7 @@ two
 
             saved_diffs = []
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 saved_diffs.append(diffs)
                 return "commit message"
 
@@ -1761,7 +1761,7 @@ This command will print 'Hello, World!' to the console."""
             # The context for commit message will be generated from cur_messages.
             # This call should not raise an exception due to `content: None`.
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 assert "USER: do a thing" in context
                 # None becomes empty string.
                 assert "ASSISTANT: \n" in context

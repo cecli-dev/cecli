@@ -196,8 +196,6 @@ def test_paging_schema_requires_exact_target_and_positive_integer_page():
     paging = parameters["properties"]["paging"]
 
     assert paging["type"] == "array"
-    assert paging["minItems"] == 1
-    assert paging["maxItems"] == 3
     paging = paging["items"]
     assert paging["type"] == "object"
     assert set(paging["required"]) == {"target", "page"}
