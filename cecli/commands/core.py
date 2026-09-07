@@ -92,6 +92,10 @@ class Commands:
         self._queue_counter = 0
         self._queue_lock = ThreadSafeEvent()
         self._processing_queue = False
+        self.prompt_queue = []
+        self._queue_counter = 0
+        self._queue_lock = ThreadSafeEvent()
+        self._processing_queue = False
 
         # Commands that should NOT trigger auto-processing of the queue
         self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue", "insert-queue"}
