@@ -114,6 +114,10 @@ class ConversationChunks:
         if self._cancel_post_message_injections():
             return
 
+        # sub agents should not use default reminders
+        if coder.edit_format in ["subagent"]:
+            return
+
         # Add system reminder as a pre-prompt context block
         use_reminders = getattr(coder.args, "use_reminders", True)
         if (
@@ -122,10 +126,7 @@ class ConversationChunks:
             and coder.gpt_prompts.system_reminder
         ):
             msg = dict(
-                role="user",
-                content=self._shuffle_reminders(
-                    coder.fmt_system_prompt(coder.gpt_prompts.system_reminder)
-                ),
+                role="user", content=coder.fmt_system_prompt(coder.gpt_prompts.system_reminder)
             )
             ConversationService.get_manager(coder).add_message(
                 message_dict=msg,
@@ -153,21 +154,6 @@ class ConversationChunks:
             tag=MessageTag.SYSTEM,
             hash_key=("main", "subagent_prompt"),
             force=True,
-        )
-
-        msg = dict(
-            role="user",
-            content=self._shuffle_reminders(
-                coder.fmt_system_prompt(coder.gpt_prompts.system_reminder)
-            ),
-        )
-
-        ConversationService.get_manager(coder).add_message(
-            message_dict=msg,
-            tag=MessageTag.REMINDER,
-            hash_key=("main", "subagent_reminder"),
-            force=True,
-            mark_for_delete=0,
         )
 
     def add_randomized_cta(self) -> None:
