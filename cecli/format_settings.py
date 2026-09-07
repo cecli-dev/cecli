@@ -1,3 +1,6 @@
+import os
+
+
 def scrub_sensitive_info(args, text):
     # Replace sensitive information with last 4 characters
     if text and args.openai_api_key:
@@ -23,4 +26,17 @@ def format_settings(parser, args):
         if val:
             val = scrub_sensitive_info(args, str(val))
         show += f"  - {arg}: {val}\n"  # noqa: E221
+    # Add environment variables that start with CECLI_
+    show += "\nEnvironment variables:\n"
+    for env_var, env_val in sorted(os.environ.items()):
+        if env_var.startswith("CECLI_"):
+            # Scrub sensitive env vars if needed
+            if (
+                env_var
+                in ["CECLI_OPENROUTER_API_KEY", "CECLI_OPENAI_API_KEY", "CECLI_ANTHROPIC_API_KEY"]
+                and env_val
+            ):
+                last_4 = env_val[-4:] if len(env_val) >= 4 else env_val
+                env_val = f"...{last_4}"
+            show += f"  - {env_var}: {env_val}\n"
     return show

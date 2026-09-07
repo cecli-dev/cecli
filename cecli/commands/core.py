@@ -1,47 +1,15 @@
-import json
-import re
-import sys
+import asyncio
 import weakref
 from pathlib import Path
 
 from cecli.commands.utils.registry import CommandRegistry
-from cecli.helpers import nested, plugin_manager
-from cecli.helpers.file_searcher import handle_core_files
+from cecli.helpers import plugin_manager
 from cecli.helpers.threading import ThreadSafeEvent
 from cecli.signals import SwitchCoderSignal
 
 
 class Commands:
     scraper = None
-
-    def _get_coder(self):
-        """Return coder via weak reference, or None if collected."""
-        if self._coder_ref is not None:
-            return self._coder_ref()
-        return None
-
-    def _set_coder(self, value):
-        """Store coder as weakref to break circular reference chains."""
-        self._coder_ref = weakref.ref(value) if value is not None else None
-
-    coder = property(_get_coder, _set_coder)
-
-    def clone(self):
-        cloned = Commands(
-            self.io,
-            None,
-            voice_language=self.voice_language,
-            voice_input_device=self.voice_input_device,
-            voice_format=self.voice_format,
-            verify_ssl=self.verify_ssl,
-            args=self.args,
-            parser=self.parser,
-            verbose=self.verbose,
-            editor=self.editor,
-            original_read_only_fnames=self.original_read_only_fnames,
-        )
-        cloned.last_command_show_notification = self.last_command_show_notification
-        return cloned
 
     def __init__(
         self,
@@ -58,39 +26,29 @@ class Commands:
         original_read_only_fnames=None,
     ):
         self.io = io
-        # Use weak ref to avoid circular reference chains
-        self._coder_ref = weakref.ref(coder) if coder else None
-        self.parser = parser
+        self.coder = weakref.proxy(coder) if coder else None
         self.args = args
-        self.verbose = verbose
-        self.verify_ssl = verify_ssl
-        if voice_language == "auto":
-            voice_language = None
+        self.parser = parser
         self.voice_language = voice_language
-        self.voice_format = voice_format
         self.voice_input_device = voice_input_device
-        self.help = None
+        self.voice_format = voice_format
+        self.verify_ssl = verify_ssl
+        self.verbose = verbose
         self.editor = editor
-        self.original_read_only_fnames = set(original_read_only_fnames or [])
-
-        customizations = dict()
-        try:
-            if self.args:
-                customizations = nested.getter(self.args, "custom", "{}")
-                customizations = json.loads(customizations)
-        except (json.JSONDecodeError, TypeError):
-            customizations = dict()
-            pass
-
-        self.custom_commands = nested.getter(customizations, "command-paths", [])
-        self._load_custom_commands(self.custom_commands)
+        self.original_read_only_fnames = original_read_only_fnames
 
         self.cmd_running_event = ThreadSafeEvent()
         self.cmd_running_event.set()
         self.last_command_show_notification = True
 
+        # Prompt queue for CLI-33: in-memory FIFO queue
+        self.prompt_queue = []
+        self._queue_counter = 0
+        self._queue_lock = asyncio.Lock()
+        self._processing_queue = False
+
         # Commands that should NOT trigger auto-processing of the queue
-        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue"}
+        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue", "insert-queue"}
 
     # ── Queue Management Methods (CLI-33) ────────────────────────────── #
     #
@@ -101,41 +59,79 @@ class Commands:
     # instance, so each sub-agent's commands manage that sub-agent's own
     # queue.
 
-    @property
-    def prompt_queue(self):
-        """Proxy to the owning coder's prompt queue."""
-        coder = self.coder
-        return coder.prompt_queue if coder is not None else []
+    def _active_coder(self):
+        """Resolve the coder queue commands should target.
+
+        Prefers the foreground (sub-agent) coder via
+        ``command_queue.get_active_coder``, falling back to ``self.coder``
+        when no active coder can be resolved (e.g. no AgentService, or the
+        Commands instance is constructed without a coder in tests).
+        """
+        from cecli.helpers import command_queue
+
+        return command_queue.get_active_coder(self.coder) or self.coder
 
     def _enqueue_prompt(self, text: str) -> dict:
-        """Add a prompt to the owning coder's queue."""
+        """Add a prompt to the active (foreground) coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.enqueue_prompt(self.coder, text)
+        return command_queue.enqueue_prompt(self._active_coder(), text)
+
+    async def _process_queued_prompts(self, preproc):
+        """Process all queued prompts (FIFO) once the current message completes.
+
+        Runs each queued prompt through ``run_one`` so it is sent to the LLM
+        exactly like a user-typed prompt. A single failing queued prompt is
+        logged and does not stop the remaining ones (``SwitchCoderSignal`` and
+        ``ReloadProgramSignal`` are BaseExceptions and propagate unchanged).
+        """
+        if self._processing_queue:
+            return
+        self._processing_queue = True
+        try:
+            while True:
+                item = self._dequeue_prompt()
+                if item is None:
+                    break
+                text = item["text"]
+                preview = text if len(text) <= 80 else text[:80] + "..."
+                self.io.tool_output(f"Processing queued prompt: {preview}")
+                try:
+                    await self.coder.run_one(text, preproc)
+                except Exception as e:
+                    self.io.tool_error(f"Error processing queued prompt: {e}")
+        finally:
+            self._processing_queue = False
+
+    def _insert_prompt(self, text: str, index: int) -> dict:
+        """Insert a prompt at the given index in the active coder's queue."""
+        from cecli.helpers import command_queue
+
+        return command_queue.insert_prompt(self._active_coder(), text, index)
 
     def _dequeue_prompt(self) -> dict | None:
-        """Remove and return the first item from the owning coder's queue."""
+        """Remove and return the first item from the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.dequeue_prompt(self.coder)
+        return command_queue.dequeue_prompt(self._active_coder())
 
     def _get_queue_length(self) -> int:
-        """Return the current number of items in the owning coder's queue."""
+        """Return the current number of items in the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.get_queue_length(self.coder)
+        return command_queue.get_queue_length(self._active_coder())
 
     def _remove_from_queue(self, index: int) -> dict | None:
-        """Remove and return the item at the given index from the owning coder's queue."""
+        """Remove and return the item at the given index from the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.remove_from_queue(self.coder, index)
+        return command_queue.remove_from_queue(self._active_coder(), index)
 
     def _clear_queue(self) -> list:
-        """Remove all items from the owning coder's queue and return them."""
+        """Remove all items from the active coder's queue and return them."""
         from cecli.helpers import command_queue
 
-        return command_queue.clear_queue(self.coder)
+        return command_queue.clear_queue(self._active_coder())
 
     def _load_custom_commands(self, custom_commands):
         """
@@ -263,86 +259,10 @@ class Commands:
             self.cmd_running_event.set()
             if self.coder.tui and self.coder.tui():
                 self.coder.tui().refresh()
-
-    def matching_commands(self, inp):
-        words = inp.strip().split()
-        if not words:
-            return
-        first_word = words[0]
-        rest_inp = inp[len(words[0]) :].strip()
-        all_commands = self.get_commands()
-        matching_commands = [cmd for cmd in all_commands if cmd.startswith(first_word)]
-        return matching_commands, first_word, rest_inp
-
-    async def run(self, inp, coder=None, **kwargs):
-        if inp.startswith("/"):
-            words = inp.strip().split()
-            cmd_name = words[0][1:]
-            rest_inp = inp[len(words[0]) :].strip()
-            return await self.execute(cmd_name, rest_inp, coder=coder, **kwargs)
-
-        if inp.startswith("!!!"):
-            return await self.execute(
-                "run", inp[3:], coder=coder, background=True, suppress_add=True
-            )
-        if inp.startswith("!!"):
-            return await self.execute("run", inp[2:], coder=coder, suppress_add=True)
-        if inp.startswith("!"):
-            return await self.execute("run", inp[1:], coder=coder)
-        res = self.matching_commands(inp)
-        if res is None:
-            return
-        matching_commands, first_word, rest_inp = res
-        if len(matching_commands) == 1:
-            command = matching_commands[0][1:]
-            return await self.execute(command, rest_inp, coder=coder, **kwargs)
-        elif first_word in matching_commands:
-            command = first_word[1:]
-            return await self.execute(command, rest_inp, coder=coder, **kwargs)
-        elif len(matching_commands) > 1:
-            self.io.tool_error(f"Ambiguous command: {', '.join(matching_commands)}")
-        else:
-            self.io.tool_error(f"Invalid command: {first_word}")
-
-    def get_help_md(self):
-        """Show help about all commands in markdown"""
-        res = "\n|Command|Description|\n|:------|:----------|\n"
-        commands = sorted(self.get_commands())
-        for cmd in commands:
-            cmd_name = cmd[1:]
-            command_class = CommandRegistry.get_command(cmd_name)
-            if command_class:
-                description = command_class.DESCRIPTION
-                res += f"| **{cmd}** | {description} |\n"
-            else:
-                res += f"| **{cmd}** | |\n"
-        res += "\n"
-        return res
-
-    def _get_session_directory(self):
-        """Get the session storage directory, creating it if needed"""
-        session_dir = handle_core_files(Path(self.coder.root) / ".cecli" / "sessions")
-        session_dir.mkdir(parents=True, exist_ok=True)
-        return session_dir
-
-    def _get_session_file_path(self, session_name):
-        """Get the full path for a session file"""
-        session_dir = self._get_session_directory()
-        safe_name = re.sub("[^a-zA-Z0-9_.-]", "_", session_name)
-        ext = "" if safe_name[-5:] == ".json" else ".json"
-        return session_dir / f"{safe_name}{ext}"
-
-
-def get_help_md():
-    md = Commands(None, None).get_help_md()
-    return md
-
-
-def main():
-    md = get_help_md()
-    print(md)
-
-
-if __name__ == "__main__":
-    status = main()
-    sys.exit(status)
+            # NEW: Queue processing integration
+            if (
+                self.coder.prompt_queue
+                and cmd_name not in self._MANAGEMENT_COMMANDS
+                and not self.coder._processing_queue
+            ):
+                await self.coder._drain_prompt_queue(kwargs.get("preproc", True))
