@@ -365,7 +365,7 @@ class Coder(metaclass=UsageMeta):
                 read_only_stubs_fnames=list(
                     from_coder.abs_read_only_stubs_fnames
                 ),  # Copy read-only stubs
-                rules_fnames=list(from_coder.abs_rules_fnames),  # Copy read-only stubs
+                rules_fnames=list(from_coder.abs_rules_fnames),  # Copy rules files
                 done_messages=[],
                 cur_messages=[],
                 coder_commit_hashes=from_coder.coder_commit_hashes,
@@ -3883,7 +3883,7 @@ class Coder(metaclass=UsageMeta):
             if response:
                 completion = response
             # Calculate costs for successful responses
-            self.calculate_and_show_tokens_and_cost(messages, completion)
+            self.calculate_and_show_tokens_and_cost(messages, completion, model=model)
 
         except litellm_ex.exceptions_tuple() as err:
             self.error_code = 1
@@ -3891,7 +3891,7 @@ class Coder(metaclass=UsageMeta):
             if ex_info.name == "ContextWindowExceededError":
                 # Still calculate costs for context window errors
                 self.token_profiler.on_error()
-                self.calculate_and_show_tokens_and_cost(messages, completion)
+                self.calculate_and_show_tokens_and_cost(messages, completion, model=model)
             raise
         except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
             self.error_code = 130  # apparently standard?
@@ -4484,57 +4484,55 @@ class Coder(metaclass=UsageMeta):
             self.reasoning_tag_name,
         )
 
-    def calculate_and_show_tokens_and_cost(self, messages, completion=None):
+    def calculate_and_show_tokens_and_cost(self, messages, completion=None, model=None):
+        active_model = model or self.get_active_model()
         prompt_tokens = 0
         completion_tokens = 0
         cache_hit_tokens = 0
         cache_write_tokens = 0
+        usage = nested.getter(completion, "usage") if completion else None
 
         if (
-            completion
-            and nested.getter(completion, "usage.prompt_tokens") is not None
-            and nested.getter(completion, "usage.completion_tokens") is not None
+            usage is not None
+            and nested.getter(usage, ["prompt_tokens", "input_tokens"]) is not None
+            and nested.getter(usage, ["completion_tokens", "output_tokens"]) is not None
         ):
             prompt_tokens = (
-                nested.getter(completion.usage, "prompt_tokens", 0)
-                or nested.getter(completion.usage, "prompt_eval_count", 0)
-                or 0
+                nested.getter(usage, ["prompt_tokens", "input_tokens", "prompt_eval_count"], 0) or 0
             )
             completion_tokens = (
-                nested.getter(completion.usage, "completion_tokens", 0)
-                or nested.getter(completion.usage, "eval_count", 0)
-                or 0
+                nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
             )
             cache_hit_tokens = (
-                getattr(completion.usage, "prompt_cache_hit_tokens", 0)
-                or getattr(completion.usage, "cache_read_input_tokens", 0)
-                or nested.getter(completion.usage, "prompt_tokens_details.cached_tokens", 0)
+                nested.getter(
+                    usage,
+                    [
+                        "prompt_cache_hit_tokens",
+                        "cache_read_input_tokens",
+                        "input_tokens_details.cached_tokens",
+                        "prompt_tokens_details.cached_tokens",
+                    ],
+                    0,
+                )
                 or 0
             )
-            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0) or 0
+            cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
             self.message_cached_tokens += cache_hit_tokens
-
-            # ``prompt_tokens`` is normalized to the full input (including any
-            # cache read/write) for anthropic usage, so no separate add here.
             self.message_tokens_sent += prompt_tokens
-
         else:
-            prompt_tokens = self.get_active_model().token_count(messages)
-            completion_tokens = self.get_active_model().token_count(self.partial_response_content)
+            prompt_tokens = active_model.token_count(messages)
+            completion_tokens = active_model.token_count(self.partial_response_content)
             self.message_tokens_sent += prompt_tokens
 
         self.message_tokens_received += completion_tokens
-        UsageMeta._record_token_usage(self.get_active_model().name, prompt_tokens)
+        UsageMeta._record_token_usage(active_model.name, prompt_tokens)
 
-        # Build tokens string as "{prompt} CH {hit_rate:.1f}% ↑ {completion} ↓"
         if prompt_tokens > 0:
             hit_rate = round(cache_hit_tokens / prompt_tokens * 100, 1) if cache_hit_tokens else 0.0
         else:
             hit_rate = 0.0
         tokens_str = f"{format_tokens(prompt_tokens)} ◇ {hit_rate:.1f}%"
-
         tokens_report = f"{tokens_str} ↑ {format_tokens(completion_tokens)} ↓"
-
         tokens_report = self.token_profiler.add_to_usage_report(
             tokens_report, self.message_tokens_sent, self.message_tokens_received
         )
@@ -4557,36 +4555,31 @@ class Coder(metaclass=UsageMeta):
             total_hit_rate = 0.0
 
         total_stats = f"{format_tokens(total_combined_tokens)} ◇ {total_hit_rate:.1f}% ↑↓"
-
-        if not self.get_active_model().info.get("input_cost_per_token"):
+        if not active_model.info.get("input_cost_per_token"):
             self.usage_report = tokens_report + " " + total_stats
             return
 
         try:
-            # Try and use litellm's built in cost calculator. Seems to work for non-streaming only?
             cost = litellm.completion_cost(completion_response=completion)
         except Exception:
             cost = 0
 
         if not cost:
             cost = self.compute_costs_from_tokens(
-                prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens
+                prompt_tokens,
+                completion_tokens,
+                cache_write_tokens,
+                cache_hit_tokens,
+                model=active_model,
             )
 
         self.total_cost += cost
         self.message_cost += cost
-
         cost_report = (
             f"${self.format_cost(self.message_cost)} • {total_stats}"
             f" ${self.format_cost(self.total_cost)}"
         )
-
-        if cache_hit_tokens and cache_write_tokens:
-            sep = " "
-        else:
-            sep = " "
-
-        self.usage_report = tokens_report + sep + cost_report
+        self.usage_report = tokens_report + " " + cost_report
 
     def format_cost(self, value):
         if value == 0:
@@ -4634,24 +4627,27 @@ class Coder(metaclass=UsageMeta):
 
         if usage is not None:
             prompt_tokens = (
-                nested.getter(usage, "prompt_tokens", 0)
-                or nested.getter(usage, "prompt_eval_count", 0)
-                or 0
+                nested.getter(usage, ["prompt_tokens", "input_tokens", "prompt_eval_count"], 0) or 0
             )
             completion_tokens = (
-                nested.getter(usage, "completion_tokens", 0)
-                or nested.getter(usage, "eval_count", 0)
-                or 0
+                nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
             )
             cache_hit_tokens = (
-                nested.getter(usage, "prompt_cache_hit_tokens", 0)
-                or nested.getter(usage, "cache_read_input_tokens", 0)
-                or nested.getter(usage, "prompt_tokens_details.cached_tokens", 0)
+                nested.getter(
+                    usage,
+                    [
+                        "prompt_cache_hit_tokens",
+                        "cache_read_input_tokens",
+                        "input_tokens_details.cached_tokens",
+                        "prompt_tokens_details.cached_tokens",
+                    ],
+                    0,
+                )
                 or 0
             )
             cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
         elif active_model is not None:
-            prompt_tokens = active_model.token_count(messages)
+            prompt_tokens = active_model.token_count(messages) or 0
 
         model_name = getattr(active_model, "name", None)
         UsageMeta._record_token_usage(model_name, prompt_tokens)

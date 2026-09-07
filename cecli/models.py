@@ -1567,6 +1567,12 @@ class Model(ModelSettings):
 
         while True:
             try:
+                if coder:
+                    rate_limit_sleep = getattr(coder, "_rate_limit_sleep", None)
+                    if callable(rate_limit_sleep):
+                        result = rate_limit_sleep(self)
+                        if asyncio.iscoroutine(result):
+                            await result
 
                 _hash, response = await self.send_completion(
                     messages=messages,
@@ -1588,6 +1594,9 @@ class Model(ModelSettings):
                     return None, None
                 res = response.choices[0].message.content
                 from cecli.reasoning_tags import remove_reasoning_content
+
+                if coder:
+                    coder.record_background_usage_and_cost(messages, response, model=self)
 
                 return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
@@ -1614,9 +1623,7 @@ class Model(ModelSettings):
             except AttributeError:
                 return None, None
             except KeyboardInterrupt:
-                # An interrupt was not caught within the async run loop.
-                # We'll just pass to allow the thread to exit gracefully
-                # without a scary traceback.
+                # We'll just pass to allow the thread to exit gracefully.
                 pass
 
     def model_error_response(self):

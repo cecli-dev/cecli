@@ -55,9 +55,10 @@ class ObservationService:
 
         cur_messages = ConversationService.get_manager(coder).get_messages_dict()
 
-        # Calculate unobserved tokens
-        unobserved = cur_messages[self._last_observed_index :]
-        current_index = len(cur_messages)
+        # Capture the range passed to the background task before new messages arrive.
+        snapshot_index = len(cur_messages)
+        unobserved = cur_messages[self._last_observed_index : snapshot_index]
+        current_index = snapshot_index
 
         if not unobserved:
             return
@@ -68,14 +69,11 @@ class ObservationService:
             tokens >= self.observation_threshold
             and (not self._last_observed_index or current_index - self._last_observed_index >= 10)
         ) or tokens >= 2 * self.observation_threshold:
-            # Mark as processing before scheduling so a concurrent
-            # check_and_trigger() call in the same event-loop turn can't
-            # enqueue a second, overlapping observation. run_observation()
-            # resets the flag in its finally block.
+            # Mark as processing before scheduling so a concurrent check cannot
+            # enqueue a second overlapping observation.
             self.is_processing = True
-
             fire_and_forget(self.run_observation(unobserved))
-            self._last_observed_index = len(cur_messages)
+            self._last_observed_index = snapshot_index
 
     async def run_observation(self, messages):
         coder = self.get_coder()
@@ -132,6 +130,7 @@ class ObservationService:
 
             # Prepare observations for the reflector
             obs_text = "\n".join([f"- {o}" for o in self.observations])
+            reflection_index = len(ConversationService.get_manager(coder).get_messages_dict())
 
             # Use the Reflector to condense and get next steps
             reflection_prompt = coder.gpt_prompts.reflection_prompt
@@ -150,9 +149,7 @@ class ObservationService:
             # rather than resetting it to 0, so the next check_and_trigger()
             # observes only newly-arrived messages instead of re-reading the
             # entire, already-condensed conversation from the start.
-            self._last_observed_index = len(
-                ConversationService.get_manager(coder).get_messages_dict()
-            )
+            self._last_observed_index = max(self._last_observed_index, reflection_index)
         except asyncio.CancelledError:
             raise
         except Exception as e:

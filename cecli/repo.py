@@ -279,7 +279,9 @@ class GitRepo:
                 user_language = coder.commit_language
                 if not user_language:
                     user_language = coder.get_user_language()
-            commit_message = await self.get_commit_message(diffs, context, user_language)
+            commit_message = await self.get_commit_message(
+                diffs, context, user_language, coder=coder
+            )
 
         # Retrieve attribute settings, prioritizing coder.args if available
         if coder and hasattr(coder, "args") and coder.args:
@@ -413,7 +415,7 @@ class GitRepo:
         except ValueError:
             return fname
 
-    async def get_commit_message(self, diffs, context, user_language=None):
+    async def get_commit_message(self, diffs, context, user_language=None, coder=None):
         diffs = "# Diffs:\n" + diffs
 
         content = ""
@@ -422,7 +424,6 @@ class GitRepo:
         content += diffs
 
         system_content = self.commit_prompt or prompts.commit_system
-
         language_instruction = ""
         if user_language:
             language_instruction = f"\n- Is written in {user_language}."
@@ -431,7 +432,6 @@ class GitRepo:
         commit_message = None
         for model in self.models:
             spinner_text = f"Generating commit message with {model.name}\n"
-
             self.io.start_spinner(spinner_text, update_last_text=False)
 
             if model.system_prompt_prefix:
@@ -446,7 +446,6 @@ class GitRepo:
 
             num_tokens = model.token_count(messages)
             max_tokens = model.info.get("max_input_tokens") or 0
-
             if max_tokens and num_tokens > max_tokens:
                 continue
 
@@ -457,9 +456,10 @@ class GitRepo:
                     "thinking": None,
                     "drop_params": True,
                 },
+                coder=coder,
             )
             if commit_message:
-                break  # Found a model that could generate the message
+                break
 
         if not commit_message:
             self.io.tool_error("Failed to generate commit message!")
