@@ -410,6 +410,8 @@ async def test_voice_toggle_runs_background_and_stops_only_once(tui_instance):
     tui_instance.run_worker = MagicMock()
     tui_instance.input_queue = queue.Queue()
     tui_instance.show_error = MagicMock()
+    tui_instance.set_voice_hint = MagicMock()
+    tui_instance.update_key_hints = MagicMock()
 
     with (
         patch("cecli.commands.voice.VoiceCommand.execute", new_callable=AsyncMock) as execute,
@@ -442,8 +444,10 @@ async def test_voice_toggle_runs_background_and_stops_only_once(tui_instance):
     execute.assert_awaited_once_with(coder.io, coder, "", stop_queue=stop_queue)
     assert tui_instance._voice_stop_queue is None
     assert not tui_instance._voice_stopping
-    coder.io.start_spinner.assert_called_once_with("⬤ recording", coder_uuid="foreground")
-    coder.io.stop_spinner.assert_called_once_with(coder_uuid="foreground")
+    tui_instance.set_voice_hint.assert_called_once_with("⬤ recording")
+    tui_instance.update_key_hints.assert_called_once_with(
+        generating=tui_instance._currently_generating
+    )
 
 
 @pytest.mark.asyncio
@@ -457,6 +461,8 @@ async def test_run_voice_resets_state_on_every_outcome(tui_instance, outcome):
     tui_instance._voice_stop_queue = stop_queue
     tui_instance._voice_stopping = True
     tui_instance.show_error = MagicMock()
+    tui_instance.set_voice_hint = MagicMock()
+    tui_instance.update_key_hints = MagicMock()
     error = {"success": None, "error": RuntimeError("failed"), "cancel": asyncio.CancelledError()}[
         outcome
     ]
@@ -473,7 +479,10 @@ async def test_run_voice_resets_state_on_every_outcome(tui_instance, outcome):
     execute.assert_awaited_once_with(coder.io, coder, "", stop_queue=stop_queue)
     assert tui_instance._voice_stop_queue is None
     assert not tui_instance._voice_stopping
-    coder.io.stop_spinner.assert_called_once_with(coder_uuid="sub-agent")
+    tui_instance.update_key_hints.assert_called_once_with(
+        generating=tui_instance._currently_generating
+    )
+    tui_instance.set_voice_hint.assert_called_once_with("⬤ recording")
 
     if outcome == "error":
         tui_instance.show_error.assert_called_once_with("Unable to record voice: failed")

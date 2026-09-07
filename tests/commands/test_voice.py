@@ -76,11 +76,12 @@ async def test_background_command_uses_voice_binding_and_callbacks(voice_context
         call("final transcript"),
     ]
     assert tui.refresh.call_count == 2
-    assert io.update_spinner.call_args_list == [
+    assert tui.set_voice_hint.call_args_list == [
         call("⬤ recording"),
         call("⬤ recording: alt+r to stop"),
         call("⬤ Transcribing"),
     ]
+    io.update_spinner.assert_not_called()
     assert io.tool_output.call_args_list == [call("Microphone warning"), call("")]
     recorder.close.assert_not_called()
 
