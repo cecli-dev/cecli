@@ -617,6 +617,10 @@ class AgentService:
             parent_uuid=parent_coder.uuid,
             map_tokens=0,
             init_metadata={"agent_config": agent_config},
+            # Sub-agents start with an empty file context; rules are inherited.
+            fnames=[],
+            read_only_fnames=[],
+            read_only_stubs_fnames=[],
         )
         if configured_root:
             kwargs["root"] = configured_root
