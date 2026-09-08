@@ -23,7 +23,11 @@ class TestKeepaliveResilience:
 
         # Simulate temporary disconnection
         running_mock_server.trigger_disconnect()
-        await asyncio.sleep(1.2)  # Wait for failed ping
+
+        # Poll until the keepalive loop's first failed ping marks the server
+        # UNHEALTHY. Polling (rather than a fixed sleep) keeps the test robust
+        # to scheduling/latency differences across CI runners.
+        await self._wait_for_state(inspector, server, ConnectionState.UNHEALTHY)
 
         # Should be UNHEALTHY after first failure
         assert inspector.get_state(server) == ConnectionState.UNHEALTHY
@@ -32,13 +36,33 @@ class TestKeepaliveResilience:
         # Restore server
         running_mock_server.reset()
         running_mock_server.set_status(200)
-        await asyncio.sleep(1.2)  # Wait for successful ping
+
+        # Poll until a successful keepalive ping restores CONNECTED
+        await self._wait_for_state(inspector, server, ConnectionState.CONNECTED)
 
         # Should recover to CONNECTED
         assert inspector.get_state(server) == ConnectionState.CONNECTED
         assert inspector.get_failed_pings(server) == 0
 
         await server.disconnect()
+
+    @staticmethod
+    async def _wait_for_state(inspector, server, expected, timeout=5.0):
+        """Poll until the server reaches the expected connection state.
+
+        Avoids relying on a fixed sleep that can race with the keepalive
+        loop's ping cadence on slower CI runners.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if inspector.get_state(server) == expected:
+                return
+            await asyncio.sleep(0.05)
+        raise AssertionError(
+            f"Timed out after {timeout}s waiting for state {expected}; "
+            f"current state is {inspector.get_state(server)}"
+        )
 
     @pytest.mark.asyncio
     async def test_slow_responses_handled_gracefully(self, http_based_server, running_mock_server):
