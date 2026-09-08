@@ -22,19 +22,26 @@ If you run cecli from WSL (Windows Subsystem for Linux), `/voice` needs a little
 
 1. **Check the Windows mic.** Verify your microphone is set as the **default input device** (Settings → System → Sound → Input) and that apps may access it (Settings → Privacy & security → Microphone).
 
-2. **Install the ALSA → Pulse plugin and PulseAudio utilities.**
+2. **Install PortAudio and the ALSA → Pulse plugin plus the PulseAudio utilities.**
 
    - Fedora:
 
        ```bash
-       sudo dnf install -y alsa-utils pulseaudio-utils alsa-plugins-pulseaudio
+       sudo dnf install -y portaudio alsa-utils pulseaudio-utils alsa-plugins-pulseaudio
        ```
 
    - Debian / Ubuntu:
 
        ```bash
-       sudo apt install -y alsa-utils pulseaudio-utils libasound2-plugins
+       sudo apt install -y libportaudio2 alsa-utils pulseaudio-utils libasound2-plugins
        ```
+
+
+> **After installing PortAudio**, close and reopen your terminal (or restart WSL) so
+> `sounddevice` picks up the newly installed PortAudio library — a running Python
+> process keeps whichever PortAudio it loaded first. Also make sure Windows grants
+> microphone access to WSLg (Settings → Privacy & security → Microphone →
+> *allow desktop apps* / "Windows Subsystem for Linux").
 
 3. **Route ALSA through PulseAudio.** Create `~/.asoundrc`:
 
@@ -46,7 +53,8 @@ If you run cecli from WSL (Windows Subsystem for Linux), `/voice` needs a little
 
    ```bash
    PULSE_SERVER=unix:/mnt/wslg/PulseServer \
-   parec -d RDPSource --format=s16le --rate=16000 --channels=1 | \
+   parec -d RDPSource --format=s16le --rate=44100 --channels=1 | \
+     head -c 176400 | \
      python3 -c "import sys, numpy as np; a=np.frombuffer(sys.stdin.buffer.read(), np.int16)/32768.0; print('RMS', round(float(np.sqrt(np.mean(a**2))),4))"
    ```
 
