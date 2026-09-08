@@ -2673,7 +2673,10 @@ class Coder(metaclass=UsageMeta):
         max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 0
 
         if max_input_tokens and input_tokens >= max_input_tokens:
-            if self.enable_context_compaction:
+            if (
+                self.enable_context_compaction
+                and input_tokens >= self.context_compaction_max_tokens * 0.95
+            ):
                 self.io.tool_output(
                     f"Estimated chat context of {input_tokens:,} tokens exceeds the"
                     f" {max_input_tokens:,} token limit. Attempting to compact..."
@@ -2685,21 +2688,29 @@ class Coder(metaclass=UsageMeta):
                 input_tokens = self.get_active_model().token_count(messages)
 
             if max_input_tokens and input_tokens >= max_input_tokens:
-                self.io.tool_error(
-                    f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
-                    f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
-                )
-                self.io.tool_output("To reduce the chat context:")
-                self.io.tool_output("- Use /drop to remove unneeded files from the chat")
-                self.io.tool_output("- Use /clear to clear the chat history")
-                self.io.tool_output("- Break your code into smaller files")
-                self.io.tool_output(
-                    "It's probably safe to try and send the request, most providers won't charge if"
-                    " the context limit is exceeded."
-                )
+                if not hasattr(self, "_last_compaction_warning_time"):
+                    self._last_compaction_warning_time = time.time()
 
-                if not await self.io.confirm_ask("Try to proceed anyway?"):
-                    return None
+                if getattr(self, "_last_compaction_warning_time", 0) + 300 < time.time():
+                    self._last_compaction_warning_time = time.time()
+                    self.io.tool_error(
+                        f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
+                        f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
+                    )
+                    self.io.tool_output("To reduce the chat context:")
+                    self.io.tool_output("- Use /drop to remove unneeded files from the chat")
+                    self.io.tool_output("- Use /clear to clear the chat history")
+                    self.io.tool_output("- Break your code into smaller files")
+                    self.io.tool_output(
+                        "It's probably safe to try and send the request, most providers won't charge if"
+                        " the context limit is exceeded."
+                    )
+
+                    if not await self.io.confirm_ask("Try to proceed anyway?"):
+                        self._last_compaction_warning_time = 0
+                        return None
+            else:
+                self._last_compaction_warning_time = 0
 
         return messages
 
