@@ -427,4 +427,40 @@ def test_wait_for_stop_preserves_cli_readline():
 
     with patch("cecli.voice.sys.stdin") as stdin:
         _wait_for_stop(None)
-        stdin.readline.assert_called_once_with()
+    stdin.readline.assert_called_once_with()
+
+
+def test_open_input_stream_retries_after_start_timeout():
+    """When the default device fails to start, ``_open_input_stream`` falls back."""
+    from cecli.voice import _open_input_stream
+
+    sounddevice = MagicMock()
+    sounddevice.query_devices.return_value = [
+        {"name": "default", "max_input_channels": 1, "default_samplerate": 44100},
+        {"name": "fallback", "max_input_channels": 1, "default_samplerate": 48000},
+    ]
+
+    created = []
+
+    def make_stream(device=None, **kwargs):
+        stream = MagicMock()
+        created.append((device, stream))
+
+        if device == 0:
+            stream.start.side_effect = RuntimeError("Wait timed out")
+
+        return stream
+
+    sounddevice.InputStream.side_effect = make_stream
+
+    with patch.dict("sys.modules", {"sounddevice": sounddevice}):
+        stream = _open_input_stream(lambda *a: None, 16000, device_id=0)
+
+    # The default device was tried first (and its streams released) before the fallback.
+    assert [device for device, _ in created] == [0, 0, 0, 1]
+    assert all(s.close.called for device, s in created if device == 0)
+
+    # The returned stream is the started fallback device, not the failing one.
+    assert stream is created[-1][1]
+    assert created[-1][0] == 1
+    stream.start.assert_called_once_with()

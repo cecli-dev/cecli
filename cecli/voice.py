@@ -557,22 +557,39 @@ def _status(status_queue, message):
 
 
 def _open_input_stream(callback, sample_rate, device_id=None):
-    """Open an input stream, falling back to other input devices.
+    """Open and start an input stream, falling back to other input devices.
 
     Tries the requested/default device first, then other input-capable devices
     at compatible sample rates, so a WSL/PipeWire setup whose default device
-    cannot be opened still records. Returns the opened ``sounddevice.InputStream``.
-    Raises ``SoundDeviceError`` with an actionable message when no device opens.
+    cannot be opened (or fails to start, e.g. a ``paTimedOut``) still records.
+    The stream is started here so a start timeout is caught and the next
+    candidate is tried rather than surfacing to the caller after a device is
+    selected. Returns the started ``sounddevice.InputStream``; callers should
+    use it as a context manager (``with stream:``). Raises ``SoundDeviceError``
+    with an actionable message when no device opens or starts.
     """
     import sounddevice as sd
 
     last_error = None
 
     for dev, rate in _input_device_candidates(sample_rate, device_id):
+        stream = None
+
         try:
-            return sd.InputStream(samplerate=rate, channels=1, callback=callback, device=dev)
+            stream = sd.InputStream(samplerate=rate, channels=1, callback=callback, device=dev)
+            stream.start()
         except Exception as exc:
             last_error = exc
+
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+            continue
+
+        return stream
 
     raise SoundDeviceError(_input_device_error_message(last_error))
 
