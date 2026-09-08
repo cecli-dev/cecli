@@ -378,6 +378,7 @@ def test_suppress_release_notes_prompt_with_yes_always(dummy_io, git_temp_dir, m
     mock_input_output.return_value.offer_url = AsyncMock()
     mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
 
+    mocker.patch("cecli.onboarding.select_default_model", new=AsyncMock(return_value="gpt-4o"))
     main(["--exit", "--yes-always"], **dummy_io)
     mock_input_output.return_value.offer_url.assert_not_called()
 
@@ -388,6 +389,7 @@ def test_shows_release_notes_prompt_on_first_run(dummy_io, git_temp_dir, mocker)
     mock_input_output.return_value.offer_url = AsyncMock()
     mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
 
+    mocker.patch("cecli.onboarding.select_default_model", new=AsyncMock(return_value="gpt-4o"))
     main(["--exit"], **dummy_io)
     mock_input_output.return_value.offer_url.assert_called_once()
 
@@ -399,6 +401,7 @@ def test_explicit_show_release_notes_with_yes_always(dummy_io, git_temp_dir, moc
     mocker.patch("cecli.main.is_first_run_of_new_version", return_value=True)
     mocker.patch("webbrowser.open")
 
+    mocker.patch("cecli.onboarding.select_default_model", new=AsyncMock(return_value="gpt-4o"))
     main(["--exit", "--yes-always", "--show-release-notes"], **dummy_io)
     # The explicit --show-release-notes code path uses webbrowser.open directly, not offer_url
     mock_input_output.return_value.offer_url.assert_not_called()
@@ -883,10 +886,10 @@ def test_invalid_edit_format(dummy_io, git_temp_dir, mocker, capsys):
 @pytest.mark.parametrize(
     "api_key_env,expected_model_substr",
     [
-        ("ANTHROPIC_API_KEY", "sonnet"),
-        ("DEEPSEEK_API_KEY", "deepseek"),
+        ("ANTHROPIC_API_KEY", "anthropic/claude-sonnet-5"),
+        ("DEEPSEEK_API_KEY", "deepseek-v4-flash"),
         ("OPENROUTER_API_KEY", "openrouter/"),
-        ("OPENAI_API_KEY", "gpt-4"),
+        ("OPENAI_API_KEY", "gpt-5.6-luna"),
         ("GEMINI_API_KEY", "gemini"),
     ],
     ids=["anthropic", "deepseek", "openrouter", "openai", "gemini"],
@@ -929,11 +932,12 @@ def test_default_model_selection_oauth_fallback(dummy_io, git_temp_dir, mocker):
             saved_keys[key] = os.environ[key]
             del os.environ[key]
     try:
-        mock_offer_oauth = mocker.patch("cecli.onboarding.offer_openrouter_oauth")
-        mock_offer_oauth.return_value = None
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding", new=AsyncMock(return_value=None)
+        )
         result = main(["--exit", "--yes-always"], **dummy_io)
         assert result == 1
-        mock_offer_oauth.assert_called_once()
+        mock_onboarding.assert_called_once()
     finally:
         for key, value in saved_keys.items():
             os.environ[key] = value

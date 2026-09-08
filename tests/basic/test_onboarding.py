@@ -85,49 +85,49 @@ class TestOnboarding:
     @patch.dict(os.environ, {"OPENROUTER_API_KEY": "or_key"}, clear=True)
     def test_try_select_default_model_openrouter_free(self, mock_check_tier):
         """Test OpenRouter free model selection."""
-        assert try_to_select_default_model() == "openrouter/deepseek/deepseek-r1:free"
+        assert try_to_select_default_model() == "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
         mock_check_tier.assert_called_once_with("or_key")
 
     @patch("cecli.onboarding.check_openrouter_tier", return_value=False)  # Assume paid tier
     @patch.dict(os.environ, {"OPENROUTER_API_KEY": "or_key"}, clear=True)
     def test_try_select_default_model_openrouter_paid(self, mock_check_tier):
         """Test OpenRouter paid model selection."""
-        assert try_to_select_default_model() == "openrouter/anthropic/claude-sonnet-4"
+        assert try_to_select_default_model() == "openrouter/anthropic/claude-sonnet-5"
         mock_check_tier.assert_called_once_with("or_key")
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "an_key"}, clear=True)
     def test_try_select_default_model_anthropic(self, mock_check_tier):
         """Test Anthropic model selection."""
-        assert try_to_select_default_model() == "sonnet"
+        assert try_to_select_default_model() == "anthropic/claude-sonnet-5"
         mock_check_tier.assert_not_called()
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"DEEPSEEK_API_KEY": "ds_key"}, clear=True)
     def test_try_select_default_model_deepseek(self, mock_check_tier):
         """Test Deepseek model selection."""
-        assert try_to_select_default_model() == "deepseek"
+        assert try_to_select_default_model() == "deepseek-v4-flash"
         mock_check_tier.assert_not_called()
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"OPENAI_API_KEY": "oa_key"}, clear=True)
     def test_try_select_default_model_openai(self, mock_check_tier):
         """Test OpenAI model selection."""
-        assert try_to_select_default_model() == "gpt-4o"
+        assert try_to_select_default_model() == "gpt-5.6-luna"
         mock_check_tier.assert_not_called()
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"GEMINI_API_KEY": "gm_key"}, clear=True)
     def test_try_select_default_model_gemini(self, mock_check_tier):
         """Test Gemini model selection."""
-        assert try_to_select_default_model() == "gemini/gemini-2.5-pro-exp-03-25"
+        assert try_to_select_default_model() == "gemini/gemini-3.8-flash"
         mock_check_tier.assert_not_called()
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"VERTEXAI_PROJECT": "vx_proj"}, clear=True)
     def test_try_select_default_model_vertex(self, mock_check_tier):
         """Test Vertex AI model selection."""
-        assert try_to_select_default_model() == "vertex_ai/gemini-2.5-pro-exp-03-25"
+        assert try_to_select_default_model() == "gemini/gemini-3.8-flash"
         mock_check_tier.assert_not_called()
 
     @patch("cecli.onboarding.check_openrouter_tier", return_value=False)  # Paid
@@ -136,14 +136,14 @@ class TestOnboarding:
     )
     def test_try_select_default_model_priority_openrouter(self, mock_check_tier):
         """Test OpenRouter key takes priority."""
-        assert try_to_select_default_model() == "openrouter/anthropic/claude-sonnet-4"
+        assert try_to_select_default_model() == "openrouter/anthropic/claude-sonnet-5"
         mock_check_tier.assert_called_once_with("or_key")
 
     @patch("cecli.onboarding.check_openrouter_tier")
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "an_key", "OPENAI_API_KEY": "oa_key"}, clear=True)
     def test_try_select_default_model_priority_anthropic(self, mock_check_tier):
         """Test Anthropic key takes priority over OpenAI."""
-        assert try_to_select_default_model() == "sonnet"
+        assert try_to_select_default_model() == "anthropic/claude-sonnet-5"
         mock_check_tier.assert_not_called()
 
     @patch("socketserver.TCPServer")
@@ -306,14 +306,14 @@ class TestOnboarding:
         )
         mock_offer_oauth.assert_not_called()
 
-    @patch(
-        "cecli.onboarding.try_to_select_default_model", side_effect=[None, None]
-    )  # Fails first, fails after oauth attempt
-    @patch(
-        "cecli.onboarding.offer_openrouter_oauth", return_value=False
-    )  # OAuth offered but fails/declined
-    async def test_select_default_model_no_keys_oauth_fail(self, mock_offer_oauth, mock_try_select):
-        """Test select_default_model offers OAuth when no keys, but OAuth fails."""
+    async def test_select_default_model_no_keys_onboarding_fail(self, mocker):
+        """Test select_default_model falls back to onboarding, which returns no model."""
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding", new=AsyncMock(return_value=None)
+        )
+        mock_try_select = mocker.patch(
+            "cecli.onboarding.try_to_select_default_model", side_effect=[None]
+        )
         args = argparse.Namespace(model=None)
         io_mock = DummyIO()
         io_mock.tool_warning = MagicMock()
@@ -322,42 +322,36 @@ class TestOnboarding:
         selected_model = await select_default_model(args, io_mock)
 
         assert selected_model is None
-        assert mock_try_select.call_count == 2  # Called before and after oauth attempt
-        mock_offer_oauth.assert_called_once_with(io_mock)
+        assert mock_try_select.call_count == 1
+        mock_onboarding.assert_called_once_with(io_mock)
         io_mock.tool_warning.assert_called_once_with(
             "No LLM model was specified and no API keys were provided."
         )
         io_mock.offer_url.assert_called_once()  # Should offer docs URL
 
-    @patch(
-        "cecli.onboarding.try_to_select_default_model",
-        side_effect=[None, "openrouter/deepseek/deepseek-r1:free"],
-    )  # Fails first, succeeds after oauth
-    @patch(
-        "cecli.onboarding.offer_openrouter_oauth", return_value=True
-    )  # OAuth offered and succeeds
-    async def test_select_default_model_no_keys_oauth_success(
-        self, mock_offer_oauth, mock_try_select
-    ):
-        """Test select_default_model offers OAuth, which succeeds."""
+    async def test_select_default_model_no_keys_onboarding_success(self, mocker):
+        """Test select_default_model returns the model chosen by onboarding."""
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding",
+            new=AsyncMock(return_value="openrouter/deepseek/deepseek-r1:free"),
+        )
+        mock_try_select = mocker.patch(
+            "cecli.onboarding.try_to_select_default_model", side_effect=[None]
+        )
         args = argparse.Namespace(model=None)
         io_mock = DummyIO()
         io_mock.tool_warning = MagicMock()
+        io_mock.offer_url = AsyncMock()
 
         selected_model = await select_default_model(args, io_mock)
 
         assert selected_model == "openrouter/deepseek/deepseek-r1:free"
-        assert mock_try_select.call_count == 2  # Called before and after oauth
-        mock_offer_oauth.assert_called_once_with(io_mock)
-        # Only one warning is expected: "No LLM model..."
-        assert io_mock.tool_warning.call_count == 1
+        assert mock_try_select.call_count == 1
+        mock_onboarding.assert_called_once_with(io_mock)
         io_mock.tool_warning.assert_called_once_with(
             "No LLM model was specified and no API keys were provided."
         )
-        # The second call to try_select finds the model, so the *outer* function logs the usage.
-        # Note: The warning comes from the second call within select_default_model,
-        # not try_select itself.
-        # We verify the final state and model returned.
+        io_mock.offer_url.assert_not_called()
 
     # --- Tests for offer_openrouter_oauth ---
     @patch("cecli.onboarding.start_openrouter_oauth_flow", return_value="new_or_key")

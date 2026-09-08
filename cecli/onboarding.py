@@ -50,15 +50,15 @@ def try_to_select_default_model():
     if openrouter_key:
         is_free_tier = check_openrouter_tier(openrouter_key)
         if is_free_tier:
-            return "openrouter/deepseek/deepseek-r1:free"
+            return "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
         else:
-            return "openrouter/anthropic/claude-sonnet-4"
+            return "openrouter/anthropic/claude-sonnet-5"
     model_key_pairs = [
-        ("ANTHROPIC_API_KEY", "sonnet"),
-        ("DEEPSEEK_API_KEY", "deepseek"),
-        ("OPENAI_API_KEY", "gpt-4o"),
-        ("GEMINI_API_KEY", "gemini/gemini-2.5-pro-exp-03-25"),
-        ("VERTEXAI_PROJECT", "vertex_ai/gemini-2.5-pro-exp-03-25"),
+        ("ANTHROPIC_API_KEY", "anthropic/claude-sonnet-5"),
+        ("DEEPSEEK_API_KEY", "deepseek-v4-flash"),
+        ("OPENAI_API_KEY", "gpt-5.6-luna"),
+        ("GEMINI_API_KEY", "gemini/gemini-3.8-flash"),
+        ("VERTEXAI_PROJECT", "gemini/gemini-3.8-flash"),
     ]
     for env_key, model_name in model_key_pairs:
         api_key_value = os.environ.get(env_key)
@@ -92,7 +92,7 @@ async def offer_openrouter_oauth(io):
 async def select_default_model(args, io):
     """
     Selects a default model based on available API keys if no model is specified.
-    Offers OAuth flow for OpenRouter if no keys are found.
+    Launches the inline onboarding wizard when no model or API keys are found.
 
     Args:
         args: The command line arguments object.
@@ -109,10 +109,13 @@ async def select_default_model(args, io):
         return model
     no_model_msg = "No LLM model was specified and no API keys were provided."
     io.tool_warning(no_model_msg)
-    await offer_openrouter_oauth(io)
-    model = try_to_select_default_model()
+
+    from cecli.helpers.onboarding import run_onboarding
+
+    model = await run_onboarding(io)
     if model:
         return model
+
     await io.offer_url(urls.models_and_keys, "Open documentation URL for more info?")
 
 
