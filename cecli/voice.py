@@ -46,6 +46,24 @@ _STREAMING_LANGUAGES = frozenset(("ar", "de", "es", "en", "ja", "tl", "vi", "zh"
 # Sentinel placed on the cross-process text queue once streaming is finished.
 _STREAM_END = "\0__MOONSHINE_STREAM_END__"
 
+# Hugging Face mirror for Moonshine's native ONNX runtime models.
+_HF_REPO_ID = "moonshine-ai/moonshine-voice-assets"
+_HF_MODELS = {
+    "en": {
+        "path": "model/small-streaming-en/quantized_26_08_21",
+        "files": (
+            "adapter.ort",
+            "cross_kv.ort",
+            "decoder_kv.ort",
+            "encoder.ort",
+            "frontend.model.ort",
+            "frontend.weights.ort",
+            "streaming_config.json",
+            "tokenizer.bin",
+        ),
+    },
+}
+
 
 class SoundDeviceError(Exception):
     """Raised when the audio recording stack cannot be initialized."""
@@ -278,7 +296,7 @@ def _run_record_process(
 
             # On-device transcription.
             _status(status_queue, "\n⬤ Transcribing")
-            return _transcribe_local(temp_path, language)
+            return _transcribe_local(temp_path, language, status_queue)
         finally:
             # Manual cleanup since delete=False was used.
             if os.path.exists(temp_path):
@@ -314,7 +332,7 @@ def _record_and_stream(
     import sounddevice as sd
     from moonshine_voice.transcriber import LineCompleted, LineStarted, LineTextChanged
 
-    transcriber = _build_transcriber(language)
+    transcriber = _build_transcriber(language, status_queue)
     completed_lines = []
     current_line = ""
     last_pushed = ""
@@ -401,7 +419,7 @@ def _record_and_stream(
         transcriber.close()
 
 
-def _transcribe_local(wav_path, language="en"):
+def _transcribe_local(wav_path, language="en", status_queue=None):
     """Transcribe a mono WAV on-device using Moonshine.
 
     Downloads and caches the model via ``moonshine_voice`` on first use. The
@@ -410,7 +428,7 @@ def _transcribe_local(wav_path, language="en"):
     from moonshine_voice.utils import load_wav_file
 
     audio_data, sample_rate = load_wav_file(wav_path)
-    transcriber = _build_transcriber(language)
+    transcriber = _build_transcriber(language, status_queue)
 
     try:
         transcript = transcriber.transcribe_without_streaming(audio_data, sample_rate=sample_rate)
@@ -420,19 +438,12 @@ def _transcribe_local(wav_path, language="en"):
     return _join_transcript(transcript)
 
 
-def _build_transcriber(language):
-    from moonshine_voice import Transcriber, get_model_for_language
+def _build_transcriber(language, status_queue=None):
+    from moonshine_voice import Transcriber
 
     language = language or "en"
-
-    model_root, model_arch = get_model_for_language(
-        language,
-        _model_arch_for_language(language),
-        # Moonshine draws tqdm bars to stderr unless a progress callback is
-        # supplied; give it a no-op so the bars don't scribble into the TUI's
-        # captured stderr stream.
-        on_progress=_silent_progress,
-    )
+    model_arch = _model_arch_for_language(language)
+    model_root = _model_root_for_language(language, model_arch, status_queue)
 
     options = None
 
@@ -444,6 +455,31 @@ def _build_transcriber(language):
         model_arch=model_arch,
         options=options,
     )
+
+
+def _model_root_for_language(language, model_arch, status_queue=None):
+    """Return the local model root, preferring the Hugging Face mirror.
+
+    ``en`` is fetched from Hugging Face so corporate networks that block
+    Moonshine's CDN can still download it, falling back to Moonshine's CDN-backed
+    loader when the mirror is unreachable. Other languages use the CDN loader.
+    """
+    from moonshine_voice import get_model_for_language
+
+    if language in _HF_MODELS:
+        try:
+            return _download_model_from_hf(language, status_queue)
+        except Exception:
+            # The Hugging Face mirror is unreachable; fall back to the CDN.
+            pass
+
+    root, _ = get_model_for_language(
+        language,
+        model_arch,
+        on_progress=_download_progress(status_queue),
+    )
+
+    return root
 
 
 def _model_arch_for_language(language):
@@ -523,9 +559,77 @@ def _status(status_queue, message):
         print(message)
 
 
-def _silent_progress(fraction, file):
-    """No-op progress callback used to silence Moonshine's tqdm download bar."""
-    pass
+def _download_model_from_hf(language, status_queue=None):
+    """Download the native Moonshine model for ``language`` from Hugging Face.
+
+    Fetches the exact file set the native ``Transcriber`` expects (mirrored in
+    Moonshine's Hugging Face repo) into the Moonshine cache, so a network
+    that blocks ``download.moonshine.ai`` can still load ``en``. Returns
+    the local model root directory.
+    """
+    from pathlib import Path
+
+    import requests
+    from moonshine_voice.download_file import get_cache_dir
+
+    info = _HF_MODELS[language]
+    cache_dir = Path(get_cache_dir())
+
+    # Reuse a model already cached via Moonshine's CDN loader so users on
+    # networks where both endpoints are reachable do not re-download it from
+    # Hugging Face. The CDN cache mirrors the same ``path`` layout.
+    cdn_root = cache_dir / "download.moonshine.ai" / info["path"]
+
+    if all((cdn_root / name).exists() for name in info["files"]):
+        return str(cdn_root)
+
+    model_root = cache_dir / "huggingface" / info["path"]
+    model_root.mkdir(parents=True, exist_ok=True)
+
+    names = [name for name in info["files"] if not (model_root / name).exists()]
+
+    if names:
+        _status(status_queue, "Downloading the Moonshine model from Hugging Face...")
+
+    for name in info["files"]:
+        dest = model_root / name
+
+        if dest.exists():
+            continue
+
+        url = f"https://huggingface.co/{_HF_REPO_ID}/resolve/main/{info['path']}/{name}"
+
+        with requests.get(url, stream=True, timeout=(10, 300)) as response:
+            response.raise_for_status()
+            tmp = dest.with_suffix(dest.suffix + ".partial")
+
+            with open(tmp, "wb") as file:
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        file.write(chunk)
+
+        os.replace(tmp, dest)
+
+    return str(model_root)
+
+
+def _download_progress(status_queue=None):
+    """Return a progress callback that silences Moonshine's tqdm download bar.
+
+    It also reports a one-time status notice on the first download tick so
+    users know the model is being fetched. When the model is already cached
+    the callback is never invoked, so no misleading notice is shown.
+    """
+    reported = False
+
+    def on_progress(fraction, file):
+        nonlocal reported
+
+        if not reported:
+            reported = True
+            _status(status_queue, "Downloading the Moonshine model...")
+
+    return on_progress
 
 
 def _wait_for_stop(stop_queue):
