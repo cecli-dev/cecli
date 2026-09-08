@@ -39,6 +39,7 @@ from .hooks import HooksCommand
 from .hot_reload import HotReloadCommand
 from .import_skill import ImportSkillCommand
 from .include_skill import IncludeSkillCommand
+from .insert_queue import InsertQueueCommand
 from .lint import LintCommand
 from .list_mcp import ListMcpCommand
 from .list_queue import ListQueueCommand
@@ -131,11 +132,9 @@ CommandRegistry.register(HelpCommand)
 CommandRegistry.register(HistorySearchCommand)
 CommandRegistry.register(HooksCommand)
 CommandRegistry.register(HotReloadCommand)
-CommandRegistry.register(ReapAgentCommand)
-CommandRegistry.register(SpawnAgentCommand)
-CommandRegistry.register(SwitchAgentCommand)
-CommandRegistry.register(IncludeSkillCommand)
 CommandRegistry.register(ImportSkillCommand)
+CommandRegistry.register(IncludeSkillCommand)
+CommandRegistry.register(InsertQueueCommand)
 CommandRegistry.register(LintCommand)
 CommandRegistry.register(ListMcpCommand)
 CommandRegistry.register(ListQueueCommand)
@@ -158,6 +157,7 @@ CommandRegistry.register(QueueCommand)
 CommandRegistry.register(QuitCommand)
 CommandRegistry.register(ReadOnlyCommand)
 CommandRegistry.register(ReadOnlyStubCommand)
+CommandRegistry.register(ReapAgentCommand)
 CommandRegistry.register(ReasoningEffortCommand)
 CommandRegistry.register(RemoveHookCommand)
 CommandRegistry.register(RemoveMcpCommand)
@@ -172,6 +172,8 @@ CommandRegistry.register(SaveCommand)
 CommandRegistry.register(SaveSessionCommand)
 CommandRegistry.register(SearchMemoryCommand)
 CommandRegistry.register(SettingsCommand)
+CommandRegistry.register(SpawnAgentCommand)
+CommandRegistry.register(SwitchAgentCommand)
 CommandRegistry.register(TerminalSetupCommand)
 CommandRegistry.register(TestCommand)
 CommandRegistry.register(ThinkTokensCommand)
@@ -222,18 +224,17 @@ __all__ = [
     "HistorySearchCommand",
     "HooksCommand",
     "HotReloadCommand",
-    "IncludeSkillCommand",
     "ImportSkillCommand",
-    "ReapAgentCommand",
-    "SpawnAgentCommand",
-    "SwitchAgentCommand",
+    "IncludeSkillCommand",
+    "InsertQueueCommand",
     "LintCommand",
+    "ListMcpCommand",
+    "ListQueueCommand",
     "ListSessionsCommand",
     "ListSkillsCommand",
     "LoadCommand",
     "LoadHookCommand",
     "LoadMcpCommand",
-    "ListMcpCommand",
     "LoadSessionCommand",
     "LoadSkillCommand",
     "LsCommand",
@@ -245,11 +246,12 @@ __all__ = [
     "MultilineModeCommand",
     "parse_quoted_filenames",
     "PasteCommand",
-    "quote_filename",
     "QueueCommand",
     "QuitCommand",
+    "quote_filename",
     "ReadOnlyCommand",
     "ReadOnlyStubCommand",
+    "ReapAgentCommand",
     "ReasoningEffortCommand",
     "ReloadProgramSignal",
     "RemoveHookCommand",
@@ -265,6 +267,8 @@ __all__ = [
     "SaveSessionCommand",
     "SearchMemoryCommand",
     "SettingsCommand",
+    "SpawnAgentCommand",
+    "SwitchAgentCommand",
     "SwitchCoderSignal",
     "TerminalSetupCommand",
     "TestCommand",

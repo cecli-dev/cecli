@@ -433,6 +433,10 @@ class Coder(metaclass=UsageMeta):
                         if local_server and local_server.is_connected:
                             await res.mcp_manager.disconnect_server("Local")
 
+                if res.uuid == from_coder.uuid:
+                    res.prompt_queue = from_coder.prompt_queue.copy()
+                    res._queue_counter = from_coder._queue_counter
+
             await res.initialize_mcp_tools()
 
             # Store only small/primitive kwargs to avoid retaining large object references.

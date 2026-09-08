@@ -107,6 +107,12 @@ class Commands:
         coder = self.coder
         return coder.prompt_queue if coder is not None else []
 
+    def _insert_prompt(self, text: str, index: int) -> dict:
+        """Insert a prompt at the given index in the active coder's queue."""
+        from cecli.helpers import command_queue
+
+        return command_queue.insert_prompt(self._active_coder(), text, index)
+
     def _enqueue_prompt(self, text: str) -> dict:
         """Add a prompt to the owning coder's queue."""
         from cecli.helpers import command_queue
