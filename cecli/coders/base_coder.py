@@ -4507,18 +4507,15 @@ class Coder(metaclass=UsageMeta):
             completion_tokens = (
                 nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
             )
-            cache_hit_tokens = (
-                nested.getter(
-                    usage,
-                    [
-                        "prompt_cache_hit_tokens",
-                        "cache_read_input_tokens",
-                        "input_tokens_details.cached_tokens",
-                        "prompt_tokens_details.cached_tokens",
-                    ],
-                    0,
-                )
-                or 0
+            cache_hit_tokens = _first_usage_tokens(
+                usage,
+                [
+                    "prompt_cache_hit_tokens",
+                    "cache_read_input_tokens",
+                    "input_tokens_details.cached_tokens",
+                    "prompt_tokens_details.cached_tokens",
+                ],
+                0,
             )
             cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
             self.message_cached_tokens += cache_hit_tokens
@@ -4636,18 +4633,15 @@ class Coder(metaclass=UsageMeta):
             completion_tokens = (
                 nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
             )
-            cache_hit_tokens = (
-                nested.getter(
-                    usage,
-                    [
-                        "prompt_cache_hit_tokens",
-                        "cache_read_input_tokens",
-                        "input_tokens_details.cached_tokens",
-                        "prompt_tokens_details.cached_tokens",
-                    ],
-                    0,
-                )
-                or 0
+            cache_hit_tokens = _first_usage_tokens(
+                usage,
+                [
+                    "prompt_cache_hit_tokens",
+                    "cache_read_input_tokens",
+                    "input_tokens_details.cached_tokens",
+                    "prompt_tokens_details.cached_tokens",
+                ],
+                0,
             )
             cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
         elif active_model is not None:
@@ -5346,8 +5340,21 @@ def _function_call_to_dict(function_call):
     """Normalize a function call (dict or litellm-shaped Function) to a dict."""
     if isinstance(function_call, dict):
         return function_call
-
     if hasattr(function_call, "to_dict"):
         return function_call.to_dict()
-
     return function_call
+
+
+def _first_usage_tokens(usage: object, paths: list[str], default: int = 0) -> int:
+    """Return the first non-None token count among ``paths``.
+
+    ``nested.getter`` stops at the first attribute that exists even when its value
+    is None. Anthropic/copilot ``Usage`` always declares ``prompt_cache_hit_tokens``
+    (None) and populates ``cache_read_input_tokens``, so looking only at the first
+    field would report zero cache hits despite the server serving the cached prefix.
+    """
+    for path in paths:
+        value = nested.getter(usage, path, None)
+        if value is not None:
+            return value
+    return default
