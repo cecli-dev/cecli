@@ -138,15 +138,18 @@ def test_anthropic_5_effort_to_output_config():
     resolved = resolve_model_config("claude-sonnet-5")
     payload = _build("anthropic", resolved, {"reasoning_effort": "high"})
     assert payload["output_config"] == {"effort": "high"}
+    assert payload["thinking"] == {"type": "adaptive", "display": "summarized"}
 
 
 def test_anthropic_5_thinking_block_dropped():
-    """Claude 5+ cannot use thinking.type.enabled; the block must not be sent."""
+    """Claude 5+ cannot use ``thinking.type.enabled``; it is replaced with adaptive
+    thinking that exposes the summarized display."""
     resolved = resolve_model_config("claude-sonnet-5")
     payload = _build(
         "anthropic", resolved, {"thinking": {"type": "enabled", "budget_tokens": 4096}}
     )
-    assert "thinking" not in payload
+    assert payload["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert payload["output_config"] == {"effort": "medium"}
     assert "reasoning_effort" not in payload
 
 
@@ -155,7 +158,11 @@ def test_anthropic_pre5_thinking_budget():
     payload = _build(
         "anthropic", resolved, {"thinking": {"type": "enabled", "budget_tokens": 4096}}
     )
-    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+    assert payload["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 4096,
+        "display": "summarized",
+    }
 
 
 def test_anthropic_pre5_effort_ignored():
@@ -185,6 +192,16 @@ def test_responses_generic_reasoning_keys_stripped():
     )
     assert "reasoning_effort" not in payload
     assert "thinking" not in payload
+
+
+def test_responses_copilot_opt_in_to_summary():
+    """Copilot gpt-5 (responses mode) opts in to a reasoning summary even with no
+    configured effort, so the model returns (and the capture logic exposes) the
+    readable ``summary`` block."""
+    resolved = resolve_model_config("github_copilot/gpt-5.1")
+    payload = _build("responses", resolved, {})
+    assert payload["reasoning"] == {"summary": "auto"}
+    assert payload["include"] == ["reasoning.encrypted_content"]
 
 
 # ---------------------------------------------------------------------------
@@ -252,21 +269,24 @@ def test_model_settings_reach_wire(monkeypatch):
             "anthropic",
             "set_reasoning_effort",
             "low",
-            {"output_config": {"effort": "low"}},
+            {
+                "output_config": {"effort": "low"},
+                "thinking": {"type": "adaptive", "display": "summarized"},
+            },
         ),
         (
             "anthropic/claude-haiku-4-5-20251001",
             "anthropic",
             "set_thinking_tokens",
             "4k",
-            {"thinking": {"type": "enabled", "budget_tokens": 4096}},
+            {"thinking": {"type": "enabled", "budget_tokens": 4096, "display": "summarized"}},
         ),
         (
             "meta/muse-spark-1.2-contributor",
             "responses",
             "set_reasoning_effort",
             "low",
-            {"reasoning": {"effort": "low"}},
+            {"reasoning": {"effort": "low", "summary": "auto"}},
         ),
     ]
 

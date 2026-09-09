@@ -315,7 +315,15 @@ async def anthropic_stream(
                         ordered = [blocks[key] for key in sorted(blocks)]
 
                         if ordered:
-                            chunk.provider_specific_fields = {"anthropic": ordered}
+                            provider_fields: Dict[str, Any] = {"anthropic": ordered}
+
+                            if any(
+                                b.get("type") == "thinking" and (b.get("thinking") or "").strip()
+                                for b in ordered
+                            ):
+                                provider_fields["use_thinking_summaries"] = True
+
+                            chunk.provider_specific_fields = provider_fields
 
                     yield chunk
 
@@ -378,6 +386,12 @@ def normalize_anthropic_response(data: Dict[str, Any], model: str) -> Completion
             )
 
     provider_fields = {"anthropic": blocks} if blocks else {}
+
+    if any(b.get("type") == "thinking" and (b.get("thinking") or "").strip() for b in blocks):
+        # The assistant turn carries a readable thinking summary; mark it so the
+        # replay path can strip the summary text (keeping the signature) and keep
+        # the cached prefix stable across turns.
+        provider_fields["use_thinking_summaries"] = True
 
     pm = PartsMessage(role="assistant", parts=parts, provider_metadata=provider_fields)
     message = parts_message_to_message(pm)
@@ -554,7 +568,11 @@ def _anthropic_message_content(msg: Dict[str, Any]) -> Optional[List[Dict[str, A
             content.append({"type": "text", "text": block.get("text") or ""})
 
         elif btype == "thinking":
-            entry: Dict[str, Any] = {"type": "thinking", "thinking": block.get("thinking") or ""}
+            # Summary text is display-only; strip it on replay (keeping the
+            # signature, which carries the encrypted chain-of-thought for
+            # continuity) so prior-turn reasoning doesn't churn the cached prefix.
+            thinking = "" if psf.get("use_thinking_summaries") else block.get("thinking") or ""
+            entry: Dict[str, Any] = {"type": "thinking", "thinking": thinking}
 
             if block.get("signature"):
                 entry["signature"] = block["signature"]
