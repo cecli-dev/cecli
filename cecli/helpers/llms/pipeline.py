@@ -71,6 +71,11 @@ async def acompletion(
 
     headers = provider.build_headers(resolved, key, family, headers)
 
+    # Allow the provider adapter to transform the outgoing message body before
+    # dispatch (e.g. Mistral's strict schema rejects reasoning_content /
+    # provider_specific_fields and a null tool-call index).
+    messages = provider.transform_messages(messages)
+
     if stream:
         gen = _stream_family(family, resolved, messages, tools, key, headers, kwargs)
 
