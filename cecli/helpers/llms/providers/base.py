@@ -22,6 +22,8 @@ class ProviderAdapter:
     - :meth:`build_headers` - auth scheme + provider-specific headers.
     - :meth:`transform_messages` - transform the outgoing message body to
       normalize fields a stricter provider rejects (e.g. Mistral rejects
+      ``reasoning_content`` / ``provider_specific_fields`` / ``function_call`` and
+      a null tool-call ``index``).
       ``reasoning_content`` / ``provider_specific_fields`` and a null tool-call
       ``index``).
     - :meth:`normalize` - post-process a family-normalized response
@@ -62,7 +64,9 @@ class ProviderAdapter:
 
         The default is a no-op. Providers with a stricter request schema override
         this to strip fields the generic OpenAI-compatible wire tolerates but the
-        provider rejects (e.g. Mistral rejects ``reasoning_content`` and
+        provider rejects (e.g. Mistral rejects ``reasoning_content`` /
+        ``provider_specific_fields`` / ``function_call`` on assistant turns, and a
+        null tool-call ``index``).
         ``provider_specific_fields`` on assistant turns, and a null tool-call
         ``index``).
         """

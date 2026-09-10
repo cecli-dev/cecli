@@ -2,9 +2,9 @@
 
 ``mistral-flows.har`` shows cecli's replay of an assistant tool-call turn gets
 422'd by Mistral, which rejects ``reasoning_content`` / ``provider_specific_fields``
-on assistant messages and ``provider_specific_fields`` plus a null ``index`` on
-tool calls. These tests lock in that :class:`MistralProvider.transform_messages`
-strips those fields before dispatch.
+/ ``function_call`` on assistant messages and ``provider_specific_fields`` plus a
+null ``index`` on tool calls. These tests lock in that
+:class:`MistralProvider.transform_messages` strips those fields before dispatch.
 """
 
 import asyncio
@@ -23,6 +23,7 @@ def _assistant_tool_turn() -> list:
         {
             "role": "assistant",
             "content": "calling tool",
+            "function_call": None,
             "tool_calls": [
                 {
                     "id": "call_1",
@@ -54,6 +55,7 @@ def test_strips_unsupported_assistant_fields():
     for msg in cleaned:
         assert "reasoning_content" not in msg
         assert "provider_specific_fields" not in msg
+        assert "function_call" not in msg
 
     for tc in cleaned[2]["tool_calls"]:
         assert "index" not in tc
@@ -99,6 +101,7 @@ def test_does_not_mutate_input():
     assert messages[2]["tool_calls"][0]["index"] is None
     assert "reasoning_content" in messages[2]
     assert "provider_specific_fields" in messages[2]
+    assert "function_call" in messages[2]
 
 
 def test_base_adapter_is_noop_by_default():
@@ -142,6 +145,7 @@ def test_pipeline_sanitizes_messages_for_mistral(monkeypatch):
     for msg in captured["messages"]:
         assert "reasoning_content" not in msg
         assert "provider_specific_fields" not in msg
+        assert "function_call" not in msg
 
     for tc in captured["messages"][2]["tool_calls"]:
         assert "index" not in tc

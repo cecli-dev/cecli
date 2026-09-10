@@ -3,10 +3,10 @@
 Mistral speaks OpenAI-compatible /v1/chat/completions with Bearer auth, but its
 request body is validated by a strict Pydantic schema that rejects fields the
 generic OpenAI-compatible wire tolerates. Assistant turns built by cecli carry
-``reasoning_content`` and ``provider_specific_fields`` on the message, and
-``provider_specific_fields`` plus a null ``index`` on tool calls (a streaming
-artifact); Mistral rejects each of these with a 422 on the relevant
-``messages[i]`` path.
+``reasoning_content`` and ``provider_specific_fields`` on the message, a null
+``function_call`` left behind by the legacy wire, and ``provider_specific_fields``
+plus a null ``index`` on tool calls (a streaming artifact); Mistral rejects
+each of these with a 422 on the relevant ``messages[i]`` path.
 
 This adapter iterates over the message body before dispatch and strips those
 fields, leaving tool calls in the request wire shape (``id`` / ``type`` /
@@ -52,6 +52,7 @@ class MistralProvider(ProviderAdapter):
         if (
             "reasoning_content" not in msg
             and "provider_specific_fields" not in msg
+            and "function_call" not in msg
             and not needs_tool_fix
         ):
             return None
@@ -59,6 +60,7 @@ class MistralProvider(ProviderAdapter):
         cleaned = dict(msg)
         cleaned.pop("reasoning_content", None)
         cleaned.pop("provider_specific_fields", None)
+        cleaned.pop("function_call", None)
 
         if tool_calls:
             cleaned["tool_calls"] = [self._clean_tool_call(tc) for tc in tool_calls]

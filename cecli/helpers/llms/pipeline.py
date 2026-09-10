@@ -73,6 +73,8 @@ async def acompletion(
 
     # Allow the provider adapter to transform the outgoing message body before
     # dispatch (e.g. Mistral's strict schema rejects reasoning_content /
+    # provider_specific_fields / function_call and a null tool-call index).
+    # dispatch (e.g. Mistral's strict schema rejects reasoning_content /
     # provider_specific_fields and a null tool-call index).
     messages = provider.transform_messages(messages)
 
