@@ -353,6 +353,64 @@ class TestOnboarding:
         )
         io_mock.offer_url.assert_not_called()
 
+    async def test_select_default_model_configure_provider_forces_onboarding(self, mocker):
+        """--configure-provider forces onboarding even when args.model is set."""
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding",
+            new=AsyncMock(return_value="openrouter/anthropic/claude-sonnet-5"),
+        )
+        mock_try_select = mocker.patch(
+            "cecli.onboarding.try_to_select_default_model", side_effect=[None]
+        )
+        args = argparse.Namespace(model="already-set", configure_provider=True)
+        io_mock = DummyIO()
+        io_mock.tool_warning = MagicMock()
+
+        selected_model = await select_default_model(args, io_mock)
+
+        assert selected_model == "openrouter/anthropic/claude-sonnet-5"
+        mock_onboarding.assert_called_once_with(io_mock)
+        mock_try_select.assert_not_called()
+
+    async def test_select_default_model_configure_provider_cancel_falls_back(self, mocker):
+        """Cancelling the forced onboarding falls back to the configured model."""
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding", new=AsyncMock(return_value=None)
+        )
+        mock_try_select = mocker.patch(
+            "cecli.onboarding.try_to_select_default_model", side_effect=[None]
+        )
+        args = argparse.Namespace(model="already-set", configure_provider=True)
+        io_mock = DummyIO()
+        io_mock.tool_warning = MagicMock()
+        io_mock.offer_url = AsyncMock()
+
+        selected_model = await select_default_model(args, io_mock)
+
+        assert selected_model == "already-set"
+        mock_onboarding.assert_called_once_with(io_mock)
+        mock_try_select.assert_not_called()
+        io_mock.offer_url.assert_not_called()
+
+    async def test_select_default_model_configure_provider_missing_attr(self, mocker):
+        """Namespaces without the configure_provider attribute keep legacy behavior."""
+        mock_onboarding = mocker.patch(
+            "cecli.helpers.onboarding.run_onboarding",
+            new=AsyncMock(return_value="from-onboarding"),
+        )
+        mock_try_select = mocker.patch(
+            "cecli.onboarding.try_to_select_default_model", side_effect=[None]
+        )
+        args = argparse.Namespace(model=None)
+        io_mock = DummyIO()
+        io_mock.tool_warning = MagicMock()
+
+        selected_model = await select_default_model(args, io_mock)
+
+        assert selected_model == "from-onboarding"
+        assert mock_try_select.call_count == 1
+        mock_onboarding.assert_called_once_with(io_mock)
+
     # --- Tests for offer_openrouter_oauth ---
     @patch("cecli.onboarding.start_openrouter_oauth_flow", return_value="new_or_key")
     @patch.dict(os.environ, {}, clear=True)  # Ensure no key exists initially

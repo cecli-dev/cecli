@@ -163,6 +163,12 @@ def get_parser(default_config_files, git_root):
         help="List known models which match the (partial) MODEL name",
     )
     group.add_argument(
+        "--configure-provider",
+        action="store_true",
+        default=False,
+        help="Force the interactive provider configuration wizard to run on startup",
+    )
+    group.add_argument(
         "--model-settings-file",
         metavar="MODEL_SETTINGS_FILE",
         default=".cecli.model.settings.yml",

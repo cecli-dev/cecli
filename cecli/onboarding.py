@@ -94,6 +94,9 @@ async def select_default_model(args, io):
     Selects a default model based on available API keys if no model is specified.
     Launches the inline onboarding wizard when no model or API keys are found.
 
+    When ``args.configure_provider`` is set, the onboarding wizard is always launched
+    first, even if a model or API keys are already configured.
+
     Args:
         args: The command line arguments object.
         io: The InputOutput object for user interaction.
@@ -101,16 +104,26 @@ async def select_default_model(args, io):
     Returns:
         The name of the selected model, or None if no suitable default is found.
     """
+    from cecli.helpers.onboarding import run_onboarding
+
+    configure_provider = getattr(args, "configure_provider", False)
+    onboarded = False
+    if configure_provider:
+        onboarded = True
+        model = await run_onboarding(io)
+        if model:
+            return model
     if args.model:
         return args.model
     model = try_to_select_default_model()
     if model:
         io.tool_warning(f"Using {model} model with API key from environment.")
         return model
+    if onboarded:
+        await io.offer_url(urls.models_and_keys, "Open documentation URL for more info?")
+        return None
     no_model_msg = "No LLM model was specified and no API keys were provided."
     io.tool_warning(no_model_msg)
-
-    from cecli.helpers.onboarding import run_onboarding
 
     model = await run_onboarding(io)
     if model:
