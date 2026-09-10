@@ -24,14 +24,17 @@ class ProviderAdapter:
       normalize fields a stricter provider rejects (e.g. Mistral rejects
       ``reasoning_content`` / ``provider_specific_fields`` / ``function_call`` and
       a null tool-call ``index``).
-      ``reasoning_content`` / ``provider_specific_fields`` and a null tool-call
-      ``index``).
     - :meth:`normalize` - post-process a family-normalized response
       (e.g. meta encrypted-reasoning marker).
     """
 
     #: Provider slug used by the registry (``openai``, ``github_copilot``, ...).
     provider: str = "openai"
+
+    #: Whether prior-turn ``reasoning_content`` must be echoed back on assistant
+    #: messages (DeepSeek thinking mode). Strict providers that reject the field
+    #: (Mistral) set this False so the chat payload's coercer skips them.
+    echoes_reasoning_content: bool = True
 
     def resolve_api_base(self, resolved: Dict[str, Any]) -> str:
         """Return the api_base for a resolved config (default: as resolved)."""
@@ -67,8 +70,6 @@ class ProviderAdapter:
         provider rejects (e.g. Mistral rejects ``reasoning_content`` /
         ``provider_specific_fields`` / ``function_call`` on assistant turns, and a
         null tool-call ``index``).
-        ``provider_specific_fields`` on assistant turns, and a null tool-call
-        ``index``).
         """
         return messages
 

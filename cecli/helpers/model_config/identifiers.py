@@ -74,6 +74,11 @@ def is_kimi(provider, route, record):
     return "kimi" in _haystack(provider, route, record)
 
 
+def is_mistral(provider, route, record):
+    """True when the model is a Mistral-series model (Mistral AI)."""
+    return "mistral" in _haystack(provider, route, record)
+
+
 def gpt_version(route):
     """Return the leading ``gpt-`` model version, or 0 when not a gpt model.
 

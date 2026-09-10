@@ -248,13 +248,20 @@ def test_reasoning_effort_defaults_to_medium():
     )
 
 
-def test_glm_and_kimi_default_to_high_reasoning_effort():
-    """GLM/Kimi models default to ``high`` effort, not ``medium``."""
+def test_glm_kimi_and_mistral_default_to_high_reasoning_effort():
+    """GLM/Kimi/Mistral models default to ``high`` effort, not ``medium``."""
     glm = _record(litellm_provider="zai")
     kimi = _record(litellm_provider="moonshot")
+    mistral = _record(litellm_provider="mistral")
 
     assert get_default_config("glm-4.6", [{"glm-4.6": glm}])["api"]["reasoning_effort"] == "high"
     assert get_default_config("kimi-k2", [{"kimi-k2": kimi}])["api"]["reasoning_effort"] == "high"
+    assert (
+        get_default_config("mistral-small-latest", [{"mistral-small-latest": mistral}])["api"][
+            "reasoning_effort"
+        ]
+        == "high"
+    )
 
 
 def test_vision_flag():

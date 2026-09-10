@@ -13,7 +13,14 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from .identifiers import is_anthropic, is_claude_5_plus, is_gemini_2_5, is_glm, is_kimi
+from .identifiers import (
+    is_anthropic,
+    is_claude_5_plus,
+    is_gemini_2_5,
+    is_glm,
+    is_kimi,
+    is_mistral,
+)
 from .registry import get_default
 from .utils import supports_reasoning
 
@@ -51,7 +58,11 @@ def derive_api_config(
     if reasoning and not gemini_2_5:
         default_effort = _DEFAULT_REASONING_EFFORT
 
-        if is_glm(provider, route, record) or is_kimi(provider, route, record):
+        if (
+            is_glm(provider, route, record)
+            or is_kimi(provider, route, record)
+            or is_mistral(provider, route, record)
+        ):
             default_effort = _DEFAULT_HIGH_REASONING_EFFORT
 
         effort = _resolve_reasoning_effort(defaults.get("reasoning"), default_effort)

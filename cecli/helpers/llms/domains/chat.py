@@ -47,9 +47,13 @@ def chat_payload(
     kwargs: Dict[str, Any],
 ) -> Dict[str, Any]:
     api_block = resolved.get("api_block") or {}
+
+    if resolved.get("_echo_reasoning_content", True):
+        messages = _coerce_reasoning_content(messages, api_block)
+
     payload: Dict[str, Any] = {
         "model": resolved["route"],
-        "messages": _coerce_reasoning_content(messages, api_block),
+        "messages": messages,
         "stream": stream,
     }
 
