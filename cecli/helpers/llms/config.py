@@ -103,7 +103,7 @@ def resolve_model_config(model: str) -> Dict[str, Any]:
     ]
     key_env = next((e for e in key_envs if e), None)
 
-    mode = llm_block.get("mode") or "chat"
+    mode = pcfg.get("mode") or llm_block.get("mode") or "chat"
     endpoints = llm_block.get("supported_endpoints") or []
 
     # API family: responses > anthropic messages > gemini > chat completions

@@ -142,13 +142,17 @@ def to_responses_input(
 
             # Assistant turns must use ``output_text`` content blocks; Copilot /
             # OpenAI reject ``input_text`` on assistant messages with HTTP 400
-            # ("Supported values are: 'output_text' and 'refusal'").
+            # ("Supported values are: 'output_text' and 'refusal'"). A synthetic
+            # ``msg_probe_<n>`` id + ``completed`` status round out the
+            # output-message shape (provider-supplied ids must begin with "msg").
             if content:
                 text = content if isinstance(content, str) else json.dumps(content)
                 items.append(
                     {
                         "type": "message",
                         "role": "assistant",
+                        "id": f"msg_probe_{len(items)}",
+                        "status": "completed",
                         "content": [{"type": "output_text", "text": text}],
                     }
                 )
