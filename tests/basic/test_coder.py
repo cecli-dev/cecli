@@ -49,6 +49,18 @@ class TestCoder:
         # Reset conversation system after each test as well
         ConversationService.get_chunks(self).reset()
 
+    async def test_stream_uses_active_model_streaming_support(self):
+        """self.stream must follow the active model's streaming capability."""
+        with GitTemporaryDirectory():
+            io = MagicMock()
+            active_model = Model(self.GPT35.name)
+            active_model.streaming = False
+
+            with patch.object(Coder, "get_active_model", return_value=active_model):
+                coder = await Coder.create(self.GPT35, None, io, stream=True)
+
+            assert coder.stream is False
+
     async def test_allowed_to_edit(self):
         with GitTemporaryDirectory():
             repo = git.Repo()

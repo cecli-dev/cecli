@@ -650,7 +650,7 @@ class Coder(metaclass=UsageMeta):
             else REASONING_TAG
         )
 
-        self.stream = stream and main_model.streaming and not self.manual_copy_paste
+        self.stream = stream and self.get_active_model().streaming and not self.manual_copy_paste
 
         if cache_prompts and self.get_active_model().cache_control:
             self.add_cache_headers = True
