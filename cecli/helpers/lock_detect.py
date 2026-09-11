@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import threading
 import time
@@ -11,9 +12,13 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
 
-def dump_stacks_to_file(filename="hang_dump.log", interval=5, max_prints=10):
+def dump_stacks_to_file(filename=".cecli/logs/threads.log", interval=5, max_prints=10):
     """Periodically writes stack traces to a file, resetting it after max_prints."""
     print_count = 0
+
+    log_dir = os.path.dirname(filename)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
     while True:
         time.sleep(interval)
@@ -50,7 +55,7 @@ def dump_stacks_to_file(filename="hang_dump.log", interval=5, max_prints=10):
 # Start the monitor in a background daemon thread
 monitor_thread = threading.Thread(
     target=dump_stacks_to_file,
-    args=("program_hangs.log", 5, 10),  # Clears every 10 prints
+    args=(".cecli/logs/threads.log", 5, 10),  # Clears every 10 prints
     daemon=True,
 )
 monitor_thread.start()

@@ -72,6 +72,9 @@ elif sys.platform == "darwin":
 
 from .dump import dump  # noqa
 
+if os.getenv("CECLI_DEBUG_THREAD_LOG", "").lower() == "true":
+    import cecli.helpers.lock_detect  # noqa
+
 
 def convert_yaml_to_json_string(value, config_file_value=None):
     """
