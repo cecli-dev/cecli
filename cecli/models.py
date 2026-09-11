@@ -1873,8 +1873,11 @@ async def sanity_check_model(io, model):
                 " for `setx` to take effect."
             )
     elif not model.keys_in_environment:
-        show = True
-        io.tool_warning(f"Warning for {model}: Unknown which environment variables are required.")
+        if io.verbose:
+            show = True
+            io.tool_warning(
+                f"Warning for {model}: Unknown which environment variables are required."
+            )
     await check_for_dependencies(io, model.name)
     if not (model.info.get("max_input_tokens") or model.info.get("max_tokens")):
         show = True

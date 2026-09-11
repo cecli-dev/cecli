@@ -771,7 +771,10 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_read_only_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(f"Error: Read-only file {fname} does not exist. Skipping.")
+                    if verbose:
+                        self.io.tool_warning(
+                            f"Error: Read-only file {fname} does not exist. Skipping."
+                        )
 
         if read_only_stubs_fnames:
             self.abs_read_only_stubs_fnames = set()
@@ -780,9 +783,10 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_read_only_stubs_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(
-                        f"Error: Read-only (stub) file {fname} does not exist. Skipping."
-                    )
+                    if verbose:
+                        self.io.tool_warning(
+                            f"Error: Read-only (stub) file {fname} does not exist. Skipping."
+                        )
 
         if rules_fnames:
             self.abs_rules_fnames = set()
@@ -791,7 +795,8 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_rules_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(f"Error: Rules file {fname} does not exist. Skipping.")
+                    if verbose:
+                        self.io.tool_warning(f"Error: Rules file {fname} does not exist. Skipping.")
 
         if map_tokens is None:
             use_repo_map = main_model.use_repo_map
