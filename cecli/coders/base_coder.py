@@ -989,7 +989,7 @@ class Coder(metaclass=UsageMeta):
             settings_items.append("prompt cache")
 
         # Infinite output
-        if main_model.info.get("supports_assistant_prefill"):
+        if main_model.info.get("supports_assistant_prefill") and self.verbose:
             settings_items.append("infinite output")
 
         # Copy/paste mode
