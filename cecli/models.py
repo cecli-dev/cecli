@@ -952,7 +952,7 @@ class Model(ModelSettings):
             self.extra_params = dict(self.extra_params)
 
     def _apply_provider_defaults(self):
-        provider = (self.info.get("litellm_provider") or "").lower()
+        provider = self._configured_provider()
         self.litellm_provider = provider or None
         if self.info.get("supports_stream") is False:
             self.streaming = False
@@ -1771,6 +1771,23 @@ class Model(ModelSettings):
                 default=lambda o: "<not serializable>",
             )
             f.write(",\n")
+
+    def _configured_provider(self) -> str:
+        """Return the provider whose config should apply to this model.
+
+        ``info['litellm_provider']`` is unreliable as a config key: litellm's
+        model-cost table rewrites it to the upstream vendor for known model
+        names (``my-provider/gpt-4o`` -> ``openai``), which hides a user-defined
+        provider's settings such as ``supports_stream``. A configured model-name
+        prefix wins, mirroring ``helpers.llms.config.resolve_model_config``.
+        """
+        provider = (self.info.get("litellm_provider") or "").lower()
+        prefix = self.name.split("/", 1)[0].lower() if "/" in self.name else ""
+
+        if prefix and model_info_manager.provider_manager.supports_provider(prefix):
+            return prefix
+
+        return provider
 
 
 def register_models(model_settings_fnames):
