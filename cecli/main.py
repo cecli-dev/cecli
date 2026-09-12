@@ -72,7 +72,26 @@ elif sys.platform == "darwin":
 
 from .dump import dump  # noqa
 
-if os.getenv("CECLI_DEBUG_THREAD_LOG", "").lower() == "true":
+
+def attach_debug_thread_monitor(argv=None):
+    """Start the thread/stack monitor early when debug logging is requested.
+
+    The full argument parser only runs inside main_async(), so the debug flag is
+    resolved late. The monitor must be running before the event loop starts to
+    observe startup, so we detect the usual sources here instead: an explicit
+    CECLI_DEBUG_THREAD_LOG override, the CECLI_DEBUG env var, or a --debug flag
+    in argv. A debug value supplied only by a config file is not known this
+    early and is handled once args are parsed.
+    """
+    env_override = os.getenv("CECLI_DEBUG_THREAD_LOG", "").lower() in ("1", "true", "yes")
+    env_debug = os.getenv("CECLI_DEBUG", "").lower() in ("1", "true", "yes")
+
+    if argv is None:
+        argv = sys.argv[1:]
+
+    if not (env_override or env_debug or "--debug" in argv):
+        return
+
     import cecli.helpers.lock_detect  # noqa
 
 
@@ -558,6 +577,8 @@ def custom_tracer(frame, event, arg):
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
     from cecli.signals import ReloadProgramSignal
 
+    attach_debug_thread_monitor(argv)
+
     # Tracks the coder instance from a ReloadProgramSignal so the new
     # main_async() can pass it as from_coder to Coder.create(), preserving
     # UUID, edit_format, and other state across the reload cycle.
@@ -789,6 +810,9 @@ async def main_async(
         os.makedirs(".cecli/logs/", exist_ok=True)
         log_file = open(".cecli/logs/debug.log", "w", buffering=1)
         sys.settrace(custom_tracer)
+        # Ensure the thread/stack monitor is running even when debug was enabled
+        # from a config file rather than the CLI/env (main() attaches it early).
+        import cecli.helpers.lock_detect  # noqa
     if args.shell_completions:
         parser.prog = "cecli"
         print(shtab.complete(parser, shell=args.shell_completions))
