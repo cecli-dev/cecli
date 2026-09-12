@@ -268,9 +268,8 @@ def _run_record_process(
             temp_path = tmp_file.name
 
         try:
-            with sd.InputStream(
-                samplerate=sample_rate, channels=1, callback=callback, device=device_id
-            ):
+            stream = _open_input_stream(callback, sample_rate, device_id)
+            with stream:
                 _status(status_queue, f"\n⬤ recording: {stop_binding or 'Enter'} to stop")
                 _wait_for_stop(stop_queue)
 
@@ -329,7 +328,6 @@ def _record_and_stream(
     """
     import threading
 
-    import sounddevice as sd
     from moonshine_voice.transcriber import LineCompleted, LineStarted, LineTextChanged
 
     transcriber = _build_transcriber(language, status_queue)
@@ -397,9 +395,8 @@ def _record_and_stream(
         feed_thread.start()
 
         try:
-            with sd.InputStream(
-                samplerate=sample_rate, channels=1, callback=callback, device=device_id
-            ):
+            stream = _open_input_stream(callback, sample_rate, device_id)
+            with stream:
                 _status(status_queue, f"\n⬤ recording: {stop_binding or 'Enter'} to stop")
                 _wait_for_stop(stop_queue)
         finally:
@@ -557,6 +554,93 @@ def _status(status_queue, message):
         status_queue.put(message)
     else:
         print(message)
+
+
+def _open_input_stream(callback, sample_rate, device_id=None):
+    """Open and start an input stream, retrying devices that fail to start.
+
+    PortAudio can transiently time out (``paTimedOut``) when starting a stream,
+    as happens with WSL and PipeWire's ``pulse`` device. Each candidate is
+    started eagerly so a start failure is caught and the next compatible device
+    or sample rate is tried instead of aborting the recording. Returns a started
+    ``sounddevice.InputStream`` for callers to use as a context manager; raises
+    ``SoundDeviceError`` when nothing starts.
+    """
+    import sounddevice as sd
+
+    last_error = None
+
+    for dev, rate in _input_device_candidates(sample_rate, device_id):
+        stream = None
+
+        try:
+            stream = sd.InputStream(samplerate=rate, channels=1, callback=callback, device=dev)
+            stream.start()
+        except Exception as exc:
+            last_error = exc
+
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+            continue
+
+        return stream
+
+    raise SoundDeviceError(_input_device_error_message(last_error))
+
+
+def _input_device_candidates(sample_rate, device_id=None):
+    """Yield ``(device, sample_rate)`` candidates for the input stream, best first."""
+    import sounddevice as sd
+
+    for rate in _sample_rates(sample_rate):
+        yield (device_id, rate)
+
+    try:
+        devices = sd.query_devices()
+    except Exception:
+        return
+
+    if not isinstance(devices, list):
+        return
+
+    for dev, entry in enumerate(devices):
+        if not isinstance(entry, dict) or entry.get("max_input_channels", 0) <= 0:
+            continue
+
+        if dev == device_id:
+            continue
+
+        for rate in _sample_rates(entry.get("default_samplerate") or sample_rate):
+            yield (dev, rate)
+
+
+def _sample_rates(sample_rate):
+    """Return the sample rates to try for a device, most-preferred first."""
+    rates = []
+
+    for rate in (sample_rate, 44100, 48000, 16000):
+        if rate and rate not in rates:
+            rates.append(rate)
+
+    return rates
+
+
+def _input_device_error_message(err):
+    """Return an actionable message when no input device can be started."""
+    reason = f" ({err})" if err else ""
+
+    return (
+        "No microphone input device could be started"
+        + reason
+        + ". Check that your mic is the default input device (Windows: Settings > "
+        "System > Sound > Input) and that Windows grants WSLg microphone access "
+        "(Settings > Privacy & security > Microphone). In WSL, confirm the mic is "
+        "bridged first, e.g. `PULSE_SERVER=unix:/mnt/wslg/PulseServer parec -d RDPSource --channels=1`."
+    )
 
 
 def _download_model_from_hf(language, status_queue=None):
