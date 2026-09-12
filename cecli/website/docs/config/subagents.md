@@ -45,10 +45,24 @@ and suggestions for improvement.
 | `hooks` | No | Per-agent hooks configuration (see [Hooks](hooks.html) for syntax) |
 | `agent-config` | No | Override `agent-config` property of cecli configuration with custom values for sub agent |
 | `auto_reap` | No | Controls whether this sub-agent is automatically reaped when the limit is reached. Defaults to `true` if omitted |
+| `keep_files` | No | When `true`, the sub-agent inherits the parent's editable and read-only files instead of starting with an empty file context. Defaults to `false` if omitted |
 
 #### System Prompt
 
 Any content after the closing `---` of the front matter becomes the sub-agent's system prompt. This replaces the default main system prompt for that agent. You can use this to define the sub-agent's role, behavior, and constraints.
+#### File Inheritance
+
+By default, sub-agents start with an empty file context — only rules files are inherited from the parent. Set `keep_files: true` in the front matter to also inherit the parent's editable files, read-only files, and read-only stubs:
+
+```markdown
+---
+name: reviewer
+keep_files: true
+---
+```
+
+This is useful for review or testing sub-agents that need the same working set of files as the primary agent.
+
 
 ### Configuration File
 
