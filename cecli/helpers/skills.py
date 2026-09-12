@@ -66,23 +66,29 @@ class SkillsManager:
             root: Optional base root directory for relative path resolution
             coder: Optional reference to the coder instance (weak reference)
         """
-        # Always include the default skills directory in the user's home
-        default_skill_dir = str(Path.home() / ".cecli" / "skills")
-        if default_skill_dir not in directory_paths:
-            directory_paths = [default_skill_dir] + list(directory_paths)
+        # Always include the default skills directories in the user's home:
+        # the cecli-specific directory plus the `.agents` standard directory.
+        default_skill_dirs = [
+            str(Path.home() / ".cecli" / "skills"),
+            str(Path.home() / ".agents" / "skills"),
+        ]
+        for default_skill_dir in reversed(default_skill_dirs):
+            if default_skill_dir not in directory_paths:
+                directory_paths = [default_skill_dir] + list(directory_paths)
 
         # Local path resolution base: use root so sub-agents with an overridden
         # local root still resolve project skills relative to the primary
         # workspace (instead of the working directory).
         local_anchor = Path(root).expanduser().resolve() if root else Path.cwd()
 
-        # Also include the local default skills directory under the coder root
-        # so project-scoped skills can live in {root}/.cecli/skills alongside the
-        # global ~/.cecli/skills default.
+        # Also include the local default skills directories under the coder root
+        # so project-scoped skills can live in {root}/.cecli/skills or
+        # {root}/.agents/skills alongside the global home defaults.
         if root:
-            local_default_skill_dir = str(local_anchor / ".cecli" / "skills")
-            if local_default_skill_dir not in directory_paths:
-                directory_paths.append(local_default_skill_dir)
+            for local_skill_subdir in (".cecli", ".agents"):
+                local_default_skill_dir = str(local_anchor / local_skill_subdir / "skills")
+                if local_default_skill_dir not in directory_paths:
+                    directory_paths.append(local_default_skill_dir)
 
         # Resolve every path relative to local_anchor and drop exact duplicates.
         resolved_paths = []
@@ -101,11 +107,14 @@ class SkillsManager:
             seen_paths.add(path)
             resolved_paths.append(path)
 
-        # Order paths: local project dirs first, then configured, home dirs last.
+        # Order paths: local project dirs before home dirs, and within the same
+        # locality cecli's own `.cecli/skills` directories before the
+        # `.agents/skills` standard directories.
         ordered = sorted(
             enumerate(resolved_paths),
             key=lambda item: (
                 self._directory_priority(item[1], local_anchor),
+                self._directory_source_rank(item[1]),
                 item[0],
             ),
         )
@@ -157,15 +166,17 @@ class SkillsManager:
 
         0 - local project directory (under the root or working directory)
         1 - any other configured directory
-        2 - a home directory (including the implicit ``~/.cecli/skills`` default)
+        2 - a home directory (including the implicit ``~/.cecli/skills`` and
+            ``~/.agents/skills`` defaults)
         """
         home = Path.home().resolve()
 
-        # Implicit default skills dir is always treated as a home dir.
-        if path == (home / ".cecli" / "skills"):
+        # Implicit default skills dirs are always treated as home dirs.
+        if path in (home / ".cecli" / "skills", home / ".agents" / "skills"):
             return 2
 
         local_anchor = root if root is not None else Path.cwd()
+
         try:
             path.relative_to(local_anchor)
             return 0
@@ -177,6 +188,22 @@ class SkillsManager:
             return 2
         except ValueError:
             return 1
+
+    @staticmethod
+    def _directory_source_rank(path: Path) -> int:
+        """Rank a skill directory by the standard it belongs to.
+
+        Lower values are scanned first and therefore win by-name conflicts, but
+        this only breaks ties between directories in the same locality (see
+        ``_directory_priority``):
+
+        0 - cecli's own ``.cecli/skills`` directories and other directories
+        1 - the ``.agents/skills`` standard directories
+        """
+        if path.name == "skills" and path.parent.name == ".agents":
+            return 1
+
+        return 0
 
     def _get_coder(self):
         """Return coder via weak reference, or None if collected."""

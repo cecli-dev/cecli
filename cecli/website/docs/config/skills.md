@@ -77,13 +77,11 @@ Skills are configured through the `agent-config` parameter in the YAML configura
 - **`skills_includelist`**: Array of skill names to include (whitelist)
 - **`skills_excludelist`**: Array of skill names to exclude (blacklist)
 
-> **Duplicate skill names**: When the same skill name is found in more than
-> one configured directory, only one copy is loaded. Directories are scanned
-> in priority order: local project directories (e.g. `./.cecli/skills`) first,
-> then other configured directories in the order they are listed, with home
-> directories (e.g. `~/skills` and the implicit `~/.cecli/skills` default)
-> last. If no `skills_paths` are configured, the only directory searched is
-> `~/.cecli/skills`.
+> **Duplicate skill names**: When the same skill name is found in more than one configured directory, only one copy is loaded. Directories are scanned in priority order: local project directories (e.g. `./.cecli/skills` and `./.agents/skills`) first, then other configured directories in the order they are listed, with home directories (e.g. `~/skills`, `~/.cecli/skills`,and `~/.agents/skills`) last. If no `skills_paths` are configured, the directories searched are `~/.cecli/skills` and `~/.agents/skills`. 
+>
+> Within the same locality, cecli's own `.cecli/skills` directories are scanned before the `.agents/skills` standard directories; local directories always take priority over global ones.
+>
+> Skills placed in the standard `.agents/skills` directories (`~/.agents/skills` globally or `{root}/.agents/skills` per project) are discovered automatically alongside cecli's own `.cecli/skills` directories.
 
 Complete configuration example in YAML configuration file (`.cecli.conf.yml` or `~/.cecli.conf.yml`):
 

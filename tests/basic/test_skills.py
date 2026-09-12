@@ -32,7 +32,10 @@ class TestSkills:
         # Test with empty directory paths
         manager = SkillsManager([])
 
-        assert manager.directory_paths == [Path.home() / ".cecli" / "skills"]
+        assert manager.directory_paths == [
+            Path.home() / ".cecli" / "skills",
+            Path.home() / ".agents" / "skills",
+        ]
         assert manager.include_list is None
         assert manager.exclude_list == set()
         assert manager.root is None
@@ -41,8 +44,8 @@ class TestSkills:
 
         # Test with directory paths
         manager = SkillsManager(["/tmp/test"])
-        # "/tmp/test" + default home dir = 2 paths
-        assert len(manager.directory_paths) == 2
+        # "/tmp/test" + two default home dirs = 3 paths
+        assert len(manager.directory_paths) == 3
         assert isinstance(manager.directory_paths[0], Path)
         assert manager._loaded_skills == set()
 
@@ -53,22 +56,98 @@ class TestSkills:
             exclude_list=["skill3"],
             root="/tmp",
         )
-        # "/tmp/test" + local default + default home dir = 3 paths
-        assert len(manager.directory_paths) == 3
+        # "/tmp/test" + two local defaults + two home defaults = 5 paths
+        assert len(manager.directory_paths) == 5
         assert Path("/tmp/test").resolve() in manager.directory_paths
         assert (Path("/tmp") / ".cecli" / "skills").resolve() in manager.directory_paths
+        assert (Path("/tmp") / ".agents" / "skills").resolve() in manager.directory_paths
         assert manager.include_list == {"skill1", "skill2"}
         assert manager.exclude_list == {"skill3"}
         assert manager.root == Path("/tmp").expanduser().resolve()
         assert manager._loaded_skills == set()
 
     def test_local_default_skills_dir(self):
-        """Local default {root}/.cecli/skills is included alongside global default."""
+        """Local default {root}/.cecli/skills and {root}/.agents/skills are included."""
         manager = SkillsManager([], root="/tmp/local-root")
 
         paths = [str(p) for p in manager.directory_paths]
         assert (Path("/tmp/local-root") / ".cecli" / "skills").resolve() in manager.directory_paths
+        assert (Path("/tmp/local-root") / ".agents" / "skills").resolve() in manager.directory_paths
         assert str(Path.home() / ".cecli" / "skills") in paths
+        assert str(Path.home() / ".agents" / "skills") in paths
+
+    def test_cecli_dirs_precede_agents_dirs(self):
+        """cecli's own dirs are scanned before .agents dirs within a locality."""
+        manager = SkillsManager([], root="/tmp/local-root")
+        paths = manager.directory_paths
+
+        local_cecli = (Path("/tmp/local-root") / ".cecli" / "skills").resolve()
+        local_agents = (Path("/tmp/local-root") / ".agents" / "skills").resolve()
+        global_cecli = Path.home() / ".cecli" / "skills"
+        global_agents = Path.home() / ".agents" / "skills"
+
+        assert paths.index(local_cecli) < paths.index(local_agents)
+        assert paths.index(global_cecli) < paths.index(global_agents)
+
+    def test_local_dirs_precede_global_regardless_of_standard(self):
+        """Locality dominates: local .agents beats global .cecli."""
+        manager = SkillsManager([], root="/tmp/local-root")
+        paths = manager.directory_paths
+
+        local_agents = (Path("/tmp/local-root") / ".agents" / "skills").resolve()
+        global_cecli = Path.home() / ".cecli" / "skills"
+        global_agents = Path.home() / ".agents" / "skills"
+
+        assert paths.index(local_agents) < paths.index(global_cecli)
+        assert paths.index(local_agents) < paths.index(global_agents)
+
+    def test_configured_agents_dir_does_not_outrank_cecli(self):
+        """A configured .agents dir is still iterated after .cecli dirs."""
+        config_agents = str(Path("/tmp/local-root") / ".agents" / "skills")
+        manager = SkillsManager([config_agents], root="/tmp/local-root")
+
+        local_cecli = (Path("/tmp/local-root") / ".cecli" / "skills").resolve()
+        configured_agents = Path(config_agents).resolve()
+
+        assert manager.directory_paths.index(local_cecli) < manager.directory_paths.index(
+            configured_agents
+        )
+
+    def test_cecli_skill_definition_wins_over_agents_same_name(self, monkeypatch):
+        """A cecli same-name skill definition wins over the .agents one."""
+        import shutil
+
+        def write_skill(base_dir, name, description):
+            skill_dir = base_dir / name
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n",
+                encoding="utf-8",
+            )
+
+        # Local: {root}/.cecli/skills wins over {root}/.agents/skills
+        root = Path(self.temp_dir)
+        write_skill(root / ".cecli" / "skills", "dup-skill", "cecli-local")
+        write_skill(root / ".agents" / "skills", "dup-skill", "agents-local")
+
+        manager = SkillsManager([], root=str(root))
+        found = {skill.name: skill for skill in manager.find_skills()}["dup-skill"]
+        assert found.description == "cecli-local"
+        assert found.path == (root / ".cecli" / "skills" / "dup-skill").resolve()
+
+        # Global: ~/.cecli/skills wins over ~/.agents/skills
+        fake_home = Path(tempfile.mkdtemp())
+        try:
+            monkeypatch.setattr(Path, "home", lambda: fake_home)
+            write_skill(fake_home / ".cecli" / "skills", "dup-skill", "cecli-global")
+            write_skill(fake_home / ".agents" / "skills", "dup-skill", "agents-global")
+
+            manager = SkillsManager([])
+            found = {skill.name: skill for skill in manager.find_skills()}["dup-skill"]
+            assert found.description == "cecli-global"
+            assert found.path == (fake_home / ".cecli" / "skills" / "dup-skill").resolve()
+        finally:
+            shutil.rmtree(fake_home)
 
     def test_create_and_parse_skill(self):
         """Test creating a skill and parsing its metadata."""
