@@ -428,3 +428,54 @@ def test_wait_for_stop_preserves_cli_readline():
     with patch("cecli.voice.sys.stdin") as stdin:
         _wait_for_stop(None)
     stdin.readline.assert_called_once_with()
+
+
+def test_open_input_stream_retries_after_start_timeout():
+    """A device that times out on start is skipped for a working fallback."""
+    from cecli.voice import _open_input_stream
+
+    sounddevice = MagicMock()
+    sounddevice.query_devices.return_value = [
+        {"name": "default", "max_input_channels": 1, "default_samplerate": 44100},
+        {"name": "fallback", "max_input_channels": 1, "default_samplerate": 48000},
+    ]
+
+    created = []
+
+    def make_stream(device=None, **kwargs):
+        stream = MagicMock()
+        created.append((device, stream))
+
+        if device == 0:
+            stream.start.side_effect = RuntimeError("Wait timed out")
+
+        return stream
+
+    sounddevice.InputStream.side_effect = make_stream
+
+    with patch.dict("sys.modules", {"sounddevice": sounddevice}):
+        stream = _open_input_stream(lambda *args: None, 16000, device_id=0)
+
+    # The default device is tried at every rate (and released) before the fallback.
+    assert [device for device, _ in created] == [0, 0, 0, 1]
+    assert all(item.close.called for device, item in created if device == 0)
+    assert stream is created[-1][1]
+    assert created[-1][0] == 1
+
+
+def test_open_input_stream_reports_when_nothing_starts():
+    """A descriptive SoundDeviceError is raised when every candidate fails."""
+    from cecli.voice import SoundDeviceError, _open_input_stream
+
+    sounddevice = MagicMock()
+    sounddevice.query_devices.return_value = [
+        {"name": "default", "max_input_channels": 1, "default_samplerate": 44100},
+    ]
+    sounddevice.InputStream.return_value.start.side_effect = RuntimeError("Wait timed out")
+
+    with patch.dict("sys.modules", {"sounddevice": sounddevice}):
+        with pytest.raises(SoundDeviceError) as excinfo:
+            _open_input_stream(lambda *args: None, 16000, device_id=0)
+
+    assert "No microphone input device could be started" in str(excinfo.value)
+    assert "Wait timed out" in str(excinfo.value)
