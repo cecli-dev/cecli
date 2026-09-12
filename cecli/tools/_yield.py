@@ -36,7 +36,7 @@ class Tool(BaseTool):
                     "wait": {
                         "type": "integer",
                         "description": (
-                            "Optional time in seconds (between 15 and 120) to wait "
+                            "Optional time in seconds (between 15 and 300, default 60) to wait "
                             "before returning. When provided, the tool simply sleeps "
                             "for the specified duration and returns, "
                             "allowing for other tasks to proceed."
@@ -65,14 +65,14 @@ class Tool(BaseTool):
             wait = kwargs.get("wait")
             if wait is not None and wait != "":
                 if isinstance(wait, bool):
-                    wait_seconds = 30
+                    wait_seconds = 60
                 else:
                     try:
                         wait_seconds = int(wait)
                     except (ValueError, TypeError):
-                        wait_seconds = 30
+                        wait_seconds = 60
 
-                wait_seconds = max(15, min(120, wait_seconds))
+                wait_seconds = max(15, min(300, wait_seconds))
 
                 # Plain wait — sleep for the requested duration without checking
                 # sub-agents or marking the task as finished.

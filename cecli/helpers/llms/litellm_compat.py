@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional
 from cecli.dump import dump  # noqa: F401
 from cecli.http import httpx
 
+from .runtime import log_error_response
+
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 SITE_URL = "https://cecli.dev"
@@ -1156,7 +1158,7 @@ class _LiteLLMFacade:
         if language:
             data["language"] = language
 
-        with httpx.Client(timeout=600) as client:
+        with httpx.Client(timeout=600, event_hooks={"response": [log_error_response]}) as client:
             resp = client.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers=headers,

@@ -57,6 +57,56 @@ Cecli supports commands from within the chat, which all start with `/`.
 | **/weak-model** | Switch the Weak Model to a new LLM |
 | **/web** | Scrape a webpage, convert to markdown and send in a message |
 
+
+
+## Prompt Queue Management
+
+| Command | Description |
+| :--- | :--- |
+| **/queue** | Queue a prompt for processing after current tasks complete |
+| **/list-queue** | List all prompts currently in the queue |
+| **/remove-queue** | Remove a prompt from the queue by index, or '*' to clear all |
+
+{: .tip }
+
+## Prompt Queue Management Commands
+
+The prompt queue management feature (`CLI-33`) adds three new commands for managing a first-in-first-out (FIFO) queue of prompts.
+
+### Queue Commands
+
+| Command | Description |
+|---------|-------------|
+| **/queue** | Queue a prompt for processing after current tasks complete |
+| **/insert-queue** | Insert a prompt at a specific position in the queue |
+| **/list-queue** | List all prompts currently in the queue |
+| **/remove-queue** | Remove a prompt from the queue by index, or '*' to clear all |
+
+#### `/queue` Command
+
+**Usage:** `/queue <prompt text>`
+
+**Description:** Adds a prompt to the queue for processing after the current command completes.
+
+**Examples:**
+```bash
+/queue "refactor database layer"
+/queue "add unit tests for user service"
+```
+
+#### `/insert-queue` Command
+
+**Usage:** `/insert-queue <prompt text>`, `/insert-queue <index> <prompt text>`
+
+**Description:** Inserts a prompt at a specific position in the queue. When called without an index, the prompt is added at the front of the queue.
+
+**Examples:**
+```bash
+/insert-queue "add tests for login"
+/insert-queue 3 "refactor database layer"
+```
+
+
 > **Tip:** You can easily re-send commands or messages. Use the up arrow ⬆ to scroll back or CONTROL-R to search your message history.
 
 

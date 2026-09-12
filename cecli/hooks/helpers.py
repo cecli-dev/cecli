@@ -153,12 +153,13 @@ class HookHelpers:
         else:
             model = coder.main_model
 
-        return await model.simple_send_with_retries(
+        content, _ = await model.simple_send_with_retries(
             messages=messages,
             max_tokens=max_tokens,
             coder=coder,
             override_kwargs=kwargs,
         )
+        return content
 
     @staticmethod
     async def call_subagent(

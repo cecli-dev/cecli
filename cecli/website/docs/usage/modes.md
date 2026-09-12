@@ -61,7 +61,7 @@ You can activate agent mode in several ways:
 
 - **Autonomous file management**: cecli discovers and manages relevant files itself, rather than relying only on the files you explicitly add.
 - **Enhanced context management**: entering agent mode enables context management for large files, and you can tune it with `/context-management` and `/context-blocks`.
-- **Skills**: loading, including, excluding, and removing skills is only available in agent mode (`/load-skill`, `/include-skill`, `/exclude-skill`, `/remove-skill`).
+- **Skills**: loading, including, excluding, and removing skills is only available in agent mode (`/load-skill`, `/include-skill`, `/exclude-skill`, `/remove-skill`, `/import-skill`).
 - **Sub-agents**: delegate sub-tasks to specialized sub-agents for parallel or focused work.
 - **Dedicated agent model**: choose a separate model for agent mode with `--agent-model` or `/agent-model`.
 

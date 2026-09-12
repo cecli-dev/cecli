@@ -36,7 +36,6 @@ class InputContainer(Vertical):
             mode: The coder edit format (e.g. "code", "agent").
         """
         self.coder_mode = mode
-
         sub_agents = self._get_sub_agents()
         if sub_agents:
             pills_text = self._format_sub_agent_pills(sub_agents, self.show_squares)

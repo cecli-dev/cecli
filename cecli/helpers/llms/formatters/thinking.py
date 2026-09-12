@@ -52,17 +52,30 @@ def gemini_thinking(payload: Dict[str, Any], api_block: Dict[str, Any]) -> Dict[
 
 
 def anthropic_5_thinking(payload: Dict[str, Any], api_block: Dict[str, Any]) -> Dict[str, Any]:
-    """Claude 5+: adaptive thinking via ``output_config.effort``."""
+    """Claude 5+: adaptive thinking via ``output_config.effort`` + summarized display.
+
+    Claude 5+ defaults ``thinking.display`` to ``"omitted"``, which withholds the
+    readable thinking summary. Opting in to ``"summarized"`` returns the summary
+    text so it can be surfaced to the user.
+    """
     if api_block.get("reasoning_effort"):
         payload["output_config"] = {"effort": api_block["reasoning_effort"]}
+        payload["thinking"] = {"type": "adaptive", "display": "summarized"}
 
     return payload
 
 
 def anthropic_thinking(payload: Dict[str, Any], api_block: Dict[str, Any]) -> Dict[str, Any]:
-    """Pre-Claude-5: the ``thinking`` block (type enabled + budget)."""
-    if api_block.get("thinking"):
-        payload["thinking"] = api_block["thinking"]
+    """Pre-Claude-5: the ``thinking`` block (type enabled + budget) with summarized display.
+
+    ``display`` works alongside ``type: "enabled"``; defaulting it to
+    ``"summarized"`` returns the readable thinking summary (older models already
+    default to it, newer 4.x models default to ``"omitted"``).
+    """
+    thinking = api_block.get("thinking")
+
+    if isinstance(thinking, dict):
+        payload["thinking"] = {**thinking, "display": "summarized"}
 
     return payload
 

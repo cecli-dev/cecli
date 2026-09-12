@@ -56,71 +56,127 @@ from cecli.helpers.background_commands import (  # noqa: E402
 
 def test_circular_buffer_basic_operations():
     """Test basic CircularBuffer operations: append, get_all, clear."""
-    buffer = CircularBuffer(max_size=10)
-
-    # Test append and get_all
+    buffer = CircularBuffer(max_size=11)
     buffer.append("Hello")
     buffer.append(" ")
     buffer.append("World")
 
     assert buffer.get_all() == "Hello World"
+    assert buffer.size() == 11
 
-    # Test clear
     buffer.clear()
     assert buffer.get_all() == ""
     assert buffer.size() == 0
+    assert buffer.total_added == 0
 
-    # Test that buffer is empty after clear
     buffer.append("New")
     assert buffer.get_all() == "New"
+    assert buffer.size() == 3
 
 
 def test_circular_buffer_max_size():
-    """Test that CircularBuffer respects max_size limit."""
+    """Evict characters, even when overflow trims only part of an old chunk."""
     buffer = CircularBuffer(max_size=5)
+    buffer.append("12345")
+    assert buffer.get_all() == "12345"
+    assert buffer.size() == 5
 
-    # Add content that exceeds max_size
-    buffer.append("12345")  # Exactly max_size
-    buffer.append("67890")  # This should push out "12345"
+    buffer.append("67")
+    assert buffer.get_all() == "34567"
+    assert buffer.size() == 5
 
-    # Buffer should contain both strings (2 elements, each 5 chars)
-    # deque with maxlen=5 will keep up to 5 elements, not 5 characters
-    assert buffer.get_all() == "1234567890"
+    buffer.append("89012")
+    assert buffer.get_all() == "89012"
+    assert buffer.size() == 5
+    assert buffer.total_added == 12
 
-    # Test with many small chunks
     buffer.clear()
     for i in range(10):
         buffer.append(str(i))
+        assert buffer.size() <= 5
 
-    # Should only keep last 5 elements: "5", "6", "7", "8", "9"
     assert buffer.get_all() == "56789"
 
 
 def test_circular_buffer_get_new_output():
-    """Test CircularBuffer.get_new_output method."""
+    """Incremental positions include evicted characters, but output stays bounded."""
     buffer = CircularBuffer(max_size=10)
-
-    # Add some initial content
     buffer.append("Hello")
     buffer.append(" World")
 
-    # Get new output from position 0 (should get everything)
     new_output, new_position = buffer.get_new_output(0)
-    assert new_output == "Hello World"
-    assert new_position == 11  # "Hello World" is 11 characters
+    assert new_output == "ello World"
+    assert new_position == 11
 
-    # Add more content
     buffer.append("!")
-
-    # Get new output from previous position
     new_output, new_position = buffer.get_new_output(new_position)
     assert new_output == "!"
     assert new_position == 12
 
-    # Try to get new output from current position (should be empty)
     new_output, new_position = buffer.get_new_output(new_position)
     assert new_output == ""
     assert new_position == 12
+
+    buffer.append("0123456789ABCDE")
+    assert buffer.get_new_output(new_position) == ("56789ABCDE", 27)
+
+
+def test_circular_buffer_oversized_append():
+    """A single large chunk must not bypass the character limit."""
+    buffer = CircularBuffer(max_size=4096)
+    buffer.append("old output")
+    text = "0123456789" * 10_000
+    buffer.append(text)
+
+    assert buffer.size() == 4096
+    assert buffer.get_all() == text[-4096:]
+    assert buffer.get_new_output(0) == (text[-4096:], len("old output") + len(text))
+
+
+def test_circular_buffer_empty_append_preserves_full_buffer():
+    buffer = CircularBuffer(max_size=3)
+    buffer.append("abc")
+    buffer.append("")
+
+    assert buffer.get_all() == "abc"
+    assert buffer.size() == 3
+    assert buffer.total_added == 3
+
+
+def test_circular_buffer_zero_capacity():
+    buffer = CircularBuffer(max_size=0)
+    buffer.append("discarded")
+    buffer.append("")
+
+    assert buffer.get_all() == ""
+    assert buffer.size() == 0
+    assert buffer.get_new_output(0) == ("", 9)
+
+
+def test_circular_buffer_unicode_characters():
+    """Capacity measures Python characters rather than encoded bytes."""
+    buffer = CircularBuffer(max_size=3)
+    buffer.append("aé中")
+    buffer.append("🙂ß")
+
+    assert buffer.get_all() == "中🙂ß"
+    assert buffer.size() == 3
+    assert buffer.get_new_output(0) == ("中🙂ß", 5)
+
+
+def test_circular_buffer_get_all_clear_resets_accounting():
+    buffer = CircularBuffer(max_size=3)
+    buffer.append("abcde")
+
+    assert buffer.get_all(clear=True) == "cde"
+    assert buffer.size() == 0
+    assert buffer.total_added == 0
+    assert buffer.get_new_output(0) == ("", 0)
+
+    buffer.append("xy")
+    assert buffer.get_all() == "xy"
+    assert buffer.size() == 2
+    assert buffer.get_new_output(0) == ("xy", 2)
 
 
 def test_background_process_basic():

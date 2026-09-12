@@ -58,12 +58,21 @@ def responses_payload(
         payload["tools"] = [responses_tool(t) for t in tools]
 
     api_block = resolved.get("api_block") or {}
+
+    # Responses-mode models (gpt-5 / meta) are reasoning models: always opt in
+    # to a readable reasoning ``summary`` so the response (and the stream) expose
+    # the summary block the capture logic consumes. An ``effort`` rides along when
+    # the api_block configures one; without it the model uses its default effort.
+    reasoning_config: Dict[str, Any] = {"summary": "auto"}
+
     if api_block.get("reasoning_effort"):
-        payload["reasoning"] = {"effort": api_block["reasoning_effort"], "summary": "auto"}
+        reasoning_config["effort"] = api_block["reasoning_effort"]
         # Encrypted reasoning blobs (meta muse-spark) are only returned when
         # explicitly requested; without them prior reasoning items cannot be
         # replayed on the next turn.
         payload["include"] = ["reasoning.encrypted_content"]
+
+    payload["reasoning"] = reasoning_config
 
     if api_block.get("parallel_tool_calls") is not None:
         payload["parallel_tool_calls"] = api_block["parallel_tool_calls"]
@@ -77,6 +86,11 @@ def responses_payload(
         payload["temperature"] = temperature
 
     extra_body = dict(kwargs.get("extra_body") or {})
+    # Preserve the caller's cache key for providers that support Responses caching.
+    prompt_cache_key = kwargs.get("prompt_cache_key")
+    if prompt_cache_key:
+        payload["prompt_cache_key"] = prompt_cache_key
+
     # The Responses API controls reasoning via the nested ``reasoning.effort``
     # field (already handled above); a generic top-level ``thinking`` budget
     # (or flat ``reasoning_effort``) has no wire equivalent and would be
@@ -85,6 +99,13 @@ def responses_payload(
     extra_body.pop("thinking", None)
     payload.update(resolved.get("extra_body") or {})
     payload.update(extra_body)
+
+    # A caller-supplied ``reasoning`` object (e.g. ``set_reasoning_effort``)
+    # overwrites the built ``reasoning``; keep the summary opt-in intact so
+    # summaries are always requested when reasoning is configured.
+    if isinstance(payload.get("reasoning"), dict):
+        payload["reasoning"].setdefault("summary", "auto")
+
     return payload
 
 
@@ -112,18 +133,26 @@ def to_responses_input(
             # Replay stashed reasoning items BEFORE the assistant message item
             # so the provider can continue its OWN encrypted reasoning state
             # (stateless round-trip: the whole conversation is re-sent).
+            strip_summary = bool(
+                (msg.get("provider_specific_fields") or {}).get("use_reasoning_summaries")
+            )
+
             for r_item in _stashed_reasoning_items(msg, current_model):
-                items.append(_reasoning_input_item(r_item))
+                items.append(_reasoning_input_item(r_item, strip_summary=strip_summary))
 
             # Assistant turns must use ``output_text`` content blocks; Copilot /
             # OpenAI reject ``input_text`` on assistant messages with HTTP 400
-            # ("Supported values are: 'output_text' and 'refusal'").
+            # ("Supported values are: 'output_text' and 'refusal'"). A synthetic
+            # ``msg_probe_<n>`` id + ``completed`` status round out the
+            # output-message shape (provider-supplied ids must begin with "msg").
             if content:
                 text = content if isinstance(content, str) else json.dumps(content)
                 items.append(
                     {
                         "type": "message",
                         "role": "assistant",
+                        "id": f"msg_probe_{len(items)}",
+                        "status": "completed",
                         "content": [{"type": "output_text", "text": text}],
                     }
                 )
@@ -255,6 +284,10 @@ def normalize_responses_response(data: Dict[str, Any], model: str) -> Completion
             for block in item.get("summary") or []:
                 if block.get("type") == "summary_text" and block.get("text"):
                     parts.append(ReasoningPart(text=block["text"]))
+                    # Mark the turn as carrying a readable reasoning summary so
+                    # the replay path can strip it (keeping the id +
+                    # encrypted_content) and keep the cached prefix stable.
+                    provider_fields["use_reasoning_summaries"] = True
 
             # Encrypted reasoning (e.g. meta muse-spark): an opaque blob that
             # must be echoed back verbatim on the next turn. Stash the whole
@@ -360,10 +393,16 @@ def parse_responses_chunk(data: Dict[str, Any]) -> Optional[CompletionChunk]:
         # Reasoning metadata rides on the authoritative completed event; the
         # per-event ciphertext differs, so only the final items are emitted.
         if _stream_state["reasoning_items"]:
-            chunk.provider_specific_fields = {
-                "reasoning_items": list(_stream_state["reasoning_items"].values()),
+            reasoning_items = list(_stream_state["reasoning_items"].values())
+            provider_fields = {
+                "reasoning_items": reasoning_items,
                 "reasoning_items_origin": _stream_state.get("model"),
             }
+
+            if any((item.get("summary") or []) for item in reasoning_items):
+                provider_fields["use_reasoning_summaries"] = True
+
+            chunk.provider_specific_fields = provider_fields
 
         chunk.usage = _build_usage(resp.get("usage") or {})
         return chunk
@@ -481,13 +520,18 @@ def _stashed_reasoning_items(
     return []
 
 
-def _reasoning_input_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Build the responses-API input item that replays a prior reasoning item."""
+def _reasoning_input_item(item: Dict[str, Any], *, strip_summary: bool = False) -> Dict[str, Any]:
+    """Build the responses-API input item that replays a prior reasoning item.
+
+    ``strip_summary`` drops the display-only summary text (keeping the id +
+    encrypted_content) so the reasoning artifact stays in context for the model
+    without churning the cached prompt prefix with per-turn summary text.
+    """
     return {
         "type": "reasoning",
         "id": item.get("id"),
         "encrypted_content": item.get("encrypted_content"),
-        "summary": item.get("summary") or [],
+        "summary": [] if strip_summary else item.get("summary") or [],
     }
 
 

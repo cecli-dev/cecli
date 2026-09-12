@@ -71,6 +71,15 @@ async def acompletion(
 
     headers = provider.build_headers(resolved, key, family, headers)
 
+    # Allow the provider adapter to transform the outgoing message body before
+    # dispatch (e.g. Mistral's strict schema rejects reasoning_content /
+    # provider_specific_fields / function_call and a null tool-call index).
+    # The chat payload echoes prior-turn reasoning_content back for providers
+    # that require it (DeepSeek thinking mode); strict providers opt out here so
+    # the coercer cannot re-inject a field the transform just stripped.
+    resolved["_echo_reasoning_content"] = getattr(provider, "echoes_reasoning_content", True)
+    messages = provider.transform_messages(messages)
+
     if stream:
         gen = _stream_family(family, resolved, messages, tools, key, headers, kwargs)
 

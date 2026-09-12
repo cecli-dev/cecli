@@ -160,3 +160,125 @@ def test_powershell_counts_and_context(tmp_path, monkeypatch):
     file_entry = next(f for f in op["_"]["files"] if f["file"] == "sample.txt")
     assert file_entry["match_count"] >= 3
     coder.io.tool_error.assert_not_called()
+
+
+def _grep_coder(root):
+    return SimpleNamespace(
+        repo=SimpleNamespace(root=str(root)),
+        io=SimpleNamespace(tool_error=Mock(), tool_output=Mock(), tool_warning=Mock()),
+        verbose=False,
+        root=str(root),
+        tui=lambda: None,
+    )
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+def test_matches_mode_is_compact_and_relative(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("alpha\nbeta\n" + "alpha" + "x" * 500 + "\nalpha\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    result = grep.Tool.execute(
+        coder, searches=[{"pattern": "alpha", "file_glob": "*.txt", "directory": "."}]
+    )
+    op = result.to_dict()["result"][0]
+    content = op["content"]
+
+    assert str(tmp_path) not in content
+    assert "sample.txt: 3 match(es)" in content
+    assert "1: alpha" in content
+    assert "3: alpha" in content
+    assert "(+" in content  # the 500-char line is capped
+    assert all(len(line) <= grep.MAX_LINE_LENGTH + 40 for line in content.splitlines())
+
+    assert op["_"]["mode"] == "matches"
+    assert "file_glob" not in op["_"]  # echoed query params are dropped
+    assert all("content" not in entry for entry in op["_"]["files"])
+    coder.io.tool_error.assert_not_called()
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+def test_files_mode_skips_content_pass(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("alpha\nbeta\nalpha\ngamma alpha\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    result = grep.Tool.execute(
+        coder,
+        searches=[{"pattern": "alpha", "file_glob": "*.txt", "directory": ".", "mode": "files"}],
+    )
+    op = result.to_dict()["result"][0]
+    content = op["content"]
+
+    assert "sample.txt: 3" in content
+    assert "1: alpha" not in content
+    assert op["_"]["total_matches"] == 3
+    coder.io.tool_error.assert_not_called()
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+def test_invalid_mode_falls_back_to_matches(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("alpha\nbeta\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    result = grep.Tool.execute(
+        coder,
+        searches=[{"pattern": "alpha", "file_glob": "*.txt", "directory": ".", "mode": "bogus"}],
+    )
+    op = result.to_dict()["result"][0]
+    assert op["_"]["mode"] == "matches"
+    assert "1: alpha" in op["content"]
+    coder.io.tool_error.assert_not_called()
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+def test_matches_mode_honors_context(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("alpha\nbeta\ngamma\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    result = grep.Tool.execute(
+        coder,
+        searches=[
+            {
+                "pattern": "beta",
+                "file_glob": "*.txt",
+                "directory": ".",
+                "context_before": 1,
+                "context_after": 1,
+            }
+        ],
+    )
+    op = result.to_dict()["result"][0]
+    content = op["content"]
+    assert "2: beta" in content
+    assert "1- alpha" in content
+    assert "3- gamma" in content
+    assert op["_"]["mode"] == "matches"
+    coder.io.tool_error.assert_not_called()
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+def test_history_files_are_excluded(tmp_path, monkeypatch):
+    (tmp_path / "chat-history.md").write_text("needle\n")
+    (tmp_path / "chat-history-search-replace-gold.txt").write_text("needle\n")
+    (tmp_path / "notes.dev.history.md").write_text("needle\n")
+    (tmp_path / "keep.txt").write_text("needle\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    result = grep.Tool.execute(
+        coder, searches=[{"pattern": "needle", "directory": ".", "mode": "files"}]
+    )
+    op = result.to_dict()["result"][0]
+    files = [entry["file"] for entry in op["_"]["files"]]
+
+    assert "keep.txt" in files
+    assert all("chat-history" not in name for name in files)
+    assert all("history.md" not in name for name in files)
+    coder.io.tool_error.assert_not_called()

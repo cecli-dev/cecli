@@ -28,6 +28,45 @@ class TestModels:
         info = manager.get_model_info("non-existent-model")
         assert info == {}
 
+    def test_configured_provider_prefix_wins_over_litellm_provider(self, monkeypatch):
+        """Provider settings resolve from the model's configured prefix.
+
+        litellm's model-cost table rewrites info's litellm_provider to the
+        upstream vendor for known model names, which previously made a
+        user-defined provider's supports_stream flag invisible.
+        """
+        from cecli import models as models_module
+
+        provider_manager = MagicMock()
+        provider_manager.supports_provider.side_effect = lambda provider: provider == "my-provider"
+        provider_manager.get_provider_config.return_value = {
+            "litellm_provider": "my-provider",
+            "supports_stream": False,
+        }
+        provider_manager.get_provider_base_url.return_value = None
+
+        fake_info_manager = MagicMock()
+        fake_info_manager.provider_manager = provider_manager
+        monkeypatch.setattr(models_module, "model_info_manager", fake_info_manager)
+
+        model = object.__new__(Model)
+        model.name = "my-provider/gpt-4o"
+        model.info = {"litellm_provider": "openai", "supports_stream": True}
+        model.extra_params = {}
+        model.streaming = True
+
+        assert model._configured_provider() == "my-provider"
+
+        model._apply_provider_defaults()
+
+        assert model.litellm_provider == "my-provider"
+        assert model.streaming is False
+
+        # A bare model name still falls back to litellm's provider.
+        model.name = "gpt-4o"
+
+        assert model._configured_provider() == "openai"
+
     def test_max_context_tokens(self):
         model = Model("gpt-3.5-turbo")
         assert model.info["max_input_tokens"] == 16385

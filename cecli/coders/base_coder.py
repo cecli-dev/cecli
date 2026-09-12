@@ -74,6 +74,9 @@ from ..prompts.utils.registry import PromptObject, PromptRegistry
 
 GLOBAL_DATE = date.today().isoformat()
 
+# Default per-minute token budget used for rate limiting when not configured.
+DEFAULT_TOKENS_PER_MINUTE = 1000000
+
 
 class UnknownEditFormat(ValueError):
     def __init__(self, edit_format, valid_formats):
@@ -119,6 +122,8 @@ class UsageMeta(type):
     _total_tokens_sent = 0
     _total_tokens_received = 0
     _total_cached_tokens = 0
+    _token_usage_buffer = {}
+    _token_usage_window = 60.0
 
     @property
     def total_cost(cls):
@@ -151,6 +156,47 @@ class UsageMeta(type):
     @total_cached_tokens.setter
     def total_cached_tokens(cls, value):
         UsageMeta._total_cached_tokens = value
+
+    @classmethod
+    def _purge_token_usage(cls, model, now=None):
+        """Drop a model's token-usage entries older than the rolling window."""
+        if now is None:
+            now = time.time()
+        cutoff = now - UsageMeta._token_usage_window
+        entries = UsageMeta._token_usage_buffer.get(model, [])
+        UsageMeta._token_usage_buffer[model] = [
+            (tokens, ts) for tokens, ts in entries if ts >= cutoff
+        ]
+
+    @classmethod
+    def _record_token_usage(cls, model, delta, now=None):
+        """Record a model's request prompt-token usage as (tokens, timestamp)."""
+        if delta <= 0 or model is None:
+            return
+        if now is None:
+            now = time.time()
+        UsageMeta._token_usage_buffer.setdefault(model, []).append((delta, now))
+        UsageMeta._purge_token_usage(model, now)
+
+    @classmethod
+    def _get_token_usage_stats(cls, model, now=None):
+        """Return a model's (tokens_last_minute, max_single_request, requests_per_minute)."""
+        if now is None:
+            now = time.time()
+        UsageMeta._purge_token_usage(model, now)
+        buffer = UsageMeta._token_usage_buffer.get(model, [])
+        tokens_last_minute = sum(tokens for tokens, _ in buffer)
+        max_single_request = max((tokens for tokens, _ in buffer), default=0)
+        requests_per_minute = len(buffer)
+        return tokens_last_minute, max_single_request, requests_per_minute
+
+    @classmethod
+    def _reset_token_usage(cls, model=None):
+        """Clear the rolling token-usage buffer for one model, or all when model is None."""
+        if model is None:
+            UsageMeta._token_usage_buffer = {}
+        else:
+            UsageMeta._token_usage_buffer.pop(model, None)
 
 
 class Coder(metaclass=UsageMeta):
@@ -187,6 +233,10 @@ class Coder(metaclass=UsageMeta):
     @total_cached_tokens.setter
     def total_cached_tokens(self, value):
         type(self).total_cached_tokens = value
+
+    def _reset_token_usage(self):
+        """Clear rolling token usage after restoring a saved session."""
+        UsageMeta._reset_token_usage()
 
     abs_fnames = None
     abs_read_only_fnames = None
@@ -315,7 +365,7 @@ class Coder(metaclass=UsageMeta):
                 read_only_stubs_fnames=list(
                     from_coder.abs_read_only_stubs_fnames
                 ),  # Copy read-only stubs
-                rules_fnames=list(from_coder.abs_rules_fnames),  # Copy read-only stubs
+                rules_fnames=list(from_coder.abs_rules_fnames),  # Copy rules files
                 done_messages=[],
                 cur_messages=[],
                 coder_commit_hashes=from_coder.coder_commit_hashes,
@@ -382,6 +432,10 @@ class Coder(metaclass=UsageMeta):
                         local_server = res.mcp_manager.get_server("Local")
                         if local_server and local_server.is_connected:
                             await res.mcp_manager.disconnect_server("Local")
+
+                if res.uuid == from_coder.uuid:
+                    res.prompt_queue = from_coder.prompt_queue.copy()
+                    res._queue_counter = from_coder._queue_counter
 
             await res.initialize_mcp_tools()
 
@@ -596,7 +650,7 @@ class Coder(metaclass=UsageMeta):
             else REASONING_TAG
         )
 
-        self.stream = stream and main_model.streaming and not self.manual_copy_paste
+        self.stream = stream and self.get_active_model().streaming and not self.manual_copy_paste
 
         if cache_prompts and self.get_active_model().cache_control:
             self.add_cache_headers = True
@@ -717,7 +771,10 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_read_only_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(f"Error: Read-only file {fname} does not exist. Skipping.")
+                    if verbose:
+                        self.io.tool_warning(
+                            f"Error: Read-only file {fname} does not exist. Skipping."
+                        )
 
         if read_only_stubs_fnames:
             self.abs_read_only_stubs_fnames = set()
@@ -726,9 +783,10 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_read_only_stubs_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(
-                        f"Error: Read-only (stub) file {fname} does not exist. Skipping."
-                    )
+                    if verbose:
+                        self.io.tool_warning(
+                            f"Error: Read-only (stub) file {fname} does not exist. Skipping."
+                        )
 
         if rules_fnames:
             self.abs_rules_fnames = set()
@@ -737,7 +795,8 @@ class Coder(metaclass=UsageMeta):
                 if os.path.exists(abs_fname):
                     self.abs_rules_fnames.add(abs_fname)
                 else:
-                    self.io.tool_warning(f"Error: Rules file {fname} does not exist. Skipping.")
+                    if verbose:
+                        self.io.tool_warning(f"Error: Rules file {fname} does not exist. Skipping.")
 
         if map_tokens is None:
             use_repo_map = main_model.use_repo_map
@@ -930,7 +989,7 @@ class Coder(metaclass=UsageMeta):
             settings_items.append("prompt cache")
 
         # Infinite output
-        if main_model.info.get("supports_assistant_prefill"):
+        if main_model.info.get("supports_assistant_prefill") and self.verbose:
             settings_items.append("infinite output")
 
         # Copy/paste mode
@@ -2293,6 +2352,7 @@ class Coder(metaclass=UsageMeta):
 
                         asyncio.create_task(invoke_memorizer(self, additional_context=text))
 
+            await self._rate_limit_sleep()
             if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
                 await summarize_and_update(done_messages, MessageTag.DONE)
 
@@ -2618,7 +2678,10 @@ class Coder(metaclass=UsageMeta):
         max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 0
 
         if max_input_tokens and input_tokens >= max_input_tokens:
-            if self.enable_context_compaction:
+            if (
+                self.enable_context_compaction
+                and input_tokens >= self.context_compaction_max_tokens * 0.95
+            ):
                 self.io.tool_output(
                     f"Estimated chat context of {input_tokens:,} tokens exceeds the"
                     f" {max_input_tokens:,} token limit. Attempting to compact..."
@@ -2630,21 +2693,29 @@ class Coder(metaclass=UsageMeta):
                 input_tokens = self.get_active_model().token_count(messages)
 
             if max_input_tokens and input_tokens >= max_input_tokens:
-                self.io.tool_error(
-                    f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
-                    f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
-                )
-                self.io.tool_output("To reduce the chat context:")
-                self.io.tool_output("- Use /drop to remove unneeded files from the chat")
-                self.io.tool_output("- Use /clear to clear the chat history")
-                self.io.tool_output("- Break your code into smaller files")
-                self.io.tool_output(
-                    "It's probably safe to try and send the request, most providers won't charge if"
-                    " the context limit is exceeded."
-                )
+                if not hasattr(self, "_last_compaction_warning_time"):
+                    self._last_compaction_warning_time = time.time()
 
-                if not await self.io.confirm_ask("Try to proceed anyway?"):
-                    return None
+                if getattr(self, "_last_compaction_warning_time", 0) + 300 < time.time():
+                    self._last_compaction_warning_time = time.time()
+                    self.io.tool_error(
+                        f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
+                        f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
+                    )
+                    self.io.tool_output("To reduce the chat context:")
+                    self.io.tool_output("- Use /drop to remove unneeded files from the chat")
+                    self.io.tool_output("- Use /clear to clear the chat history")
+                    self.io.tool_output("- Break your code into smaller files")
+                    self.io.tool_output(
+                        "It's probably safe to try and send the request, most providers won't charge if"
+                        " the context limit is exceeded."
+                    )
+
+                    if not await self.io.confirm_ask("Try to proceed anyway?"):
+                        self._last_compaction_warning_time = 0
+                        return None
+            else:
+                self._last_compaction_warning_time = 0
 
         return messages
 
@@ -3756,6 +3827,7 @@ class Coder(metaclass=UsageMeta):
 
             while True:
                 try:
+                    await self._rate_limit_sleep(model)
                     completion_coro = model.send_completion(
                         messages,
                         functions,
@@ -3764,6 +3836,7 @@ class Coder(metaclass=UsageMeta):
                         tools=tools,
                         override_kwargs=self.model_kwargs.copy(),
                         interrupt_event=self.interrupt_event,
+                        uuid=self.uuid,
                     )
 
                     try:
@@ -3830,7 +3903,7 @@ class Coder(metaclass=UsageMeta):
             if response:
                 completion = response
             # Calculate costs for successful responses
-            self.calculate_and_show_tokens_and_cost(messages, completion)
+            self.calculate_and_show_tokens_and_cost(messages, completion, model=model)
 
         except litellm_ex.exceptions_tuple() as err:
             self.error_code = 1
@@ -3838,7 +3911,7 @@ class Coder(metaclass=UsageMeta):
             if ex_info.name == "ContextWindowExceededError":
                 # Still calculate costs for context window errors
                 self.token_profiler.on_error()
-                self.calculate_and_show_tokens_and_cost(messages, completion)
+                self.calculate_and_show_tokens_and_cost(messages, completion, model=model)
             raise
         except (KeyboardInterrupt, asyncio.CancelledError) as kbi:
             self.error_code = 130  # apparently standard?
@@ -4431,56 +4504,52 @@ class Coder(metaclass=UsageMeta):
             self.reasoning_tag_name,
         )
 
-    def calculate_and_show_tokens_and_cost(self, messages, completion=None):
+    def calculate_and_show_tokens_and_cost(self, messages, completion=None, model=None):
+        active_model = model or self.get_active_model()
         prompt_tokens = 0
         completion_tokens = 0
         cache_hit_tokens = 0
         cache_write_tokens = 0
+        usage = nested.getter(completion, "usage") if completion else None
 
         if (
-            completion
-            and nested.getter(completion, "usage.prompt_tokens") is not None
-            and nested.getter(completion, "usage.completion_tokens") is not None
+            usage is not None
+            and nested.getter(usage, ["prompt_tokens", "input_tokens"]) is not None
+            and nested.getter(usage, ["completion_tokens", "output_tokens"]) is not None
         ):
             prompt_tokens = (
-                nested.getter(completion.usage, "prompt_tokens", 0)
-                or nested.getter(completion.usage, "prompt_eval_count", 0)
-                or 0
+                nested.getter(usage, ["prompt_tokens", "input_tokens", "prompt_eval_count"], 0) or 0
             )
             completion_tokens = (
-                nested.getter(completion.usage, "completion_tokens", 0)
-                or nested.getter(completion.usage, "eval_count", 0)
-                or 0
+                nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
             )
-            cache_hit_tokens = (
-                getattr(completion.usage, "prompt_cache_hit_tokens", 0)
-                or getattr(completion.usage, "cache_read_input_tokens", 0)
-                or nested.getter(completion.usage, "prompt_tokens_details.cached_tokens", 0)
-                or 0
+            cache_hit_tokens = _first_usage_tokens(
+                usage,
+                [
+                    "prompt_cache_hit_tokens",
+                    "cache_read_input_tokens",
+                    "input_tokens_details.cached_tokens",
+                    "prompt_tokens_details.cached_tokens",
+                ],
+                0,
             )
-            cache_write_tokens = getattr(completion.usage, "cache_creation_input_tokens", 0) or 0
+            cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
             self.message_cached_tokens += cache_hit_tokens
-
-            # ``prompt_tokens`` is normalized to the full input (including any
-            # cache read/write) for anthropic usage, so no separate add here.
             self.message_tokens_sent += prompt_tokens
-
         else:
-            prompt_tokens = self.get_active_model().token_count(messages)
-            completion_tokens = self.get_active_model().token_count(self.partial_response_content)
+            prompt_tokens = active_model.token_count(messages)
+            completion_tokens = active_model.token_count(self.partial_response_content)
             self.message_tokens_sent += prompt_tokens
 
         self.message_tokens_received += completion_tokens
+        UsageMeta._record_token_usage(active_model.name, prompt_tokens)
 
-        # Build tokens string as "{prompt} CH {hit_rate:.1f}% ↑ {completion} ↓"
         if prompt_tokens > 0:
             hit_rate = round(cache_hit_tokens / prompt_tokens * 100, 1) if cache_hit_tokens else 0.0
         else:
             hit_rate = 0.0
         tokens_str = f"{format_tokens(prompt_tokens)} ◇ {hit_rate:.1f}%"
-
         tokens_report = f"{tokens_str} ↑ {format_tokens(completion_tokens)} ↓"
-
         tokens_report = self.token_profiler.add_to_usage_report(
             tokens_report, self.message_tokens_sent, self.message_tokens_received
         )
@@ -4503,36 +4572,31 @@ class Coder(metaclass=UsageMeta):
             total_hit_rate = 0.0
 
         total_stats = f"{format_tokens(total_combined_tokens)} ◇ {total_hit_rate:.1f}% ↑↓"
-
-        if not self.get_active_model().info.get("input_cost_per_token"):
+        if not active_model.info.get("input_cost_per_token"):
             self.usage_report = tokens_report + " " + total_stats
             return
 
         try:
-            # Try and use litellm's built in cost calculator. Seems to work for non-streaming only?
             cost = litellm.completion_cost(completion_response=completion)
         except Exception:
             cost = 0
 
         if not cost:
             cost = self.compute_costs_from_tokens(
-                prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens
+                prompt_tokens,
+                completion_tokens,
+                cache_write_tokens,
+                cache_hit_tokens,
+                model=active_model,
             )
 
         self.total_cost += cost
         self.message_cost += cost
-
         cost_report = (
             f"${self.format_cost(self.message_cost)} • {total_stats}"
             f" ${self.format_cost(self.total_cost)}"
         )
-
-        if cache_hit_tokens and cache_write_tokens:
-            sep = " "
-        else:
-            sep = " "
-
-        self.usage_report = tokens_report + sep + cost_report
+        self.usage_report = tokens_report + " " + cost_report
 
     def format_cost(self, value):
         if value == 0:
@@ -4544,37 +4608,165 @@ class Coder(metaclass=UsageMeta):
             return f"{value:.{max(2, 2 - int(math.log10(magnitude)))}f}"
 
     def compute_costs_from_tokens(
-        self, prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens
+        self, prompt_tokens, completion_tokens, cache_write_tokens, cache_hit_tokens, model=None
     ):
         cost = 0
+        active_model = model or self.get_active_model()
+        info = getattr(active_model, "info", {}) or {}
 
-        input_cost_per_token = self.get_active_model().info.get("input_cost_per_token") or 0
-        output_cost_per_token = self.get_active_model().info.get("output_cost_per_token") or 0
+        input_cost_per_token = info.get("input_cost_per_token") or 0
+        output_cost_per_token = info.get("output_cost_per_token") or 0
         input_cost_per_token_cache_hit = (
-            self.get_active_model().info.get("input_cost_per_token_cache_hit")
-            or self.get_active_model().info.get("cache_read_input_token_cost")
+            info.get("input_cost_per_token_cache_hit")
+            or info.get("cache_read_input_token_cost")
             or 0
         )
-
-        # deepseek
-        # prompt_cache_hit_tokens + prompt_cache_miss_tokens
-        #    == prompt_tokens == total tokens that were sent
-        #
-        # Anthropic
-        # cache_creation_input_tokens + cache_read_input_tokens + prompt
-        #    == total tokens that were
 
         if input_cost_per_token_cache_hit:
             cost += cache_hit_tokens * input_cost_per_token_cache_hit
             cost += (prompt_tokens - cache_hit_tokens) * input_cost_per_token
         else:
-            # hard code the anthropic adjustments, no-ops for other models since cache_x_tokens==0
             cost += cache_write_tokens * input_cost_per_token * 1.25
             cost += cache_hit_tokens * input_cost_per_token * 0.10
             cost += (prompt_tokens - cache_hit_tokens) * input_cost_per_token
 
         cost += completion_tokens * output_cost_per_token
         return cost
+
+    def record_background_usage_and_cost(self, messages, completion=None, model=None):
+        """Account for token usage and cost of a background model call."""
+        active_model = model or self.get_active_model()
+        prompt_tokens = 0
+        completion_tokens = 0
+        cache_hit_tokens = 0
+        cache_write_tokens = 0
+        usage = nested.getter(completion, "usage") if completion else None
+
+        if usage is not None:
+            prompt_tokens = (
+                nested.getter(usage, ["prompt_tokens", "input_tokens", "prompt_eval_count"], 0) or 0
+            )
+            completion_tokens = (
+                nested.getter(usage, ["completion_tokens", "output_tokens", "eval_count"], 0) or 0
+            )
+            cache_hit_tokens = _first_usage_tokens(
+                usage,
+                [
+                    "prompt_cache_hit_tokens",
+                    "cache_read_input_tokens",
+                    "input_tokens_details.cached_tokens",
+                    "prompt_tokens_details.cached_tokens",
+                ],
+                0,
+            )
+            cache_write_tokens = nested.getter(usage, "cache_creation_input_tokens", 0) or 0
+        elif active_model is not None:
+            prompt_tokens = active_model.token_count(messages) or 0
+
+        model_name = getattr(active_model, "name", None)
+        UsageMeta._record_token_usage(model_name, prompt_tokens)
+        self.total_tokens_sent += prompt_tokens
+        self.total_tokens_received += completion_tokens
+        self.total_cached_tokens += cache_hit_tokens
+
+        info = getattr(active_model, "info", {}) or {}
+        if not info.get("input_cost_per_token"):
+            return
+
+        try:
+            cost = litellm.completion_cost(completion_response=completion)
+        except Exception:
+            cost = 0
+
+        if not cost:
+            cost = self.compute_costs_from_tokens(
+                prompt_tokens,
+                completion_tokens,
+                cache_write_tokens,
+                cache_hit_tokens,
+                model=active_model,
+            )
+
+        self.total_cost += cost
+
+    def calculate_dynamic_sleep(self, model=None):
+        """Compute how long to sleep before the next LLM API call to stay under the configured per-minute token limit.
+
+        Uses the rolling token-usage buffer (last 60s) to estimate:
+
+        * ``used_last_min`` - prompt tokens already consumed in the window
+        * ``max_request`` - largest single request observed in the window
+        * ``requests_per_min`` - request rate observed in the window
+
+        Returns a sleep duration (seconds) that is ``0`` when the current
+        trajectory stays within 90% of ``tokens_per_minute`` both over the next
+        15 seconds and, if sustained, over a full minute. Otherwise it returns a
+        pause rounded up to the nearest 0.25s interval.
+        """
+        limit = nested.getter(
+            getattr(self, "args", None), "tokens_per_minute", DEFAULT_TOKENS_PER_MINUTE
+        )
+        if not isinstance(limit, (int, float)):
+            limit = DEFAULT_TOKENS_PER_MINUTE
+        if limit <= 0:
+            return 0.0
+
+        active_model = model or getattr(self, "main_model", None)
+        if active_model is None:
+            get_active_model = getattr(self, "get_active_model", None)
+            if callable(get_active_model):
+                active_model = get_active_model()
+
+        model_name = getattr(active_model, "name", None)
+        if not model_name:
+            return 0.0
+
+        budget = limit * 0.9
+        used_last_min, max_request, requests_per_min = UsageMeta._get_token_usage_stats(model_name)
+
+        if max_request <= 0 or requests_per_min <= 0:
+            # No recent usage to throttle.
+            return 0.0
+
+        # Tokens we would consume in the next 15 seconds at the current rate.
+        projected_15s = max_request * (requests_per_min / 60.0) * 15.0
+
+        # If the current trajectory stays within budget (both over the next 15s
+        # and if sustained for a full minute) there is nothing to do.
+        if (used_last_min + projected_15s) <= budget and (max_request * requests_per_min) <= budget:
+            return 0.0
+
+        # Slow the request rate so a sustained minute at max_request size fits
+        # the budget.
+        sustainable_rpm = budget / max_request
+        sustainable_interval = 60.0 / sustainable_rpm if sustainable_rpm > 0 else 60.0
+        current_interval = 60.0 / requests_per_min
+        sleep = max(0.0, sustainable_interval - current_interval)
+
+        # If the next 15 seconds (plus what we've already used) would breach the
+        # budget, wait for the rolling window to drain enough to absorb it.
+        overshoot = (used_last_min + projected_15s) - budget
+        if overshoot > 0:
+            drain = 60.0 * (overshoot / max(used_last_min, 1.0))
+            sleep = max(sleep, drain)
+
+        # Cap at one full window; round up to the nearest 0.25s.
+        sleep = min(sleep, UsageMeta._token_usage_window)
+        return math.ceil(sleep / 0.25) * 0.25
+
+    async def _rate_limit_sleep(self, model=None):
+        """Sleep (if needed) before an LLM API call to respect the per-minute token limit.
+
+        Best-effort: an interrupt simply skips the pause and is handled at the
+        next interruptible API point.
+        """
+        delay = self.calculate_dynamic_sleep(model=model)
+        if delay <= 0:
+            return
+
+        _, interrupted = await coroutines.interruptible(asyncio.sleep(delay), self.interrupt_event)
+        if interrupted:
+            return
 
     def show_usage_report(self):
         if not self.usage_report:
@@ -5164,8 +5356,21 @@ def _function_call_to_dict(function_call):
     """Normalize a function call (dict or litellm-shaped Function) to a dict."""
     if isinstance(function_call, dict):
         return function_call
-
     if hasattr(function_call, "to_dict"):
         return function_call.to_dict()
-
     return function_call
+
+
+def _first_usage_tokens(usage: object, paths: list[str], default: int = 0) -> int:
+    """Return the first non-None token count among ``paths``.
+
+    ``nested.getter`` stops at the first attribute that exists even when its value
+    is None. Anthropic/copilot ``Usage`` always declares ``prompt_cache_hit_tokens``
+    (None) and populates ``cache_read_input_tokens``, so looking only at the first
+    field would report zero cache hits despite the server serving the cached prefix.
+    """
+    for path in paths:
+        value = nested.getter(usage, path, None)
+        if value is not None:
+            return value
+    return default

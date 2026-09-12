@@ -690,6 +690,20 @@ class Tool(BaseTool):
         """
 
         if current:
+            start_boundary = hashed_lines[s_idx] if 0 <= s_idx < len(hashed_lines) else ""
+            end_boundary = hashed_lines[e_idx] if 0 <= e_idx < len(hashed_lines) else ""
+            start_boundary = _clip_boundary_line(start_boundary)
+            end_boundary = _clip_boundary_line(end_boundary)
+
+            # Fold the boundary lines into ``outline`` (separated by an ellipsis) so
+            # the metadata shape stays identical to other read statuses.
+            if not start_boundary and not end_boundary:
+                boundary_outline = ""
+            elif start_boundary == end_boundary:
+                boundary_outline = start_boundary
+            else:
+                boundary_outline = f"{start_boundary}\n...\n{end_boundary}"
+
             return {
                 "file_path": rel_path,
                 "status": "current",
@@ -697,7 +711,7 @@ class Tool(BaseTool):
                 "end_line": e_idx + 1,
                 "total_lines": len(hashed_lines),
                 "prefixed_contents": "",
-                "outline": "",
+                "outline": boundary_outline,
                 "note": "Already in context from a previous read; content not re-sent.",
             }
 
@@ -1546,3 +1560,12 @@ class Tool(BaseTool):
                 f" (e.g., @L{actual_start + 1}, @L{actual_end + 1})."
             ),
         }, False
+
+
+def _clip_boundary_line(line, max_length=200):
+    """Trim a boundary line for metadata, noting how many characters were omitted."""
+
+    if len(line) <= max_length:
+        return line
+
+    return f"{line[:max_length]}…(+{len(line) - max_length} chars)"

@@ -700,4 +700,65 @@ class TestCleanupAll:
         AgentService._instances[service.coder.uuid] = service
 
         service.cleanup_all_for_parent()
+
         assert service.coder.uuid not in AgentService._instances
+
+
+# ================================================================== #
+# keep_files metadata
+# ================================================================== #
+
+
+class TestKeepFiles:
+    """Sub-agent file inheritance via the ``keep_files`` metadata flag."""
+
+    def _config(self, metadata):
+        """Build a minimal sub-agent config with the given metadata."""
+        config = MagicMock()
+        config.name = "reviewer"
+        config.prompt = "Review code."
+        config.model = None
+        config.hooks = {}
+        config.auto_reap = None
+        config.metadata = metadata
+        return config
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_empty_file_context(self, service):
+        """Without keep_files, file lists are reset to empty."""
+        AgentService._global_registry = {"reviewer": self._config({})}
+
+        mock_new_coder = MagicMock()
+        mock_new_coder.tui = None
+
+        with patch("cecli.coders.Coder") as MockCoder:
+            MockCoder.create = AsyncMock(return_value=mock_new_coder)
+            with patch("cecli.helpers.conversation.service.ConversationService") as MockConv:
+                MockConv.get_chunks.return_value = MagicMock()
+
+                await service.spawn("reviewer")
+
+        call_kwargs = MockCoder.create.call_args[1]
+        assert call_kwargs["fnames"] == []
+        assert call_kwargs["read_only_fnames"] == []
+        assert call_kwargs["read_only_stubs_fnames"] == []
+
+    @pytest.mark.asyncio
+    async def test_keep_files_inherits_parent_file_lists(self, service):
+        """keep_files=True omits the resets so Coder.create inherits parent files."""
+        AgentService._global_registry = {"reviewer": self._config({"keep_files": True})}
+
+        mock_new_coder = MagicMock()
+        mock_new_coder.tui = None
+
+        with patch("cecli.coders.Coder") as MockCoder:
+            MockCoder.create = AsyncMock(return_value=mock_new_coder)
+            with patch("cecli.helpers.conversation.service.ConversationService") as MockConv:
+                MockConv.get_chunks.return_value = MagicMock()
+
+                await service.spawn("reviewer")
+
+        call_kwargs = MockCoder.create.call_args[1]
+        assert "fnames" not in call_kwargs
+        assert "read_only_fnames" not in call_kwargs
+        assert "read_only_stubs_fnames" not in call_kwargs

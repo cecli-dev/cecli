@@ -559,3 +559,33 @@ def func_f():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-s"])
+
+
+def test_format_model_response_current_folds_boundary_lines_into_outline():
+    """The already-in-context placeholder keeps its metadata shape and shows where the range lives."""
+    from cecli.tools.read_file import Tool
+
+    coder = MagicMock()
+    hashed = ["——alpha = 1", "—Ab12—beta = 2", "——" + "x" * 300]
+
+    result = Tool.format_model_response(coder, "f.py", 0, 2, hashed, current=True)
+    assert result["status"] == "current"
+    assert set(result) == {
+        "file_path",
+        "status",
+        "start_line",
+        "end_line",
+        "total_lines",
+        "prefixed_contents",
+        "outline",
+        "note",
+    }
+    assert result["outline"].startswith("——alpha = 1")
+    assert "\n...\n" in result["outline"]
+    assert result["outline"].endswith("chars)")
+
+    single = Tool.format_model_response(coder, "f.py", 1, 1, hashed, current=True)
+    assert single["outline"] == "—Ab12—beta = 2"
+
+    empty = Tool.format_model_response(coder, "f.py", 5, 9, hashed, current=True)
+    assert empty["outline"] == ""

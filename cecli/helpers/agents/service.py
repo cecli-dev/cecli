@@ -618,6 +618,21 @@ class AgentService:
             map_tokens=0,
             init_metadata={"agent_config": agent_config},
         )
+
+        # Sub-agents start with an empty file context by default; rules are
+        # inherited. When ``keep_files`` is set in the sub-agent's metadata,
+        # inherit the parent's editable and read-only files instead of
+        # resetting them.
+        keep_files = isinstance(metadata, dict) and bool(metadata.get("keep_files", False))
+        if not keep_files:
+            kwargs.update(
+                dict(
+                    fnames=[],
+                    read_only_fnames=[],
+                    read_only_stubs_fnames=[],
+                )
+            )
+
         if configured_root:
             kwargs["root"] = configured_root
 

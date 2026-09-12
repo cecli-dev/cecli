@@ -173,6 +173,28 @@ class ModelProviderManager:
                     listings[model_id] = info
         return listings
 
+    def get_provider_models(self, provider: str) -> Dict[str, Dict]:
+        """Return ``{model_id: info}`` for a single provider.
+
+        Unlike :meth:`get_models_for_listing`, this only resolves and fetches the
+        requested provider, so it is safe to call during onboarding right after
+        an API key has been supplied (the key must already be in the environment).
+        """
+        if not provider or not self._ensure_provider_state(provider):
+            return {}
+        content = self._ensure_content(provider)
+        if not content or "data" not in content:
+            return {}
+        listings = {}
+        for record in content["data"]:
+            model_id = record.get("id")
+            if not model_id:
+                continue
+            info = self._record_to_info(record, provider)
+            if info:
+                listings[model_id] = info
+        return listings
+
     def refresh_provider_cache(self, provider: str) -> bool:
         if not self._ensure_provider_state(provider):
             return False

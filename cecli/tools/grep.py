@@ -52,8 +52,27 @@ DEFAULT_EXCLUDE_DIRS = [
 ]
 
 
+# Default files to exclude from search results (e.g. past agent conversations).
+DEFAULT_EXCLUDE_FILES = [
+    "chat-history.md",
+    "chat-history-search-replace-gold.txt",
+    "*.history.md",
+    "*.llm.history",
+    "*.input.history",
+]
+
+
+# Output-shaping limits. These bound what is sent to the model while keeping
+# match locations intact (counts and line numbers survive truncation).
+MAX_MATCHES_PER_FILE = 10
+MAX_FILES = 20
+MAX_TOTAL_SIZE = 50000
+MAX_LINE_LENGTH = 256
+MAX_LINE_NUMBERS = 50
+
+
 def _build_exclude_args(tool_name, cmd_args):
-    """Add exclusion arguments for common build/artifact directories."""
+    """Add exclusion arguments for common build/artifact dirs and history files."""
     for exclude_dir in DEFAULT_EXCLUDE_DIRS:
         if tool_name == "rg":
             cmd_args.extend(["-g", f"!{exclude_dir}"])
@@ -61,6 +80,13 @@ def _build_exclude_args(tool_name, cmd_args):
             cmd_args.extend(["--ignore-dir", exclude_dir])
         elif tool_name == "grep":
             cmd_args.extend(["--exclude-dir", exclude_dir])
+    for exclude_file in DEFAULT_EXCLUDE_FILES:
+        if tool_name == "rg":
+            cmd_args.extend(["-g", f"!{exclude_file}"])
+        elif tool_name == "ag":
+            cmd_args.extend(["--ignore", exclude_file])
+        elif tool_name == "grep":
+            cmd_args.extend(["--exclude", exclude_file])
     return cmd_args
 
 
@@ -186,18 +212,58 @@ def _parse_content_into_files(output):
     return files
 
 
-def _build_powershell_exclude_regex(exclude_dirs=None):
-    """Build a PowerShell -notmatch regex that skips default build/artifact dirs."""
+def _cap_line(text, max_length=MAX_LINE_LENGTH):
+    """Truncate a single line, marking how many characters were omitted."""
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length]}…(+{len(text) - max_length} chars)"
+
+
+def _extract_file_entries(abs_path, content):
+    """Split raw grep content into ``{line, text, is_match}`` entries.
+
+    Match lines use ``path:line:text`` and context lines ``path-line-text``, the
+    convention emitted by ``_parse_content_into_files`` and
+    ``_parse_select_string_output``.
+    """
+    match_re = re.compile(r"^" + re.escape(abs_path) + r":(\d+):(.*)$")
+    context_re = re.compile(r"^" + re.escape(abs_path) + r"-(\d+)-(.*)$")
+    entries = []
+    for raw_line in content.splitlines():
+        # Select-String marks matches with "> " and indents context lines.
+        line = raw_line[2:] if raw_line.startswith("> ") else raw_line.lstrip(" ")
+        match = match_re.match(line)
+        if match:
+            entries.append({"line": int(match.group(1)), "text": match.group(2), "is_match": True})
+            continue
+        context = context_re.match(line)
+        if context:
+            entries.append(
+                {"line": int(context.group(1)), "text": context.group(2), "is_match": False}
+            )
+    return entries
+
+
+def _build_powershell_exclude_regex(exclude_dirs=None, exclude_files=None):
+    """Build a PowerShell -notmatch regex that skips default build/artifact dirs.
+
+    Also skips default history files (matched by basename suffix).
+    """
     if exclude_dirs is None:
         exclude_dirs = DEFAULT_EXCLUDE_DIRS
+    if exclude_files is None:
+        exclude_files = DEFAULT_EXCLUDE_FILES
     fragments = []
     for entry in exclude_dirs:
         # Escape the literal text, then turn * globs into path-segment wildcards.
         frag = re.escape(entry).replace(r"\*", r"[^\\/]*")
-        fragments.append(frag)
+        fragments.append(r"(?:\\|/)(?:" + frag + r")(?:\\|/|$)")
+    for entry in exclude_files:
+        frag = re.escape(entry).replace(r"\*", r"[^\\/]*")
+        fragments.append(r"(?:\\|/)" + frag + r"$")
     if not fragments:
         return None
-    return r"(?:\\|/)(?:" + "|".join(fragments) + r")(?:\\|/|$)"
+    return r"(?:" + "|".join(fragments) + r")"
 
 
 def _build_powershell_search_script(
@@ -418,16 +484,33 @@ class Tool(BaseTool):
                                     "default": True,
                                     "description": "Whether to perform a case-insensitive search.",
                                 },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["files", "matches"],
+                                    "default": "matches",
+                                    "description": (
+                                        "Output detail: 'files' lists paths and counts only, "
+                                        "'matches' adds match lines (default). Set "
+                                        "context_before/context_after to include surroundings."
+                                    ),
+                                },
+                                "count": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": (
+                                        "Whether to run a fast count pass for exact totals."
+                                    ),
+                                },
                                 "context_before": {
                                     "type": "integer",
-                                    "default": 2,
+                                    "default": 0,
                                     "description": (
                                         "Number of context lines to show before each match. Max 5"
                                     ),
                                 },
                                 "context_after": {
                                     "type": "integer",
-                                    "default": 2,
+                                    "default": 0,
                                     "description": (
                                         "Number of context lines to show after each match. Max 5"
                                     ),
@@ -540,10 +623,16 @@ class Tool(BaseTool):
         Search for lines matching patterns in files within the project repository.
         Uses rg (ripgrep), ag (the silver searcher), or grep, whichever is available.
         On Windows these may be absent, so PowerShell's Select-String is used as a fallback.
-        Returns a JSON string with structured results including per-file groupings,
-        match counts, and summary metadata.
+        Output is compact: paths are relative, lines are length-capped, and matches
+        default to no surrounding context. Each search accepts a ``mode``:
+
+        - ``"files"``: path and match count per file (skips the content pass)
+        - ``"matches"`` (default): adds match line numbers and text; set
+          ``context_before``/``context_after`` to include surrounding context lines
+
+        Metadata carries exact totals plus per-file ``shown``/``truncated`` counts so
+        location information survives even when content is truncated.
         """
-        import json
 
         if not isinstance(searches, list):
             response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
@@ -572,19 +661,19 @@ class Tool(BaseTool):
             directory = search_op.get("directory", search_op.get("path", "."))
             use_regex = search_op.get("use_regex", False)
             case_insensitive = search_op.get("case_insensitive", True)
-            context_before = max(min(int(search_op.get("context_before", 2)), 5), 0)
-            context_after = max(min(int(search_op.get("context_after", 2)), 5), 0)
+
+            mode = search_op.get("mode", "matches")
+            if mode not in ("files", "matches"):
+                mode = "matches"
+
+            # Context is an orthogonal knob, disabled by default for compact output.
+            context_before = max(min(int(search_op.get("context_before", 0)), 5), 0)
+            context_after = max(min(int(search_op.get("context_after", 0)), 5), 0)
             count_enabled = search_op.get("count", True)
 
             op_result = {
                 "pattern": pattern,
-                "file_glob": file_pattern,
-                "directory": directory,
-                "use_regex": use_regex,
-                "case_insensitive": case_insensitive,
-                "count": count_enabled,
-                "context_before": context_before,
-                "context_after": context_after,
+                "mode": mode,
                 "total_matches": 0,
                 "total_files": 0,
                 "has_more_files": False,
@@ -661,7 +750,9 @@ class Tool(BaseTool):
                     elif tool_name == "ag":
                         count_cmd_parts.append("-rc")
                     else:
+                        # -I skips binary files, matching the content pass.
                         count_cmd_parts.append("-rnc")
+                        count_cmd_parts.append("-I")
                     count_cmd = (
                         count_cmd_parts
                         + case_flag
@@ -672,11 +763,27 @@ class Tool(BaseTool):
                     )
                     count_string = oslex.join(count_cmd)
 
+                    # Source-level caps: bound matches per file and line length so
+                    # post-processing never sees unbounded content.
+                    output_cap_args = []
+                    if tool_name == "rg":
+                        output_cap_args = [
+                            "-m",
+                            str(MAX_LINE_NUMBERS),
+                            "--max-columns",
+                            str(MAX_LINE_LENGTH),
+                            "--max-columns-preview",
+                        ]
+                    elif tool_name == "grep":
+                        # -I skips binary files; -m bounds matches per file.
+                        output_cap_args = ["-I", "-m", str(MAX_LINE_NUMBERS)]
+
                     # --- PASS2: Build content with context ---
                     content_cmd = (
                         base_cmd
-                        + (["-B", str(context_before)] if context_before >= 0 else [])
-                        + (["-A", str(context_after)] if context_after >= 0 else [])
+                        + output_cap_args
+                        + (["-B", str(context_before)] if context_before > 0 else [])
+                        + (["-A", str(context_after)] if context_after > 0 else [])
                         + case_flag
                         + pattern_flag
                         + exclude_args
@@ -700,6 +807,46 @@ class Tool(BaseTool):
                     )
                     if count_status == 0:
                         counts = _parse_count_output(count_output)
+
+                # "files" mode only needs counts, so skip the content pass entirely.
+                if mode == "files" and counts:
+                    rel_files = []
+                    for raw_path, file_count in counts.items():
+                        abs_path = (
+                            raw_path
+                            if os.path.isabs(raw_path)
+                            else os.path.normpath(os.path.join(repo.root, raw_path))
+                        )
+                        rel_files.append((os.path.relpath(abs_path, repo.root), file_count))
+                    rel_files.sort(key=lambda item: (-item[1], item[0]))
+
+                    shown_files = rel_files[:MAX_FILES]
+                    op_result["total_matches"] = sum(count for _, count in rel_files)
+                    op_result["total_files"] = len(rel_files)
+                    op_result["has_more_files"] = len(rel_files) > MAX_FILES
+                    op_result["files"] = [
+                        {
+                            "file": rel_path,
+                            "match_count": file_count,
+                            "shown": 0,
+                            "truncated": False,
+                            "additional_line_numbers": [],
+                        }
+                        for rel_path, file_count in shown_files
+                    ]
+                    op_result["_lines"] = [
+                        {
+                            "file": rel_path,
+                            "match_count": file_count,
+                            "shown": 0,
+                            "truncated": False,
+                            "additional_line_numbers": [],
+                            "lines": [f"{rel_path}: {file_count}"],
+                        }
+                        for rel_path, file_count in shown_files
+                    ]
+                    all_operation_results.append(op_result)
+                    continue
 
                 # --- PASS2: Get content with context ---
                 coder.io.tool_output(
@@ -735,56 +882,74 @@ class Tool(BaseTool):
                         for pf in parsed_files:
                             pf["count_from_pass"] = pf["match_count"]
 
-                    # Apply file-based truncation:
-                    MAX_MATCHES_PER_FILE = 10
-                    MAX_FILES = 20
-
-                    truncated_files = {}
+                    # Build compact per-file output: relative paths, match lines with
+                    # optional context (context_before/context_after), and capped lengths.
                     total_matches = 0
-                    total_files = 0
+                    total_files = len(parsed_files)
+                    has_more = total_files > MAX_FILES
 
+                    rendered = []
                     for pf in parsed_files[:MAX_FILES]:
-                        file_lines = pf["content"].splitlines()
-                        # Find actual match lines (lines with `:LINE:` pattern)
-                        filepath_escaped = re.escape(pf["path"])
-                        match_line_re = re.compile(r"^(?:> )?" + filepath_escaped + r":(\d+):")
-                        match_lines_found = [ln for ln in file_lines if match_line_re.match(ln)]
+                        rel_path = os.path.relpath(pf["path"], repo.root)
+                        count = pf.get("count_from_pass", 0)
+                        total_matches += count
 
-                        # Normalize path to be relative to repo root
-                        pf["path"] = os.path.relpath(pf["path"], repo.root)
+                        entries = _extract_file_entries(pf["path"], pf["content"])
+                        matches = [entry for entry in entries if entry["is_match"]]
+                        extra_line_numbers = [
+                            entry["line"] for entry in matches[MAX_MATCHES_PER_FILE:]
+                        ]
 
-                        if len(match_lines_found) > MAX_MATCHES_PER_FILE:
-                            # Extract line numbers from excess matches (beyond first 10)
-                            extra_lines = match_lines_found[MAX_MATCHES_PER_FILE:]
-                            extra_line_nums = []
-                            for xline in extra_lines:
-                                xm = match_line_re.match(xline)
-                                if xm:
-                                    extra_line_nums.append(int(xm.group(1)))
-                            truncated_files[pf["path"]] = extra_line_nums
-                            trimmed = "\n".join(match_lines_found[:MAX_MATCHES_PER_FILE])
-                            pf["content"] = trimmed
-                        total_matches += pf.get("count_from_pass", 0)
-                        total_files += 1
+                        if mode == "files":
+                            lines = [f"{rel_path}: {count}"]
+                        else:
+                            lines = [f"{rel_path}: {count} match(es)"]
+                            match_seen = 0
+                            for entry in entries:
+                                if entry["is_match"]:
+                                    if match_seen >= MAX_MATCHES_PER_FILE:
+                                        break
+                                    match_seen += 1
+                                    marker = ":"
+                                else:
+                                    marker = "-"
+                                lines.append(
+                                    f"  {entry['line']}{marker} {_cap_line(entry['text'])}"
+                                )
 
-                    has_more = len(parsed_files) > MAX_FILES
+                        shown_count = match_seen if mode == "matches" else 0
+                        rendered.append(
+                            {
+                                "file": rel_path,
+                                "match_count": count,
+                                "shown": shown_count,
+                                "truncated": mode == "matches" and count > shown_count,
+                                "additional_line_numbers": extra_line_numbers,
+                                "lines": lines,
+                            }
+                        )
+
                     if has_more:
                         for pf in parsed_files[MAX_FILES:]:
                             total_matches += pf.get("count_from_pass", 0)
-                            total_files += 1
+
+                    # Byte-aware eviction: drop the largest blocks until under budget so
+                    # a single pathological file cannot crowd out many small ones.
+                    while rendered and (
+                        sum(len("\n".join(item["lines"])) + 1 for item in rendered) > MAX_TOTAL_SIZE
+                    ):
+                        largest = max(rendered, key=lambda item: len("\n".join(item["lines"])))
+                        rendered.remove(largest)
+                        has_more = True
 
                     op_result["total_matches"] = total_matches
                     op_result["total_files"] = total_files
                     op_result["has_more_files"] = has_more
                     op_result["files"] = [
-                        {
-                            "file": pf["path"],
-                            "match_count": pf.get("count_from_pass", 0),
-                            "additional_matched_lines": truncated_files.get(pf["path"], []),
-                            "content": pf["content"],
-                        }
-                        for pf in parsed_files[:MAX_FILES]
+                        {key: value for key, value in item.items() if key != "lines"}
+                        for item in rendered
                     ]
+                    op_result["_lines"] = rendered
 
                 elif content_status == 1 or not output_content:
                     op_result["total_matches"] = 0
@@ -797,52 +962,33 @@ class Tool(BaseTool):
 
             all_operation_results.append(op_result)
 
-        # Cap the output size to 50k characters for the LLM
-        # Heuristic: Prioritize shallowness (short paths) and fewer matches
-        # Removal order: Longest paths first, then most matches first.
-        MAX_TOTAL_SIZE = 50000
-        if len(json.dumps(all_operation_results)) > MAX_TOTAL_SIZE:
-            # Flatten files with their metadata for sorting
-            all_files_to_rank = []
-            for op_idx, op in enumerate(all_operation_results):
-                for file_idx, f_data in enumerate(op.get("files", [])):
-                    all_files_to_rank.append(
-                        {
-                            "op_idx": op_idx,
-                            "file_idx": file_idx,
-                            "path_len": len(f_data.get("file", "")),
-                            "match_count": f_data.get("match_count", 0),
-                        }
-                    )
+        # Cap total output across operations, dropping the largest rendered blocks
+        # first so one pathological file cannot crowd out many small, useful ones.
+        while (
+            sum(
+                len("\n".join(item["lines"])) + 1
+                for op in all_operation_results
+                for item in op.get("_lines", [])
+            )
+            > MAX_TOTAL_SIZE
+        ):
+            largest_size = -1
+            largest_op = None
+            largest_idx = -1
+            for op in all_operation_results:
+                for idx, item in enumerate(op.get("_lines", [])):
+                    size = len("\n".join(item["lines"])) + 1
+                    if size > largest_size:
+                        largest_size = size
+                        largest_op = op
+                        largest_idx = idx
 
-            # Sort for REMOVAL (worst first): Longest path, then most matches
-            all_files_to_rank.sort(key=lambda x: (x["path_len"], x["match_count"]), reverse=True)
+            if largest_op is None:
+                break
 
-            # Progressively remove files until under limit
-            removed_set = set()
-            trimmed_results = all_operation_results
-            for rank_info in all_files_to_rank:
-                removed_set.add((rank_info["op_idx"], rank_info["file_idx"]))
-
-                # Reconstruct to check size
-                trimmed_results = []
-                for o_idx, op in enumerate(all_operation_results):
-                    new_op = op.copy()
-                    original_files = op.get("files", [])
-                    new_op["files"] = [
-                        f
-                        for f_idx, f in enumerate(original_files)
-                        if (o_idx, f_idx) not in removed_set
-                    ]
-                    if len(new_op["files"]) < len(original_files):
-                        new_op["has_more_files"] = True
-                    trimmed_results.append(new_op)
-
-                if len(json.dumps(trimmed_results)) <= MAX_TOTAL_SIZE:
-                    all_operation_results = trimmed_results
-                    break
-            else:
-                all_operation_results = trimmed_results
+            largest_op["_lines"].pop(largest_idx)
+            largest_op["files"].pop(largest_idx)
+            largest_op["has_more_files"] = True
 
         # TUI summary
         if coder.tui and coder.tui():
@@ -863,25 +1009,24 @@ class Tool(BaseTool):
 
         response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
         for op_result in all_operation_results:
-            files = op_result.get("files", [])
-            metadata = op_result.copy()
-
-            # Build a human-readable string summary as content
             pattern = op_result.get("pattern", "")
-            if op_result.get("error"):
-                summary = f"[{pattern}]\nError: {op_result['error']}"
-            elif op_result.get("total_matches", 0) == 0:
-                summary = f"[{pattern}]\nNo matches found."
-            else:
-                lines = [f"[{pattern}]"]
-                for f in files:
-                    truncated_mark = " (truncated)" if f.get("additional_matched_lines") else ""
-                    lines.append(f"{f['file']}: {f['match_count']} match(es){truncated_mark}")
-                if op_result.get("has_more_files"):
-                    lines.append(f"... ({op_result['total_files']} files total)")
-                summary = "\n".join(lines)
 
-            response.append_result(content=summary, metadata=metadata)
+            if op_result.get("error"):
+                body = [f"[{pattern}]", f"Error: {op_result['error']}"]
+            elif op_result.get("total_matches", 0) == 0:
+                body = [f"[{pattern}]", "No matches found."]
+            else:
+                body = [f"[{pattern}]"]
+                for item in op_result.get("_lines", []):
+                    body.extend(item["lines"])
+                if op_result.get("has_more_files"):
+                    body.append(
+                        f"... ({op_result['total_files']} files total, "
+                        f"showing {len(op_result['files'])})"
+                    )
+
+            metadata = {key: value for key, value in op_result.items() if key != "_lines"}
+            response.append_result(content="\n".join(body), metadata=metadata)
 
         return response
 
@@ -910,19 +1055,22 @@ class Tool(BaseTool):
                 directory = search_op.get("directory", search_op.get("path", "."))
                 use_regex = search_op.get("use_regex", False)
                 case_insensitive = search_op.get("case_insensitive", True)
-                context_before = search_op.get("context_before", 2)
-                context_after = search_op.get("context_after", 2)
+                mode = search_op.get("mode", "matches")
+                context_before = search_op.get("context_before", 0)
+                context_after = search_op.get("context_after", 0)
 
                 formatted_query = (
                     f"{color_start}search_{i + 1}:{color_end} {pattern} • {file_pattern} •"
                     f" {directory}"
                 )
                 options = []
+                if mode != "matches":
+                    options.append(mode)
                 if use_regex:
                     options.append("regex")
                 if case_insensitive:
                     options.append("case-insensitive")
-                if context_before != 2 or context_after != 2:
+                if context_before or context_after:
                     options.append(f"context:{context_before}/{context_after}")
                 if options:
                     formatted_query += f" • {' '.join(options)}"

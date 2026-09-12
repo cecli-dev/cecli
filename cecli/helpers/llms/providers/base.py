@@ -8,7 +8,7 @@ delegate to the generic family adapters in :mod:`cecli.helpers.llms.domains`.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class ProviderAdapter:
@@ -20,12 +20,21 @@ class ProviderAdapter:
       authenticated session's ``endpoints.api``).
     - :meth:`resolve_api_key` - key source (env, auth cache, oauth refresh).
     - :meth:`build_headers` - auth scheme + provider-specific headers.
+    - :meth:`transform_messages` - transform the outgoing message body to
+      normalize fields a stricter provider rejects (e.g. Mistral rejects
+      ``reasoning_content`` / ``provider_specific_fields`` / ``function_call`` and
+      a null tool-call ``index``).
     - :meth:`normalize` - post-process a family-normalized response
       (e.g. meta encrypted-reasoning marker).
     """
 
     #: Provider slug used by the registry (``openai``, ``github_copilot``, ...).
     provider: str = "openai"
+
+    #: Whether prior-turn ``reasoning_content`` must be echoed back on assistant
+    #: messages (DeepSeek thinking mode). Strict providers that reject the field
+    #: (Mistral) set this False so the chat payload's coercer skips them.
+    echoes_reasoning_content: bool = True
 
     def resolve_api_base(self, resolved: Dict[str, Any]) -> str:
         """Return the api_base for a resolved config (default: as resolved)."""
@@ -52,6 +61,17 @@ class ProviderAdapter:
 
         merged.setdefault("Content-Type", "application/json")
         return merged
+
+    def transform_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Transform the outgoing message body to normalize provider-specific fields.
+
+        The default is a no-op. Providers with a stricter request schema override
+        this to strip fields the generic OpenAI-compatible wire tolerates but the
+        provider rejects (e.g. Mistral rejects ``reasoning_content`` /
+        ``provider_specific_fields`` / ``function_call`` on assistant turns, and a
+        null tool-call ``index``).
+        """
+        return messages
 
     def normalize(
         self,

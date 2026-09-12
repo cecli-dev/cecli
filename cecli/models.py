@@ -952,7 +952,7 @@ class Model(ModelSettings):
             self.extra_params = dict(self.extra_params)
 
     def _apply_provider_defaults(self):
-        provider = (self.info.get("litellm_provider") or "").lower()
+        provider = self._configured_provider()
         self.litellm_provider = provider or None
         if self.info.get("supports_stream") is False:
             self.streaming = False
@@ -1316,6 +1316,7 @@ class Model(ModelSettings):
         max_wait=2,
         override_kwargs={},
         interrupt_event=None,
+        uuid=None,
     ):
         import random
 
@@ -1416,7 +1417,7 @@ class Model(ModelSettings):
             self._log_messages(messages)
 
         kwargs["messages"] = messages
-        kwargs["prompt_cache_key"] = GLOBAL_ID
+        kwargs["prompt_cache_key"] = uuid or GLOBAL_ID
 
         if not self.is_anthropic() and not self.caches_by_default:
             kwargs["cache_control_injection_points"] = [
@@ -1514,7 +1515,7 @@ class Model(ModelSettings):
                     should_retry = False
 
                 if not should_retry:
-                    print(f"LiteLLM API Error: {str(err)}")
+                    print(f"API Error: {str(err)}")
                     if ex_info.description:
                         print(ex_info.description)
                     if stream:
@@ -1523,7 +1524,7 @@ class Model(ModelSettings):
                         return hash_object, self.model_error_response()
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
-                print(f"LiteLLM API Error: {str(err)}")
+                print(f"API Error: {str(err)}")
                 if interrupt_event:
                     _res, interrupted = await coroutines.interruptible(
                         asyncio.sleep(retry_delay), interrupt_event
@@ -1566,6 +1567,12 @@ class Model(ModelSettings):
 
         while True:
             try:
+                if coder:
+                    rate_limit_sleep = getattr(coder, "_rate_limit_sleep", None)
+                    if callable(rate_limit_sleep):
+                        result = rate_limit_sleep(self)
+                        if asyncio.iscoroutine(result):
+                            await result
 
                 _hash, response = await self.send_completion(
                     messages=messages,
@@ -1575,6 +1582,7 @@ class Model(ModelSettings):
                     tools=tools,
                     max_tokens=max_tokens,
                     override_kwargs=override_kwargs,
+                    uuid=nested.getter(coder, "uuid"),
                 )
                 if (
                     not response
@@ -1583,11 +1591,14 @@ class Model(ModelSettings):
                     or nested.getter(response, "choices.0.message.content")
                     == nested.getter(self.model_error_response(), "choices.0.message.content")
                 ):
-                    return None
+                    return None, None
                 res = response.choices[0].message.content
                 from cecli.reasoning_tags import remove_reasoning_content
 
-                return remove_reasoning_content(res, self.reasoning_tag)
+                if coder:
+                    coder.record_background_usage_and_cost(messages, response, model=self)
+
+                return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
                 ex_info = litellm_ex.get_ex_info(err)
                 print(str(err))
@@ -1605,16 +1616,14 @@ class Model(ModelSettings):
                     should_retry = False
 
                 if not should_retry:
-                    return None
+                    return None, None
                 print(f"Retrying in {retry_delay:.1f} seconds...")
                 time.sleep(retry_delay)
                 continue
             except AttributeError:
-                return None
+                return None, None
             except KeyboardInterrupt:
-                # An interrupt was not caught within the async run loop.
-                # We'll just pass to allow the thread to exit gracefully
-                # without a scary traceback.
+                # We'll just pass to allow the thread to exit gracefully.
                 pass
 
     def model_error_response(self):
@@ -1716,14 +1725,14 @@ class Model(ModelSettings):
         # 2. Check HTTP headers fallback (retry-after, retry-after-ms)
         headers = nested.getter(err, ["response.headers", "headers"], None)
         if headers is not None:
-            retry_after = nested.getter(headers, ["retry-after"], None)
+            retry_after = nested.getter(headers, ["retry-after", "Retry-After"], None)
             if retry_after is not None:
                 try:
                     return float(str(retry_after).strip())
                 except (ValueError, TypeError):
                     pass
 
-            retry_after_ms = nested.getter(headers, ["retry-after-ms"], None)
+            retry_after_ms = nested.getter(headers, ["retry-after-ms", "Retry-After-Ms"], None)
             if retry_after_ms is not None:
                 try:
                     return float(str(retry_after_ms).strip()) / 1000.0
@@ -1762,6 +1771,23 @@ class Model(ModelSettings):
                 default=lambda o: "<not serializable>",
             )
             f.write(",\n")
+
+    def _configured_provider(self) -> str:
+        """Return the provider whose config should apply to this model.
+
+        ``info['litellm_provider']`` is unreliable as a config key: litellm's
+        model-cost table rewrites it to the upstream vendor for known model
+        names (``my-provider/gpt-4o`` -> ``openai``), which hides a user-defined
+        provider's settings such as ``supports_stream``. A configured model-name
+        prefix wins, mirroring ``helpers.llms.config.resolve_model_config``.
+        """
+        provider = (self.info.get("litellm_provider") or "").lower()
+        prefix = self.name.split("/", 1)[0].lower() if "/" in self.name else ""
+
+        if prefix and model_info_manager.provider_manager.supports_provider(prefix):
+            return prefix
+
+        return provider
 
 
 def register_models(model_settings_fnames):
@@ -1847,8 +1873,11 @@ async def sanity_check_model(io, model):
                 " for `setx` to take effect."
             )
     elif not model.keys_in_environment:
-        show = True
-        io.tool_warning(f"Warning for {model}: Unknown which environment variables are required.")
+        if io.verbose:
+            show = True
+            io.tool_warning(
+                f"Warning for {model}: Unknown which environment variables are required."
+            )
     await check_for_dependencies(io, model.name)
     if not (model.info.get("max_input_tokens") or model.info.get("max_tokens")):
         show = True

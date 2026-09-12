@@ -163,6 +163,12 @@ def get_parser(default_config_files, git_root):
         help="List known models which match the (partial) MODEL name",
     )
     group.add_argument(
+        "--configure-provider",
+        action="store_true",
+        default=False,
+        help="Force the interactive provider configuration wizard to run on startup",
+    )
+    group.add_argument(
         "--model-settings-file",
         metavar="MODEL_SETTINGS_FILE",
         default=".cecli.model.settings.yml",
@@ -576,6 +582,18 @@ def get_parser(default_config_files, git_root):
         type=int,
         default=0,
         help="Number of times to ping at 5min intervals to keep prompt cache warm (default: 0)",
+    )
+
+    ##########
+    group = parser.add_argument_group("Rate limiting")
+    group.add_argument(
+        "--tokens-per-minute",
+        type=int,
+        default=1000000,
+        help=(
+            "Set the maximum tokens sent per minute before rate limiting sleeps are"
+            " inserted before LLM API calls (default: 1000000, use 0 to disable)"
+        ),
     )
 
     ##########
@@ -1062,8 +1080,11 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--voice-language",
         metavar="VOICE_LANGUAGE",
-        default="en",
-        help="Specify the language for voice using ISO 639-1 code (default: auto)",
+        default=None,
+        help=(
+            "Specify the language for voice using ISO 639-1 code "
+            "(default: resolve from the voice setting, then chat language)"
+        ),
     )
     group.add_argument(
         "--voice-input-device",

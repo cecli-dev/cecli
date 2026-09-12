@@ -26,6 +26,7 @@ class Tool(BaseTool):
             "description": (
                 "Manage files, long running commands, skills, and MCP servers"
                 " in the chat context: add, read_only, create, remove files;"
+                " view up to 3 pages of command output with paging;"
                 " stop background commands; load/remove skills and load/remove MCP servers."
             ),
             "parameters": {
@@ -35,14 +36,16 @@ class Tool(BaseTool):
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of file paths to add to context. Limit to at most 2 at a time."
+                            "List of file paths to add to context. Limit to at most 2 at a time. "
+                            "Command output aliases (command_key::) are rejected; use paging instead."
                         ),
                     },
                     "read_only": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of file paths to add as read-only. Limit to at most 2 at a time."
+                            "List of file paths to add as read-only. Limit to at most 2 at a time. "
+                            "Command output aliases (command_key::) are rejected; use paging instead."
                         ),
                     },
                     "create": {
@@ -92,6 +95,29 @@ class Tool(BaseTool):
                             'Possible values: "list_mcp_servers" to list MCP servers.'
                         ),
                     },
+                    "paging": {
+                        "type": "array",
+                        "description": (
+                            "View 1-3 saved command output pages without adding files to context. "
+                            'Format: [{"target": "<command key>", "page": 1}]. '
+                            "Pages are numbered from 1."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "target": {
+                                    "type": "string",
+                                    "description": (
+                                        "Command key returned by Command (e.g., bg_1_1234), "
+                                        "matching ^bg_[0-9]+_[0-9]+$."
+                                    ),
+                                },
+                                "page": {"type": "integer", "minimum": 1},
+                            },
+                            "required": ["target", "page"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "additionalProperties": False,
                 "required": [],
@@ -113,6 +139,7 @@ class Tool(BaseTool):
         load_mcp=None,
         remove_mcp=None,
         actions=None,
+        paging=None,
         **kwargs,
     ):
         """Perform batch operations on the coder's context.
@@ -124,9 +151,9 @@ class Tool(BaseTool):
         remove: list[str] | None
             Files to remove from the context.
         add: list[str] | None
-            Files to promote to editable status.
-        view: list[str] | None
-            Files to add as read-only view.
+            Files to promote to editable status (not command output aliases).
+        read_only: list[str] | None
+            Files to add as read-only (not command output aliases).
         create: list[str] | None
             Files to create and make editable.
         stop: list[str] | None
@@ -141,6 +168,9 @@ class Tool(BaseTool):
             MCP server names to remove.
         actions: list[str] | None
             Action operations to perform (e.g., "list_mcp_servers").
+        paging: list[dict] | None
+            One to three saved output pages: [{"target": command_key, "page": positive_int}].
+            Returns contents directly without adding the pages to file context.
         """
         remove_files = sorted(parse_arg_as_list(remove), key=cls._natural_sort_key)
         editable_files = sorted(parse_arg_as_list(add), key=cls._natural_sort_key)
@@ -153,6 +183,16 @@ class Tool(BaseTool):
         remove_mcp_servers = sorted(parse_arg_as_list(remove_mcp), key=cls._natural_sort_key)
         action_operations = sorted(parse_arg_as_list(actions), key=cls._natural_sort_key)
 
+        for file_path in editable_files + view_files:
+            if file_path.startswith("command_key::"):
+                raise ToolError(
+                    "Command output files cannot be viewed with add or read_only. "
+                    'Use paging=[{"target": "<command key>", "page": 1}] instead.'
+                )
+
+        if paging is not None:
+            cls._validate_paging(paging)
+
         if (
             not remove_files
             and not editable_files
@@ -164,14 +204,24 @@ class Tool(BaseTool):
             and not load_mcp_servers
             and not remove_mcp_servers
             and not action_operations
+            and paging is None
         ):
             raise ToolError(
-                "You must specify at least one of: remove, editable, view, create, stop, "
-                "load_skill, remove_skill, load_mcp, remove_mcp, or actions"
+                "You must specify at least one of: remove, add, read_only, create, stop, "
+                "load_skill, remove_skill, load_mcp, remove_mcp, actions, or paging"
             )
 
         coder.io.tool_output("⛭ Modifying Context", type="tool-result")
         response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
+
+        for page_request in paging or []:
+            try:
+                response.append_result(cls._read_command_page(coder, page_request))
+            except OSError as e:
+                response.append_error(
+                    f"Unable to read command output page {page_request['page']} "
+                    f"for {page_request['target']}: {e}"
+                )
 
         # Expand wildcards for MCP operations
         if "*" in load_mcp_servers and coder.mcp_manager:
@@ -288,6 +338,9 @@ class Tool(BaseTool):
             if files:
                 file_list = ", ".join(files)
                 coder.io.tool_output(f"{color_start}{display_name}:{color_end} {file_list}")
+
+        if params.get("paging") is not None:
+            coder.io.tool_output(f"{color_start}paging:{color_end} {params['paging']}")
 
         tool_footer(coder=coder, tool_response=tool_response, params=params)
 
@@ -626,3 +679,40 @@ class Tool(BaseTool):
     def _natural_sort_key(cls, s: str) -> list:
         """Natural sort key that splits "a10b2" into ["a", 10, "b", 2]."""
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
+
+    @staticmethod
+    def _validate_paging(paging):
+        """Require one to three command keys with positive, one-based page numbers.
+
+        Restrict targets to generated command keys so paging cannot read arbitrary
+        files or traverse outside the command's saved output folder. Validate the
+        entire request before reading any pages or performing context operations.
+        """
+        if not isinstance(paging, list) or not 1 <= len(paging) <= 3:
+            raise ToolError(
+                'paging must be an array of 1-3 objects: [{"target": "<command key>", "page": 1}].'
+            )
+
+        for page_request in paging:
+            if not isinstance(page_request, dict) or set(page_request) != {"target", "page"}:
+                raise ToolError('Each paging entry must be {"target": "<command key>", "page": 1}.')
+
+            target = page_request["target"]
+            page = page_request["page"]
+            if not isinstance(target, str) or not re.fullmatch(r"bg_[0-9]+_[0-9]+", target):
+                raise ToolError("paging.target must be a command key (e.g., bg_1_1234).")
+
+            if type(page) is not int or page < 1:
+                raise ToolError("paging.page must be a positive integer starting at 1.")
+
+    @classmethod
+    def _read_command_page(cls, coder, paging):
+        """Return one saved output page without registering it as a context file."""
+        target = paging["target"]
+        page = paging["page"]
+        rel_path = coder.local_agent_folder(f"{target}/{page}.txt")
+        abs_path = coder.abs_root_path(rel_path)
+        with safe_open(abs_path, "r") as page_file:
+            output = page_file.read()
+
+        return f"Command output: {target}, page {page}\n{output}"

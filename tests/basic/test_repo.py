@@ -131,7 +131,7 @@ class TestRepo:
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message(self, mock_send):
-        mock_send.side_effect = ["", "a good commit message"]
+        mock_send.side_effect = [("", None), ("a good commit message", None)]
 
         model1 = Model("gpt-3.5-turbo")
         model2 = Model("gpt-4")
@@ -159,7 +159,7 @@ class TestRepo:
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_strip_quotes(self, mock_send):
-        mock_send.return_value = '"a good commit message"'
+        mock_send.return_value = ('"a good commit message"', None)
 
         with GitTemporaryDirectory():
             repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
@@ -171,7 +171,7 @@ class TestRepo:
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_no_strip_unmatched_quotes(self, mock_send):
-        mock_send.return_value = 'a good "commit message"'
+        mock_send.return_value = ('a good "commit message"', None)
 
         with GitTemporaryDirectory():
             repo = GitRepo(InputOutput(), None, None, models=[self.GPT35])
@@ -183,7 +183,7 @@ class TestRepo:
 
     @patch("cecli.models.Model.simple_send_with_retries", new_callable=AsyncMock)
     async def test_get_commit_message_with_custom_prompt(self, mock_send):
-        mock_send.return_value = "Custom commit message"
+        mock_send.return_value = ("Custom commit message", None)
         custom_prompt = "Generate a commit message in the style of Shakespeare"
 
         with GitTemporaryDirectory():
@@ -627,7 +627,7 @@ class TestRepo:
 
     @patch("cecli.models.Model.simple_send_with_retries")
     async def test_noop_commit(self, mock_send):
-        mock_send.return_value = '"a good commit message"'
+        mock_send.return_value = ('"a good commit message"', None)
 
         with GitTemporaryDirectory():
             # new repo
@@ -699,7 +699,7 @@ class TestRepo:
         Verify that GitRepo.get_commit_message() prepends the model.system_prompt_prefix
         to the system prompt sent to the LLM.
         """
-        mock_send.return_value = "good commit message"
+        mock_send.return_value = ("good commit message", None)
 
         prefix = "MY-CUSTOM-PREFIX"
         model = Model("gpt-3.5-turbo")

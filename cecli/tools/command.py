@@ -428,39 +428,36 @@ class Tool(BaseTool):
                 response.append_result("Command execution interrupted by user.")
                 return response
 
-            if wait_task in done:
-                # Process completed
+            command_completed = wait_task in done
+            output_content = buffer.get_all(clear=command_completed) or ""
+            # Tokens are roughly 3-4 characters
+            output_limit = int(coder.large_file_token_threshold * 3.5)
+
+            if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
+                folder_path, file_list, alias_paths = (
+                    BackgroundCommandManager.save_paginated_output(
+                        output=output_content,
+                        command_key=command_key,
+                        page_size=output_limit,
+                        abs_root_path_func=coder.abs_root_path,
+                        local_agent_folder_func=coder.local_agent_folder,
+                    )
+                )
+                total_size = len(output_content)
+                output_content = (
+                    f"[Large Response ({total_size} characters). "
+                    f"Output saved in {len(file_list)} pages.]\n"
+                    f"Command key: {command_key}\n"
+                    f"Pages: 1-{len(file_list)}\n"
+                    "Use `ResourceManager` to view up to 3 pages at a time:\n"
+                    f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
+                    "Change page or add entries to read other pages (maximum 3 entries). "
+                    "Do not use add, read_only, or standard CLI tools to view command output "
+                    "files. Pages are returned directly, not added to file context."
+                )
+
+            if command_completed:
                 exit_code = wait_task.result()
-                output = buffer.get_all(clear=True)
-
-                # Format output
-                output_content = output or ""
-                # Tokens are roughly 3-4 characters
-                output_limit = int(coder.large_file_token_threshold * 3.5)
-
-                if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
-                    # Save full output to paginated files instead of truncating
-                    folder_path, file_list, alias_paths = (
-                        BackgroundCommandManager.save_paginated_output(
-                            output=output_content,
-                            command_key=command_key,
-                            page_size=output_limit,
-                            abs_root_path_func=coder.abs_root_path,
-                            local_agent_folder_func=coder.local_agent_folder,
-                        )
-                    )
-                    # Build a summary with full file list
-                    total_size = len(output_content)
-                    alias_list_str = "\n".join(f"  - {a}" for a in alias_paths)
-                    output_content = (
-                        f"[Large Response ({total_size} characters). "
-                        "Output saved to paginated files.]\n"
-                        f"File Aliases (for use with ResourceManager):\n{alias_list_str}\n"
-                        "Use the `ResourceManager` tool to view these files."
-                        "Do not use standard cli tools to view these files."
-                        "Remove them from context after taking notes on the relevant information "
-                        "to prevent overfilling stale context."
-                    )
 
                 # Remove from background tracking since it's done
                 BackgroundCommandManager.stop_background_command(command_key)
@@ -488,13 +485,10 @@ class Tool(BaseTool):
                 type="tool-result",
             )
 
-            # Get any output captured so far
-            current_output = buffer.get_all(clear=False)
-
             response.append_result(
                 f"Command exceeded {timeout}s timeout and is continuing in background.\n"
                 f"Command key: {command_key}\n"
-                f"Output captured so far:\n{current_output}\n"
+                f"Output captured so far:\n{output_content}\n"
             )
             return response
         finally:
@@ -543,17 +537,17 @@ class Tool(BaseTool):
                 abs_root_path_func=coder.abs_root_path,
                 local_agent_folder_func=coder.local_agent_folder,
             )
-            # Build a summary with full file list
             total_size = len(output_content)
-            alias_list_str = "\n".join(f"  - {a}" for a in alias_paths)
             output_content = (
                 f"[Large Response ({total_size} characters). "
-                "Output saved to paginated files.]\n"
-                f"File Aliases (for use with ResourceManager):\n{alias_list_str}\n"
-                "Use the `ResourceManager` tool to view these files."
-                "Do not use standard cli tools to view these files."
-                "Remove them from context after taking note of the relevant information "
-                "in the output to prevent overfilling stale context."
+                f"Output saved in {len(file_list)} pages.]\n"
+                f"Command key: {fg_key}\n"
+                f"Pages: 1-{len(file_list)}\n"
+                "Use `ResourceManager` to view up to 3 pages at a time:\n"
+                f'{{"paging": [{{"target": "{fg_key}", "page": 1}}]}}\n'
+                "Change page or add entries to read other pages (maximum 3 entries). "
+                "Do not use add, read_only, or standard CLI tools to view command output "
+                "files. Pages are returned directly, not added to file context."
             )
 
         if tui:

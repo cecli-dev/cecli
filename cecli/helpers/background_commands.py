@@ -43,14 +43,17 @@ class CircularBuffer:
         self.total_added = 0  # Track total characters added for new output detection
 
     def append(self, text: str) -> None:
-        """
-        Add text to buffer, removing oldest content if exceeds max size.
+        """Append text, retaining only the newest ``max_size`` characters.
 
-        Args:
-            text: Text to append to buffer
+        Store individual characters so the deque limit measures characters, not
+        output chunks. Slice oversized inputs before extending to avoid processing
+        characters that would immediately be evicted. Track all received characters
+        in ``total_added`` so incremental read positions survive eviction.
         """
         with self.lock:
-            self.buffer.append(text)
+            if self.max_size:
+                self.buffer.extend(text[-self.max_size :])
+
             self.total_added += len(text)
 
     def get_all(self, clear: bool = False) -> str:
@@ -100,7 +103,7 @@ class CircularBuffer:
     def size(self) -> int:
         """Get current buffer size in characters."""
         with self.lock:
-            return sum(len(chunk) for chunk in self.buffer)
+            return len(self.buffer)
 
 
 class InputBuffer:

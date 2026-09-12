@@ -679,12 +679,10 @@ def _get_oauth_callback_handler(get_auth_code):
 def _unpack_transport(transport):
     """Return (read, write) streams from an HTTP transport.
 
-    mcp SDK 1.x yields a 3-tuple (read, write, session_id_getter); SDK 2.x
-    yields a 2-tuple (read, write).
+    streamable_http_client on mcp SDK 1.x yields a 3-tuple
+    (read, write, session_id_getter); SDK 2.x and sse_client (all versions)
+    yield a 2-tuple (read, write). Unpack by length rather than guessing
+    from the SDK version.
     """
-    if _get_mcp_major_version() >= 2:
-        read, write = transport
-    else:
-        read, write, _ = transport
-
+    read, write = transport[0], transport[1]
     return read, write

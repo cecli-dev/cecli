@@ -49,6 +49,18 @@ class TestCoder:
         # Reset conversation system after each test as well
         ConversationService.get_chunks(self).reset()
 
+    async def test_stream_uses_active_model_streaming_support(self):
+        """self.stream must follow the active model's streaming capability."""
+        with GitTemporaryDirectory():
+            io = MagicMock()
+            active_model = Model(self.GPT35.name)
+            active_model.streaming = False
+
+            with patch.object(Coder, "get_active_model", return_value=active_model):
+                coder = await Coder.create(self.GPT35, None, io, stream=True)
+
+            assert coder.stream is False
+
     async def test_allowed_to_edit(self):
         with GitTemporaryDirectory():
             repo = git.Repo()
@@ -735,7 +747,7 @@ three
 
             saved_diffs = []
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 saved_diffs.append(diffs)
                 return "commit message"
 
@@ -815,7 +827,7 @@ two
 
             saved_diffs = []
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 saved_diffs.append(diffs)
                 return "commit message"
 
@@ -1761,7 +1773,7 @@ This command will print 'Hello, World!' to the console."""
             # The context for commit message will be generated from cur_messages.
             # This call should not raise an exception due to `content: None`.
 
-            async def mock_get_commit_message(diffs, context, user_language=None):
+            async def mock_get_commit_message(diffs, context, user_language=None, coder=None):
                 assert "USER: do a thing" in context
                 # None becomes empty string.
                 assert "ASSISTANT: \n" in context
