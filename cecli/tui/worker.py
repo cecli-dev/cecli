@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 import threading
 import warnings
 from typing import Optional
@@ -45,7 +46,7 @@ class CoderWorker:
 
     def _run_thread(self):
         """Thread entry point - creates event loop and runs coder."""
-        self.loop = asyncio.new_event_loop()
+        self.loop = self._create_event_loop()
         asyncio.set_event_loop(self.loop)
         self.loop.set_exception_handler(self.worker_loop_exception_handler)
 
@@ -283,3 +284,19 @@ class CoderWorker:
         # Wait for thread to finish
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
+
+    def _create_event_loop(self):
+        """Create the event loop used by the coder worker thread.
+
+        On Windows, use a ProactorEventLoop so MCP stdio servers can spawn real
+        asynchronous subprocesses. The process-wide policy forces a
+        SelectorEventLoop (required by prompt_toolkit on the main loop), but a
+        SelectorEventLoop cannot create subprocesses, so MCP falls back to
+        blocking ``Popen.wait()`` calls on the AnyIO thread pool. Those waits are
+        uninterruptible and can hang forever, wedging MCP teardown and leaving the
+        coder stuck mid-processing.
+        """
+        if sys.platform == "win32" and hasattr(asyncio, "ProactorEventLoop"):
+            return asyncio.ProactorEventLoop()
+
+        return asyncio.new_event_loop()
