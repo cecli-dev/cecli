@@ -247,6 +247,11 @@ class InputArea(TextArea):
             self.app.action_start_voice()
             return
 
+        if self.app.is_key_for("paste", event.key):
+            event.stop()
+            event.prevent_default()
+            self.app.action_paste_clipboard()
+
         if self.app.is_key_for("history", event.key):
             event.stop()
             event.prevent_default()

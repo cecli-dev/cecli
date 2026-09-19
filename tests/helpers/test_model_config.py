@@ -634,6 +634,23 @@ def test_non_gpt_github_copilot_stays_chat():
     assert config["llm"]["mode"] == "chat"
 
 
+def test_github_copilot_models_omit_temperature():
+    """Copilot models never send a sampling temperature, even in chat mode.
+
+    Copilot models are absent from the individual model configs, so the
+    metadata-derived agent block supplies the rule.
+    """
+    record = _record(
+        litellm_provider="github_copilot",
+        supports_reasoning=False,
+        supported_endpoints=["/v1/chat/completions"],
+    )
+    config = get_default_config("github_copilot/gpt-4o", [{"github_copilot/gpt-4o": record}])
+
+    assert config["llm"]["mode"] == "chat"
+    assert config["agent"]["use_temperature"] is False
+
+
 def test_adaptive_thinking_sets_use_temperature_false():
     record = _record(supports_reasoning=False, supports_adaptive_thinking=True)
     config = get_default_config("adaptive", [{"adaptive": record}])

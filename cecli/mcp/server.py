@@ -5,6 +5,7 @@ import random
 import threading
 import webbrowser
 from contextlib import AsyncExitStack
+from datetime import timedelta
 from enum import Enum, auto
 from urllib.parse import urlparse
 
@@ -28,6 +29,10 @@ from .oauth import (
 MIN_KEEPALIVE_INTERVAL = 5
 MAX_KEEPALIVE_INTERVAL = 300
 FAILED_PING_THRESHOLD = 3
+# Default per-request timeout (seconds) for MCP handshake/tool calls. Two
+# minutes is generous enough for slow first-run bootstraps (uvx/npx/Docker) while
+# still bounding a server that accepts a connection but never speaks MCP.
+DEFAULT_MCP_REQUEST_TIMEOUT = 120
 
 logger = logging.getLogger(__name__)
 
@@ -246,9 +251,7 @@ class McpServer:
                 stdio_client(server_params, errlog=err_file)
             )
             read, write = stdio_transport
-            session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-            self.session = session
+            session = await self._enter_client_session(read, write)
 
         return session
 
@@ -323,6 +326,44 @@ class McpServer:
                 self.session = None
                 self._connection_loop = None
 
+    async def _enter_client_session(self, read, write):
+        """Enter a client session on the shared exit stack and initialize it.
+
+        Builds the SDK ``ClientSession`` with the server's configured request
+        timeout so the stdio and HTTP transports share identical timeout
+        behavior, then stores the initialized session on ``self.session``.
+        """
+        session = await self.exit_stack.enter_async_context(
+            ClientSession(
+                read,
+                write,
+                read_timeout_seconds=timedelta(seconds=self._request_timeout_seconds()),
+            )
+        )
+        await session.initialize()
+        self.session = session
+
+        return session
+
+    def _request_timeout_seconds(self) -> float:
+        """Per-request timeout (seconds) for the MCP handshake and tool calls.
+
+        A wedged transport would otherwise block startup forever; the timeout is
+        applied to the SDK ``ClientSession`` so a silent server raises (and can be
+        retried or reported as failed) instead of hanging. Overridable per server
+        via the ``timeout`` config key.
+        """
+        raw = self.config.get("timeout")
+        if raw is not None:
+            try:
+                value = float(raw)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
+
+        return DEFAULT_MCP_REQUEST_TIMEOUT
+
 
 class HttpBasedMcpServer(McpServer):
     """Base class for HTTP-based MCP servers (HTTP streaming and SSE)."""
@@ -376,12 +417,16 @@ class HttpBasedMcpServer(McpServer):
 
         redirect_uri = f"http://localhost:{port}/callback"
 
-        get_auth_code, shutdown = create_oauth_callback_server(port)
+        get_auth_code, shutdown, ensure_callback_server = create_oauth_callback_server(port)
 
         # Store shutdown function for cleanup
         self._oauth_shutdown = shutdown
 
         async def handle_redirect(auth_url: str) -> None:
+            # Start the local listener before opening the browser so the OAuth
+            # redirect can never race the callback server binding.
+            ensure_callback_server()
+
             if self.io:
                 self.io.tool_output(f"\nAuthentication required for MCP server: {self.name}")
                 self.io.tool_output("\nPlease open this URL in your browser to authenticate:")
@@ -440,9 +485,7 @@ class HttpBasedMcpServer(McpServer):
 
         read, write = _unpack_transport(transport)
 
-        session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        self.session = session
+        session = await self._enter_client_session(read, write)
 
         await self.start_keepalive()
 
@@ -580,7 +623,10 @@ class HttpBasedMcpServer(McpServer):
             logger.info(f"Keepalive task stopped for {self.name}")
 
         if hasattr(self, "_oauth_shutdown"):
-            self._oauth_shutdown()
+            # Run the blocking socketserver shutdown off-loop so a stuck callback
+            # server can't wedge the MCP event loop (and so the surrounding
+            # wait_for timeout can still fire).
+            await asyncio.to_thread(self._oauth_shutdown)
 
         self._http_client = None
 

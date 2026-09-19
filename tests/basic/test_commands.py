@@ -420,6 +420,125 @@ class TestCommands(TestCase):
         self.assertIn("foo.txt", console_output)
         self.assertIn("bar.txt", console_output)
 
+    async def test_cmd_tokens_with_image_list_content(self):
+        from cecli.commands.tokens import TokensCommand
+        from cecli.helpers.conversation import ConversationService, MessageTag
+
+        # Direct unit tests for _extract_file_name
+        self.assertIsNone(TokensCommand._extract_file_name(None))
+        self.assertIsNone(TokensCommand._extract_file_name("not a dict"))
+        self.assertIsNone(TokensCommand._extract_file_name({}))
+        self.assertIsNone(TokensCommand._extract_file_name({"content": None}))
+        self.assertIsNone(TokensCommand._extract_file_name({"content": "Just a normal message"}))
+
+        # String content
+        self.assertEqual(
+            TokensCommand._extract_file_name(
+                {"content": "Original File Contents For:\n/path/to/file.py\n\ncode..."}
+            ),
+            "/path/to/file.py",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name(
+                {"content": "Current File Contents For:\n/path/to/file2.py\n\ncode..."}
+            ),
+            "/path/to/file2.py",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name({"content": "Image file: photo.png"}),
+            "photo.png",
+        )
+
+        # image_file key
+        self.assertEqual(
+            TokensCommand._extract_file_name({"image_file": "photo.jpg"}),
+            "photo.jpg",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name(
+                {
+                    "image_file": "photo.jpg",
+                    "content": [{"type": "image_url", "image_url": {}}],
+                }
+            ),
+            "photo.jpg",
+        )
+
+        # List content
+        self.assertEqual(
+            TokensCommand._extract_file_name(
+                {
+                    "content": [
+                        {"type": "text", "text": "Image file: nested.png"},
+                        {"type": "image_url", "image_url": {}},
+                    ]
+                }
+            ),
+            "nested.png",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name(
+                {
+                    "content": [
+                        {"type": "text", "text": "Original File Contents For:\nmodule.py\n\ncode"}
+                    ]
+                }
+            ),
+            "module.py",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name({"content": [{"image_file": "from_part.png"}]}),
+            "from_part.png",
+        )
+        self.assertEqual(
+            TokensCommand._extract_file_name({"content": ["Image file: string_part.png"]}),
+            "string_part.png",
+        )
+
+        # Integration test with Coder / Commands execution
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        coder = await Coder.create(self.GPT35, None, io)
+        commands = Commands(io, coder)
+
+        manager = ConversationService.get_manager(coder)
+        img_msg = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Image file: test_image.png"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,123"}},
+            ],
+            "image_file": "test_image.png",
+        }
+        manager.add_message(
+            message_dict=img_msg,
+            tag=MessageTag.READONLY_FILES,
+            hash_key=("image_user", "test_image.png"),
+        )
+
+        img_msg_no_attr = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Image file: another_image.png"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,456"}},
+            ],
+        }
+        manager.add_message(
+            message_dict=img_msg_no_attr,
+            tag=MessageTag.CHAT_FILES,
+            hash_key=("image_user", "another_image.png"),
+        )
+
+        stdout = StringIO()
+        sys.stdout = stdout
+        try:
+            commands.execute("tokens", "")
+        finally:
+            sys.stdout = sys.__stdout__
+
+        console_output = stdout.getvalue()
+        self.assertIn("test_image.png", console_output)
+        self.assertIn("another_image.png", console_output)
+
     async def test_cmd_add_from_subdir(self):
         repo = git.Repo.init()
         repo.config_writer().set_value("user", "name", "Test User").release()

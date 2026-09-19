@@ -513,3 +513,89 @@ def test_submit_voice_intercepts_without_agent_queue(tui_instance, text):
     assert tui_instance.input_queue.empty()
     push_input.assert_not_called()
     wake_input.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_paste_executes_paste_command(tui_instance):
+    """The paste hotkey runs the paste command on a worker without queuing input."""
+    coder = MagicMock()
+    tui_instance._get_visible_coder = MagicMock(return_value=coder)
+    tui_instance.run_worker = MagicMock()
+    tui_instance._refresh_file_list = MagicMock()
+
+    tui_instance.action_paste_clipboard()
+
+    coroutine = tui_instance.run_worker.call_args.args[0]
+    tui_instance.run_worker.assert_called_once_with(coroutine, group="paste")
+    tui_instance._get_visible_coder.assert_called_once_with()
+
+    with patch("cecli.commands.paste.PasteCommand.execute", new=AsyncMock()) as execute:
+        await coroutine
+        execute.assert_awaited_once_with(coder.io, coder, "")
+    tui_instance._refresh_file_list.assert_called_once_with(coder)
+
+
+@pytest.mark.asyncio
+async def test_run_paste_reports_errors(tui_instance):
+    """Clipboard failures surface through the status bar instead of crashing."""
+    coder = MagicMock()
+    tui_instance.show_error = MagicMock()
+
+    with patch(
+        "cecli.commands.paste.PasteCommand.execute",
+        new=AsyncMock(side_effect=RuntimeError("no clipboard")),
+    ):
+        await tui_instance._run_paste(coder)
+
+    tui_instance.show_error.assert_called_once_with(
+        "Unable to paste clipboard content: no clipboard"
+    )
+
+
+@pytest.mark.parametrize("text", ["/paste", "  /paste \n"])
+def test_submit_paste_intercepts_without_agent_queue(tui_instance, text):
+    import queue
+
+    input_area = MagicMock(value=text)
+    tui_instance.query_one = MagicMock(return_value=input_area)
+    tui_instance.action_paste_clipboard = MagicMock()
+    tui_instance.add_user_message = MagicMock()
+    tui_instance.input_queue = queue.Queue()
+
+    with (
+        patch("cecli.tui.app.queues.push_coder_input") as push_input,
+        patch("cecli.tui.app.queues.wake_input_waiters") as wake_input,
+    ):
+        tui_instance.on_input_area_submit(MagicMock(value=text))
+
+    assert input_area.value == ""
+    tui_instance.action_paste_clipboard.assert_called_once_with()
+    input_area.save_to_history.assert_not_called()
+    tui_instance.add_user_message.assert_not_called()
+    assert tui_instance.input_queue.empty()
+    push_input.assert_not_called()
+    wake_input.assert_not_called()
+
+
+def test_refresh_file_list_updates_autocomplete_and_file_list(tui_instance):
+    """The paste refresh updates both autocomplete data and the file list."""
+    coder = MagicMock()
+    coder.get_addable_relative_files.return_value = ["a.py", "b.py"]
+    coder.commands.get_commands.return_value = ["/add"]
+
+    input_area = MagicMock()
+    file_list = MagicMock()
+
+    def mock_query_one(selector, *args):
+        if selector == "#input":
+            return input_area
+        if selector == "#file-list":
+            return file_list
+        raise AssertionError(f"unexpected selector: {selector}")
+
+    tui_instance.query_one = mock_query_one
+
+    tui_instance._refresh_file_list(coder)
+
+    input_area.update_autocomplete_data.assert_called_once_with(["a.py", "b.py"], ["/add"])
+    file_list.update_files.assert_called_once_with()

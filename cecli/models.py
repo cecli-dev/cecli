@@ -1348,8 +1348,10 @@ class Model(ModelSettings):
                     temperature = float(self.use_temperature)
             kwargs["temperature"] = temperature
         else:
-            if override_kwargs and override_kwargs.get("temperature", None):
-                override_kwargs.pop("temperature", None)
+            # Omit temperature entirely when the model does not use it; the
+            # key must be dropped even when its override value is falsy (0).
+            if override_kwargs and "temperature" in override_kwargs:
+                override_kwargs.pop("temperature")
 
         effective_tools = tools
 
@@ -1485,7 +1487,7 @@ class Model(ModelSettings):
                 completion_coro = litellm.acompletion(**kwargs)
                 res, interrupted = await coroutines.interruptible(completion_coro, interrupt_event)
                 if interrupted:
-                    raise KeyboardInterrupt("Interrupted during acompletion")
+                    raise asyncio.CancelledError("Interrupted during acompletion")
 
                 return hash_object, res
             except litellm.ContextWindowExceededError as err:
@@ -1530,7 +1532,7 @@ class Model(ModelSettings):
                         asyncio.sleep(retry_delay), interrupt_event
                     )
                     if interrupted:
-                        raise KeyboardInterrupt("Interrupted during retry sleep")
+                        raise asyncio.CancelledError("Interrupted during retry sleep")
                 else:
                     await asyncio.sleep(retry_delay)
                 continue

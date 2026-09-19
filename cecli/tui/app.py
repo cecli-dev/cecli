@@ -201,6 +201,12 @@ class TUI(App):
             description="Record Voice",
             show=True,
         )
+        self.bind(
+            self._encode_keys(self.get_keys_for("paste")),
+            "paste_clipboard",
+            description="Paste Clipboard",
+            show=True,
+        )
 
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
@@ -284,6 +290,7 @@ class TUI(App):
             "editor": "ctrl+o",
             "history": "alt+shift+h",
             "voice": "ctrl+r",
+            "paste": "alt+v",
             "focus": "ctrl+f",
             "cancel": "ctrl+c",
             "clear": "ctrl+l",
@@ -829,6 +836,12 @@ class TUI(App):
             self.action_start_voice()
             return
 
+        if stripped == "/paste":
+            input_area = self.query_one("#input", InputArea)
+            input_area.value = ""
+            self.action_paste_clipboard()
+            return
+
         # Intercept /editor and /edit commands to handle with TUI suspension
         if (
             stripped in ("/editor", "/edit")
@@ -1279,6 +1292,11 @@ class TUI(App):
         self._voice_stop_queue = queue.Queue()
         self._voice_stopping = False
         self.run_worker(self._run_voice(coder, self._voice_stop_queue), group="voice")
+
+    def action_paste_clipboard(self):
+        """Paste an image or text from the system clipboard (keyboard shortcut)."""
+        coder = self._get_visible_coder()
+        self.run_worker(self._run_paste(coder), group="paste")
 
     def action_open_editor(self):
         """Open an external editor to compose a prompt (keyboard shortcut)."""
@@ -2123,6 +2141,29 @@ class TUI(App):
             self._voice_stop_queue = None
             self._voice_stopping = False
             self.update_key_hints(generating=self._currently_generating)
+
+    async def _run_paste(self, coder):
+        """Run the paste command on a worker so clipboard I/O doesn't block the UI."""
+        from cecli.commands.paste import PasteCommand
+
+        try:
+            await PasteCommand.execute(coder.io, coder, "")
+            self._refresh_file_list(coder)
+        except Exception as err:
+            self.show_error(f"Unable to paste clipboard content: {err}")
+
+    def _refresh_file_list(self, coder):
+        """Refresh the file list and autocomplete after the coder's chat files change."""
+        try:
+            input_area = self.query_one("#input", InputArea)
+            files = list(coder.get_addable_relative_files())
+            commands = coder.commands.get_commands() if getattr(coder, "commands", None) else []
+            input_area.update_autocomplete_data(files, commands)
+
+            file_list = self.query_one("#file-list", FileList)
+            file_list.update_files()
+        except Exception:
+            pass
 
 
 def patch_color_name_to_rgb():

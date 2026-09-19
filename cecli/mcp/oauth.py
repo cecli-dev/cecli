@@ -14,21 +14,33 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from cecli.decoding import safe_open
 
+# How long ``ensure_started`` waits for the callback listener to bind before
+# giving up so the browser redirect can't race the listener coming up.
+CALLBACK_BIND_TIMEOUT_SECONDS = 5
 
-def create_oauth_callback_server(
-    port, path="/callback"
-) -> Tuple[Callable[[], Awaitable[Tuple[str, str]]], Callable[[], None]]:
+
+def create_oauth_callback_server(port, path="/callback") -> Tuple[
+    Callable[[], Awaitable[Tuple[str, str]]],
+    Callable[[], None],
+    Callable[[], None],
+]:
     """
     Create a local HTTP server to handle OAuth callback.
 
+    The listener is started lazily via the returned ``ensure_started`` callable
+    so servers that never actually trigger OAuth don't leave a daemon HTTP
+    server (and its bound port) running for the life of the process.
+
     Returns:
-        Tuple of (async callback handler function, shutdown function)
+        Tuple of (async callback handler, shutdown function, start function)
     """
     auth_code = None
     state = None
     server_error = None
     callback_received = threading.Event()
     server = None
+    server_started = threading.Event()
+    start_lock = threading.Lock()
 
     class OAuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
@@ -78,27 +90,60 @@ def create_oauth_callback_server(
         def log_message(self, format, *args):
             pass
 
-    # Start server in a separate thread
     def start_server():
-        nonlocal server
+        nonlocal server, server_error
+        srv = None
         try:
-            server = socketserver.TCPServer(("localhost", port), OAuthCallbackHandler)
-            server.serve_forever()
+            srv = socketserver.TCPServer(("localhost", port), OAuthCallbackHandler)
+            server = srv
+            server_started.set()
+            srv.serve_forever()
         except Exception as e:
-            server_error = f"Server error: {e}"  # noqa
+            server_error = f"Server error: {e}"
+            server_started.set()
             callback_received.set()
+        finally:
+            _close_quietly(srv)
 
-    server_thread = threading.Thread(target=start_server, daemon=True)
-    server_thread.start()
+    def ensure_started():
+        """Start the callback listener once, blocking briefly for the bind."""
+        with start_lock:
+            if server_started.is_set():
+                return
 
-    # Shutdown function
+            threading.Thread(target=start_server, daemon=True, name="oauth-callback-server").start()
+
+        # Wait for the bind to complete so the browser redirect cannot race the
+        # listener coming up.
+        server_started.wait(timeout=CALLBACK_BIND_TIMEOUT_SECONDS)
+
     def shutdown():
+        """Stop the callback listener. Idempotent and safe to call repeatedly.
+
+        ``socketserver.shutdown()`` blocks until ``serve_forever`` exits; async
+        callers must run this in a thread (see ``asyncio.to_thread``) so a stuck
+        listener can never wedge the event loop.
+        """
         nonlocal server
-        if server:
-            server.shutdown()
+        with start_lock:
+            srv = server
             server = None
 
+        if srv is None:
+            return
+
+        try:
+            srv.shutdown()
+        except Exception:
+            pass
+        finally:
+            _close_quietly(srv)
+
     async def get_auth_code() -> Tuple[str, str]:
+        # Backstop for callers that didn't start the listener via the redirect
+        # handler first (e.g. a resumed flow).
+        ensure_started()
+
         # Wait for callback to be received
         MINUTES = 5
         timeout = MINUTES * 60
@@ -106,23 +151,23 @@ def create_oauth_callback_server(
         start_time = time.time()
         while not callback_received.is_set():
             if time.time() - start_time > timeout:
-                shutdown()
+                await asyncio.to_thread(shutdown)
                 raise Exception(f"OAuth callback timed out after {MINUTES} minutes")
 
             # Small sleep to avoid busy waiting
             await asyncio.sleep(0.1)
 
         if server_error:
-            shutdown()
+            await asyncio.to_thread(shutdown)
             raise Exception(server_error)
 
         if not auth_code:
-            shutdown()
+            await asyncio.to_thread(shutdown)
             raise Exception("No authorization code received")
 
         return auth_code, state
 
-    return get_auth_code, shutdown
+    return get_auth_code, shutdown, ensure_started
 
 
 def get_token_file_path():
@@ -225,3 +270,14 @@ class FileBasedTokenStorage(TokenStorage):
 
         all_tokens[self.server_name]["client_info"] = json.loads(client_info.model_dump_json())
         save_mcp_oauth_tokens(all_tokens)
+
+
+def _close_quietly(server) -> None:
+    """Close an HTTP server socket, ignoring a missing server or close errors."""
+    if server is None:
+        return
+
+    try:
+        server.server_close()
+    except Exception:
+        pass

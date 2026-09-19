@@ -2,6 +2,7 @@
 import fnmatch
 import os
 import platform
+import re
 
 # PTY support for interactive commands (avoids pipe buffering issues)
 try:
@@ -21,6 +22,40 @@ from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
+
+# Commands an LLM is likely to run during development where the user must
+# type input for the task to proceed (passwords, passphrases, host-key
+# confirmations, credential logins, editor handoffs). Matching commands run
+# with user_input_required=True so the user can respond and the command can
+# complete. Patterns are matched case-insensitively against the full command.
+#
+# Long-running commands are already moved to the background by the timeout
+# mechanism, and session-style tools (ssh, su, database REPLs) read from
+# stdin when backgrounded, so they need no special handling here.
+#
+# Read-only viewers and live-monitoring tools (less, more, man, top, htop,
+# watch, tail -f, docker logs -f) are intentionally excluded: an LLM would
+# run those in the background to watch output rather than wait for typed
+# input, so forcing interactivity would block the background use case.
+INTERACTIVE_COMMAND_PATTERNS = [
+    # Privilege escalation, user switching, and password entry
+    r"^\s*(sudo|doas|runas|passwd)\b",
+    # Remote access: passwords, key passphrases, host-key confirmations
+    r"^\s*(scp|rsync|ssh-keygen|ssh-add|ssh-copy-id)\b",
+    # Passphrase prompts (gpg is also used for commit signing)
+    r"^\s*(gpg|gpg2)\b",
+    r"^\s*openssl\s+(enc|pkcs12|pkey|genpkey|rsa|genrsa|req)\b",
+    # Interactive credential / login flows
+    r"^\s*(gh|docker|npm|yarn|pnpm|az|aws|gcloud|heroku|firebase|vercel|netlify)\s+(auth|login|logout|configure|sso)\b",
+    # Editors: the user must edit content for the task to proceed
+    r"^\s*(vi|vim|nvim|nano|emacs|pico)\b",
+    # Git flows that hand off to an editor or need hunk-by-hunk input
+    r"^\s*git\s+(add\s+(-p|--patch)|commit\s+(-e|--edit)|rebase\s+(-i|--interactive)|mergetool|config\s+(-e|--edit))\b",
+    # Windows credential / remote-execution tools
+    r"^\s*(net\s+use|get-credential|psexec|cmdkey)\b",
+    # Config editors that open an interactive editor
+    r"^\s*(crontab\s+-e|visudo)\b",
+]
 
 
 class Tool(BaseTool):
@@ -51,32 +86,35 @@ class Tool(BaseTool):
                         "type": "string",
                         "description": (
                             "Key of an existing background command to interact with. "
-                            "Use with 'action' (stdin/stop)."
+                            "Use with 'action' (stdin/stop/tail)."
                         ),
                     },
                     "action": {
                         "type": "string",
-                        "enum": ["stdin", "stop"],
+                        "enum": ["stdin", "stop", "tail"],
                         "description": (
                             "Action on a background command. Requires background_key: "
-                            "'stdin' to send input, 'stop' to terminate."
+                            "'stdin' to send input, 'stop' to terminate, 'tail' to read "
+                            "the latest output."
                         ),
                     },
                     "stdin": {
                         "type": "string",
                         "description": (
                             "Input to send. Use with background=True to send at "
-                            "start time, or with background_key + action='stdin'."
+                            "start time, or with background_key + action='stdin'. "
+                            "End the input with a newline to submit a line to an "
+                            "interactive prompt."
                         ),
                     },
                     "pty": {
                         "type": "boolean",
                         "description": (
-                            "Use a pseudo-terminal (PTY). Auto-enabled on Unix for "
-                            "background commands. Useful for interactive programs "
-                            "like 'vi' or 'top'."
+                            "Use a pseudo-terminal (PTY). Auto-enabled on Unix "
+                            "when omitted; set false to force pipe mode. A PTY lets "
+                            "you send stdin to long-running background commands."
                         ),
-                        "default": False,
+                        "default": None,
                     },
                     "user_input_required": {
                         "type": "boolean",
@@ -120,7 +158,7 @@ class Tool(BaseTool):
         background_key=None,
         action=None,
         stdin=None,
-        pty=False,
+        pty=None,
         user_input_required=False,
         timeout=0,
         **kwargs,
@@ -129,10 +167,12 @@ class Tool(BaseTool):
         Execute a shell command or interact with background processes.
 
         For new commands: provide 'command' (and optionally 'background', 'stdin', 'pty').
+        PTY is auto-enabled on Unix when 'pty' is omitted, so long-running
+        backgrounded commands can receive input via background_key + action='stdin'.
         When 'user_input_required' is True, runs the command interactively using a
         pseudo-terminal (PTY), allowing the user to provide inputs like passwords
         or navigate terminal interfaces.
-        For background interactions: provide 'background_key' + 'action' (stdin/stop).
+        For background interactions: provide 'background_key' + 'action' (stdin/stop/tail).
 
         Commands run with timeout from agent_config['command_timeout'] (default: 30 seconds),
         """
@@ -162,8 +202,11 @@ class Tool(BaseTool):
             elif action == "stop":
                 return await cls._stop_background_command(coder, background_key)
 
+            elif action == "tail":
+                return await cls._tail_background_command(coder, background_key)
+
             else:
-                response.append_error(f"Unknown action '{action}'. Use one of: stdin, stop.")
+                response.append_error(f"Unknown action '{action}'. Use one of: stdin, stop, tail.")
                 return response
 
         if not command:
@@ -181,6 +224,12 @@ class Tool(BaseTool):
         if not background and command.strip().endswith("&"):
             background = True
             command = command.strip()[:-1].strip()
+
+        # Force interactive handling for commands known to prompt for input
+        # (e.g. sudo, passphrase, credential, and editor prompts) so the user
+        # can respond and the command can complete.
+        if cls._requires_user_input(command):
+            user_input_required = True
 
         # Get user confirmation
         confirmed = await cls._get_confirmation(coder, command, background)
@@ -275,12 +324,17 @@ class Tool(BaseTool):
             use_pty = platform.system() != "Windows"
 
         # Use static manager to start background command
+        command_key, page_size, pages_dir = cls._paging_config(coder, command_string)
+
         command_key = BackgroundCommandManager.start_background_command(
             command_string,
             verbose=coder.verbose,
             cwd=coder.root,
-            max_buffer_size=4096,
+            max_buffer_size=page_size or 4096,
             use_pty=use_pty,
+            command_key=command_key,
+            page_size=page_size,
+            pages_dir=pages_dir,
         )
 
         # Send stdin to the background command if provided
@@ -307,7 +361,7 @@ class Tool(BaseTool):
         import asyncio
         import subprocess
 
-        from cecli.helpers.background_commands import CircularBuffer
+        from cecli.helpers.background_commands import PagedOutputBuffer
 
         response = ToolResponse(cls.NORM_NAME)
 
@@ -319,8 +373,9 @@ class Tool(BaseTool):
         if use_pty is None:
             use_pty = platform.system() != "Windows"
 
-        # Create output buffer
-        buffer = CircularBuffer(max_size=4096)
+        # Create output buffer (paged when context management is enabled)
+        command_key, page_size, pages_dir = cls._paging_config(coder, command_string)
+        buffer = PagedOutputBuffer(page_size=page_size or 4096, pages_dir=pages_dir)
 
         # Decide whether to use PTY
         master_fd = None
@@ -379,6 +434,7 @@ class Tool(BaseTool):
             existing_buffer=buffer,
             persist=True,
             master_fd=master_fd,
+            command_key=command_key,
         )
 
         # Now monitor the process with an event-driven race instead of
@@ -430,30 +486,10 @@ class Tool(BaseTool):
 
             command_completed = wait_task in done
             output_content = buffer.get_all(clear=command_completed) or ""
-            # Tokens are roughly 3-4 characters
-            output_limit = int(coder.large_file_token_threshold * 3.5)
-
-            if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
-                folder_path, file_list, alias_paths = (
-                    BackgroundCommandManager.save_paginated_output(
-                        output=output_content,
-                        command_key=command_key,
-                        page_size=output_limit,
-                        abs_root_path_func=coder.abs_root_path,
-                        local_agent_folder_func=coder.local_agent_folder,
-                    )
-                )
-                total_size = len(output_content)
+            pages_notice = cls._pages_notice(command_key, getattr(buffer, "page_count", 0))
+            if pages_notice:
                 output_content = (
-                    f"[Large Response ({total_size} characters). "
-                    f"Output saved in {len(file_list)} pages.]\n"
-                    f"Command key: {command_key}\n"
-                    f"Pages: 1-{len(file_list)}\n"
-                    "Use `ResourceManager` to view up to 3 pages at a time:\n"
-                    f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
-                    "Change page or add entries to read other pages (maximum 3 entries). "
-                    "Do not use add, read_only, or standard CLI tools to view command output "
-                    "files. Pages are returned directly, not added to file context."
+                    f"{output_content}\n\n{pages_notice}" if output_content else pages_notice
                 )
 
             if command_completed:
@@ -491,11 +527,26 @@ class Tool(BaseTool):
                 f"Output captured so far:\n{output_content}\n"
             )
             return response
+        except asyncio.CancelledError:
+            # The turn was cancelled (e.g. worker.interrupt) before the process
+            # finished. Terminate and unregister it so the child, its
+            # reader/writer threads, and the wait_task thread don't outlive the
+            # interrupted turn.
+            success, _, _ = BackgroundCommandManager.stop_background_command(command_key)
+            if not success:
+                cls._terminate_process(process)
+
+            raise
         finally:
             interrupt_task.cancel()
             timeout_task.cancel()
 
-            if wait_task.done() and not wait_task.cancelled():
+            if not wait_task.done() and process.returncode is not None:
+                # The process was terminated (interrupt/cancel) but wait_task
+                # is still pending; cancel the await. The blocked executor
+                # thread is freed once the process exits.
+                wait_task.cancel()
+            elif wait_task.done() and not wait_task.cancelled():
                 # Retrieve any exception to avoid "task exception was never
                 # retrieved" warnings. On timeout the process continues in the
                 # background, so wait_task may legitimately still be pending.
@@ -525,8 +576,8 @@ class Tool(BaseTool):
 
         # Format the output for the result message
         output_content = combined_output or ""
-        output_limit = coder.large_file_token_threshold
-        if coder.context_management_enabled and len(output_content) > output_limit * 1.25:
+        output_limit = cls._page_size(coder)
+        if coder.context_management_enabled and len(output_content) > output_limit:
             # Generate a unique key for file naming
             fg_key = BackgroundCommandManager._generate_command_key(command_string)
             # Save full output to paginated files instead of truncating
@@ -663,6 +714,84 @@ class Tool(BaseTool):
         return response
 
     @classmethod
+    def _requires_user_input(cls, command_string):
+        """Return True if command matches a known interactive-input pattern."""
+        if not command_string:
+            return False
+
+        return any(
+            re.search(pattern, command_string, re.IGNORECASE)
+            for pattern in INTERACTIVE_COMMAND_PATTERNS
+        )
+
+    @classmethod
+    def _page_size(cls, coder):
+        """Characters per output page (~3.5 characters per LLM token)."""
+        return max(1, int(getattr(coder, "large_file_token_threshold", 8192) * 3.5))
+
+    @classmethod
+    def _paging_config(cls, coder, command_string):
+        """Return (command_key, page_size, pages_dir) when output paging is enabled."""
+        if not getattr(coder, "context_management_enabled", False):
+            return None, None, None
+
+        page_size = cls._page_size(coder)
+        command_key = BackgroundCommandManager._generate_command_key(command_string)
+        pages_dir = coder.abs_root_path(coder.local_agent_folder(command_key))
+
+        return command_key, page_size, pages_dir
+
+    @classmethod
+    async def _tail_background_command(cls, coder, command_key):
+        """Return the latest in-memory output and page roster for a background command."""
+        command_info = BackgroundCommandManager.list_background_commands()
+        info = command_info.get(command_key)
+
+        response = ToolResponse(cls.NORM_NAME)
+        if not info:
+            response.append_error(f"Background command {command_key} not found.")
+            return response
+
+        status = "running" if info.get("running", False) else "finished"
+        output = BackgroundCommandManager.get_new_command_output(command_key)
+        pages = info.get("pages", 0)
+
+        lines = [
+            f"Background command {command_key} [{status}]: {info.get('command', command_key)}",
+            f"Output so far: {info.get('total_chars', 0):,} chars",
+        ]
+        if pages:
+            lines.append(f"Paged output: pages 1-{pages}. Read with ResourceManager paging.")
+            lines.append(f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}')
+
+        if output.strip():
+            lines.append("New output since last read:")
+            lines.append(output)
+        else:
+            lines.append("No new output since last read.")
+
+        response.append_result("\n".join(lines))
+
+        return response
+
+    @staticmethod
+    def _pages_notice(command_key, page_count):
+        """Guidance for reading command output that has been paged to disk."""
+        if not page_count:
+            return ""
+
+        return (
+            f"[Output paged to disk: {page_count} page(s).]\n"
+            f"Command key: {command_key}\n"
+            f"Pages: 1-{page_count}\n"
+            "Use `ResourceManager` to view up to 3 pages at a time:\n"
+            f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
+            "Change the page number to read other pages (maximum 3 entries). "
+            "Do not use add, read_only, or standard CLI tools to view command output "
+            "files. Pages are returned directly, not added to file context."
+        )
+
+    @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
         """Format output for Command tool."""
         color_start, color_end = color_markers(coder)
@@ -730,3 +859,28 @@ class Tool(BaseTool):
 
         # Output footer
         tool_footer(coder=coder, tool_response=tool_response, params=params)
+
+    @classmethod
+    def _terminate_process(cls, process):
+        """Terminate a foreground command process, killing it if it lingers.
+
+        Best-effort and never raises, so an interrupt handler can call it while
+        unwinding without masking the original exception.
+        """
+        import subprocess
+
+        try:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return
+
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+        except Exception:
+            pass

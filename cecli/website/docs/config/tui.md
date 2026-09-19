@@ -54,7 +54,9 @@ tui-config:
     completion: "tab"
     stop: "escape"
     editor: "ctrl+o"
-    history: "ctrl+r"
+    history: "alt+shift+h"
+    voice: "ctrl+r"
+    paste: "alt+v"
     cycle_forward: "tab"
     cycle_backward: "shift+tab"
     input_start: "ctrl+home"
@@ -82,7 +84,9 @@ The TUI provides customizable key bindings for all major actions. The default ke
 | Cancel | `ctrl+c` | Stop and stash current input prompt |
 | Stop | `escape` | Interrupt the current LLM response or task |
 | Editor | `ctrl+o` | Open up default terminal text editor for input | 
-| Search History | `ctrl+r` | Search through history for previous commands (requires fzf to be installed) | 
+| Search History | `alt+shift+h` | Search through history for previous commands (requires fzf to be installed) | 
+| Voice | `ctrl+r` | Record and transcribe voice input (dictation) into the chat |
+| Paste Clipboard | `alt+v` | Paste image or text from the system clipboard into the chat |
 | Cycle Forward | `tab` | Cycle forward through completion suggestions |
 | Cycle Backward | `shift+tab` | Cycle backward through completion suggestions |
 | Input Start | `ctrl+home` | Move cursor to start of first line |

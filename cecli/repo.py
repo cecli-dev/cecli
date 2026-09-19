@@ -42,6 +42,11 @@ ANY_GIT_ERROR = tuple(ANY_GIT_ERROR)
 
 git.Git.USE_SHELL = False
 
+# A malformed git tree can make ``next(iterator)`` raise IndexError without
+# advancing. Cap the retries so traversal cannot spin forever while holding
+# ``_git_lock``, which would wedge every other git operation.
+MAX_TREE_INDEX_ERRORS = 3
+
 
 @contextlib.contextmanager
 def set_git_env(var_name, value, original_value):
@@ -559,23 +564,28 @@ class GitRepo:
                 else:
                     try:
                         iterator = commit.tree.traverse()
-                        blob = None  # Initialize blob
+                        index_errors = 0
                         while True:
                             try:
                                 blob = next(iterator)
+                            except StopIteration:
+                                break
+                            except IndexError:
+                                # next() cannot advance past the entry that
+                                # raised, so retrying would spin forever while
+                                # holding _git_lock. Give up after a few tries.
+                                index_errors += 1
+                                if index_errors > MAX_TREE_INDEX_ERRORS:
+                                    self.io.tool_warning(
+                                        "GitRepo: Index error encountered while reading git tree"
+                                        " object. Skipping remaining entries."
+                                    )
+                                    break
+                                continue
+                            else:
                                 if blob.type == "blob":  # blob is a file
                                     # Use sys.intern() to deduplicate path strings in memory
                                     files.add(sys.intern(blob.path))
-                            except IndexError:
-                                # Handle potential index error during tree traversal
-                                # without relying on potentially unassigned 'blob'
-                                self.io.tool_warning(
-                                    "GitRepo: Index error encountered while reading git tree object."
-                                    " Skipping."
-                                )
-                                continue
-                            except StopIteration:
-                                break
                     except ANY_GIT_ERROR as err:
                         self.git_repo_error = err
                         self.io.tool_error(f"Unable to list files in git repo: {err}")
@@ -964,7 +974,9 @@ class GitRepoProxy:
     def __init__(self, target):
         self._target = target
         self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="git-repo"
+            max_workers=1,
+            thread_name_prefix="git-repo",
+            initializer=_mark_git_executor_thread,
         )
 
     _instances: dict[str, "GitRepoProxy"] = {}
@@ -1048,8 +1060,21 @@ class GitRepoProxy:
 
     def __del__(self):
         try:
-            if hasattr(self, "_target") and self._target is not None:
+            if not (hasattr(self, "_target") and self._target is not None):
+                return
+
+            # Finalization can run on the executor thread itself (e.g. when
+            # garbage collection happens inside a git call). Submitting would
+            # make the single worker wait on itself, so tear down inline there.
+            if getattr(_git_executor_thread, "active", False):
+                self._target.__del__()
+                return
+
+            try:
                 self._executor.submit(self._target.__del__).result(timeout=5)
+            except RuntimeError:
+                # Executor already shut down: no worker will pick this up.
+                self._target.__del__()
         except Exception:
             pass
 
@@ -1129,3 +1154,13 @@ class GitRepoProxy:
             super().__setattr__(name, value)
         else:
             setattr(self._target, name, value)
+
+
+# Marks worker threads created by a ``GitRepoProxy`` executor. Re-entrant work
+# (e.g. a finalizer running during garbage collection on the executor thread)
+# must run inline: resubmitting to the single-worker pool would deadlock.
+_git_executor_thread = threading.local()
+
+
+def _mark_git_executor_thread():
+    _git_executor_thread.active = True

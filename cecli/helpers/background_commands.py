@@ -106,6 +106,110 @@ class CircularBuffer:
             return len(self.buffer)
 
 
+class PagedOutputBuffer:
+    """
+    Thread-safe output window that spills full pages to disk.
+
+    Output accumulates in memory until it reaches ``page_size`` characters.
+    Full pages are written to ``pages_dir`` as ``{n}.txt`` and dropped from
+    memory, so the in-memory window never grows beyond ``page_size``. Unlike
+    ``CircularBuffer``, ``total_added`` is a monotonic stream offset that is
+    never reset, so incremental readers can resume after content has been
+    flushed; anything older than the in-memory window lives on disk.
+    """
+
+    def __init__(self, page_size: int = 4096, pages_dir: Optional[str] = None):
+        self.page_size = max(1, int(page_size))
+        self.pages_dir = pages_dir
+        self.buffer = deque()
+        self.lock = threading.Lock()
+        self.total_added = 0
+        self.window_start = 0
+        self.page_count = 0
+
+    def append(self, text: str) -> None:
+        """Append text, spilling full pages to disk once the window fills."""
+        if not text:
+            return
+
+        with self.lock:
+            self.buffer.extend(text)
+            self.total_added += len(text)
+
+            if self.total_added - self.window_start >= self.page_size:
+                self._spill_locked()
+
+    def get_all(self, clear: bool = False) -> str:
+        """Return the in-memory window (content not yet flushed to disk)."""
+        with self.lock:
+            result = "".join(self.buffer)
+
+            if clear:
+                self.buffer.clear()
+                self.window_start = self.total_added
+
+            return result
+
+    def get_new_output(self, last_read_position: int) -> Tuple[str, int]:
+        """Return window content past ``last_read_position`` and the new offset.
+
+        Content older than the window has already been paged to disk, so the
+        read position is clamped forward to the window start rather than
+        replaying bytes that are only available as pages.
+        """
+        with self.lock:
+            if last_read_position >= self.total_added:
+                return "", self.total_added
+
+            start = max(last_read_position, self.window_start)
+            new_output = "".join(self.buffer)[start - self.window_start :]
+
+            return new_output, self.total_added
+
+    def clear(self) -> None:
+        """Drop the in-memory window; flushed pages are unaffected."""
+        with self.lock:
+            self.buffer.clear()
+            self.window_start = self.total_added
+
+    def size(self) -> int:
+        """Get current buffer size in characters."""
+        with self.lock:
+            return len(self.buffer)
+
+    def _spill_locked(self) -> None:
+        content = "".join(self.buffer)
+
+        if not self.pages_dir:
+            # Without a page directory, retain only the newest page in memory.
+            if len(content) > self.page_size:
+                dropped = len(content) - self.page_size
+                content = content[dropped:]
+                self.window_start += dropped
+                self.buffer = deque(content)
+
+            return
+
+        while len(content) >= self.page_size:
+            page = content[: self.page_size]
+            content = content[self.page_size :]
+            self.page_count += 1
+            self._write_page_locked(self.page_count, page)
+            self.window_start += self.page_size
+
+        self.buffer = deque(content)
+
+    def _write_page_locked(self, page_number: int, content: str) -> None:
+        os.makedirs(self.pages_dir, exist_ok=True)
+        abs_path = os.path.join(self.pages_dir, f"{page_number}.txt")
+        tmp_path = f"{abs_path}.tmp"
+
+        with safe_open(tmp_path, "w") as page_file:
+            page_file.write(content)
+
+        os.replace(tmp_path, abs_path)
+
+
 class InputBuffer:
     """
     Thread-safe buffer for queuing input to be sent to a process.
@@ -442,6 +546,9 @@ class BackgroundCommandManager:
         existing_input_buffer: Optional[InputBuffer] = None,
         use_pty: bool = False,
         master_fd: Optional[int] = None,
+        command_key: Optional[str] = None,
+        page_size: Optional[int] = None,
+        pages_dir: Optional[str] = None,
     ) -> str:
         """
         Start a command in background.
@@ -452,15 +559,23 @@ class BackgroundCommandManager:
             cwd: Working directory for command
             max_buffer_size: Maximum buffer size for output
             existing_process: Optional existing subprocess.Popen to register
-            existing_buffer: Optional existing CircularBuffer to use
+            existing_buffer: Optional existing buffer to use (CircularBuffer or PagedOutputBuffer)
             persist: If True, output buffer won't be cleared when read
+            command_key: Optional pre-generated command key; generated when omitted
+            page_size: Characters per page when paging output to disk
+            pages_dir: Directory where full output pages are written
 
         Returns:
             Command key for future reference
         """
         try:
-            # Use existing buffer or create new one
-            buffer = existing_buffer or CircularBuffer(max_size=max_buffer_size)
+            # Use existing buffer or create a paged/circular one
+            if existing_buffer is not None:
+                buffer = existing_buffer
+            elif page_size and pages_dir:
+                buffer = PagedOutputBuffer(page_size=page_size, pages_dir=pages_dir)
+            else:
+                buffer = CircularBuffer(max_size=max_buffer_size)
 
             # Use existing process or start new one
             # Use provided master_fd (e.g., from _execute_with_timeout) or default to None
@@ -523,7 +638,7 @@ class BackgroundCommandManager:
             )
 
             # Generate unique key and store
-            command_key = cls._generate_command_key(command)
+            command_key = command_key or cls._generate_command_key(command)
 
             with cls._lock:
                 cls._background_commands[command_key] = bg_process
@@ -691,6 +806,10 @@ class BackgroundCommandManager:
                     "command": bg_process.command,
                     "running": bg_process.is_alive(),
                     "buffer_size": bg_process.buffer.size(),
+                    "pages": getattr(bg_process.buffer, "page_count", 0),
+                    "total_chars": getattr(
+                        bg_process.buffer, "total_added", bg_process.buffer.size()
+                    ),
                     "start_time": bg_process.start_time,
                     "end_time": bg_process.end_time,
                     "duration": (

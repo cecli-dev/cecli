@@ -30,6 +30,37 @@ mcp-servers:
       keepalive_interval: 60 # Send a heartbeat every 60 seconds
 ```
 
+### Request Timeout
+
+`timeout`: (Optional) The per-request timeout in **seconds** for a server's connection handshake and subsequent requests. This keeps a server that accepts a connection but never responds from blocking cecli indefinitely at startup.
+
+- `timeout`: (Optional) A positive number of seconds.
+  - If not provided, it defaults to **120** seconds (2 minutes) — generous enough for slow first-run bootstraps while still bounding a server that never responds.
+  - It bounds the `initialize` handshake, the initial tool listing (`list_tools`), and later requests made on that server's session.
+
+A server that stays silent past its timeout is marked as failed to connect (it is retried up to **3** times) instead of hanging cecli, so increase `timeout` for servers that legitimately take a while to start — for example a first-run `uvx`/`npx` download or a Docker image pull.
+
+Example with a longer timeout:
+
+```yaml
+mcp-servers:
+  mcpServers:
+    serena:
+      transport: stdio
+      command: uvx
+      args: [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide",
+        "--project",
+        "/path/to/project"
+      ]
+      timeout: 300 # Allow extra time for a first-run build
+```
+
 You have two ways of sharing your MCP server configuration with cecli.
 
 

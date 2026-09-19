@@ -1999,7 +1999,13 @@ class Coder(metaclass=UsageMeta):
             if self.commands.is_run_command(inp):
                 self.commands.cmd_running_event.clear()  # Command is running
 
-            return await self.commands.run(inp, coder=self, **run_kwargs)
+            try:
+                return await self.commands.run(inp, coder=self, **run_kwargs)
+            finally:
+                # Dispatch can return early (unknown/ambiguous command) or
+                # raise without ever running a command; the gate must still be
+                # reopened or the input/output loops park forever.
+                self.commands.cmd_running_event.set()
 
         await self.check_for_file_mentions(inp)
         inp = await self.check_for_urls(inp)

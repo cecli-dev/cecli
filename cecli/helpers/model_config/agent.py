@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from .identifiers import is_anthropic
+from .identifiers import is_anthropic, is_github_copilot
 from .utils import supports_reasoning
 
 
@@ -67,7 +67,14 @@ def derive_agent_config(provider: Optional[str], route: str, record: Optional[Di
         "uses_messages_api": uses_messages_api,
     }
 
-    if reasoning or record.get("supports_adaptive_thinking"):
+    if (
+        reasoning
+        or record.get("supports_adaptive_thinking")
+        or is_github_copilot(provider, route, record)
+    ):
+        # Reasoning, adaptive and GitHub Copilot models do not take an explicit
+        # sampling temperature; omit the parameter entirely rather than sending
+        # the generic default of 0.
         agent["use_temperature"] = False
 
     return agent

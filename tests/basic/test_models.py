@@ -512,6 +512,18 @@ class TestModels:
         assert model.use_temperature == 0.7
 
     @patch("cecli.models.litellm.acompletion")
+    async def test_use_temperature_false_omits_temperature(self, mock_completion):
+        model = Model("github/o1-mini")
+        model.extra_params = {}
+        messages = [{"role": "user", "content": "Hello"}]
+
+        await model.send_completion(
+            messages, functions=None, stream=False, override_kwargs={"temperature": 0}
+        )
+
+        assert "temperature" not in mock_completion.call_args.kwargs
+
+    @patch("cecli.models.litellm.acompletion")
     async def test_request_timeout_default(self, mock_completion):
         model = Model("gpt-4")
         model.extra_params = {}

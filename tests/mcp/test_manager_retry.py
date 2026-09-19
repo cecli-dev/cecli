@@ -15,6 +15,7 @@ Test categories:
 """
 
 import asyncio
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -323,15 +324,56 @@ async def test_connect_server_propagates_cancelled_error_during_retry(mock_serve
 
 
 @pytest.mark.asyncio
-async def test_connect_server_propagates_cancelled_error_during_connect(mock_server, mock_io):
-    """TC-008: connect_server re-raises CancelledError when server.connect() raises it."""
+async def test_connect_server_treats_transport_cancellation_as_failure(mock_server, mock_io):
+    """TC-008: a transport-level CancelledError is a failed attempt, not a propagated cancel.
+
+    MCP's streamable-HTTP transport surfaces an unreachable server as
+    CancelledError from its anyio TaskGroup; it must not abort startup or the
+    caller, so it is retried and reported like any other connection failure.
+    """
     manager = McpServerManager(servers=[mock_server], io=mock_io)
     mock_server.connect.side_effect = asyncio.CancelledError()
 
-    with pytest.raises(asyncio.CancelledError):
-        await manager.connect_server("test-server")
+    with patch("asyncio.sleep"):
+        result = await manager.connect_server("test-server")
 
-    assert mock_server.connect.call_count == 1
+    assert result is False
+    assert mock_server.connect.call_count == 3
+    assert mock_io.tool_error.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TC-008b: connect_server propagates cancellation of the calling task
+# ---------------------------------------------------------------------------
+
+
+# Python 3.10 cannot tell a real cancellation from a transport-level one: it has no
+# Task.cancelling(), _must_cancel is already cleared when the handler runs, and the
+# traceback loses the origin frame. task_is_cancelling() therefore reports False
+# there, so this propagation guarantee only holds on 3.11+.
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="Task.cancelling() is required to distinguish a real cancel from a transport cancel",
+)
+@pytest.mark.asyncio
+async def test_connect_server_propagates_genuine_cancellation(mock_server, mock_io):
+    """TC-008b: cancelling the calling task still propagates out of connect_server."""
+    manager = McpServerManager(servers=[mock_server], io=mock_io)
+
+    started = asyncio.Event()
+
+    async def _slow_connect():
+        started.set()
+        await asyncio.sleep(3600)
+
+    mock_server.connect.side_effect = _slow_connect
+    task = asyncio.create_task(manager.connect_server("test-server"))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
     mock_io.tool_error.assert_not_called()
 
 

@@ -284,9 +284,9 @@ async def test_command_large_output_guidance_uses_paging_array(
     manager = command.BackgroundCommandManager
     target = "bg_1_1234"
     output = "large command output\n" * 50
+    monkeypatch.setattr(manager, "_generate_command_key", Mock(return_value=target))
     save = Mock(return_value=("pages", ["1.txt", "2.txt"], ["command_key::old/1.txt"]))
     monkeypatch.setattr(manager, "save_paginated_output", save)
-    monkeypatch.setattr(manager, "_generate_command_key", Mock(return_value=target))
 
     if execution_path == "foreground":
         monkeypatch.setattr(command, "run_cmd_subprocess", Mock(return_value=(0, output)))
@@ -297,9 +297,15 @@ async def test_command_large_output_guidance_uses_paging_array(
         monkeypatch.setattr("subprocess.Popen", Mock(return_value=process))
         monkeypatch.setattr(manager, "start_background_command", Mock(return_value=target))
         monkeypatch.setattr(manager, "stop_background_command", Mock())
-        buffer = Mock()
-        buffer.get_all.return_value = output
-        monkeypatch.setattr(background_commands, "CircularBuffer", Mock(return_value=buffer))
+
+        real_buffer_cls = background_commands.PagedOutputBuffer
+
+        def make_buffer(page_size=4096, pages_dir=None):
+            buffer = real_buffer_cls(page_size=page_size, pages_dir=pages_dir)
+            buffer.append(output)
+            return buffer
+
+        monkeypatch.setattr(background_commands, "PagedOutputBuffer", make_buffer)
         response = await command.Tool._execute_with_timeout(coder, "echo test", 30, use_pty=False)
 
     result = response.to_dict()
@@ -310,6 +316,10 @@ async def test_command_large_output_guidance_uses_paging_array(
     assert "ResourceManager" in content
     assert "command_key::" not in content
     assert "not added to file context" in content
-    save.assert_called_once()
-    assert save.call_args.kwargs["output"] == output
-    assert save.call_args.kwargs["command_key"] == target
+
+    if execution_path == "foreground":
+        save.assert_called_once()
+        assert save.call_args.kwargs["output"] == output
+        assert save.call_args.kwargs["command_key"] == target
+    else:
+        save.assert_not_called()

@@ -49,8 +49,10 @@ def _install_stubs():
 _install_stubs()
 
 from cecli.helpers.background_commands import (  # noqa: E402
+    BackgroundCommandManager,
     BackgroundProcess,
     CircularBuffer,
+    PagedOutputBuffer,
 )
 
 
@@ -235,3 +237,168 @@ def test_background_process_basic():
     success, output, exit_code = bg_process.stop()
     assert success is True
     assert exit_code == -1  # terminate() sets returncode to -1 in MockProcess
+
+
+def test_paged_output_buffer_spills_pages_to_disk(tmp_path):
+    """Full pages are flushed to disk and dropped from the in-memory window."""
+    buffer = PagedOutputBuffer(page_size=5, pages_dir=str(tmp_path / "pages"))
+
+    buffer.append("abc")
+    assert buffer.get_all() == "abc"
+    assert buffer.page_count == 0
+
+    buffer.append("de")
+    assert buffer.page_count == 1
+    assert buffer.get_all() == ""
+    assert buffer.total_added == 5
+    assert (tmp_path / "pages" / "1.txt").read_text(encoding="utf-8") == "abcde"
+
+    buffer.append("fgh")
+    assert buffer.page_count == 1
+    assert buffer.get_all() == "fgh"
+
+    buffer.append("ij")
+    assert buffer.page_count == 2
+    assert buffer.get_all() == ""
+    assert (tmp_path / "pages" / "2.txt").read_text(encoding="utf-8") == "fghij"
+
+    # Atomic writes leave no temporary files behind
+    assert not list((tmp_path / "pages").glob("*.tmp"))
+
+
+def test_paged_output_buffer_incremental_reads_clamp_to_window(tmp_path):
+    """Readers resume monotonically; already-paged content is not replayed."""
+    buffer = PagedOutputBuffer(page_size=4, pages_dir=str(tmp_path / "p"))
+
+    assert buffer.get_new_output(0) == ("", 0)
+
+    buffer.append("abcd")
+    assert buffer.get_new_output(0) == ("", 4)
+
+    buffer.append("ef")
+    assert buffer.get_new_output(4) == ("ef", 6)
+    assert buffer.get_new_output(6) == ("", 6)
+
+
+def test_paged_output_buffer_without_pages_dir_is_bounded():
+    """With no page directory the window simply keeps the newest page."""
+    buffer = PagedOutputBuffer(page_size=5, pages_dir=None)
+
+    buffer.append("abcdefgh")
+
+    assert buffer.get_all() == "defgh"
+    assert buffer.page_count == 0
+
+
+def test_tail_background_command_reports_output_and_pages(monkeypatch):
+    """The tail action reports status, page roster, and new output."""
+    import asyncio
+
+    from cecli.tools.command import Tool as CommandTool
+
+    monkeypatch.setattr(
+        BackgroundCommandManager,
+        "list_background_commands",
+        lambda: {
+            "bg_1_1234": {
+                "command": "pytest -q",
+                "running": True,
+                "pages": 3,
+                "total_chars": 42,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        BackgroundCommandManager, "get_new_command_output", lambda key: "new line\n"
+    )
+
+    response = asyncio.run(CommandTool._tail_background_command(object(), "bg_1_1234"))
+    content = response.to_dict()["result"][0]["content"]
+
+    assert "bg_1_1234" in content
+    assert "running" in content
+    assert "pages 1-3" in content
+    assert '{"paging": [{"target": "bg_1_1234", "page": 1}]}' in content
+    assert "new line" in content
+
+
+def test_tail_background_command_missing_key(monkeypatch):
+    import asyncio
+
+    from cecli.tools.command import Tool as CommandTool
+
+    monkeypatch.setattr(BackgroundCommandManager, "list_background_commands", lambda: {})
+
+    response = asyncio.run(CommandTool._tail_background_command(object(), "bg_9_9999"))
+
+    assert response.to_dict()["errors"]
+
+
+def test_get_background_command_output_roster_incremental_and_pages(monkeypatch):
+    """Injection lists a stable roster, new output, and page guidance."""
+    from cecli.coders.agent_coder import AgentCoder
+
+    monkeypatch.setattr(
+        BackgroundCommandManager,
+        "list_background_commands",
+        lambda: {
+            "bg_1_1234": {
+                "command": "pytest -q",
+                "running": True,
+                "pages": 2,
+                "total_chars": 100,
+            },
+            "bg_2_5678": {
+                "command": "npm run build",
+                "running": True,
+                "pages": 0,
+                "total_chars": 12,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        BackgroundCommandManager,
+        "get_new_command_output",
+        lambda key: f"out-{key}\n",
+    )
+    stopped = []
+    monkeypatch.setattr(
+        BackgroundCommandManager, "stop_background_command", lambda key: stopped.append(key)
+    )
+
+    output = AgentCoder.get_background_command_output(object())
+
+    assert "bg_1_1234" in output
+    assert "pages 1-2" in output
+    assert "no pages yet" in output
+    assert "out-bg_1_1234" in output
+    assert '{"paging": [{"target": "bg_1_1234", "page": 1}]}' in output
+    assert stopped == []
+
+
+def test_get_background_command_output_stops_finished_commands(monkeypatch):
+    """Finished commands are reported once and then removed from tracking."""
+    from cecli.coders.agent_coder import AgentCoder
+
+    monkeypatch.setattr(
+        BackgroundCommandManager,
+        "list_background_commands",
+        lambda: {
+            "bg_3_0001": {
+                "command": "true",
+                "running": False,
+                "pages": 0,
+                "total_chars": 0,
+            }
+        },
+    )
+    monkeypatch.setattr(BackgroundCommandManager, "get_new_command_output", lambda key: "")
+    stopped = []
+    monkeypatch.setattr(
+        BackgroundCommandManager, "stop_background_command", lambda key: stopped.append(key)
+    )
+
+    output = AgentCoder.get_background_command_output(object())
+
+    assert "finished" in output
+    assert stopped == ["bg_3_0001"]

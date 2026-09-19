@@ -2,14 +2,21 @@
 
 import asyncio
 import logging
+import os
 import sys
 import threading
+import time
+import traceback
 import warnings
 from typing import Optional
 
 from cecli.coders import Coder
 from cecli.commands import ReloadProgramSignal, SwitchCoderSignal
 from cecli.helpers.conversation import ConversationService, MessageTag
+from cecli.helpers.coroutines import (
+    cancel_and_abandon,
+    task_is_cancelling,
+)
 
 logger = logging.getLogger(__name__)
 # Suppress asyncio task destroyed warnings during shutdown
@@ -19,9 +26,17 @@ logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 warnings.filterwarnings("ignore", message=".*Task was destroyed.*")
 warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*")
 
+CRASH_LOG_DIR = ".cecli/logs"
+CRASH_LOG_PATH = os.path.join(CRASH_LOG_DIR, "worker-crash.log")
+
 
 class CoderWorker:
     """Runs Coder in a background thread with its own event loop."""
+
+    # A KeyboardInterrupt raised inside a child task is re-raised out of the
+    # event loop by asyncio; give the loop a few chances to settle back into
+    # waiting for input before treating the repeated interrupt as a crash.
+    MAX_CONSECUTIVE_INTERRUPTS = 5
 
     def __init__(self, coder, output_queue, input_queue):
         """Initialize worker with coder instance and communication queues.
@@ -58,12 +73,42 @@ class CoderWorker:
 
         queues.set_input_loop(self.loop)
 
+        self._register_async_dump()
+
+        consecutive_interrupts = 0
+        run_task = None
         try:
-            self.loop.run_until_complete(self._async_run())
-        except BaseException:
-            # Catch anything that could bring down the thread, and just let it exit.
-            # This includes KeyboardInterrupt, SystemExit, etc.
-            pass
+            while self.running:
+                if run_task is None or run_task.done():
+                    run_task = self.loop.create_task(self._async_run())
+
+                try:
+                    self.loop.run_until_complete(run_task)
+                    break
+                except KeyboardInterrupt as e:
+                    # asyncio re-raises KeyboardInterrupt (and SystemExit) out
+                    # of the event loop when a *child task* raises it, so it
+                    # escapes run_until_complete instead of being caught by the
+                    # coroutine awaiting that task. Treat it as a soft interrupt:
+                    # resume the same task if it is still pending, or let the top
+                    # of the loop start a fresh run loop if it already finished.
+                    self._log_worker_error("KeyboardInterrupt escaped the worker loop", e)
+                    consecutive_interrupts += 1
+                    if consecutive_interrupts > self.MAX_CONSECUTIVE_INTERRUPTS:
+                        logger.error(
+                            "Repeated KeyboardInterrupt escaped the worker loop", exc_info=e
+                        )
+                        self._notify_crash(e)
+                        break
+                    if run_task.done() and not run_task.cancelled():
+                        run_task.exception()
+                    time.sleep(0.05)
+                except BaseException as e:
+                    if not self._is_graceful_shutdown(e):
+                        self._log_worker_error("Coder worker thread stopped unexpectedly", e)
+                        logger.error("Coder worker thread stopped unexpectedly", exc_info=e)
+                        self._notify_crash(e)
+                    break
         finally:
             self._cleanup_loop()
 
@@ -91,14 +136,14 @@ class CoderWorker:
                 for task in pending:
                     task.cancel()
 
-                # Only try to gather if loop isn't stopped
+                # Let the cancelled tasks unwind, but only for a bounded time:
+                # a task that ignores cancellation (see coroutines.interruptible)
+                # must not wedge this thread, which would then never finish.
                 if self.loop.is_running():
                     pass  # Can't do much if loop is still running
                 elif pending:
                     try:
-                        self.loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
+                        self.loop.run_until_complete(cancel_and_abandon(list(pending)))
                     except RuntimeError:
                         pass  # Loop already stopped
                     except KeyboardInterrupt:
@@ -117,6 +162,14 @@ class CoderWorker:
         if mcp_manager is not None:
             try:
                 await mcp_manager.connect_all()
+            except asyncio.CancelledError:
+                # connect_all uses gather; a single transport (e.g. MCP's
+                # streamable-HTTP) can surface an ordinary connection failure
+                # as CancelledError and abort the whole gather. Only propagate
+                # a genuine cancellation of this worker.
+                if task_is_cancelling():
+                    raise
+                logger.warning("MCP connect_all was cancelled by a server transport; continuing")
             except Exception as e:
                 logger.error("Failed to connect MCP servers in worker: %s", e, exc_info=True)
 
@@ -246,17 +299,22 @@ class CoderWorker:
         except Exception:
             pass
 
-        if target_coder and hasattr(target_coder, "io") and target_coder.io:
-            # Cancel the output task if it exists
-            if hasattr(target_coder.io, "output_task") and target_coder.io.output_task:
-                target_coder.io.output_task.cancel()
-                # Also set output_running to False to stop the output_task loop
-                if hasattr(target_coder, "output_running"):
-                    target_coder.output_running = False
+        if not target_coder or not getattr(target_coder, "io", None):
+            return
 
-            # Cancel any tracked generate task on the coder directly
-            if hasattr(target_coder, "interrupt_event") and target_coder.interrupt_event:
-                target_coder.interrupt_event.set()
+        # The output task, output flag, and interrupt event live on the worker
+        # loop, but interrupt() runs on the TUI thread, so marshal the touch
+        # onto that loop instead of mutating loop-bound state directly.
+        loop = self.loop
+        if loop is not None and loop.is_running() and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(self._apply_interrupt, target_coder)
+                return
+            except RuntimeError:
+                pass
+
+        # Loop is stopped or gone; apply directly so a stuck turn still stops.
+        self._apply_interrupt(target_coder)
 
     def stop(self):
         """Stop the worker thread gracefully."""
@@ -285,6 +343,36 @@ class CoderWorker:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
 
+    def _is_graceful_shutdown(self, exc) -> bool:
+        """Return True when a worker-loop exception is an expected shutdown artifact.
+
+        A normal stop() stops the loop, which surfaces from run_until_complete
+        as RuntimeError; a cancellation after running goes False surfaces as
+        CancelledError. Neither is a crash.
+        """
+        return not self.running and isinstance(exc, (asyncio.CancelledError, RuntimeError))
+
+    def _notify_crash(self, exc):
+        """Tell the TUI the worker died so it can surface the error and exit.
+
+        Without this the TUI keeps running with a dead worker and appears hung.
+        The full traceback is included so the failure is actionable instead of a
+        bare ``KeyboardInterrupt()``.
+        """
+        detail = self._format_exception(exc)
+
+        try:
+            self.output_queue.put(
+                {
+                    "type": "error",
+                    "message": f"Worker stopped unexpectedly: {exc!r}\n{detail}",
+                    "coder_uuid": getattr(self.coder, "uuid", None),
+                }
+            )
+            self.output_queue.put({"type": "exit"})
+        except Exception:
+            pass
+
     def _create_event_loop(self):
         """Create the event loop used by the coder worker thread.
 
@@ -300,3 +388,106 @@ class CoderWorker:
             return asyncio.ProactorEventLoop()
 
         return asyncio.new_event_loop()
+
+    def _apply_interrupt(self, target_coder):
+        """Stop the coder's output loop, cancel its output task, and signal its interrupt event.
+
+        Runs on the worker loop (see interrupt) so the loop-bound task and
+        event are only touched from their owning loop.
+        """
+        if hasattr(target_coder, "output_running"):
+            target_coder.output_running = False
+
+        output_task = getattr(target_coder.io, "output_task", None)
+        if output_task:
+            output_task.cancel()
+
+        interrupt_event = getattr(target_coder, "interrupt_event", None)
+        if interrupt_event:
+            interrupt_event.set()
+
+    def _format_exception(self, exc):
+        """Return a readable traceback string for an exception."""
+        if exc is None:
+            return "No exception details available."
+
+        return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+    def _log_worker_error(self, message, exc):
+        """Append a worker error and its traceback to a log file.
+
+        The TUI owns stdout/stderr while it runs, so a traceback printed there
+        is lost as soon as the program exits. Persisting it to disk lets the
+        user report the exact failure.
+        """
+        try:
+            os.makedirs(CRASH_LOG_DIR, exist_ok=True)
+
+            with open(CRASH_LOG_PATH, "a", encoding="utf-8", errors="replace") as f:
+                stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"\n===== {stamp} | {message} =====\n")
+                f.write(self._format_exception(exc))
+                f.write("\n")
+        except Exception:
+            pass
+
+    def _register_async_dump(self):
+        """Register the worker loop for thread dumps when debug tracing is on.
+
+        The thread-dump monitor only runs in debug mode, so skip registration
+        otherwise; a normal run should not stream periodic task dumps to
+        ``.cecli/logs/threads.log``.
+        """
+        if "cecli.helpers.lock_detect" not in sys.modules or not self._thread_dump_enabled():
+            return
+
+        from cecli.helpers import lock_detect
+
+        lock_detect.register_async_loop("worker", self.loop)
+        lock_detect.register_async_state_provider("worker", self._format_async_state)
+
+    def _thread_dump_enabled(self):
+        """Return True when debug tracing that starts the thread monitor is on."""
+        env_override = os.getenv("CECLI_DEBUG_THREAD_LOG", "").lower() in ("1", "true", "yes")
+        env_debug = os.getenv("CECLI_DEBUG", "").lower() in ("1", "true", "yes")
+        args = getattr(getattr(self, "coder", None), "args", None)
+
+        return bool(env_override or env_debug or getattr(args, "debug", False))
+
+    def _format_async_state(self):
+        """Return coder task/flag state for the lock_detect async dump."""
+        from cecli.helpers.background_commands import BackgroundCommandManager
+        from cecli.helpers.coroutines import is_active
+
+        lines = ["\n------------------- CODER STATE -------------------\n"]
+        coder = self.coder
+
+        try:
+            io = getattr(coder, "io", None)
+            lines.append(f"input_task active: {is_active(getattr(io, 'input_task', None))}\n")
+            lines.append(f"output_task active: {is_active(getattr(io, 'output_task', None))}\n")
+            interrupt_event = getattr(coder, "interrupt_event", None)
+            lines.append(
+                f"interrupt_event set: {bool(interrupt_event and interrupt_event.is_set())}\n"
+            )
+            lines.append(f"input_running: {getattr(coder, 'input_running', None)}\n")
+            lines.append(f"output_running: {getattr(coder, 'output_running', None)}\n")
+
+            commands = getattr(coder, "commands", None)
+            lines.append(
+                f"cmd_running_event set: {bool(commands and commands.cmd_running_event.is_set())}\n"
+            )
+            lines.append(f"worker running: {self.running}\n")
+
+            background = BackgroundCommandManager.list_background_commands()
+            if not background:
+                lines.append("  (no background commands)\n")
+
+            for key, info in sorted(background.items()):
+                lines.append(
+                    f"  - {key}: running={info.get('running')} pages={info.get('pages', 0)}\n"
+                )
+        except Exception as e:
+            lines.append(f"<coder state error: {e}>\n")
+
+        return "".join(lines)

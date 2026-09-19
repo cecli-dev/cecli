@@ -652,6 +652,10 @@ class AgentCoder(Coder):
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
         ConversationService.get_chunks(self).add_post_message_context_blocks()
 
+        # Background command output is debounced independently so it is not
+        # re-dumped every turn as its contents mutate slightly
+        ConversationService.get_chunks(self).add_background_command_output()
+
         # Add sub-agent states context block (same priority as post-message blocks)
         ConversationService.get_chunks(self).add_sub_agent_states()
 
@@ -935,7 +939,11 @@ class AgentCoder(Coder):
             lint_coro = self.lint_edited(edited, show_output=False)
             lint_errors, interrupted = await interruptible(lint_coro, self.interrupt_event)
             if interrupted:
-                raise KeyboardInterrupt("Interrupted during linting")
+                # Abort the turn with CancelledError, which the linear run loop
+                # handles by re-prompting for input. KeyboardInterrupt is a
+                # BaseException that would escape the worker's event loop and
+                # leave it unable to accept further prompts.
+                raise asyncio.CancelledError("Interrupted during linting")
 
             has_errors = False
 
@@ -1074,7 +1082,10 @@ class AgentCoder(Coder):
             sleep_coro = asyncio.sleep(command_timeout / 2)
             _res, interrupted = await interruptible(sleep_coro, self.interrupt_event)
             if interrupted:
-                raise KeyboardInterrupt("Interrupted while waiting for background commands")
+                # Use CancelledError (not KeyboardInterrupt) so the interrupt
+                # stays inside the worker loop and re-prompts, matching the
+                # lint interrupt path above.
+                raise asyncio.CancelledError("Interrupted while waiting for background commands")
             return True
 
         # Check for recently finished commands that need reflection
@@ -1845,25 +1856,44 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         """
         Get background command output to append after the main message.
 
-        Returns:
-            String containing formatted background command output, or empty string if none
+        Emits a roster of active commands (keeping command keys in context)
+        plus any new incremental output. Output that has been paged to disk is
+        advertised by command key and read on demand through ``ResourceManager``
+        paging.
         """
-        # Get output from all running background commands
-        bg_outputs = BackgroundCommandManager.get_all_command_outputs(clear=True)
-
-        if not bg_outputs:
-            return ""
-
-        # Get command info to show actual command strings
         command_info = BackgroundCommandManager.list_background_commands()
 
-        # Create formatted output for background commands
+        if not command_info:
+            return ""
+
+        new_outputs = {}
+        for command_key in command_info:
+            output = BackgroundCommandManager.get_new_command_output(command_key)
+            if output.strip():
+                new_outputs[command_key] = output
+
         output = "--- Background Commands Output ---\n"
-        for command_key, cmd_output in bg_outputs.items():
-            if cmd_output.strip():  # Only add if there's output
-                # Get the actual command string if available
-                command_str = command_info.get(command_key, {}).get("command", command_key)
-                output += f"\n[bg: {command_str}]\n{cmd_output}\n"
+        output += "Commands:\n"
+
+        paged_keys = []
+        for command_key, info in sorted(command_info.items()):
+            status = "running" if info.get("running", False) else "finished"
+            pages = info.get("pages", 0)
+            page_note = f"pages 1-{pages}" if pages else "no pages yet"
+            output += (
+                f"- {command_key} [{status}] `{info.get('command', command_key)}`"
+                f" — {info.get('total_chars', 0):,} chars, {page_note}\n"
+            )
+            if pages:
+                paged_keys.append(command_key)
+
+        for command_key, cmd_output in new_outputs.items():
+            output += f"\nNew output ({command_key}):\n{cmd_output}\n"
+
+        if paged_keys:
+            output += "\nPaged output is available via `ResourceManager` (up to 3 pages):\n"
+            for command_key in paged_keys:
+                output += f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
 
         # Clean up stale (finished) background commands after reading their output
         for command_key, info in command_info.items():
@@ -1871,6 +1901,24 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 BackgroundCommandManager.stop_background_command(command_key)
 
         return output
+
+    def get_background_command_state(self):
+        """
+        Return a lightweight status snapshot of tracked background commands.
+
+        Maps each command key to its running state and page count so the
+        injection layer can detect finish and page-flush transitions cheaply
+        without consuming any output.
+        """
+        command_info = BackgroundCommandManager.list_background_commands()
+
+        return {
+            key: {
+                "running": bool(info.get("running", False)),
+                "pages": info.get("pages", 0),
+            }
+            for key, info in command_info.items()
+        }
 
     def get_git_status(self):
         """

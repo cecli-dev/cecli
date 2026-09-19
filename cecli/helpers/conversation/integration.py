@@ -930,7 +930,9 @@ class ConversationChunks:
         """
         Add post-message context blocks to conversation (priority 250).
 
-        Post-message blocks include: tool_context/write_context, background_command_output
+        Post-message blocks include: todo_list, context_summary, tool_context,
+        and write_context. Background command output is injected separately via
+        ``add_background_command_output`` with its own debounce.
         """
         coder = self.get_coder()
         if not coder:
@@ -972,12 +974,6 @@ class ConversationChunks:
                         if write_context:
                             message_blocks["write_context"] = write_context
 
-        # Add background command output if any
-        if hasattr(coder, "get_background_command_output"):
-            bg_output = coder.get_background_command_output()
-            if bg_output:
-                message_blocks["background_command_output"] = bg_output
-
         # Add post-message blocks to conversation manager with stable hash keys
         for block_type, block_content in message_blocks.items():
             ConversationService.get_manager(coder).add_message(
@@ -988,6 +984,56 @@ class ConversationChunks:
                 hash_key=("post_message", block_type),
                 force=True,
             )
+
+    def add_background_command_output(self, frequency=5):
+        """
+        Inject background command output at most once every ``frequency`` turns,
+        except when a command finishes or flushes a new page. Those transitions
+        bypass the debounce so important changes surface immediately.
+
+        Debounced independently from the other post-message blocks: the injected
+        content mutates slightly as commands produce output, so re-adding it
+        every turn would churn the conversation tail without the usual hash-key
+        deduplication catching it.
+        """
+        coder = self.get_coder()
+        if not coder:
+            return
+
+        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
+            return
+
+        if not hasattr(coder, "get_background_command_output"):
+            return
+
+        last_turn = self.message_tracker.get("background_command_output")
+        due = last_turn is None or coder.turn_count - last_turn >= frequency
+
+        previous_state = self.message_tracker.get("background_command_state")
+        state = None
+        if hasattr(coder, "get_background_command_state"):
+            state = coder.get_background_command_state()
+
+        significant = self._has_background_signal(previous_state, state)
+        if state is not None:
+            self.message_tracker["background_command_state"] = state
+
+        if not significant and not due:
+            return
+
+        bg_output = coder.get_background_command_output()
+        if not bg_output:
+            return
+
+        self.message_tracker["background_command_output"] = coder.turn_count
+        ConversationService.get_manager(coder).add_message(
+            message_dict={"role": "user", "content": bg_output},
+            tag=MessageTag.STATIC,
+            priority=DEFAULT_TAG_PRIORITY[MessageTag.REMINDER] + 25,
+            mark_for_delete=0,
+            hash_key=("post_message", "background_command_output"),
+            force=True,
+        )
 
     def add_sub_agent_states(self) -> None:
         """
@@ -1055,6 +1101,26 @@ class ConversationChunks:
         should_send = coder.turn_count - self.message_tracker[message_type] > frequency
 
         return not should_send
+
+    @staticmethod
+    def _has_background_signal(previous, current):
+        """Return True when a command finished or flushed a new page since ``previous``."""
+        if not current or not previous:
+            return False
+
+        for key, info in current.items():
+            prior = previous.get(key)
+
+            if prior is None:
+                return True
+
+            if prior.get("running") and not info.get("running"):
+                return True
+
+            if info.get("pages", 0) > prior.get("pages", 0):
+                return True
+
+        return False
 
     def _cancel_post_message_injections(self, modulus=10):
         coder = self.get_coder()
