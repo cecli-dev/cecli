@@ -571,7 +571,7 @@ class InputOutput:
         """Start the spinner."""
         self.stop_spinner()
 
-        if not self.spinner_active:
+        if not self.spinner_active or self.linear:
             return
 
         if self.prompt_session:

@@ -4,6 +4,8 @@ import inspect
 import re
 from types import SimpleNamespace
 
+import pytest
+
 from cecli.coders import Coder
 from cecli.helpers import command_queue, coroutines
 from cecli.io import InputOutput
@@ -177,3 +179,64 @@ async def test_local_tool_round_trip_is_serialized(tmp_path, gpt35_model, monkey
     assert "path: ." in transcript
     assert "Listed" in transcript
     assert "tool round trip complete" in transcript
+
+
+@pytest.mark.parametrize(
+    "transcript",
+    [
+        "progress\rrewrite",
+        "\x1b[1A",
+        "\x1b[1B",
+        "\x1b[1C",
+        "\x1b[1D",
+        "\x1b[1G",
+        "\x1b[2;3H",
+        "\x1b[4f",
+        "\x1b[2K",
+        "\x1b[J",
+        "\x1b[?2J",
+        "\x1b[?2K",
+        "\x1bM",
+        "\x08",
+        "\x1b7",
+        "\x1b8",
+        "\x1b[s",
+        "\x1b[u",
+        "\x9b2J",
+        "\x1b[?1049h",
+        "\x1b[?1049l",
+        "\x1b[?25;1049h",
+        "\x1b[P",
+        "\x1b[X",
+        "\x1b[L",
+        "\x1b[M",
+        "\x1b[@",
+        "\x1b[I",
+        "\x1b[Z",
+        "\x1b[`",
+        "\x1b[a",
+        "\x1b[d",
+        "\x1b[e",
+    ],
+)
+def test_linear_transcript_rejects_rewrites(transcript):
+    with pytest.raises(AssertionError):
+        assert_linear_transcript(transcript)
+
+
+def test_linear_transcript_allows_sgr_and_crlf():
+    assert_linear_transcript("\x1b[?25l\x1b[31mred\x1b[0m\x1b[?25h\r\n")
+
+
+@pytest.mark.parametrize("prompt_session", [object(), None], ids=["toolbar", "fallback"])
+def test_linear_output_suppresses_dynamic_spinners(prompt_session):
+    io = InputOutput(pretty=False)
+    io.linear = True
+    io.prompt_session = prompt_session
+    try:
+        io.start_spinner("Processing...")
+        assert io.spinner_running is False
+        assert io.fallback_spinner is None
+        assert io.get_bottom_toolbar() is None
+    finally:
+        io.stop_spinner()
