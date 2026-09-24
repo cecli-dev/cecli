@@ -25,6 +25,18 @@ The TUI can be configured directly in the relevant config.json file or with JSON
 tui: true
 ```
 
+### Reduce Motion
+
+Set Textual's native animation level in your shell or `.env` file to keep the
+TUI static while preserving status updates:
+
+```dotenv
+TEXTUAL_ANIMATIONS=none
+```
+
+To hide only the activity spinner, use `--no-spinner` or set `spinner: false`
+in a Cecli configuration file.
+
 ### Complete Configuration Example
 
 The base theme is pretty nice but if you want different colors and key bindings, you can specify them in the configuration files (`~/.cecli/conf.yml` or `.cecli.conf.yml`):
