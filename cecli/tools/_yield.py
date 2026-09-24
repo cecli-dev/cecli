@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from cecli.helpers import coroutines
 from cecli.helpers.threading import ThreadSafeEvent
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError
@@ -242,7 +243,7 @@ class Tool(BaseTool):
                 if agent_service.get_agent_name(coder) != "memorizer":
                     from cecli.helpers.memory.utils import invoke_memorizer
 
-                    asyncio.create_task(
+                    coroutines.fire_and_forget(
                         invoke_memorizer(coder, additional_context=f"Yield summary: {summary}")
                     )
             parent_uuid = coder.parent_uuid

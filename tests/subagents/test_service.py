@@ -703,6 +703,18 @@ class TestCleanupAll:
 
         assert service.coder.uuid not in AgentService._instances
 
+    def test_cleanup_allows_a_new_primary_session(self, service):
+        """A later in-process session must not retain the old primary key."""
+        AgentService._primary_agent_uuid = service.coder.uuid
+        AgentService._instances[service.coder.uuid] = service
+        AgentService._uuid_coder_map[service.coder.uuid] = service.coder
+
+        service.cleanup_all_for_parent()
+        next_coder = MagicMock(uuid="next-parent", parent_uuid="", max_sub_agents=3)
+        next_coder.io = MagicMock()
+
+        assert AgentService.get_instance(next_coder).coder is next_coder
+
 
 # ================================================================== #
 # keep_files metadata
