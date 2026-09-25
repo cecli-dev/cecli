@@ -1774,6 +1774,20 @@ async def graceful_exit(coder=None, exit_code=0):
         if hasattr(coder, "_autosave_future"):
             await coder._autosave_future
 
+        from cecli.helpers import coroutines
+        from cecli.helpers.agents.service import AgentService
+
+        await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
+        agent_service = AgentService.get_instance(coder)
+        agent_tasks = [
+            info.generate_task
+            for info in agent_service.sub_agents.values()
+            if info.generate_task is not None
+        ]
+        await coroutines.cancel_and_abandon(agent_tasks)
+        agent_service.cleanup_all_for_parent()
+        await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
+
         if coder.mcp_manager and coder.mcp_manager.is_connected:
             await coder.mcp_manager.disconnect_all()
     # Cleanup old agent directories

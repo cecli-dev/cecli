@@ -1165,9 +1165,13 @@ class AgentService:
 
     def cleanup_all_for_parent(self) -> None:
         """Clean up all sub-agents when the parent session ends."""
+        parent_uuid = self.coder.uuid
         for uuid in list(self.sub_agents.keys()):
             self._cleanup_sub_agent(uuid)
         # Clean up lock pools to prevent memory leaks
-        self._spawn_locks.pop(self.coder.uuid, None)
-        self._conversation_locks.pop(self.coder.uuid, None)
-        self._instances.pop(self.coder.uuid, None)
+        self._spawn_locks.pop(parent_uuid, None)
+        self._conversation_locks.pop(parent_uuid, None)
+        self._instances.pop(parent_uuid, None)
+        self._uuid_coder_map.pop(parent_uuid, None)
+        if type(self)._primary_agent_uuid == parent_uuid:
+            type(self)._primary_agent_uuid = None
