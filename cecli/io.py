@@ -571,7 +571,7 @@ class InputOutput:
         """Start the spinner."""
         self.stop_spinner()
 
-        if not self.spinner_active:
+        if not self.spinner_active or self.linear:
             return
 
         if self.prompt_session:
@@ -1383,7 +1383,7 @@ class InputOutput:
                     good = any(valid_response.startswith(res) for valid_response in valid_responses)
 
                     if good:
-                        if not acknowledge:
+                        if not acknowledge and not self.linear:
                             self.set_confirmation_acknowledgement()
                         self.start_spinner(self.last_spinner_text)
                         break

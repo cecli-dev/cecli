@@ -2113,6 +2113,7 @@ class Coder(metaclass=UsageMeta):
 
             if item is not None:
                 self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
+                self.io.user_input(item["text"])
                 await self.run_one(item["text"], preproc)
 
         if not await HookIntegration.call_end_hooks(self):
@@ -2356,7 +2357,7 @@ class Coder(metaclass=UsageMeta):
                     if self.auto_memory and self.edit_format not in ["subagent"]:
                         from cecli.helpers.memory.utils import invoke_memorizer
 
-                        asyncio.create_task(invoke_memorizer(self, additional_context=text))
+                        coroutines.fire_and_forget(invoke_memorizer(self, additional_context=text))
 
             await self._rate_limit_sleep()
             if done_tokens > self.context_compaction_max_tokens or done_tokens > cur_tokens:
@@ -3656,6 +3657,8 @@ class Coder(metaclass=UsageMeta):
         if self.partial_response_consolidated:
             response = self.partial_response_consolidated[0]
         elif not self.stream:
+            if not self.partial_response_chunks:
+                return
             response = self.partial_response_chunks[0]
         else:
             response = litellm.stream_chunk_builder(self.partial_response_chunks)
