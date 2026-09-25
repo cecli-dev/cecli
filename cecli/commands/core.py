@@ -101,10 +101,16 @@ class Commands:
     # instance, so each sub-agent's commands manage that sub-agent's own
     # queue.
 
+    def _active_coder(self):
+        """Return the foreground coder, falling back to this command's owner."""
+        from cecli.helpers import command_queue
+
+        return command_queue.get_active_coder(self.coder) or self.coder
+
     @property
     def prompt_queue(self):
-        """Proxy to the owning coder's prompt queue."""
-        coder = self.coder
+        """Proxy to the active coder's prompt queue."""
+        coder = self._active_coder()
         return coder.prompt_queue if coder is not None else []
 
     def _insert_prompt(self, text: str, index: int) -> dict:
@@ -114,34 +120,34 @@ class Commands:
         return command_queue.insert_prompt(self._active_coder(), text, index)
 
     def _enqueue_prompt(self, text: str) -> dict:
-        """Add a prompt to the owning coder's queue."""
+        """Add a prompt to the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.enqueue_prompt(self.coder, text)
+        return command_queue.enqueue_prompt(self._active_coder(), text)
 
     def _dequeue_prompt(self) -> dict | None:
-        """Remove and return the first item from the owning coder's queue."""
+        """Remove and return the first item from the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.dequeue_prompt(self.coder)
+        return command_queue.dequeue_prompt(self._active_coder())
 
     def _get_queue_length(self) -> int:
-        """Return the current number of items in the owning coder's queue."""
+        """Return the current number of items in the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.get_queue_length(self.coder)
+        return command_queue.get_queue_length(self._active_coder())
 
     def _remove_from_queue(self, index: int) -> dict | None:
-        """Remove and return the item at the given index from the owning coder's queue."""
+        """Remove and return the item at the given index from the active coder's queue."""
         from cecli.helpers import command_queue
 
-        return command_queue.remove_from_queue(self.coder, index)
+        return command_queue.remove_from_queue(self._active_coder(), index)
 
     def _clear_queue(self) -> list:
-        """Remove all items from the owning coder's queue and return them."""
+        """Remove all items from the active coder's queue and return them."""
         from cecli.helpers import command_queue
 
-        return command_queue.clear_queue(self.coder)
+        return command_queue.clear_queue(self._active_coder())
 
     def _load_custom_commands(self, custom_commands):
         """

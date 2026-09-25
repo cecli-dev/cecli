@@ -15,7 +15,6 @@ Test categories:
 - TDS-01 through TDS-04: Test data setup and fixtures
 """
 
-import asyncio
 import time
 from unittest.mock import MagicMock
 
@@ -23,6 +22,7 @@ import pytest
 
 # Import the actual classes to test
 from cecli.commands.core import Commands
+from cecli.commands.insert_queue import InsertQueueCommand
 from cecli.commands.list_queue import ListQueueCommand
 from cecli.commands.queue import QueueCommand
 from cecli.commands.remove_queue import RemoveQueueCommand
@@ -38,6 +38,7 @@ def _make_coder():
     import uuid
 
     coder.uuid = str(uuid.uuid4())
+    coder.parent_uuid = None
     coder.prompt_queue = []
     coder._queue_counter = 0
     return coder
@@ -91,7 +92,8 @@ def mock_coder():
 @pytest.fixture
 def clean_commands():
     """Create a fresh Commands instance with empty queue for isolated testing."""
-    return Commands(io=None, coder=_make_coder())
+    coder = _make_coder()
+    yield Commands(io=None, coder=coder)
 
 
 @pytest.fixture
@@ -106,10 +108,11 @@ def populated_queue(clean_commands):
 @pytest.fixture
 def full_queue():
     """Create Commands with queue filled to max capacity (100 items)."""
-    commands = Commands(io=None, coder=_make_coder())
+    coder = _make_coder()
+    commands = Commands(io=None, coder=coder)
     for i in range(100):
         commands._enqueue_prompt(f"prompt_{i}")
-    return commands
+    yield commands
 
 
 @pytest.fixture
@@ -198,8 +201,8 @@ class TestEnqueuePrompt:
         clean_commands._enqueue_prompt("second")
         item = clean_commands._enqueue_prompt("third")
 
-        assert clean_commands._queue_counter == 3
         assert item["id"] == "3"
+        assert clean_commands.coder._queue_counter == 3
 
 
 class TestDequeuePrompt:
@@ -374,6 +377,27 @@ class TestQueueCommand:
         assert "Error" in result or "full" in result.lower()
 
 
+class TestInsertQueueCommand:
+    @pytest.mark.asyncio
+    async def test_insert_targets_foreground_coder(self, mock_io):
+        from cecli.helpers.agents.service import AgentService, SubAgentInfo
+
+        primary = _make_coder()
+        primary.commands = Commands(io=None, coder=primary)
+        foreground = _make_coder()
+        foreground.parent_uuid = primary.uuid
+
+        service = AgentService.get_instance(primary)
+        service.sub_agents[foreground.uuid] = SubAgentInfo("worker", foreground, primary.uuid)
+        service.foreground_uuid = foreground.uuid
+
+        result = await InsertQueueCommand.execute(mock_io, primary, "0 urgent")
+
+        assert result == "Successfully executed insert-queue."
+        assert primary.prompt_queue == []
+        assert [item["text"] for item in foreground.prompt_queue] == ["urgent"]
+
+
 class TestListQueueCommand:
     """Integration tests for ListQueueCommand."""
 
@@ -414,14 +438,13 @@ class TestListQueueCommand:
         assert "Error" in result or "not available" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_itc_10_list_queue_truncates_long_prompts(self, mock_io):
+    async def test_itc_10_list_queue_truncates_long_prompts(self, mock_io, clean_commands):
         """ITC-10: /list-queue truncates prompts longer than display threshold."""
-        commands = Commands(io=None, coder=None)
         long_prompt = "x" * 120
-        commands._enqueue_prompt(long_prompt)
+        clean_commands._enqueue_prompt(long_prompt)
 
         mock_coder = MagicMock()
-        mock_coder.commands = commands
+        mock_coder.commands = clean_commands
         mock_coder.io = mock_io
 
         await ListQueueCommand.execute(mock_io, mock_coder, "")
@@ -553,12 +576,6 @@ class TestQueueLifecycle:
     """E2E tests for full queue lifecycle and processing."""
 
     @pytest.mark.asyncio
-    async def test_etc_01_single_queued_prompt_auto_processes(self, mock_io, populated_queue):
-        """ETC-01: Single queued prompt auto-processes after system becomes idle."""
-        assert hasattr(populated_queue, "_process_queued_prompts")
-        assert callable(populated_queue._process_queued_prompts)
-
-    @pytest.mark.asyncio
     async def test_etc_02_multiple_prompts_fifo_order(self, clean_commands):
         """ETC-02: Multiple queued prompts execute in FIFO order with no reordering."""
         clean_commands._enqueue_prompt("prompt_A")
@@ -583,17 +600,6 @@ class TestQueueLifecycle:
     ):
         """ETC-06: Management commands do not trigger auto-processing of queued items."""
         assert populated_queue._MANAGEMENT_COMMANDS == {"queue", "list-queue", "remove-queue"}
-
-    @pytest.mark.asyncio
-    async def test_etc_05_prevent_infinite_loop(self, clean_commands):
-        """ETC-05: Queued command that queues additional items does not cause infinite loop."""
-        assert hasattr(clean_commands, "_processing_queue")
-        assert clean_commands._processing_queue is False
-
-    @pytest.mark.asyncio
-    async def test_etc_09_error_in_queued_prompt_continues(self, clean_commands):
-        """ETC-09: Exception in queued prompt is logged but doesn't stop later items."""
-        assert hasattr(clean_commands, "_process_queued_prompts")
 
     @pytest.mark.asyncio
     async def test_etc_10_full_lifecycle_sequence(self, mock_io, populated_queue):
@@ -631,9 +637,6 @@ class TestRegression:
         assert hasattr(clean_commands, "last_command_show_notification")
 
         assert hasattr(clean_commands, "prompt_queue")
-        assert hasattr(clean_commands, "_queue_counter")
-        assert hasattr(clean_commands, "_queue_lock")
-        assert hasattr(clean_commands, "_processing_queue")
         assert hasattr(clean_commands, "_MANAGEMENT_COMMANDS")
 
     def test_rtc_03_execute_preserves_existing_flow(self, mock_io, mock_coder):
@@ -653,11 +656,6 @@ class TestRegression:
         assert CommandRegistry.get_command("queue") is QueueCommand
         assert CommandRegistry.get_command("list-queue") is ListQueueCommand
         assert CommandRegistry.get_command("remove-queue") is RemoveQueueCommand
-
-    def test_rtc_05_thread_safety_under_concurrent_access(self, clean_commands):
-        """RTC-05: Simulated concurrent access patterns do not corrupt queue state."""
-        assert hasattr(clean_commands, "_queue_lock")
-        assert isinstance(clean_commands._queue_lock, asyncio.Lock)
 
 
 # ============================================================================
