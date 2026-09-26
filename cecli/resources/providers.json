@@ -322,6 +322,16 @@
     ],
     "display_name": "ollama"
   },
+  "ollama_chat": {
+    "api_base": "http://localhost:11434/v1",
+    "api_key_env": [
+      "OLLAMA_API_KEY"
+    ],
+    "base_url_env": [
+      "OLLAMA_API_BASE"
+    ],
+    "display_name": "ollama_chat"
+  },  
   "opencode-go": {
     "api_base": "https://opencode.ai/zen/go/v1",
     "api_key_env": [
