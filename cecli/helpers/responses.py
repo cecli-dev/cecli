@@ -247,6 +247,10 @@ def extract_tools_from_pseudo_json(content: str) -> Optional[List[ChatCompletion
         return None
 
 
+_tool_name_to_sanitized: dict[str, str] = {}
+_sanitized_to_tool_name: dict[str, str] = {}
+
+
 def sanitize_tool_name(name: str) -> str:
     """Make a name acceptable in OpenAI-style ``tools[].function.name``.
 
@@ -255,22 +259,42 @@ def sanitize_tool_name(name: str) -> str:
     Idempotent, so it is also safe on an incoming tool call before the name is
     compared against, or mapped back to, the server's own name.
     """
-    return re.sub(r"[^A-Za-z0-9_-]", "_", name)[:64]
+    cached = _tool_name_to_sanitized.get(name)
+
+    if cached is not None:
+        return cached
+
+    sanitized = re.sub(r"[^A-Za-z0-9_-]", "_", name)[:64]
+    _tool_name_to_sanitized[name] = sanitized
+
+    return sanitized
 
 
-def original_tool_name(name: str, server_tools) -> str:
-    """Map a sanitized tool name back to the name the MCP server advertises.
+def register_tool_names(server_tools) -> None:
+    """Cache the original/sanitized MCP tool name pairs.
 
-    ``server_tools`` is an iterable of ``(server_name, tools)`` pairs. Returns
-    ``name`` unchanged when nothing matches, so an unsanitized name still
-    reaches the server as-is.
+    ``server_tools`` is an iterable of ``(server_name, tools)`` pairs, i.e. the
+    shape of ``coder.mcp_tools``. Registering when the tool list is built means
+    mapping a call back to the server's advertised name is a dict lookup rather
+    than a scan over every tool on every call.
     """
     for _server_name, tools in server_tools or []:
         for tool in tools:
-            candidate = nested.getter(tool, "function.name", "")
-            if candidate and sanitize_tool_name(candidate) == name:
-                return candidate
-    return name
+            original = nested.getter(tool, "function.name", "")
+
+            if not original:
+                continue
+
+            _sanitized_to_tool_name[sanitize_tool_name(original)] = original
+
+
+def original_tool_name(name: str) -> str:
+    """Map a sanitized tool name back to the name the MCP server advertises.
+
+    Returns ``name`` unchanged when nothing matches, so an unsanitized name
+    still reaches the server as-is.
+    """
+    return _sanitized_to_tool_name.get(name, name)
 
 
 def prefix_tool_name(server_name: str, tool_name: str) -> str:
