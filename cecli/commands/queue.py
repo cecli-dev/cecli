@@ -4,6 +4,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers import command_queue
 
 
 class QueueCommand(BaseCommand):
@@ -55,8 +56,8 @@ class QueueCommand(BaseCommand):
 
         # Happy path: enqueue the prompt
         try:
-            item = coder.commands._enqueue_prompt(prompt_text)
-            position = len(coder.commands.prompt_queue)
+            item = command_queue.enqueue_prompt(coder, prompt_text)
+            position = command_queue.get_queue_length(coder)
             io.tool_output(f"Prompt queued at position {position} (id: {item['id']})")
             return f"Successfully executed {cls.NORM_NAME}."
         except ValueError as e:

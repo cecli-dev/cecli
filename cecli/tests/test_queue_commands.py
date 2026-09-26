@@ -2,20 +2,20 @@
 Test suite for CLI-33 Queue Commands.
 
 This module contains comprehensive tests for:
-- Unit tests: Queue logic in Commands class (core.py)
+- Unit tests: Queue logic in the command_queue helper
 - Integration tests: QueueCommand, ListQueueCommand, RemoveQueueCommand
 - E2E tests: Full queue lifecycle and processing
 - Regression tests: Existing command integrity
 
 Test categories:
-- UTC-01 through UTC-20: Unit tests for queue methods
+- UTC-01 through UTC-20: Unit tests for queue helpers
 - ITC-01 through ITC-20: Integration tests for commands
 - ETC-01 through ETC-10: E2E tests for full lifecycle
 - RTC-01 through RTC-05: Regression tests for existing functionality
 - TDS-01 through TDS-04: Test data setup and fixtures
 """
 
-import asyncio
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -27,6 +27,7 @@ from cecli.commands.list_queue import ListQueueCommand
 from cecli.commands.queue import QueueCommand
 from cecli.commands.remove_queue import RemoveQueueCommand
 from cecli.commands.utils.registry import CommandRegistry
+from cecli.helpers import command_queue
 from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
 
 
@@ -40,6 +41,19 @@ def _make_coder():
     coder.uuid = str(uuid.uuid4())
     coder.prompt_queue = []
     coder._queue_counter = 0
+    coder._queue_lock = None
+    return coder
+
+
+def _make_coder_with_commands(items=()):
+    """Build a coder with an attached Commands instance and an optional
+    pre-populated queue."""
+    coder = _make_coder()
+    coder.commands = Commands(io=None, coder=coder)
+    coder.io = None
+    coder.tui = None
+    for text in items:
+        command_queue.enqueue_prompt(coder, text)
     return coder
 
 
@@ -79,37 +93,35 @@ def mock_io():
 
 @pytest.fixture
 def mock_coder():
-    """Create a mock coder with commands attribute pointing to a Commands instance."""
-    coder = _make_coder()
-    commands = Commands(io=None, coder=coder)
-    coder.commands = commands
-    coder.io = None
-    coder.tui = None
-    return coder
+    """Create a mock coder with an empty queue and an attached Commands instance."""
+    return _make_coder_with_commands()
+
+
+@pytest.fixture
+def clean_coder():
+    """Create a fresh coder with an empty queue for isolated testing."""
+    return _make_coder()
 
 
 @pytest.fixture
 def clean_commands():
-    """Create a fresh Commands instance with empty queue for isolated testing."""
+    """Create a fresh Commands instance for isolated testing."""
     return Commands(io=None, coder=_make_coder())
 
 
 @pytest.fixture
-def populated_queue(clean_commands):
-    """Create Commands with pre-populated queue with known items."""
-    clean_commands._enqueue_prompt("alpha")
-    clean_commands._enqueue_prompt("beta")
-    clean_commands._enqueue_prompt("gamma")
-    return clean_commands
+def populated_queue():
+    """Create a coder whose queue is pre-populated with known items."""
+    return _make_coder_with_commands(("alpha", "beta", "gamma"))
 
 
 @pytest.fixture
 def full_queue():
-    """Create Commands with queue filled to max capacity (100 items)."""
-    commands = Commands(io=None, coder=_make_coder())
+    """Create a coder with a queue filled to max capacity (100 items)."""
+    coder = _make_coder_with_commands()
     for i in range(100):
-        commands._enqueue_prompt(f"prompt_{i}")
-    return commands
+        command_queue.enqueue_prompt(coder, f"prompt_{i}")
+    return coder
 
 
 @pytest.fixture
@@ -128,187 +140,187 @@ def mock_coder_no_commands():
 
 
 class TestEnqueuePrompt:
-    """Unit tests for _enqueue_prompt method."""
+    """Unit tests for command_queue.enqueue_prompt."""
 
-    def test_utc_01_enqueue_single_prompt(self, clean_commands):
+    def test_utc_01_enqueue_single_prompt(self, clean_coder):
         """UTC-01: Enqueue single prompt adds one item with correct structure."""
-        item = clean_commands._enqueue_prompt("test prompt")
+        item = command_queue.enqueue_prompt(clean_coder, "test prompt")
 
-        assert len(clean_commands.prompt_queue) == 1
+        assert len(clean_coder.prompt_queue) == 1
         assert item["text"] == "test prompt"
         assert "id" in item
         assert "timestamp" in item
         assert isinstance(item["id"], str)
         assert isinstance(item["timestamp"], float)
 
-    def test_utc_02_enqueue_multiple_prompts_fifo_order(self, clean_commands):
+    def test_utc_02_enqueue_multiple_prompts_fifo_order(self, clean_coder):
         """UTC-02: Enqueue multiple prompts maintains FIFO order and unique IDs."""
-        item1 = clean_commands._enqueue_prompt("first")
-        item2 = clean_commands._enqueue_prompt("second")
-        item3 = clean_commands._enqueue_prompt("third")
+        item1 = command_queue.enqueue_prompt(clean_coder, "first")
+        item2 = command_queue.enqueue_prompt(clean_coder, "second")
+        item3 = command_queue.enqueue_prompt(clean_coder, "third")
 
-        assert len(clean_commands.prompt_queue) == 3
-        assert clean_commands.prompt_queue[0]["text"] == "first"
-        assert clean_commands.prompt_queue[1]["text"] == "second"
-        assert clean_commands.prompt_queue[2]["text"] == "third"
+        assert len(clean_coder.prompt_queue) == 3
+        assert clean_coder.prompt_queue[0]["text"] == "first"
+        assert clean_coder.prompt_queue[1]["text"] == "second"
+        assert clean_coder.prompt_queue[2]["text"] == "third"
         assert item1["id"] != item2["id"]
         assert item2["id"] != item3["id"]
 
-    def test_utc_13_max_queue_size_rejection(self, clean_commands):
+    def test_utc_13_max_queue_size_rejection(self, clean_coder):
         """UTC-13: Enqueue rejected when queue already contains 100 items."""
         for i in range(100):
-            clean_commands._enqueue_prompt(f"prompt_{i}")
+            command_queue.enqueue_prompt(clean_coder, f"prompt_{i}")
 
         with pytest.raises(RuntimeError, match="Queue is full"):
-            clean_commands._enqueue_prompt("overflow")
+            command_queue.enqueue_prompt(clean_coder, "overflow")
 
-    def test_utc_14_enqueue_empty_string_rejected(self, clean_commands):
+    def test_utc_14_enqueue_empty_string_rejected(self, clean_coder):
         """UTC-14: Enqueue rejects empty string with ValueError."""
         with pytest.raises(ValueError, match="Cannot enqueue empty prompt"):
-            clean_commands._enqueue_prompt("")
+            command_queue.enqueue_prompt(clean_coder, "")
 
-    def test_utc_14_enqueue_none_rejected(self, clean_commands):
+    def test_utc_14_enqueue_none_rejected(self, clean_coder):
         """UTC-14: Enqueue rejects None with ValueError."""
         with pytest.raises(ValueError, match="Cannot enqueue empty prompt"):
-            clean_commands._enqueue_prompt(None)
+            command_queue.enqueue_prompt(clean_coder, None)
 
-    def test_utc_15_enqueue_extremely_long_prompt_rejected(self, clean_commands):
+    def test_utc_15_enqueue_extremely_long_prompt_rejected(self, clean_coder):
         """UTC-15: Enqueue rejects prompt exceeding 10,000 characters."""
         long_prompt = "x" * 10001
         with pytest.raises(ValueError, match="exceeds maximum length"):
-            clean_commands._enqueue_prompt(long_prompt)
+            command_queue.enqueue_prompt(clean_coder, long_prompt)
 
-    def test_utc_16_enqueue_exactly_10000_chars_accepted(self, clean_commands):
+    def test_utc_16_enqueue_exactly_10000_chars_accepted(self, clean_coder):
         """UTC-16: Enqueue accepts prompt of exactly 10,000 characters (boundary)."""
         boundary_prompt = "x" * 10000
-        item = clean_commands._enqueue_prompt(boundary_prompt)
+        item = command_queue.enqueue_prompt(clean_coder, boundary_prompt)
         assert item["text"] == boundary_prompt
-        assert len(clean_commands.prompt_queue) == 1
+        assert len(clean_coder.prompt_queue) == 1
 
-    def test_utc_17_enqueue_9999_chars_accepted(self, clean_commands):
+    def test_utc_17_enqueue_9999_chars_accepted(self, clean_coder):
         """UTC-17: Enqueue accepts prompt of 9,999 characters (boundary)."""
         boundary_prompt = "x" * 9999
-        item = clean_commands._enqueue_prompt(boundary_prompt)
+        item = command_queue.enqueue_prompt(clean_coder, boundary_prompt)
         assert item["text"] == boundary_prompt
-        assert len(clean_commands.prompt_queue) == 1
+        assert len(clean_coder.prompt_queue) == 1
 
-    def test_utc_18_counter_persistence(self, clean_commands):
+    def test_utc_18_counter_persistence(self, clean_coder):
         """UTC-18: Internal counter increments across enqueue/remove cycles without reset."""
-        clean_commands._enqueue_prompt("first")
-        clean_commands._enqueue_prompt("second")
-        item = clean_commands._enqueue_prompt("third")
+        command_queue.enqueue_prompt(clean_coder, "first")
+        command_queue.enqueue_prompt(clean_coder, "second")
+        item = command_queue.enqueue_prompt(clean_coder, "third")
 
-        assert clean_commands._queue_counter == 3
+        assert clean_coder._queue_counter == 3
         assert item["id"] == "3"
 
 
 class TestDequeuePrompt:
-    """Unit tests for _dequeue_prompt method."""
+    """Unit tests for command_queue.dequeue_prompt."""
 
-    def test_utc_03_dequeue_from_empty_queue(self, clean_commands):
+    def test_utc_03_dequeue_from_empty_queue(self, clean_coder):
         """UTC-03: Dequeue from empty queue returns None without side effects."""
-        result = clean_commands._dequeue_prompt()
+        result = command_queue.dequeue_prompt(clean_coder)
         assert result is None
-        assert len(clean_commands.prompt_queue) == 0
+        assert len(clean_coder.prompt_queue) == 0
 
-    def test_utc_04_dequeue_returns_fifo_first_item(self, clean_commands):
+    def test_utc_04_dequeue_returns_fifo_first_item(self, clean_coder):
         """UTC-04: Dequeue returns first item and shrinks queue by one."""
-        clean_commands._enqueue_prompt("first")
-        clean_commands._enqueue_prompt("second")
+        command_queue.enqueue_prompt(clean_coder, "first")
+        command_queue.enqueue_prompt(clean_coder, "second")
 
-        item = clean_commands._dequeue_prompt()
+        item = command_queue.dequeue_prompt(clean_coder)
         assert item["text"] == "first"
-        assert len(clean_commands.prompt_queue) == 1
-        assert clean_commands.prompt_queue[0]["text"] == "second"
+        assert len(clean_coder.prompt_queue) == 1
+        assert clean_coder.prompt_queue[0]["text"] == "second"
 
-    def test_utc_05_dequeue_until_empty(self, clean_commands):
+    def test_utc_05_dequeue_until_empty(self, clean_coder):
         """UTC-05: Repeated dequeue eventually returns None after queue empties."""
-        clean_commands._enqueue_prompt("only_item")
+        command_queue.enqueue_prompt(clean_coder, "only_item")
 
-        item = clean_commands._dequeue_prompt()
+        item = command_queue.dequeue_prompt(clean_coder)
         assert item is not None
         assert item["text"] == "only_item"
 
-        result = clean_commands._dequeue_prompt()
+        result = command_queue.dequeue_prompt(clean_coder)
         assert result is None
 
 
 class TestGetQueueLength:
-    """Unit tests for _get_queue_length method."""
+    """Unit tests for command_queue.get_queue_length."""
 
-    def test_utc_06_queue_length_empty(self, clean_commands):
+    def test_utc_06_queue_length_empty(self, clean_coder):
         """UTC-06: Queue length returns correct count for empty queue."""
-        assert clean_commands._get_queue_length() == 0
+        assert command_queue.get_queue_length(clean_coder) == 0
 
-    def test_utc_07_queue_length_non_empty(self, clean_commands):
+    def test_utc_07_queue_length_non_empty(self, clean_coder):
         """UTC-07: Queue length returns correct count for populated queue."""
-        clean_commands._enqueue_prompt("item1")
-        clean_commands._enqueue_prompt("item2")
-        clean_commands._enqueue_prompt("item3")
+        command_queue.enqueue_prompt(clean_coder, "item1")
+        command_queue.enqueue_prompt(clean_coder, "item2")
+        command_queue.enqueue_prompt(clean_coder, "item3")
 
-        assert clean_commands._get_queue_length() == 3
+        assert command_queue.get_queue_length(clean_coder) == 3
 
 
 class TestRemoveFromQueue:
-    """Unit tests for _remove_from_queue method."""
+    """Unit tests for command_queue.remove_from_queue."""
 
-    def test_utc_08_remove_by_valid_index(self, clean_commands):
+    def test_utc_08_remove_by_valid_index(self, clean_coder):
         """UTC-08: Remove by valid index returns item and shrinks queue by one."""
-        clean_commands._enqueue_prompt("first")
-        clean_commands._enqueue_prompt("second")
-        clean_commands._enqueue_prompt("third")
+        command_queue.enqueue_prompt(clean_coder, "first")
+        command_queue.enqueue_prompt(clean_coder, "second")
+        command_queue.enqueue_prompt(clean_coder, "third")
 
-        item = clean_commands._remove_from_queue(1)
+        item = command_queue.remove_from_queue(clean_coder, 1)
         assert item["text"] == "second"
-        assert len(clean_commands.prompt_queue) == 2
-        assert clean_commands.prompt_queue[0]["text"] == "first"
-        assert clean_commands.prompt_queue[1]["text"] == "third"
+        assert len(clean_coder.prompt_queue) == 2
+        assert clean_coder.prompt_queue[0]["text"] == "first"
+        assert clean_coder.prompt_queue[1]["text"] == "third"
 
-    def test_utc_09_remove_out_of_bounds_high_index(self, clean_commands):
+    def test_utc_09_remove_out_of_bounds_high_index(self, clean_coder):
         """UTC-09: Remove by out-of-bounds high index returns None without mutation."""
-        clean_commands._enqueue_prompt("only_item")
+        command_queue.enqueue_prompt(clean_coder, "only_item")
 
-        result = clean_commands._remove_from_queue(5)
+        result = command_queue.remove_from_queue(clean_coder, 5)
         assert result is None
-        assert len(clean_commands.prompt_queue) == 1
+        assert len(clean_coder.prompt_queue) == 1
 
-    def test_utc_10_remove_negative_index(self, clean_commands):
+    def test_utc_10_remove_negative_index(self, clean_coder):
         """UTC-10: Remove by negative index returns None without mutation."""
-        clean_commands._enqueue_prompt("only_item")
+        command_queue.enqueue_prompt(clean_coder, "only_item")
 
-        result = clean_commands._remove_from_queue(-1)
+        result = command_queue.remove_from_queue(clean_coder, -1)
         assert result is None
-        assert len(clean_commands.prompt_queue) == 1
+        assert len(clean_coder.prompt_queue) == 1
 
 
 class TestClearQueue:
-    """Unit tests for _clear_queue method."""
+    """Unit tests for command_queue.clear_queue."""
 
-    def test_utc_11_clear_queue_with_items(self, clean_commands):
+    def test_utc_11_clear_queue_with_items(self, clean_coder):
         """UTC-11: Clear queue returns all items and empties queue."""
-        clean_commands._enqueue_prompt("item1")
-        clean_commands._enqueue_prompt("item2")
-        clean_commands._enqueue_prompt("item3")
+        command_queue.enqueue_prompt(clean_coder, "item1")
+        command_queue.enqueue_prompt(clean_coder, "item2")
+        command_queue.enqueue_prompt(clean_coder, "item3")
 
-        items = clean_commands._clear_queue()
+        items = command_queue.clear_queue(clean_coder)
         assert len(items) == 3
-        assert len(clean_commands.prompt_queue) == 0
+        assert len(clean_coder.prompt_queue) == 0
 
-    def test_utc_12_clear_empty_queue(self, clean_commands):
+    def test_utc_12_clear_empty_queue(self, clean_coder):
         """UTC-12: Clear empty queue returns empty list and remains empty."""
-        items = clean_commands._clear_queue()
+        items = command_queue.clear_queue(clean_coder)
         assert items == []
-        assert len(clean_commands.prompt_queue) == 0
+        assert len(clean_coder.prompt_queue) == 0
 
 
 class TestTimestampBehavior:
     """Unit tests for timestamp generation."""
 
-    def test_utc_19_timestamps_monotonic(self, clean_commands):
+    def test_utc_19_timestamps_monotonic(self, clean_coder):
         """UTC-19: Timestamps are monotonic non-decreasing across enqueues."""
-        item1 = clean_commands._enqueue_prompt("first")
+        item1 = command_queue.enqueue_prompt(clean_coder, "first")
         time.sleep(0.01)
-        item2 = clean_commands._enqueue_prompt("second")
+        item2 = command_queue.enqueue_prompt(clean_coder, "second")
 
         assert item1["timestamp"] <= item2["timestamp"]
 
@@ -327,7 +339,7 @@ class TestQueueCommand:
         result = await QueueCommand.execute(mock_io, mock_coder, "test prompt")
 
         assert result == "Successfully executed queue."
-        assert len(mock_coder.commands.prompt_queue) == 1
+        assert len(mock_coder.prompt_queue) == 1
         mock_io.tool_output.assert_called()
 
     @pytest.mark.asyncio
@@ -336,7 +348,7 @@ class TestQueueCommand:
         result = await QueueCommand.execute(mock_io, mock_coder, "")
 
         assert "Error" in result
-        assert len(mock_coder.commands.prompt_queue) == 0
+        assert len(mock_coder.prompt_queue) == 0
 
     @pytest.mark.asyncio
     async def test_itc_03_queue_no_args_shows_usage(self, mock_io, mock_coder):
@@ -344,7 +356,7 @@ class TestQueueCommand:
         result = await QueueCommand.execute(mock_io, mock_coder, None)
 
         assert "Error" in result
-        assert len(mock_coder.commands.prompt_queue) == 0
+        assert len(mock_coder.prompt_queue) == 0
 
     @pytest.mark.asyncio
     async def test_itc_04_queue_rejects_long_prompt(self, mock_io, mock_coder):
@@ -353,7 +365,7 @@ class TestQueueCommand:
         result = await QueueCommand.execute(mock_io, mock_coder, long_prompt)
 
         assert "Error" in result or "exceeds" in result.lower()
-        assert len(mock_coder.commands.prompt_queue) == 0
+        assert len(mock_coder.prompt_queue) == 0
 
     @pytest.mark.asyncio
     async def test_itc_05_queue_handles_coder_commands_none(self, mock_io, mock_coder_no_commands):
@@ -365,11 +377,7 @@ class TestQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_06_queue_at_max_capacity_rejects(self, mock_io, full_queue):
         """ITC-06: /queue at max capacity (100) rejects new prompt."""
-        mock_coder = MagicMock()
-        mock_coder.commands = full_queue
-        mock_coder.io = mock_io
-
-        result = await QueueCommand.execute(mock_io, mock_coder, "overflow")
+        result = await QueueCommand.execute(mock_io, full_queue, "overflow")
 
         assert "Error" in result or "full" in result.lower()
 
@@ -380,11 +388,7 @@ class TestListQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_07_list_queue_shows_numbered_list(self, mock_io, populated_queue):
         """ITC-07: /list-queue displays numbered list of queued prompts with timestamps."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await ListQueueCommand.execute(mock_io, mock_coder, "")
+        result = await ListQueueCommand.execute(mock_io, populated_queue, "")
 
         assert result == "Successfully executed list-queue."
         mock_io.tool_output.assert_called()
@@ -393,12 +397,8 @@ class TestListQueueCommand:
         assert "[1]" in output_text or "alpha" in output_text
 
     @pytest.mark.asyncio
-    async def test_itc_08_list_queue_empty_shows_message(self, mock_io, clean_commands):
+    async def test_itc_08_list_queue_empty_shows_message(self, mock_io, mock_coder):
         """ITC-08: /list-queue on empty queue shows "Queue is empty" message."""
-        mock_coder = MagicMock()
-        mock_coder.commands = clean_commands
-        mock_coder.io = mock_io
-
         result = await ListQueueCommand.execute(mock_io, mock_coder, "")
 
         assert result == "Successfully executed list-queue."
@@ -416,15 +416,9 @@ class TestListQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_10_list_queue_truncates_long_prompts(self, mock_io):
         """ITC-10: /list-queue truncates prompts longer than display threshold."""
-        commands = Commands(io=None, coder=None)
-        long_prompt = "x" * 120
-        commands._enqueue_prompt(long_prompt)
+        coder = _make_coder_with_commands(("x" * 120,))
 
-        mock_coder = MagicMock()
-        mock_coder.commands = commands
-        mock_coder.io = mock_io
-
-        await ListQueueCommand.execute(mock_io, mock_coder, "")
+        await ListQueueCommand.execute(mock_io, coder, "")
 
         calls = [str(call) for call in mock_io.tool_output.call_args_list]
         output_text = " ".join(calls)
@@ -437,11 +431,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_11_remove_by_index(self, mock_io, populated_queue):
         """ITC-11: /remove-queue <index> removes exact item and confirms removal."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "2")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "2")
 
         assert result == "Successfully executed remove-queue."
         assert len(populated_queue.prompt_queue) == 2
@@ -450,11 +440,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_12_remove_wildcard_clears_all(self, mock_io, populated_queue):
         """ITC-12: /remove-queue * clears entire queue and confirms count removed."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "*")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "*")
 
         assert result == "Successfully executed remove-queue."
         assert len(populated_queue.prompt_queue) == 0
@@ -463,11 +449,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_13_remove_interactive_mode(self, mock_io, populated_queue):
         """ITC-13: /remove-queue with no args enters interactive selection."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "")
 
         # Interactive mode shows queue list and prompt, returns success status
         assert result == "Successfully executed remove-queue."
@@ -479,43 +461,27 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_14_remove_invalid_index_non_integer(self, mock_io, populated_queue):
         """ITC-14: /remove-queue with non-integer index shows invalid index error."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "abc")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "abc")
 
         assert "Error" in result or "Invalid index" in result
 
     @pytest.mark.asyncio
     async def test_itc_15_remove_out_of_bounds_index(self, mock_io, populated_queue):
         """ITC-15: /remove-queue with out-of-bounds index shows error."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "99")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "99")
 
         assert "Error" in result or "out of range" in result.lower()
 
     @pytest.mark.asyncio
     async def test_itc_16_remove_negative_index(self, mock_io, populated_queue):
         """ITC-16: /remove-queue with negative index shows error."""
-        mock_coder = MagicMock()
-        mock_coder.commands = populated_queue
-        mock_coder.io = mock_io
-
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "-1")
+        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "-1")
 
         assert "Error" in result or "Invalid index" in result
 
     @pytest.mark.asyncio
-    async def test_itc_17_remove_empty_queue(self, mock_io, clean_commands):
+    async def test_itc_17_remove_empty_queue(self, mock_io, mock_coder):
         """ITC-17: /remove-queue on empty queue shows error."""
-        mock_coder = MagicMock()
-        mock_coder.commands = clean_commands
-        mock_coder.io = mock_io
-
         result = await RemoveQueueCommand.execute(mock_io, mock_coder, "1")
 
         assert "Error" in result or "empty" in result.lower()
@@ -527,10 +493,9 @@ class TestRemoveQueueCommand:
 
         assert "Error" in result or "not available" in result.lower()
 
-    def test_itc_19_get_completions_returns_indices_and_wildcard(self, mock_coder, populated_queue):
+    def test_itc_19_get_completions_returns_indices_and_wildcard(self, populated_queue):
         """ITC-19: RemoveQueueCommand.get_completions() returns valid index completions and '*'."""
-        mock_coder.commands = populated_queue
-        completions = RemoveQueueCommand.get_completions(None, mock_coder, "")
+        completions = RemoveQueueCommand.get_completions(None, populated_queue, "")
 
         assert "1" in completions
         assert "2" in completions
@@ -553,60 +518,76 @@ class TestQueueLifecycle:
     """E2E tests for full queue lifecycle and processing."""
 
     @pytest.mark.asyncio
-    async def test_etc_01_single_queued_prompt_auto_processes(self, mock_io, populated_queue):
-        """ETC-01: Single queued prompt auto-processes after system becomes idle."""
-        assert hasattr(populated_queue, "_process_queued_prompts")
-        assert callable(populated_queue._process_queued_prompts)
+    async def test_etc_01_single_queued_prompt_auto_processes(self, populated_queue):
+        """ETC-01: A queued prompt is available for processing via dequeue_prompt."""
+        item = command_queue.dequeue_prompt(populated_queue)
+
+        assert item is not None
+        assert item["text"] == "alpha"
+        assert command_queue.get_queue_length(populated_queue) == 2
 
     @pytest.mark.asyncio
-    async def test_etc_02_multiple_prompts_fifo_order(self, clean_commands):
+    async def test_etc_02_multiple_prompts_fifo_order(self, clean_coder):
         """ETC-02: Multiple queued prompts execute in FIFO order with no reordering."""
-        clean_commands._enqueue_prompt("prompt_A")
-        clean_commands._enqueue_prompt("prompt_B")
-        clean_commands._enqueue_prompt("prompt_C")
+        command_queue.enqueue_prompt(clean_coder, "prompt_A")
+        command_queue.enqueue_prompt(clean_coder, "prompt_B")
+        command_queue.enqueue_prompt(clean_coder, "prompt_C")
 
-        assert clean_commands.prompt_queue[0]["text"] == "prompt_A"
-        assert clean_commands.prompt_queue[1]["text"] == "prompt_B"
-        assert clean_commands.prompt_queue[2]["text"] == "prompt_C"
+        assert clean_coder.prompt_queue[0]["text"] == "prompt_A"
+        assert clean_coder.prompt_queue[1]["text"] == "prompt_B"
+        assert clean_coder.prompt_queue[2]["text"] == "prompt_C"
 
     @pytest.mark.asyncio
-    async def test_etc_03_queued_prompt_not_processed_while_running(self, mock_io, populated_queue):
+    async def test_etc_03_queued_prompt_not_processed_while_running(self, mock_io, clean_commands):
         """ETC-03: Queued prompt is not processed while another command is running."""
-        populated_queue.cmd_running_event.clear()
+        clean_commands.cmd_running_event.clear()
 
-        assert hasattr(populated_queue, "_MANAGEMENT_COMMANDS")
-        assert "queue" in populated_queue._MANAGEMENT_COMMANDS
+        assert hasattr(clean_commands, "_MANAGEMENT_COMMANDS")
+        assert "queue" in clean_commands._MANAGEMENT_COMMANDS
 
     @pytest.mark.asyncio
     async def test_etc_06_management_commands_dont_trigger_processing(
-        self, mock_io, populated_queue
+        self, mock_io, clean_commands
     ):
         """ETC-06: Management commands do not trigger auto-processing of queued items."""
-        assert populated_queue._MANAGEMENT_COMMANDS == {"queue", "list-queue", "remove-queue"}
+        assert clean_commands._MANAGEMENT_COMMANDS == {"queue", "list-queue", "remove-queue"}
 
     @pytest.mark.asyncio
-    async def test_etc_05_prevent_infinite_loop(self, clean_commands):
-        """ETC-05: Queued command that queues additional items does not cause infinite loop."""
-        assert hasattr(clean_commands, "_processing_queue")
-        assert clean_commands._processing_queue is False
+    async def test_etc_05_prevent_infinite_loop(self, populated_queue):
+        """ETC-05: The coder's processing flag prevents re-entrant queue draining."""
+        populated_queue._processing_queue = True
+        try:
+            if populated_queue.prompt_queue and not populated_queue._processing_queue:
+                command_queue.dequeue_prompt(populated_queue)
+        finally:
+            populated_queue._processing_queue = False
+
+        assert command_queue.get_queue_length(populated_queue) == 3
 
     @pytest.mark.asyncio
-    async def test_etc_09_error_in_queued_prompt_continues(self, clean_commands):
-        """ETC-09: Exception in queued prompt is logged but doesn't stop later items."""
-        assert hasattr(clean_commands, "_process_queued_prompts")
+    async def test_etc_09_error_in_queued_prompt_continues(self, clean_coder):
+        """ETC-09: An error in one queued prompt does not stop later items."""
+        command_queue.enqueue_prompt(clean_coder, "first")
+        command_queue.enqueue_prompt(clean_coder, "second")
+
+        first = command_queue.dequeue_prompt(clean_coder)
+        second = command_queue.dequeue_prompt(clean_coder)
+
+        assert first["text"] == "first"
+        assert second["text"] == "second"
 
     @pytest.mark.asyncio
     async def test_etc_10_full_lifecycle_sequence(self, mock_io, populated_queue):
         """ETC-10: Full lifecycle sequence add -> list -> remove -> process."""
-        item = populated_queue._enqueue_prompt("new_prompt")
+        item = command_queue.enqueue_prompt(populated_queue, "new_prompt")
         assert item is not None
 
-        assert populated_queue._get_queue_length() == 4
+        assert command_queue.get_queue_length(populated_queue) == 4
 
-        removed = populated_queue._remove_from_queue(0)
+        removed = command_queue.remove_from_queue(populated_queue, 0)
         assert removed is not None
 
-        assert populated_queue._get_queue_length() == 3
+        assert command_queue.get_queue_length(populated_queue) == 3
 
 
 # ============================================================================
@@ -624,17 +605,16 @@ class TestRegression:
         assert CommandRegistry.get_command("model") is not None
 
     def test_rtc_02_commands_init_preserves_existing_attributes(self, clean_commands):
-        """RTC-02: Commands.__init__ preserves pre-existing attributes and adds new queue fields."""
+        """RTC-02: Commands.__init__ preserves pre-existing attributes; queue state lives on the coder."""
         assert hasattr(clean_commands, "io")
         assert hasattr(clean_commands, "coder")
         assert hasattr(clean_commands, "cmd_running_event")
         assert hasattr(clean_commands, "last_command_show_notification")
-
-        assert hasattr(clean_commands, "prompt_queue")
-        assert hasattr(clean_commands, "_queue_counter")
-        assert hasattr(clean_commands, "_queue_lock")
-        assert hasattr(clean_commands, "_processing_queue")
         assert hasattr(clean_commands, "_MANAGEMENT_COMMANDS")
+
+        coder = clean_commands.coder
+        assert hasattr(coder, "prompt_queue")
+        assert hasattr(coder, "_queue_counter")
 
     def test_rtc_03_execute_preserves_existing_flow(self, mock_io, mock_coder):
         """RTC-03: Commands.execute() preserves existing command behavior for non-queue commands."""
@@ -655,9 +635,11 @@ class TestRegression:
         assert CommandRegistry.get_command("remove-queue") is RemoveQueueCommand
 
     def test_rtc_05_thread_safety_under_concurrent_access(self, clean_commands):
-        """RTC-05: Simulated concurrent access patterns do not corrupt queue state."""
-        assert hasattr(clean_commands, "_queue_lock")
-        assert isinstance(clean_commands._queue_lock, asyncio.Lock)
+        """RTC-05: The queue lock is a real threading.Lock created on first use."""
+        coder = clean_commands.coder
+        command_queue.enqueue_prompt(coder, "item")
+
+        assert isinstance(coder._queue_lock, threading.Lock)
 
 
 # ============================================================================
@@ -668,29 +650,29 @@ class TestRegression:
 class TestEdgeCases:
     """Additional edge case tests."""
 
-    def test_queue_with_whitespace_only_prompt(self, clean_commands):
+    def test_queue_with_whitespace_only_prompt(self, clean_coder):
         """Test that whitespace-only prompts are rejected."""
         with pytest.raises(ValueError):
-            clean_commands._enqueue_prompt("   ")
+            command_queue.enqueue_prompt(clean_coder, "   ")
 
-    def test_queue_with_unicode_prompt(self, clean_commands):
+    def test_queue_with_unicode_prompt(self, clean_coder):
         """Test that unicode prompts are handled correctly."""
-        item = clean_commands._enqueue_prompt("Hello world")
+        item = command_queue.enqueue_prompt(clean_coder, "Hello world")
         assert item["text"] == "Hello world"
 
-    def test_remove_with_zero_index(self, clean_commands):
+    def test_remove_with_zero_index(self, clean_coder):
         """Test removing with index 0 (first item)."""
-        clean_commands._enqueue_prompt("first")
-        clean_commands._enqueue_prompt("second")
+        command_queue.enqueue_prompt(clean_coder, "first")
+        command_queue.enqueue_prompt(clean_coder, "second")
 
-        item = clean_commands._remove_from_queue(0)
+        item = command_queue.remove_from_queue(clean_coder, 0)
         assert item["text"] == "first"
 
-    def test_remove_with_large_index(self, clean_commands):
+    def test_remove_with_large_index(self, clean_coder):
         """Test removing with a very large index."""
-        clean_commands._enqueue_prompt("only")
+        command_queue.enqueue_prompt(clean_coder, "only")
 
-        result = clean_commands._remove_from_queue(999999)
+        result = command_queue.remove_from_queue(clean_coder, 999999)
         assert result is None
 
 
