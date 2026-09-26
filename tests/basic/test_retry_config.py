@@ -1,8 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock, call, patch
 
-from cecli.models import _parse_retry_config, Model
+import pytest
+
 from cecli.llm import litellm
+from cecli.models import Model, _parse_retry_config
 
 
 def test_parse_retry_config_string():
@@ -16,7 +17,11 @@ def test_parse_retry_config_string():
 
 
 def test_parse_retry_config_dict():
-    config_dict = {"retry_timeout": 10.0, "retry_backoff_factor": 2.0, "retry-on-unavailable": False}
+    config_dict = {
+        "retry_timeout": 10.0,
+        "retry_backoff_factor": 2.0,
+        "retry-on-unavailable": False,
+    }
     result = _parse_retry_config(config_dict)
     assert result["retry_timeout"] == 10.0
     assert result["retry_backoff_factor"] == 2.0
@@ -40,28 +45,24 @@ async def test_simple_send_with_retries_honors_timeout():
         model="gpt-4o",
         request=None,
     )
-    err = litellm.APIConnectionError(
-        message="Simulated connection error",
-        llm_provider="openai",
-        model="gpt-4o",
-        request=None
-    )
-    
+
     mock_send = AsyncMock(side_effect=err)
-    
-    with patch.object(model, 'send_completion', mock_send), \
-         patch('time.sleep') as mock_sleep, \
-         patch('builtins.print'):  # Mute prints in test output
-        
+
+    with (
+        patch.object(model, "send_completion", mock_send),
+        patch("time.sleep") as mock_sleep,
+        patch("builtins.print"),
+    ):  # Mute prints in test output
+
         content, response = await model.simple_send_with_retries(messages=[])
-        
+
         # It should exit yielding None, None because it exhausted retries.
         assert content is None
         assert response is None
-        
+
         # The backoff factor is applied before each sleep, so the sleeps are
         # 0.25 then 0.50; the third failure would need 1.0 > 0.5, so it stops.
-        
+
         assert mock_send.call_count == 3
         assert mock_sleep.call_count == 2
         assert mock_sleep.call_args_list == [call(0.25), call(0.5)]
