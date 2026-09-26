@@ -1,9 +1,7 @@
-import json
 import pytest
 from unittest.mock import AsyncMock, call, patch
 
 from cecli.models import _parse_retry_config, Model
-from cecli.exceptions import LiteLLMExceptions
 from cecli.llm import litellm
 
 
@@ -36,7 +34,12 @@ async def test_simple_send_with_retries_honors_timeout():
     # attempt 1 fails -> 0.125 * 2.0 = 0.25 (<= 0.5, sleep and retry)
     # attempt 2 fails -> 0.25 * 2.0 = 0.50 (<= 0.5, sleep and retry)
     # attempt 3 fails -> 0.50 * 2.0 = 1.00 (> 0.5, give up)
-    # We mock send_completion to continually raise a retryable LiteLLM exception.
+    err = litellm.APIConnectionError(
+        message="Simulated connection error",
+        llm_provider="openai",
+        model="gpt-4o",
+        request=None,
+    )
     err = litellm.APIConnectionError(
         message="Simulated connection error",
         llm_provider="openai",
