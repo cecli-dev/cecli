@@ -3187,7 +3187,8 @@ class Coder(metaclass=UsageMeta):
                 tool_name_from_schema = nested.getter(tool, "function.name")
                 if (
                     tool_name_from_schema
-                    and tool_name_from_schema.lower() == unprefixed_tool_name.lower()
+                    and responses.sanitize_tool_name(tool_name_from_schema).lower()
+                    == responses.sanitize_tool_name(unprefixed_tool_name).lower()
                 ):
                     # Find the McpServer instance that will be used for communication
                     for server in self.mcp_manager:
@@ -3408,6 +3409,10 @@ class Coder(metaclass=UsageMeta):
         # server receives the actual parameters instead of rejecting the call
         # with a "missing required parameter" error.
         arguments = responses.coerce_tool_structure(arguments)
+
+        # Providers require a provider-safe tool name, so the name coming back
+        # from the model may not be the name the MCP server advertises.
+        name = responses.original_tool_name(name, self.mcp_tools)
 
         return await session.call_tool(name=name, arguments=arguments)
 
