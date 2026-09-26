@@ -15,6 +15,21 @@ The TUI is the default in recent versions of Cecli and on older versions it can 
 cecli ... --tui
 ```
 
+## Non-TUI Mode
+
+Pass `--no-tui` (or set `tui: false`) to run the plain terminal interface
+instead of the full-screen TUI. In this mode:
+
+- Input is read from stdin and re-prompted after each turn.
+- Confirmation prompts are read from the terminal.
+- Input and confirmations pushed by an external driver are also honored: the
+  [WebSocket/ACP server](api.html) and the AgentService wake path push onto the
+  coder's input queue, so a headless or server-driven session can answer prompts
+  with no terminal attached.
+
+Both modes consume the same per-coder input queue, so prompt handling is
+consistent whether or not the TUI is running.
+
 ## Configuration
 
 The TUI can be configured directly in the relevant config.json file or with JSON in the command line arguments:
