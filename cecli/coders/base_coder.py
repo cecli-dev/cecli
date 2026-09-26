@@ -3412,7 +3412,7 @@ class Coder(metaclass=UsageMeta):
 
         # Providers require a provider-safe tool name, so the name coming back
         # from the model may not be the name the MCP server advertises.
-        name = responses.original_tool_name(name, self.mcp_tools)
+        name = responses.original_tool_name(name)
 
         return await session.call_tool(name=name, arguments=arguments)
 
@@ -3503,6 +3503,7 @@ class Coder(metaclass=UsageMeta):
 
     def get_tool_list(self):
         """Get a flattened list of all MCP tools with server prefixes, filtered by registered_servers."""
+        responses.register_tool_names(self.mcp_tools)
         tool_list = []
         if self.mcp_tools:
             for server_name, server_tools in self.mcp_tools:
