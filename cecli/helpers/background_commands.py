@@ -604,6 +604,9 @@ class BackgroundCommandManager:
                     close_fds=True,
                     text=True,
                     bufsize=1,
+                    # Detach from the TUI's controlling terminal so the child cannot
+                    # steal keystrokes or reset terminal modes that Textual relies on.
+                    start_new_session=True,
                     universal_newlines=True,
                 )
                 os.close(slave_fd)

@@ -77,6 +77,10 @@ def run_cmd_subprocess(
             errors="replace",
             bufsize=1,  # Set bufsize to 0 for unbuffered output
             universal_newlines=True,
+            # Never inherit the TUI's stdin; a command that reads it would
+            # race Textual for keystrokes. Commands needing input go through
+            # the interactive path instead.
+            stdin=subprocess.DEVNULL,
             cwd=cwd,
         )
 
