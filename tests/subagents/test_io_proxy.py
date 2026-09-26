@@ -2,6 +2,7 @@
 Tests for cecli/helpers/io_proxy.py — IOProxy.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -185,3 +186,135 @@ class TestIOProxy:
         proxy.some_attr = "value"
 
         assert target.some_attr == "value"
+
+
+class _NonTuiTarget:
+    """Minimal non-TUI InputOutput stand-in: no ``output_queue`` attribute.
+
+    IOProxy selects the TUI path with ``hasattr(target, "output_queue")``, and a
+    bare MagicMock answers ``hasattr`` for every name, so a plain object is the
+    only way to exercise the non-TUI branch.
+    """
+
+    def __init__(self):
+        self.prompt_session = None
+        self.get_input = AsyncMock(return_value="terminal text")
+        self.confirm_ask = AsyncMock(return_value=True)
+        self.never_prompts = set()
+        self.group_responses = {}
+        self.user_inputs = []
+
+    def user_input(self, inp, log_only=True):
+        self.user_inputs.append(inp)
+
+
+class TestIOProxyNonTuiQueue:
+    """Non-TUI IOProxy must consume queue-pushed input and confirmations."""
+
+    @pytest.mark.asyncio
+    async def test_get_input_returns_queued_text(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "queued-text-uuid"
+        target = _NonTuiTarget()
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        proxy = IOProxy(target, coder)
+        try:
+            assert queues.push_coder_input(
+                coder_uuid, {"text": "queued answer", "coder_uuid": coder_uuid}
+            )
+            result = await proxy.get_input(None, [], [], [])
+
+            assert result == ("queued answer", coder_uuid)
+            target.get_input.assert_not_called()
+            assert target.user_inputs == ["queued answer"]
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_get_input_delivers_push_while_prompt_open(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "queued-race-uuid"
+        started = asyncio.Event()
+
+        async def blocking_terminal(*args, **kwargs):
+            started.set()
+            await asyncio.sleep(30)
+            return "terminal text"
+
+        target = _NonTuiTarget()
+        target.prompt_session = object()  # cancellable prompt_async path
+        target.get_input = blocking_terminal
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        proxy = IOProxy(target, coder)
+        task = asyncio.create_task(proxy.get_input(None, [], [], []))
+        try:
+            await started.wait()
+            # The queue waiter clears its wake event when it binds to the loop,
+            # so push until delivery lands instead of betting on callback order.
+            for _ in range(100):
+                queues.push_coder_input(
+                    coder_uuid, {"text": "pushed answer", "coder_uuid": coder_uuid}
+                )
+                try:
+                    result = await asyncio.wait_for(asyncio.shield(task), timeout=0.05)
+                    break
+                except asyncio.TimeoutError:
+                    continue
+            else:
+                raise AssertionError("queued input was never delivered")
+
+            assert result == ("pushed answer", coder_uuid)
+        finally:
+            task.cancel()
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_get_input_leaves_confirmations_for_confirm_ask(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "queued-mixed-uuid"
+        target = _NonTuiTarget()
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        proxy = IOProxy(target, coder)
+        try:
+            assert queues.push_coder_input(
+                coder_uuid, {"confirmed": True, "coder_uuid": coder_uuid}
+            )
+            # get_input must not swallow a confirmation it cannot use.
+            assert await proxy.get_input(None, [], [], []) == ("terminal text", None)
+            assert await proxy.confirm_ask("Proceed?") is True
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_confirm_ask_returns_queued_confirmation(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "queued-confirm-uuid"
+        target = _NonTuiTarget()
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        proxy = IOProxy(target, coder)
+        try:
+            assert queues.push_coder_input(
+                coder_uuid, {"confirmed": True, "coder_uuid": coder_uuid}
+            )
+            assert await proxy.confirm_ask("Proceed?") is True
+
+            assert queues.push_coder_input(
+                coder_uuid, {"confirmed": False, "coder_uuid": coder_uuid}
+            )
+            assert await proxy.confirm_ask("Proceed?") is False
+
+            target.confirm_ask.assert_not_called()
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
