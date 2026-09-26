@@ -2860,6 +2860,8 @@ class Coder(metaclass=UsageMeta):
                     should_retry = ex_info.retry
                     if ex_info.name == "ServiceUnavailableError":
                         should_retry = should_retry or retry_config["retry_on_unavailable"]
+                    if ex_info.name == "PermissionDeniedError":
+                        should_retry = should_retry or retry_config["retry_on_forbidden"]
 
                     if should_retry:
                         retry_delay *= retry_config["retry_backoff_factor"]

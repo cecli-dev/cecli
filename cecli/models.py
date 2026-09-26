@@ -133,6 +133,7 @@ class ModelSettings:
     retries: Optional[dict] = None
     retry_backoff_factor: float = 1.5
     retry_on_unavailable: bool = True
+    retry_on_forbidden: bool = False
     retry_timeout: float = 30
     request_timeout: int = request_timeout
     debug: bool = False
@@ -1463,6 +1464,9 @@ class Model(ModelSettings):
             self.retry_on_unavailable = bool(
                 nested.getter(retry_config, "retry-on-unavailable", True)
             )
+            self.retry_on_forbidden = bool(
+                nested.getter(retry_config, "retry-on-forbidden", False)
+            )
             self.retry_backoff_factor = float(
                 nested.getter(retry_config, "retry-backoff-factor", 1.5)
             )
@@ -1497,6 +1501,8 @@ class Model(ModelSettings):
                 should_retry = ex_info.retry
                 if ex_info.name == "ServiceUnavailableError":
                     should_retry = should_retry or self.retry_on_unavailable
+                elif ex_info.name == "PermissionDeniedError":
+                    should_retry = should_retry or self.retry_on_forbidden
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1561,6 +1567,7 @@ class Model(ModelSettings):
         retry_backoff_factor = retry_config["retry_backoff_factor"]
         retry_timeout = retry_config["retry_timeout"]
         retry_on_unavailable = retry_config["retry_on_unavailable"]
+        retry_on_forbidden = retry_config["retry_on_forbidden"]
 
         if self.verbose:
             dump(messages)
@@ -1614,6 +1621,8 @@ class Model(ModelSettings):
                 should_retry = ex_info.retry
                 if ex_info.name == "ServiceUnavailableError":
                     should_retry = should_retry or retry_on_unavailable
+                elif ex_info.name == "PermissionDeniedError":
+                    should_retry = should_retry or retry_on_forbidden
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1807,6 +1816,7 @@ def parse_retry_config(retries_input):
       retry_timeout: 30
       retry_backoff_factor: 1.5
       retry_on_unavailable: True
+      retry_on_forbidden: False
       retry_on_empty: False
     """
     config = dict()
@@ -1832,6 +1842,7 @@ def parse_retry_config(retries_input):
         "retry_timeout": float(_get("retry_timeout", 30)),
         "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
         "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
+        "retry_on_forbidden": bool(_get("retry_on_forbidden", False)),
         "retry_on_empty": bool(_get("retry_on_empty", False)),
     }
 
