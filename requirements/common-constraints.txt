@@ -514,7 +514,7 @@ uvicorn[standard]==0.38.0
     # via
     #   chromadb
     #   mcp
-uvloop==0.22.1
+uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
 virtualenv==20.35.4
     # via pre-commit
