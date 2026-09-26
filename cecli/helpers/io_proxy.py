@@ -72,6 +72,70 @@ class IOProxy(Generic[T]):
         return io._target if isinstance(io, cls) else io
 
     # ------------------------------------------------------------------ #
+    # Per-coder queue helpers (non-TUI mode)
+    # ------------------------------------------------------------------ #
+
+    def _take_queued(self, key: str):
+        """Pop this coder's next queue payload containing *key*, else None.
+
+        A payload meant for a different reader — for example a confirmation
+        seen while waiting for text — is put back so its own waiter can still
+        consume it.
+        """
+        try:
+            payload = self._input_queue.get_nowait()
+        except _queue.Empty:
+            return None
+        if isinstance(payload, dict) and key in payload:
+            return payload
+        self._input_queue.put(payload)
+        return None
+
+    async def _terminal_or_queued(self, terminal, take):
+        """Await *terminal*, returning early when *take()* yields a payload.
+
+        A queued payload is delivered even while the terminal prompt is open:
+        the read is raced against the per-coder queue wake. That wake event is
+        global (any coder's push sets it), so re-check this coder's own queue
+        before racing again.
+        """
+        queued = take()
+        if queued is not None:
+            return queued
+
+        if getattr(self, "prompt_session", None) is None:
+            # ponytail: the InterruptibleInput/input() fallback reads on a
+            # worker thread and cannot be cancelled, so a push arriving
+            # mid-read lands on the next get_input() cycle instead of
+            # preempting this read. Make the fallback cancellable if it ever
+            # needs instant delivery.
+            return await terminal()
+
+        from cecli.helpers import queues
+
+        terminal_task = asyncio.create_task(terminal())
+        try:
+            while True:
+                wake_task = asyncio.create_task(queues.wait_for_input())
+                try:
+                    await asyncio.wait(
+                        {terminal_task, wake_task}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    if not wake_task.done():
+                        wake_task.cancel()
+                if terminal_task.done():
+                    # Surfaces the terminal read's own EOFError/SystemExit.
+                    return terminal_task.result()
+                queued = take()
+                if queued is not None:
+                    terminal_task.cancel()
+                    return queued
+        except BaseException:
+            terminal_task.cancel()
+            raise
+
+    # ------------------------------------------------------------------ #
     # Intercepted methods — inject coder_uuid into each call
     # ------------------------------------------------------------------ #
 
@@ -140,8 +204,10 @@ class IOProxy(Generic[T]):
         proxy's coder, the input is for a sub-agent — route it via
         AgentService by calling generate() on the sub-agent, then loop.
 
-        In non-TUI mode, delegates to the base InputOutput and wraps the
-        plain-string result as ``(user_input, None)``.
+        In non-TUI mode, delivers a queue-pushed answer (from the WebSocket
+        server, ACP, or AgentService) when one is waiting, otherwise reads the
+        base InputOutput terminal prompt. The terminal read is raced against
+        the queue wake so a push is delivered even while the prompt is open.
 
         Returns:
             tuple[str, str | None]: (user_input, coder_uuid).
@@ -174,19 +240,76 @@ class IOProxy(Generic[T]):
                     return user_input, coder_uuid
                 return (result, None)
 
-        # Non-TUI mode: delegate to base InputOutput
-        result = await self._target.get_input(*args, **kwargs)
+        # Non-TUI mode: honor a queue-pushed answer, else read the terminal.
+        def take_text():
+            payload = self._take_queued("text")
+            if payload is None:
+                return None
+            text = payload["text"]
+            self.user_input(text)
+            return text, payload.get("coder_uuid", self._coder_uuid)
+
+        result = await self._terminal_or_queued(
+            lambda: self._target.get_input(*args, **kwargs), take_text
+        )
         if isinstance(result, tuple) and len(result) == 2:
             return result
 
         return (result, None)
 
     async def confirm_ask(self, *args, **kwargs):
-        """Forward confirm_ask — per-coder queue iteration is handled by
-        TextualInputOutput which now iterates all per-coder queues."""
+        """Confirm with the TUI queues or the terminal.
+
+        TUI mode: TextualInputOutput.confirm_ask iterates all per-coder queues.
+        Non-TUI mode: honor a ``{"confirmed": ...}`` payload pushed to this
+        coder's queue (WebSocket server, ACP), otherwise ask on the terminal.
+        """
         if "coder_uuid" not in kwargs:
             kwargs["coder_uuid"] = self._coder_uuid
-        return await self._target.confirm_ask(*args, **kwargs)
+
+        if hasattr(self._target, "output_queue"):
+            return await self._target.confirm_ask(*args, **kwargs)
+
+        question = args[0] if args else kwargs.get("question")
+        question_id = (question, kwargs.get("subject"))
+        group = kwargs.get("group")
+        group_response = kwargs.get("group_response")
+
+        def take_confirmation():
+            payload = self._take_queued("confirmed")
+            if payload is None:
+                return None
+            return self._apply_confirmation(
+                payload["confirmed"], question_id, group, group_response
+            )
+
+        return await self._terminal_or_queued(
+            lambda: self._target.confirm_ask(*args, **kwargs), take_confirmation
+        )
+
+    def _apply_confirmation(self, response, question_id, group, group_response):
+        """Map a queued confirmation payload to a result.
+
+        Mirrors TextualInputOutput.confirm_ask's queue handling.
+        """
+        if response == "never":
+            self.never_prompts.add(question_id)
+            return False
+        if response == "tweak":
+            return "tweak"
+        if response == "all":
+            if group:
+                group.preference = "all"
+            if group_response:
+                self.group_responses[group_response] = True
+            return True
+        if response == "skip":
+            if group:
+                group.preference = "skip"
+            if group_response:
+                self.group_responses[group_response] = False
+            return False
+        return bool(response)
 
     async def recreate_input(self, future=None):
         """Per-coder recreate_input — each coder gets its own input task.
