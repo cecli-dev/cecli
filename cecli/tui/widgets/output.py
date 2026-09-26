@@ -12,6 +12,7 @@ from textual import events, on
 from textual.message import Message
 
 from .selectable_log import SelectableRichLog
+from .thin_scrollbar import ThinScrollBarRenderer
 
 
 class CostUpdate(Message):
@@ -53,6 +54,10 @@ class OutputContainer(SelectableRichLog):
         self.markup = True
         self.wrap = True
         self.can_focus = False
+
+    def on_mount(self) -> None:
+        """Use the compact renderer for this widget's horizontal scrollbar."""
+        self.horizontal_scrollbar.renderer = ThinScrollBarRenderer
 
     async def start_response(self):
         """Start a new LLM response section with streaming support."""

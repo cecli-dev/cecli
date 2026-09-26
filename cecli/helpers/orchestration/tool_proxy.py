@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 from typing import Any
 
 
@@ -63,6 +64,7 @@ class ToolProxy:
         tool_module: Any = None,
         mcp_server: Any = None,
         mcp_tool_name: str = "",
+        tool_schema: dict[str, Any] | None = None,
     ) -> None:
         # Respect the per-coder tool includelist/excludelist filters
         incl = getattr(coder, "registered_tools", {}).get("included", set())
@@ -78,6 +80,16 @@ class ToolProxy:
         self._tool_module = tool_module
         self._mcp_server = mcp_server
         self._mcp_tool_name = mcp_tool_name
+        self._tool_schema = (
+            tool_schema if tool_schema is not None else getattr(tool_module, "SCHEMA", None)
+        )
+
+    def get_schema(self) -> dict[str, Any] | None:
+        """Return a deep copy of this tool's JSON schema, if available."""
+        if not isinstance(self._tool_schema, dict):
+            return None
+
+        return deepcopy(self._tool_schema)
 
     async def __call__(self, *args: Any, **kwargs: Any):
         """Make the proxy directly callable.
@@ -131,12 +143,79 @@ class ToolProxy:
 
         return await self.call(**kwargs)
 
+    def get_signature(self) -> str | None:
+        """Return a readable Python-style signature based on the JSON schema.
+
+        Type annotations are best-effort summaries; use the schema for exact
+        constraints. Optional parameters without defaults display as ``...``.
+        """
+        schema = self._tool_schema
+        if not isinstance(schema, dict):
+            return None
+
+        function = schema.get("function", {})
+        if not isinstance(function, dict):
+            return None
+
+        parameters = function.get("parameters", {})
+        if not isinstance(parameters, dict):
+            return None
+
+        properties = parameters.get("properties", {})
+        if not isinstance(properties, dict):
+            return None
+
+        required = parameters.get("required", [])
+        required = set(required) if isinstance(required, list) else set()
+        signature_parameters = []
+        for name, property_schema in properties.items():
+            annotation = self._python_type_name(property_schema)
+            parameter = f"{name}: {annotation}"
+            if name not in required:
+                if isinstance(property_schema, dict) and "default" in property_schema:
+                    parameter += f" = {property_schema['default']!r}"
+                else:
+                    parameter += " = ..."
+            signature_parameters.append(parameter)
+
+        function_name = function.get("name") or self._tool_name
+        if signature_parameters:
+            return f"{function_name}(*, {', '.join(signature_parameters)})"
+        return f"{function_name}()"
+
+    @staticmethod
+    def _python_type_name(schema: Any) -> str:
+        """Render common JSON Schema types as readable Python type names."""
+        if not isinstance(schema, dict):
+            return "Any"
+
+        schema_type = schema.get("type")
+        if isinstance(schema_type, list):
+            type_names = [ToolProxy._python_type_name({"type": item}) for item in schema_type]
+            return " | ".join(type_names)
+
+        type_names = {
+            "array": "list",
+            "boolean": "bool",
+            "integer": "int",
+            "number": "float",
+            "null": "None",
+            "object": "dict",
+            "string": "str",
+        }
+        if schema_type in type_names:
+            return type_names[schema_type]
+
+        alternatives = schema.get("anyOf") or schema.get("oneOf")
+        if isinstance(alternatives, list):
+            return " | ".join(ToolProxy._python_type_name(item) for item in alternatives)
+
+        return "Any"
+
     def _get_param_names(self) -> list:
-        """Extract ordered parameter names from the tool's JSON Schema."""
-        if self._tool_module is None:
-            return []
+        """Extract parameter names in schema order for positional calls."""
         try:
-            props = self._tool_module.SCHEMA["function"]["parameters"]["properties"]
+            props = self._tool_schema["function"]["parameters"]["properties"]
             return list(props.keys())
         except (KeyError, TypeError, AttributeError):
             return []

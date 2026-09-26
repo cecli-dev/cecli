@@ -337,7 +337,7 @@ class McpServer:
             ClientSession(
                 read,
                 write,
-                read_timeout_seconds=timedelta(seconds=self._request_timeout_seconds()),
+                read_timeout_seconds=_client_session_read_timeout(self._request_timeout_seconds()),
             )
         )
         await session.initialize()
@@ -732,3 +732,19 @@ def _unpack_transport(transport):
     """
     read, write = transport[0], transport[1]
     return read, write
+
+
+def _client_session_read_timeout(seconds: float) -> timedelta | float:
+    """Return a read timeout in the form the installed mcp SDK expects.
+
+    mcp SDK 1.x types ``ClientSession.read_timeout_seconds`` as a
+    ``timedelta``; SDK 2.x types it as a float number of seconds and adds it to
+    other floats internally, so a ``timedelta`` raises ``TypeError:
+    unsupported operand type(s) for +: 'float' and 'datetime.timedelta'`` at
+    connect time. Return whichever type the installed SDK wants, so both majors
+    keep the same per-request timeout instead of failing to connect.
+    """
+    if _get_mcp_major_version() >= 2:
+        return seconds
+
+    return timedelta(seconds=seconds)

@@ -297,7 +297,7 @@ def apply_contextual_marker(
     range_end: str,
     num_lines: int,
 ) -> tuple[list[int], list[int]]:
-    """Expand range using @C{{num}}, @P{{num}}, or @N{{num}} contextual markers.
+    """Expand range using @C<num>, @P<num>, or @N<num> contextual markers.
 
     Requires exactly one start match.  Raises ValueError when the number
     of start matches is not 1 (the caller is expected to format the error

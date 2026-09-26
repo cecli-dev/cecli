@@ -673,7 +673,24 @@ def _make_mock_coder_with_mcp():
         mcp_tools = [
             (
                 "MockServer",
-                [{"type": "function", "function": {"name": "MockTool"}}],
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "MockTool",
+                            "description": "A mock MCP tool",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "param1": {"type": "string"},
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "note": {"type": "string"},
+                                },
+                                "required": ["param1"],
+                            },
+                        },
+                    }
+                ],
             ),
         ]
         mcp_manager = _MockMcpManager()
@@ -690,6 +707,75 @@ def test_agent_proxy_local_tool_lookup():
     tool = proxy.get_tool("ReadFile")
     assert tool._tool_module is not None, "Local tool should have _tool_module"
     assert tool._mcp_server is None, "Local tool should not have _mcp_server"
+
+
+def test_agent_proxy_get_local_tool_schema_returns_copy():
+    """Schema discovery returns a detached JSON schema for local tools."""
+    proxy = AgentProxy(_make_mock_coder())
+    tool = proxy.get_tool("ReadFile")
+
+    schema = proxy.get_tool_schema("ReadFile")
+
+    assert schema == tool._tool_module.SCHEMA
+    assert schema is not tool._tool_module.SCHEMA
+    assert schema["function"] is not tool._tool_module.SCHEMA["function"]
+
+
+def test_agent_proxy_get_mcp_tool_schema_returns_copy():
+    """Schema discovery resolves and copies an MCP tool schema."""
+    coder = _make_mock_coder_with_mcp()
+    proxy = AgentProxy(coder)
+
+    schema = proxy.get_tool_schema("MockServer--MockTool")
+
+    assert schema["function"]["name"] == "MockTool"
+    assert schema is not coder.mcp_tools[0][1][0]
+    schema["function"]["description"] = "changed"
+    assert coder.mcp_tools[0][1][0]["function"]["description"] == "A mock MCP tool"
+
+
+def test_agent_proxy_get_tool_schema_raises_for_unknown_tool():
+    """Schema discovery preserves get_tool's unknown-name error."""
+    proxy = AgentProxy(_make_mock_coder())
+
+    with pytest.raises(ValueError, match="Unknown tool"):
+        proxy.get_tool_schema("NonExistentToolXYZ")
+
+
+def test_agent_proxy_mcp_signature_and_positional_call():
+    """MCP schemas provide both readable signatures and positional mapping."""
+    coder = _make_mock_coder_with_mcp()
+    proxy = AgentProxy(coder)
+
+    assert proxy.get_tool_signature("MockServer--MockTool") == (
+        "MockTool(*, param1: str, enabled: bool = False, note: str = ...)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_proxy_mcp_positional_dispatch():
+    """MCP positional arguments map to schema properties in declaration order."""
+    coder = _make_mock_coder_with_mcp()
+    tool = AgentProxy(coder).get_tool("MockServer--MockTool")
+
+    result = await tool("value1")
+
+    assert "param1" in result["result"][0]["content"]
+    assert "value1" in result["result"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_env_agent_get_tool_schema_and_signature():
+    """Schema discovery and signature helpers are accessible from sandboxed code."""
+    env = _make_env()
+
+    result = await env.execute(
+        "schema = Agent.get_tool_schema('ReadFile')\n"
+        "print(schema['function']['name'])\n"
+        "print(Agent.get_tool_signature('ReadFile'))"
+    )
+
+    assert result["results"].startswith("ReadFile\nReadFile(*, ")
 
 
 def test_agent_proxy_unknown_tool_raises():
@@ -1281,7 +1367,7 @@ def test_gather_result_attribute_access():
 
 
 def test_gather_result_key_access():
-    """GatherResult supports key/index access for named results."""
+    """GatherResult supports standard string-key lookup."""
     from cecli.helpers.orchestration.environment import GatherResult
 
     gr = GatherResult({"x": 1, "y": 2})
@@ -1307,14 +1393,24 @@ def test_gather_result_contains():
 
 
 def test_gather_result_iteration():
-    """GatherResult is iterable (yields values)."""
+    """GatherResult iteration follows Mapping semantics and yields keys."""
     from cecli.helpers.orchestration.environment import GatherResult
 
     gr = GatherResult({"a": 10, "b": 20})
-    values = list(gr)
-    assert ("a", 10) in values
-    assert ("b", 20) in values
-    assert len(values) == 2
+    assert list(gr) == ["a", "b"]
+    assert dict(gr) == {"a": 10, "b": 20}
+
+
+def test_gather_result_mapping_views():
+    """GatherResult exposes standard mapping views and lookup helpers."""
+    from cecli.helpers.orchestration.environment import GatherResult
+
+    gr = GatherResult({"a": 10, "b": 20})
+    assert list(gr.keys()) == ["a", "b"]
+    assert list(gr.values()) == [10, 20]
+    assert list(gr.items()) == [("a", 10), ("b", 20)]
+    assert gr.get("a") == 10
+    assert gr.get("missing", 0) == 0
 
 
 def test_gather_result_read_only():

@@ -16,8 +16,8 @@ uv tool install cecli-dev
 Then configure your Ollama API endpoint (usually the default):
 
 ```bash
-export OLLAMA_API_BASE=http://127.0.0.1:11434 # Mac/Linux
-setx   OLLAMA_API_BASE http://127.0.0.1:11434 # Windows, restart shell after setx
+export OLLAMA_API_BASE=http://127.0.0.1:11434/v1 # Mac/Linux
+setx   OLLAMA_API_BASE http://127.0.0.1:11434/v1 # Windows, restart shell after setx
 ```
 
 Start working with cecli and Ollama on your codebase:
@@ -32,10 +32,9 @@ OLLAMA_CONTEXT_LENGTH=8192 ollama serve
 # In another terminal window, change directory into your codebase
 cd /to/your/project
 
-cecli --model ollama_chat/<model>
+cecli --model ollama/<model>
 ```
 
-> **Note:** Using `ollama_chat/` is recommended over `ollama/`.
 
 See the [model warnings](warnings.html) section for information on warnings which will occur when working with models that cecli is not familiar with.
 

@@ -1452,10 +1452,21 @@ class Model(ModelSettings):
         litellm_ex = LiteLLMExceptions()
         retry_delay = 0.125
 
-        retry_config = _parse_retry_config(self.retries)
-        self.retry_on_unavailable = retry_config["retry_on_unavailable"]
-        self.retry_backoff_factor = retry_config["retry_backoff_factor"]
-        self.retry_timeout = retry_config["retry_timeout"]
+        if self.retries:
+            retry_config = dict()
+            try:
+                retry_config = json.loads(self.retries)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                retry_config = dict()
+                pass
+
+            self.retry_on_unavailable = bool(
+                nested.getter(retry_config, "retry-on-unavailable", True)
+            )
+            self.retry_backoff_factor = float(
+                nested.getter(retry_config, "retry-backoff-factor", 1.5)
+            )
+            self.retry_timeout = float(nested.getter(retry_config, "retry-timeout", 30))
 
         while True:
             try:
@@ -1546,7 +1557,7 @@ class Model(ModelSettings):
         temperature = None
         tools = None
 
-        retry_config = _parse_retry_config(self.retries)
+        retry_config = parse_retry_config(self.retries)
         retry_backoff_factor = retry_config["retry_backoff_factor"]
         retry_timeout = retry_config["retry_timeout"]
         retry_on_unavailable = retry_config["retry_on_unavailable"]
@@ -1789,7 +1800,7 @@ class Model(ModelSettings):
         return provider
 
 
-def _parse_retry_config(retries_input):
+def parse_retry_config(retries_input):
     """
     Parse and normalize retry configuration from a JSON string or dict.
     Returns a unified dict with defaults:

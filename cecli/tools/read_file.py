@@ -48,8 +48,8 @@ class Tool(BaseTool):
                 "  - '@000' / '000@' for the first / last line"
                 "  - hint suffixes to disambiguate repeated patterns: ' @L<num>' (nearest match), "
                 "    '@A{{regex}}' (closest match after the regex hit), '@B{{regex}}' (closest match before)"
-                "  - when range_start matches one location, range_end accepts '@C{num}' (context both sides), "
-                "    '@P{num}' (lines before the match), '@N{num}' (lines after the match)"
+                "  - when range_start matches one location, range_end accepts '@C<num>' (context both sides), "
+                "    '@P<num>' (lines before the match), '@N<num>' (lines after the match)"
                 ""
                 "File edits may update prefixes of identical lines, requiring re-reading to get fresh identifiers."
                 ""
@@ -84,8 +84,8 @@ class Tool(BaseTool):
                                     "description": (
                                         "The end of the range: an exact text pattern (up to 5 lines), '000@' for "
                                         "the last line. When range_start "
-                                        "matches one location, use '@C{num}' for context on both sides, "
-                                        "'@P{num}' for lines before the match, or '@N{num}' for lines after the match."
+                                        "matches one location, use '@C<num>' for context on both sides, "
+                                        "'@P<num>' for lines before the match, or '@N<num>' for lines after the match."
                                     ),
                                 },
                             },

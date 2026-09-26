@@ -173,6 +173,29 @@ def _grep_coder(root):
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
+@pytest.mark.parametrize(
+    ("options", "expected_matches"),
+    [({}, 3), ({"use_regex": True}, 3), ({"use_regex": False}, 1)],
+)
+def test_pipe_pattern_uses_regex_unless_explicitly_disabled(
+    options, expected_matches, tmp_path, monkeypatch
+):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("alpha\nbeta\nalpha|beta\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("rg", shutil.which("rg")))
+
+    search = {"pattern": "alpha|beta", "file_glob": "*.txt", "directory": "."}
+    search.update(options)
+    result = grep.Tool.execute(coder, searches=[search])
+    op = result.to_dict()["result"][0]
+
+    assert op["_"]["error"] is None
+    assert op["_"]["total_matches"] == expected_matches
+    coder.io.tool_error.assert_not_called()
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
 def test_matches_mode_is_compact_and_relative(tmp_path, monkeypatch):
     sample = tmp_path / "sample.txt"
     sample.write_text("alpha\nbeta\n" + "alpha" + "x" * 500 + "\nalpha\n")

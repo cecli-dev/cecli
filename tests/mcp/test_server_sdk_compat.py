@@ -6,12 +6,14 @@ callback contract, 2-tuple HTTP transports, and OAuth provider skipping when
 static headers are configured).
 """
 
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from cecli.mcp.server import (
     HttpStreamingServer,
+    _client_session_read_timeout,
     _get_http_client_module,
     _get_mcp_major_version,
     _get_oauth_callback_handler,
@@ -75,6 +77,23 @@ def test_unpack_transport_mcp2_two_tuple(monkeypatch):
     read, write = _unpack_transport(("r", "w"))
 
     assert (read, write) == ("r", "w")
+
+
+def test_client_session_read_timeout_timedelta_for_mcp1(monkeypatch):
+    """mcp 1.x types the session read timeout as a timedelta."""
+    monkeypatch.setattr("cecli.mcp.server._get_mcp_major_version", lambda: 1)
+
+    assert _client_session_read_timeout(120.0) == timedelta(seconds=120)
+
+
+def test_client_session_read_timeout_float_for_mcp2(monkeypatch):
+    """mcp 2.x types the session read timeout as a float number of seconds."""
+    monkeypatch.setattr("cecli.mcp.server._get_mcp_major_version", lambda: 2)
+
+    timeout = _client_session_read_timeout(120.0)
+
+    assert timeout == 120.0
+    assert not isinstance(timeout, timedelta)
 
 
 @pytest.mark.asyncio

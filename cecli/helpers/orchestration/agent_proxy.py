@@ -89,9 +89,26 @@ class AgentProxy:
                             self._coder,
                             mcp_server=server,
                             mcp_tool_name=schema_name,
+                            tool_schema=tool_schema,
                         )
 
         raise ValueError(f"Unknown tool: '{tool_name}'")
+
+    def get_tool_schema(self, tool_name: str) -> dict[str, Any] | None:
+        """Return a copy of the full function-calling schema for a tool.
+
+        Returns ``None`` when the tool has no schema. Unknown or disallowed
+        tools raise the same errors as ``get_tool``.
+        """
+        return self.get_tool(tool_name).get_schema()
+
+    def get_tool_signature(self, tool_name: str) -> str | None:
+        """Return a readable Python-style call signature for a tool.
+
+        Optional parameters without a declared default use ``...`` to show
+        that they may be omitted without implying a value such as ``None``.
+        """
+        return self.get_tool(tool_name).get_signature()
 
     def _find_mcp_server(self, server_name: str, server_prefix: str) -> Any:
         if not hasattr(self._coder, "mcp_manager") or not self._coder.mcp_manager:

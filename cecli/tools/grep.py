@@ -71,6 +71,14 @@ MAX_LINE_LENGTH = 256
 MAX_LINE_NUMBERS = 50
 
 
+def _should_use_regex(pattern, requested):
+    """Auto-enable regex for alternation unless the caller explicitly disables it."""
+    if requested is False:
+        return False
+
+    return bool(requested) or "|" in pattern
+
+
 def _build_exclude_args(tool_name, cmd_args):
     """Add exclusion arguments for common build/artifact dirs and history files."""
     for exclude_dir in DEFAULT_EXCLUDE_DIRS:
@@ -476,8 +484,7 @@ class Tool(BaseTool):
                                 },
                                 "use_regex": {
                                     "type": "boolean",
-                                    "default": False,
-                                    "description": "Whether to use regex.",
+                                    "description": "Whether to use regex search or literal text.",
                                 },
                                 "case_insensitive": {
                                     "type": "boolean",
@@ -659,7 +666,7 @@ class Tool(BaseTool):
             pattern = strip_hashline(search_op.get("pattern", ""))
             file_pattern = search_op.get("file_glob", "*")
             directory = search_op.get("directory", search_op.get("path", "."))
-            use_regex = search_op.get("use_regex", False)
+            use_regex = _should_use_regex(pattern, search_op.get("use_regex"))
             case_insensitive = search_op.get("case_insensitive", True)
 
             mode = search_op.get("mode", "matches")
@@ -1053,7 +1060,7 @@ class Tool(BaseTool):
                 pattern = search_op.get("pattern", "")
                 file_pattern = search_op.get("file_glob", "*")
                 directory = search_op.get("directory", search_op.get("path", "."))
-                use_regex = search_op.get("use_regex", False)
+                use_regex = _should_use_regex(pattern, search_op.get("use_regex"))
                 case_insensitive = search_op.get("case_insensitive", True)
                 mode = search_op.get("mode", "matches")
                 context_before = search_op.get("context_before", 0)

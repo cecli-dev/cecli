@@ -547,7 +547,7 @@ def build_orchestration_context_block(agent_config: dict[str, Any]) -> str | Non
     context = """<context name="orchestration" from="agent">
 The `Orchestrate` tool runs Python in a sandbox where you can script other tools programmatically. 
 Use it for batch, loop-heavy, and repeat-able workflows.
-Variables and helpers persist across calls; `state` persists across all Orchestrate calls in the session.
+The sandbox is stateless between calls — variables don't persist. To carry values across calls, use `state` (per-agent) or `shared_state` (cross-agent).
 You may need to explore the below primitives to understand how to use the sandbox effectively.
 
 ### Primitives
@@ -556,11 +556,13 @@ You may need to explore the below primitives to understand how to use the sandbo
 |-----------|--------------|
 | `Agent.allowed_methods()` / `Agent.allowed_tools()` | List helper methods and available tools |
 | `Agent.get_tool(name)` | Get a tool proxy (case-insensitive; `Local--` / `{{Server Name}}--` prefixes ok) |
+| `Agent.get_tool_schema(name)` | Return a copy of the full function-calling JSON schema |
+| `Agent.get_tool_signature(name)` | Return a readable Python-style signature; optional params without defaults appear as `= ...` |
 | `await tool.call(**params)` | Run a tool; returns `{"result": [...], "errors": [...], "details": [...]}`, items with shape `{"content", "_"}` |
 | `Agent.peek(result)` / `Agent.get_value(result, path, default?)` | Inspect / extract values from tool results. path is dot-separated string |
 | `Agent.resolve_regions(path, specs)` / `Agent.edit_region(path, edits)` | Resolve text boundaries once, then apply edits |
 | `gather(**tasks)` | Run tasks concurrently; results expose `.key` and `["key"]` |
-| `state` / `shared_state` | Persistent dicts; `state.get(k)` falls back to `shared_state` |
+| `state` / `shared_state` | Persistent dicts that survive between Orchestrate calls; `state.get(k)` falls back to `shared_state`. Use these for anything you need to reuse in a later call |
 | `print(...)` / `reset(local_vars=True, state=False)` | Emit output / clear namespaces |
 | `typeof(x)`, `isinstance(x, t)`, `hasattr(x, n)`, `repr(x)`, `vars(obj)` | Type inspection and debugging |
 

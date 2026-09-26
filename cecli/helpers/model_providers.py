@@ -399,6 +399,10 @@ class ModelProviderManager:
             )
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.ConnectionError:
+            # Unreachable endpoint (e.g. no local Ollama server at
+            # localhost:11434): stay silent and contribute no models.
+            return None
         except Exception as ex:
             print(f"Failed to fetch {provider} model list: {ex}")
             return None

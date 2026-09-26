@@ -333,7 +333,9 @@ def _closest_provider_match(sources, provider, route):
 
     Raw sources are enumerated via a lightweight top-level key scan (a string
     pass, never a full parse) and only ``provider/``-prefixed keys are parsed
-    for scoring, so the fallback stays memory friendly.
+    for scoring, so the fallback stays memory friendly. A candidate with no
+    shared leading characters is not a match: returning it would let an
+    unrelated route inherit an arbitrary sibling record's wire mode.
     """
     if not provider:
         return None
@@ -376,7 +378,7 @@ def _closest_provider_match(sources, provider, route):
                     best_score = score
                     best = record
 
-    return best
+    return best if best_score > 0 else None
 
 
 def _prefix_score(left, right):

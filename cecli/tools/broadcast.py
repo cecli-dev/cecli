@@ -226,11 +226,10 @@ class Tool(BaseTool):
         sender_name = agent_service.get_agent_name(sender_coder) or "primary"
         sender_uuid = str(sender_coder.uuid)
         message = (
-            "<context name='broadcast' from='agent'>\n"
-            f"[Message Sent from Agent {sender_name} ({sender_uuid})]\n"
-            "You may respond with the `Broadcast` tool if the message "
-            "is relevant to you\n\n"
-            f"{message}"
+            f"<context name='message' from='{sender_name} ({sender_uuid})'>\n"
+            f"{message}\n\n"
+            "[Respond with the `Broadcast` tool to relay information "
+            "back to other agents as needed]\n"
             "</context>"
         )
 

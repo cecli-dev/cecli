@@ -12,6 +12,7 @@ import json
 import pathlib
 import re as _re_mod
 import traceback as _tb_mod
+from collections.abc import Mapping
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -139,12 +140,12 @@ async def _safe_sleep(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-class GatherResult:
-    """Result container for named ``gather()`` calls.
+class GatherResult(Mapping[str, Any]):
+    """Read-only mapping of named ``gather()`` task results.
 
-    Supports both attribute access (``results.my_task``) and
-    key access (``results["my_task"]``), plus ``len()`` and
-    iteration for unpacking.
+    Supports standard mapping access (``results["task"]``, iteration over
+    keys, and ``keys()``, ``values()``, and ``items()``) plus attribute access
+    as a convenience. Use key access when task names may collide with methods.
     """
 
     def __init__(self, results: dict[str, Any]) -> None:
@@ -192,7 +193,7 @@ class GatherResult:
 
     def __iter__(self):
         results = object.__getattribute__(self, "_results")
-        return iter(results.items())
+        return iter(results)
 
     def keys(self) -> Any:
         results = object.__getattribute__(self, "_results")
@@ -225,12 +226,12 @@ async def _safe_gather(*args: Any, **named_awaitables: Any):
     Safely execute multiple awaitables concurrently.
 
     All awaitables must be passed as keyword arguments. Results are returned
-    as a ``GatherResult`` with attribute and key access:
+    as a ``GatherResult`` mapping with attribute access as a convenience:
 
         results = await gather(read_a=task_a, grep_b=task_b)
-        print(results.read_a)       # attribute access
-        print(results["grep_b"])    # key access
-        len(results)                # number of results
+        print(results["read_a"])   # canonical mapping access
+        print(results.grep_b)      # attribute convenience
+        list(results)              # task names
 
     Forces ``return_exceptions=True`` so that failures in one task
     do not crash the entire batch. Exceptions are converted to

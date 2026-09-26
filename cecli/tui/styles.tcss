@@ -1,5 +1,5 @@
 /*
- * Aider CE TUI Styles
+ * Cecli TUI Styles
  *
  * Uses Textual theme variables for consistent theming.
  * Theme defined in app.py (AIDER_THEME).
