@@ -2828,7 +2828,7 @@ class Coder(metaclass=UsageMeta):
                 except EmptyResponseError:
                     self.io.tool_warning(self.empty_llm_tool_warning())
 
-                    retry_config = models._parse_retry_config(self.get_active_model().retries)
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
                     retry_on_empty = retry_config["retry_on_empty"]
 
                     if not retry_on_empty:
@@ -2855,7 +2855,7 @@ class Coder(metaclass=UsageMeta):
                         exhausted = True
                         break
 
-                    retry_config = models._parse_retry_config(self.get_active_model().retries)
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
 
                     should_retry = ex_info.retry
                     if ex_info.name == "ServiceUnavailableError":
