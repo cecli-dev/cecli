@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional
 from cecli.dump import dump  # noqa: F401
 from cecli.http import httpx
 
+from .constants import CONTROL_KWARGS
+from .identifiers import is_ollama
 from .runtime import log_error_response
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -801,16 +803,32 @@ class _LiteLLMFacade:
         if headers:
             extra_headers = {**headers, **extra_headers}
 
+        # Ollama's native runner options (num_ctx, keep_alive, top_p, ...) live
+        # outside the OpenAI parameter set, so forward every request-level kwarg
+        # the caller supplied except those this shim or the pipeline consume
+        # internally. Every other provider keeps the narrow whitelist below so
+        # unrelated runtime kwargs are not leaked into its request body.
+        provider, _, route = (model or "").partition("/")
         passthrough: Dict[str, Any] = {}
-        for key in (
-            "temperature",
-            "tool_choice",
-            "extra_body",
-            "prompt_cache_key",
-            "stream_options",
-        ):
-            if kwargs.get(key) is not None:
-                passthrough[key] = kwargs[key]
+
+        if is_ollama(provider, route, None):
+            for key, value in kwargs.items():
+                if key in CONTROL_KWARGS or value is None:
+                    continue
+
+                passthrough[key] = value
+
+            passthrough.pop("max_completion_tokens", None)
+        else:
+            for key in (
+                "temperature",
+                "tool_choice",
+                "extra_body",
+                "prompt_cache_key",
+                "stream_options",
+            ):
+                if kwargs.get(key) is not None:
+                    passthrough[key] = kwargs[key]
 
         # The model-config pipeline formatters (helpers.format_reasoning /
         # helpers.format_thinking) lift reasoning_effort/thinking OUT of

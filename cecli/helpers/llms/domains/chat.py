@@ -106,10 +106,20 @@ async def chat_complete(
     headers: Dict[str, str],
     kwargs: Dict[str, Any],
 ) -> CompletionResponse:
-    env = _openai_env_override()
+    provider = resolved.get("_provider")
+
+    if provider is None or getattr(provider, "honors_openai_env_override", True):
+        env = _openai_env_override()
+    else:
+        env = None
+
     base = env[0] if env else resolved["api_base"]
-    url = f"{base}/chat/completions"
-    payload = chat_payload(resolved, messages, tools, False, kwargs)
+    url = provider.chat_url(resolved, base) if provider else f"{base}/chat/completions"
+    payload = (
+        provider.chat_payload(resolved, messages, tools, False, kwargs)
+        if provider
+        else chat_payload(resolved, messages, tools, False, kwargs)
+    )
     hdrs = {"Content-Type": "application/json", **headers}
     body: Optional[bytes] = None
     signer = resolved.get("_signer")
@@ -134,6 +144,9 @@ async def chat_complete(
         resp.raise_for_status()
         data = resp.json()
 
+    if provider:
+        return provider.parse_chat_response(data, resolved)
+
     return normalize_chat_response(data, resolved["model"])
 
 
@@ -145,10 +158,20 @@ async def chat_stream(
     headers: Dict[str, str],
     kwargs: Dict[str, Any],
 ) -> AsyncIterator[CompletionChunk]:
-    env = _openai_env_override()
+    provider = resolved.get("_provider")
+
+    if provider is None or getattr(provider, "honors_openai_env_override", True):
+        env = _openai_env_override()
+    else:
+        env = None
+
     base = env[0] if env else resolved["api_base"]
-    url = f"{base}/chat/completions"
-    payload = chat_payload(resolved, messages, tools, True, kwargs)
+    url = provider.chat_url(resolved, base) if provider else f"{base}/chat/completions"
+    payload = (
+        provider.chat_payload(resolved, messages, tools, True, kwargs)
+        if provider
+        else chat_payload(resolved, messages, tools, True, kwargs)
+    )
     hdrs = {"Content-Type": "application/json", **headers}
     body: Optional[bytes] = None
     signer = resolved.get("_signer")
@@ -173,8 +196,12 @@ async def chat_stream(
             resp.raise_for_status()
             last_finish_reason = None
 
-            async for json_obj in sse_json_lines(resp):
-                chunk = parse_chat_chunk(json_obj)
+            lines = provider.chat_stream_json(resp) if provider else sse_json_lines(resp)
+
+            async for json_obj in lines:
+                chunk = (
+                    provider.parse_chat_chunk(json_obj) if provider else parse_chat_chunk(json_obj)
+                )
 
                 if not chunk:
                     continue
