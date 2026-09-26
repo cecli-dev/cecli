@@ -247,6 +247,32 @@ def extract_tools_from_pseudo_json(content: str) -> Optional[List[ChatCompletion
         return None
 
 
+def sanitize_tool_name(name: str) -> str:
+    """Make a name acceptable in OpenAI-style ``tools[].function.name``.
+
+    Providers enforce ``^[A-Za-z0-9_-]{1,64}$`` on the function name, which
+    rejects names an MCP server may legitimately advertise (``browser.fetch``).
+    Idempotent, so it is also safe on an incoming tool call before the name is
+    compared against, or mapped back to, the server's own name.
+    """
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)[:64]
+
+
+def original_tool_name(name: str, server_tools) -> str:
+    """Map a sanitized tool name back to the name the MCP server advertises.
+
+    ``server_tools`` is an iterable of ``(server_name, tools)`` pairs. Returns
+    ``name`` unchanged when nothing matches, so an unsanitized name still
+    reaches the server as-is.
+    """
+    for _server_name, tools in server_tools or []:
+        for tool in tools:
+            candidate = nested.getter(tool, "function.name", "")
+            if candidate and sanitize_tool_name(candidate) == name:
+                return candidate
+    return name
+
+
 def prefix_tool_name(server_name: str, tool_name: str) -> str:
     """
     Prefix a tool name with the server name.
@@ -256,9 +282,9 @@ def prefix_tool_name(server_name: str, tool_name: str) -> str:
         tool_name: Original tool name
 
     Returns:
-        Prefixed tool name in format "{server_name}--{tool_name}"
+        Prefixed, provider-safe tool name in format "{server_name}--{tool_name}"
     """
-    return f"{server_name}--{tool_name}"
+    return sanitize_tool_name(f"{server_name}--{tool_name}")
 
 
 def unprefix_tool_name(prefixed_name: str) -> tuple[str, str]:
