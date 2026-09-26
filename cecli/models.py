@@ -1452,21 +1452,10 @@ class Model(ModelSettings):
         litellm_ex = LiteLLMExceptions()
         retry_delay = 0.125
 
-        if self.retries:
-            retry_config = dict()
-            try:
-                retry_config = json.loads(self.retries)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                retry_config = dict()
-                pass
-
-            self.retry_on_unavailable = bool(
-                nested.getter(retry_config, "retry-on-unavailable", True)
-            )
-            self.retry_backoff_factor = float(
-                nested.getter(retry_config, "retry-backoff-factor", 1.5)
-            )
-            self.retry_timeout = float(nested.getter(retry_config, "retry-timeout", 30))
+        retry_config = _parse_retry_config(self.retries)
+        self.retry_on_unavailable = retry_config["retry_on_unavailable"]
+        self.retry_backoff_factor = retry_config["retry_backoff_factor"]
+        self.retry_timeout = retry_config["retry_timeout"]
 
         while True:
             try:
@@ -1557,6 +1546,11 @@ class Model(ModelSettings):
         temperature = None
         tools = None
 
+        retry_config = _parse_retry_config(self.retries)
+        retry_backoff_factor = retry_config["retry_backoff_factor"]
+        retry_timeout = retry_config["retry_timeout"]
+        retry_on_unavailable = retry_config["retry_on_unavailable"]
+
         if self.verbose:
             dump(messages)
 
@@ -1607,14 +1601,17 @@ class Model(ModelSettings):
                 if ex_info.description:
                     print(ex_info.description)
                 should_retry = ex_info.retry
+                if ex_info.name == "ServiceUnavailableError":
+                    should_retry = should_retry or retry_on_unavailable
+
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
                     retry_delay = custom_retry_delay
                     should_retry = True
                 elif should_retry:
-                    retry_delay *= 2
+                    retry_delay *= retry_backoff_factor
 
-                if retry_delay > RETRY_TIMEOUT:
+                if retry_delay > retry_timeout:
                     should_retry = False
 
                 if not should_retry:
@@ -1790,6 +1787,42 @@ class Model(ModelSettings):
             return prefix
 
         return provider
+
+
+def _parse_retry_config(retries_input):
+    """
+    Parse and normalize retry configuration from a JSON string or dict.
+    Returns a unified dict with defaults:
+      retry_timeout: 30
+      retry_backoff_factor: 1.5
+      retry_on_unavailable: True
+      retry_on_empty: False
+    """
+    config = dict()
+    if isinstance(retries_input, str):
+        try:
+            config = json.loads(retries_input)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            config = dict()
+    elif isinstance(retries_input, dict):
+        config = retries_input.copy()
+
+    # Helper to get either hyphenated or underscored key
+    def _get(key, default):
+        val = config.get(key)
+        if val is not None:
+            return val
+        val = config.get(key.replace("_", "-"))
+        if val is not None:
+            return val
+        return default
+
+    return {
+        "retry_timeout": float(_get("retry_timeout", 30)),
+        "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
+        "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
+        "retry_on_empty": bool(_get("retry_on_empty", False)),
+    }
 
 
 def register_models(model_settings_fnames):
