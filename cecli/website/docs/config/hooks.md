@@ -53,7 +53,7 @@ The following hook types are available:
 
 Each hook entry supports the following options:
 
-- `name`: (Required) A unique name for the hook.
+- `name`: (Required) A unique name for the hook. For Python file hooks, this **must match the hook class name** (or the class's `name` attribute).
 - `command`: The shell command to execute (for Command Hooks).
 - `file`: The path to a Python file (for Python Hooks).
 - `priority`: (Optional) Execution order (lower numbers run first). Default is 10.
@@ -115,9 +115,11 @@ class MyCustomHook(BaseHook):
 ```yaml
 hooks:
   pre_tool:
-    - name: my_custom_python_hook
+    - name: MyCustomHook
       file: .cecli/hooks/my_hook.py
 ```
+
+For Python file hooks, the `name` **must match the hook class name** defined in the file (here `MyCustomHook`). `cecli` imports the file, instantiates every `BaseHook` subclass, and registers each one under its class name, then applies this entry's `priority`, `enabled`, and `description`. If `name` does not match a class in the file, the hook is skipped with a `Hook '<name>' not found in file` warning.
 
 ## Hook Helpers
 
