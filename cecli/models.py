@@ -1464,9 +1464,7 @@ class Model(ModelSettings):
             self.retry_on_unavailable = bool(
                 nested.getter(retry_config, "retry-on-unavailable", True)
             )
-            self.retry_on_forbidden = bool(
-                nested.getter(retry_config, "retry-on-forbidden", False)
-            )
+            self.retry_on_forbidden = bool(nested.getter(retry_config, "retry-on-forbidden", False))
             self.retry_backoff_factor = float(
                 nested.getter(retry_config, "retry-backoff-factor", 1.5)
             )
