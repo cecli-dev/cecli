@@ -12,6 +12,10 @@ from .storage import write_payload
 
 logger = logging.getLogger(__name__)
 
+# The memorizer is a transient helper that is re-spawned on demand; a saved
+# session must never try to resurrect it.
+MEMORIZER_AGENT_NAME = "memorizer"
+
 
 def detect_agent_name(coder) -> Optional[str]:
     """Return a coder's sub-agent type, or ``None`` for the primary agent."""
@@ -64,6 +68,33 @@ def live_sub_agents(coder) -> List[Tuple[str, object]]:
     return agents
 
 
+def sub_agent_state(coder) -> Tuple[bool, Optional[str]]:
+    """Return ``(independent, status)`` for a tracked sub-agent coder.
+
+    Falls back to ``(False, None)`` when the coder is not (or no longer) tracked
+    by the :class:`AgentService`, so payload building stays safe for callers with
+    no live service.
+    """
+    from cecli.helpers.agents.service import AgentService
+
+    coder_uuid = getattr(coder, "uuid", None)
+    if not isinstance(coder_uuid, str) or not coder_uuid:
+        return False, None
+
+    try:
+        service = AgentService.get_instance(coder)
+    except Exception:
+        return False, None
+
+    info = service.sub_agents.get(coder_uuid)
+    if info is None:
+        return False, None
+
+    status = getattr(getattr(info, "status", None), "value", None)
+
+    return bool(getattr(info, "independent", False)), status
+
+
 def save_sub_agents(coder, io, session_name: str, subs_dir: Path) -> int:
     """Write each descendant sub-agent payload into ``subs_dir/{child}/agent.json``.
 
@@ -81,6 +112,27 @@ def save_sub_agents(coder, io, session_name: str, subs_dir: Path) -> int:
             written += 1
 
     return written
+
+
+def should_restore_sub_agent(sub_data: Dict) -> bool:
+    """Return whether a saved sub-agent payload should be rebuilt on load.
+
+    Independent agents are always restored regardless of how they finished. A
+    dependent agent is restored only while it is still unfinished and unerrored.
+    The transient ``memorizer`` helper is never restored.
+    """
+    from cecli.helpers.agents.service import SubAgentStatus
+
+    agent_name = sub_data.get("agent_name")
+    if not agent_name or agent_name == MEMORIZER_AGENT_NAME:
+        return False
+
+    if sub_data.get("independent", True):
+        return True
+
+    status = sub_data.get("status")
+
+    return status not in (SubAgentStatus.FINISHED.value, SubAgentStatus.ERROR.value)
 
 
 def resolve_reload_agent_name(name: str, root: Optional[str]) -> Optional[str]:

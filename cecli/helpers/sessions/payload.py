@@ -14,8 +14,19 @@ def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None
 
     ``agent_name`` is the sub-agent type when saving a sub-agent and ``None``
     for the primary agent. Workspace agents (``ws:*``) also record their root so
-    a later load can rebuild them at the right path.
+    a later load can rebuild them at the right path. Sub-agent payloads also
+    record their independence and lifecycle status so a reload can decide
+    whether they should be rebuilt.
     """
+    # Sub-agent lifecycle flags come from the AgentService; the primary agent
+    # has none and stores ``None`` for both.
+    if agent_name:
+        from .subagents import sub_agent_state
+
+        independent, status = sub_agent_state(coder)
+    else:
+        independent, status = None, None
+
     editable_files = [coder.get_rel_fname(abs_fname) for abs_fname in coder.abs_fnames]
     read_only_files = [coder.get_rel_fname(abs_fname) for abs_fname in coder.abs_read_only_fnames]
     read_only_stubs_files = [
@@ -25,11 +36,13 @@ def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None
     # Flush any queued messages so the saved chat history is complete
     ConversationService.get_manager(coder).flush_queue()
 
-    return {
+    payload = {
         "version": 1,
         "session_name": session_name,
         "agent_name": agent_name,
         "agent_root": str(coder.root) if agent_name and agent_name.startswith("ws:") else None,
+        "independent": independent,
+        "status": status,
         "model": coder.main_model.name,
         "weak_model": coder.main_model.weak_model.name,
         "editor_model": coder.main_model.editor_model.name,
@@ -65,6 +78,8 @@ def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None
             "total_cost": coder.total_cost,
         },
     }
+
+    return payload
 
 
 async def apply_payload(
