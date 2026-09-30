@@ -402,32 +402,9 @@ def find_common_root(abs_fnames):
             return safe_abs_path(os.path.dirname(list(abs_fnames)[0]))
         elif abs_fnames:
             return safe_abs_path(os.path.commonpath(list(abs_fnames)))
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: cross-drive commonpath on Windows (e.g. C: vs E:).
         pass
-
-    try:
-        return safe_abs_path(os.getcwd())
-    except FileNotFoundError:
-        # Fallback if cwd is deleted
-        return "."
-
-
-def format_tokens(count):
-    if count < 1000:
-        return f"{count}"
-    elif count < 10000:
-        return f"{count / 1000:.1f}k"
-    else:
-        return f"{round(count / 1000)}k"
-
-
-def touch_file(fname):
-    fname = Path(fname)
-    try:
-        fname.parent.mkdir(parents=True, exist_ok=True)
-        fname.touch()
-        return True
-    except OSError:
         return False
 
 
