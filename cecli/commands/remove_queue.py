@@ -4,6 +4,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers import command_queue
 
 
 class RemoveQueueCommand(BaseCommand):
@@ -33,14 +34,14 @@ class RemoveQueueCommand(BaseCommand):
             )
 
         # Sad path: empty queue
-        if coder.commands._get_queue_length() == 0:
+        if command_queue.get_queue_length(coder) == 0:
             return format_command_result(
                 io, cls.NORM_NAME, "", error="Queue is empty. Nothing to remove."
             )
 
         # Handle wildcard: clear entire queue
         if args and args.strip() == "*":
-            items = coder.commands._clear_queue()
+            items = command_queue.clear_queue(coder)
             count = len(items)
             io.tool_output(f"Removed all {count} queued prompt(s).")
             return f"Successfully executed {cls.NORM_NAME}."
@@ -57,9 +58,9 @@ class RemoveQueueCommand(BaseCommand):
                     error=f"Invalid index: '{args.strip()}'. Please provide a number or '*'.",
                 )
 
-            item = coder.commands._remove_from_queue(index)
+            item = command_queue.remove_from_queue(coder, index)
             if item is None:
-                queue_len = coder.commands._get_queue_length()
+                queue_len = command_queue.get_queue_length(coder)
                 return format_command_result(
                     io,
                     cls.NORM_NAME,
@@ -71,7 +72,7 @@ class RemoveQueueCommand(BaseCommand):
             return f"Successfully executed {cls.NORM_NAME}."
 
         # Interactive mode: no args provided
-        queue = coder.commands.prompt_queue
+        queue = command_queue.list_queue(coder)
         io.tool_output("Queued prompts:")
         for i, item in enumerate(queue, 1):
             text = item["text"][:80]
@@ -91,7 +92,7 @@ class RemoveQueueCommand(BaseCommand):
         if not coder.commands:
             return []
 
-        queue_len = coder.commands._get_queue_length()
+        queue_len = command_queue.get_queue_length(coder)
         completions = [str(i) for i in range(1, queue_len + 1)]
         completions.append("*")
         return completions

@@ -54,7 +54,6 @@ from cecli.io import ConfirmGroup, InputOutput
 from cecli.linter import Linter
 from cecli.llm import litellm
 from cecli.mcp import LocalServer
-from cecli.models import RETRY_TIMEOUT
 from cecli.reasoning_tags import (
     REASONING_TAG,
     format_reasoning_content,
@@ -2829,24 +2828,14 @@ class Coder(metaclass=UsageMeta):
                 except EmptyResponseError:
                     self.io.tool_warning(self.empty_llm_tool_warning())
 
-                    retry_on_empty = False
-                    retries_config = self.get_active_model().retries
-                    if isinstance(retries_config, str):
-                        try:
-                            retries_config = json.loads(retries_config)
-                        except json.JSONDecodeError:
-                            self.io.tool_warning(
-                                f"Could not parse retries config: {retries_config}"
-                            )
-                            retries_config = {}
-                    if isinstance(retries_config, dict):
-                        retry_on_empty = retries_config.get("retry_on_empty", False)
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
+                    retry_on_empty = retry_config["retry_on_empty"]
 
                     if not retry_on_empty:
                         break
 
-                    retry_delay *= 2
-                    if retry_delay > RETRY_TIMEOUT:
+                    retry_delay *= retry_config["retry_backoff_factor"]
+                    if retry_delay > retry_config["retry_timeout"]:
                         self.io.tool_error("Retry timeout exceeded on empty response.")
                         break
 
@@ -2866,10 +2855,15 @@ class Coder(metaclass=UsageMeta):
                         exhausted = True
                         break
 
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
+
                     should_retry = ex_info.retry
+                    if ex_info.name == "ServiceUnavailableError":
+                        should_retry = should_retry or retry_config["retry_on_unavailable"]
+
                     if should_retry:
-                        retry_delay *= 2
-                        if retry_delay > RETRY_TIMEOUT:
+                        retry_delay *= retry_config["retry_backoff_factor"]
+                        if retry_delay > retry_config["retry_timeout"]:
                             should_retry = False
 
                     if not should_retry:
@@ -3193,7 +3187,8 @@ class Coder(metaclass=UsageMeta):
                 tool_name_from_schema = nested.getter(tool, "function.name")
                 if (
                     tool_name_from_schema
-                    and tool_name_from_schema.lower() == unprefixed_tool_name.lower()
+                    and responses.sanitize_tool_name(tool_name_from_schema).lower()
+                    == responses.sanitize_tool_name(unprefixed_tool_name).lower()
                 ):
                     # Find the McpServer instance that will be used for communication
                     for server in self.mcp_manager:
@@ -3415,6 +3410,10 @@ class Coder(metaclass=UsageMeta):
         # with a "missing required parameter" error.
         arguments = responses.coerce_tool_structure(arguments)
 
+        # Providers require a provider-safe tool name, so the name coming back
+        # from the model may not be the name the MCP server advertises.
+        name = responses.original_tool_name(name)
+
         return await session.call_tool(name=name, arguments=arguments)
 
     async def process_tool_calls(self, tool_call_response):
@@ -3504,6 +3503,7 @@ class Coder(metaclass=UsageMeta):
 
     def get_tool_list(self):
         """Get a flattened list of all MCP tools with server prefixes, filtered by registered_servers."""
+        responses.register_tool_names(self.mcp_tools)
         tool_list = []
         if self.mcp_tools:
             for server_name, server_tools in self.mcp_tools:
