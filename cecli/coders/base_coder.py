@@ -2828,7 +2828,7 @@ class Coder(metaclass=UsageMeta):
                 except EmptyResponseError:
                     self.io.tool_warning(self.empty_llm_tool_warning())
 
-                    retry_config = models._parse_retry_config(self.get_active_model().retries)
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
                     retry_on_empty = retry_config["retry_on_empty"]
 
                     if not retry_on_empty:
@@ -2855,7 +2855,7 @@ class Coder(metaclass=UsageMeta):
                         exhausted = True
                         break
 
-                    retry_config = models._parse_retry_config(self.get_active_model().retries)
+                    retry_config = models.parse_retry_config(self.get_active_model().retries)
 
                     should_retry = ex_info.retry
                     if ex_info.name == "ServiceUnavailableError":
@@ -3187,7 +3187,8 @@ class Coder(metaclass=UsageMeta):
                 tool_name_from_schema = nested.getter(tool, "function.name")
                 if (
                     tool_name_from_schema
-                    and tool_name_from_schema.lower() == unprefixed_tool_name.lower()
+                    and responses.sanitize_tool_name(tool_name_from_schema).lower()
+                    == responses.sanitize_tool_name(unprefixed_tool_name).lower()
                 ):
                     # Find the McpServer instance that will be used for communication
                     for server in self.mcp_manager:
@@ -3409,6 +3410,10 @@ class Coder(metaclass=UsageMeta):
         # with a "missing required parameter" error.
         arguments = responses.coerce_tool_structure(arguments)
 
+        # Providers require a provider-safe tool name, so the name coming back
+        # from the model may not be the name the MCP server advertises.
+        name = responses.original_tool_name(name)
+
         return await session.call_tool(name=name, arguments=arguments)
 
     async def process_tool_calls(self, tool_call_response):
@@ -3498,6 +3503,7 @@ class Coder(metaclass=UsageMeta):
 
     def get_tool_list(self):
         """Get a flattened list of all MCP tools with server prefixes, filtered by registered_servers."""
+        responses.register_tool_names(self.mcp_tools)
         tool_list = []
         if self.mcp_tools:
             for server_name, server_tools in self.mcp_tools:

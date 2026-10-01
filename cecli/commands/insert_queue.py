@@ -4,6 +4,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers import command_queue
 
 
 class InsertQueueCommand(BaseCommand):
@@ -57,7 +58,7 @@ class InsertQueueCommand(BaseCommand):
 
         # Happy path: insert the prompt
         try:
-            item = coder.commands._insert_prompt(prompt_text, index)
+            item = command_queue.insert_prompt(coder, prompt_text, index)
             io.tool_output(f"Prompt inserted at position {index + 1} (id: {item['id']})")
             return f"Successfully executed {cls.NORM_NAME}."
         except ValueError as e:

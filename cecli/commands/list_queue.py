@@ -5,6 +5,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers import command_queue
 
 
 class ListQueueCommand(BaseCommand):
@@ -30,7 +31,7 @@ class ListQueueCommand(BaseCommand):
                 io, cls.NORM_NAME, "", error="Command system not available. Cannot list queue."
             )
 
-        queue = coder.commands.prompt_queue
+        queue = command_queue.list_queue(coder)
 
         # Sad path: empty queue
         if not queue:
