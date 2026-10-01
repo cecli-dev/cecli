@@ -824,7 +824,11 @@ class Tool(BaseTool):
                             if os.path.isabs(raw_path)
                             else os.path.normpath(os.path.join(repo.root, raw_path))
                         )
-                        rel_files.append((os.path.relpath(abs_path, repo.root), file_count))
+                        try:
+                            rel_path = os.path.relpath(abs_path, repo.root)
+                        except ValueError:
+                            rel_path = abs_path
+                        rel_files.append((rel_path, file_count))
                     rel_files.sort(key=lambda item: (-item[1], item[0]))
 
                     shown_files = rel_files[:MAX_FILES]
@@ -883,7 +887,10 @@ class Tool(BaseTool):
                                 pf["count_from_pass"] = counts[raw_path]
                             else:
                                 # Try with repo root prefix stripped
-                                rel = os.path.relpath(raw_path, repo.root)
+                                try:
+                                    rel = os.path.relpath(raw_path, repo.root)
+                                except ValueError:
+                                    rel = raw_path
                                 pf["count_from_pass"] = counts.get(rel, pf["match_count"])
                     else:
                         for pf in parsed_files:
@@ -897,7 +904,10 @@ class Tool(BaseTool):
 
                     rendered = []
                     for pf in parsed_files[:MAX_FILES]:
-                        rel_path = os.path.relpath(pf["path"], repo.root)
+                        try:
+                            rel_path = os.path.relpath(pf["path"], repo.root)
+                        except ValueError:
+                            rel_path = pf["path"]
                         count = pf.get("count_from_pass", 0)
                         total_matches += count
 

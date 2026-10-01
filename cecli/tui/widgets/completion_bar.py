@@ -106,6 +106,19 @@ class CompletionBar(Widget, can_focus=False):
             return self.suggestions[self.selected_index]
         return None
 
+    @staticmethod
+    def _safe_relpath(path: str) -> str:
+        """Return ``os.path.relpath(path)``, falling back to ``path`` on cross-drive.
+
+        On Windows, ``os.path.relpath`` raises ``ValueError`` when *path* and the
+        implicit start (the CWD) are on different drives. Mirror the guarded
+        ``get_rel_fname`` helpers and keep the absolute path in that case.
+        """
+        try:
+            return os.path.relpath(path)
+        except ValueError:
+            return path
+
     def _compute_display_names(self) -> None:
         """Compute common directory prefix and short display names."""
         if not self.suggestions:
@@ -130,7 +143,7 @@ class CompletionBar(Widget, can_focus=False):
         if is_absolute:
             candidates = self.suggestions
         else:
-            candidates = [os.path.relpath(s) for s in self.suggestions]
+            candidates = [self._safe_relpath(s) for s in self.suggestions]
 
         # Find common directory prefix
         dirs = [os.path.dirname(s) for s in candidates]
@@ -140,7 +153,11 @@ class CompletionBar(Widget, can_focus=False):
             self._display_names = [os.path.basename(s) for s in candidates]
         else:
             # Find longest common path prefix
-            common = os.path.commonpath(candidates) if candidates else ""
+            try:
+                common = os.path.commonpath(candidates) if candidates else ""
+            except ValueError:
+                # Mixed drives (Windows): no common prefix to collapse.
+                common = ""
             if common and os.sep in common:
                 # Use the directory part of common prefix
                 self._common_prefix = common.rsplit(os.sep, 1)[0] + os.sep

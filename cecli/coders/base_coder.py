@@ -4871,7 +4871,10 @@ class Coder(metaclass=UsageMeta):
             return
 
         if not Path(full_path).exists():
-            rel_path = os.path.relpath(full_path)
+            try:
+                rel_path = os.path.relpath(full_path)
+            except ValueError:
+                rel_path = full_path
             if not await self.io.confirm_ask(f"Create new file? ({rel_path})", subject=path):
                 self.io.tool_output(f"Skipping edits to {path}")
                 return
