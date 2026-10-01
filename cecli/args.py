@@ -360,7 +360,7 @@ def get_parser(default_config_files, git_root):
         metavar="RETRIES_JSON",
         help=(
             'Specify LLM retry configuration as a JSON/YAML string (e.g., \'{"retry_on_empty": '
-            "true}')"
+            'true, "retry-on-unauthorized": false}\')'
         ),
         default=None,
     )

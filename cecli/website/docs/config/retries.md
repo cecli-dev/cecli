@@ -11,6 +11,7 @@ Cecli can be configured to retry failed API calls. This is useful for handling i
 - `retry-timeout`: The timeout in seconds for each retry.
 - `retry-backoff-factor`: The backoff factor to use between retries.
 - `retry-on-unavailable`: Whether to retry on 503 Service Unavailable errors.
+- `retry-on-unauthorized`: Whether to retry on 401 Unauthorized (and 403 Forbidden) errors. Default: false.
 
 Example usage in `.cecli.conf.yml`:
 
@@ -19,18 +20,19 @@ retries:
   retry-timeout: 30
   retry-backoff-factor: 1.50
   retry-on-unavailable: true
+  retry-on-unauthorized: false
 ```
 
 This can also be set with the `--retries` command line switch, passing a JSON string:
 
 ```
-$ cecli --retries '{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true}'
+$ cecli --retries '{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true, "retry-on-unauthorized": false}'
 ```
 
 Or by setting the `CECLI_RETRIES` environment variable:
 
 ```
-export CECLI_RETRIES='{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true}'
+export CECLI_RETRIES='{"retry-timeout": 30, "retry-backoff-factor": 1.50, "retry-on-unavailable": true, "retry-on-unauthorized": false}'
 ```
 
 > **Tip:**
