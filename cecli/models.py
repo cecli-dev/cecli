@@ -1493,10 +1493,10 @@ class Model(ModelSettings):
                 # HTTP 401/403 map to AuthenticationError/PermissionDeniedError,
                 # both default to retry=False so behavior is unchanged unless enabled.
                 status_code = getattr(err, "status_code", None)
-                if (
-                    ex_info.name in ("AuthenticationError", "PermissionDeniedError")
-                    and status_code in (401, 403)
-                ):
+                if ex_info.name in (
+                    "AuthenticationError",
+                    "PermissionDeniedError",
+                ) and status_code in (401, 403):
                     should_retry = should_retry or self.retry_on_unauthorized
 
                 custom_retry_delay = self._extract_retry_delay(err)
@@ -1834,7 +1834,7 @@ def parse_retry_config(retries_input):
         "retry_timeout": float(_get("retry_timeout", 30)),
         "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
         "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
-        "retry_on_unauthorized":  bool(_get("retry_on_unauthorized", False)),
+        "retry_on_unauthorized": bool(_get("retry_on_unauthorized", False)),
         "retry_on_empty": bool(_get("retry_on_empty", False)),
     }
 
