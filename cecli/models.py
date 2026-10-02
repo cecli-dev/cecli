@@ -1468,6 +1468,14 @@ class Model(ModelSettings):
             )
             self.retry_timeout = float(nested.getter(retry_config, "retry-timeout", 30))
 
+        if override_kwargs:
+            kwargs = deep_merge(kwargs, override_kwargs)
+
+        kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
+
+        if self.debug:
+            kwargs["logger_fn"] = self._log_request
+
         while True:
             try:
                 # Add randomized random sleep so improve model provider caching
@@ -1475,14 +1483,6 @@ class Model(ModelSettings):
                 if self.caches_by_default:
                     if random.random() < 0.25:
                         await asyncio.sleep(random.uniform(min_wait, max_wait))
-
-                if override_kwargs:
-                    kwargs = deep_merge(kwargs, override_kwargs)
-
-                kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
-
-                if self.debug:
-                    kwargs["logger_fn"] = self._log_request
 
                 completion_coro = litellm.acompletion(**kwargs)
                 res, interrupted = await coroutines.interruptible(completion_coro, interrupt_event)
