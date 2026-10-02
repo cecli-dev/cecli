@@ -2861,6 +2861,20 @@ class Coder(metaclass=UsageMeta):
                     if ex_info.name == "ServiceUnavailableError":
                         should_retry = should_retry or retry_config["retry_on_unavailable"]
 
+                    # Opt-in retry for auth failures (retry-on-unauthorized).
+                    # Some providers (e.g. vertex_ai_beta) carry the status on
+                    # `code` or omit `status_code` entirely, so match on the
+                    # exception name first, then on status/code fields.
+                    status_code = getattr(err, "status_code", None)
+                    code = getattr(err, "code", None)
+                    is_auth_error = (
+                        ex_info.name in ("AuthenticationError", "PermissionDeniedError")
+                        or status_code in (401, 403, "401", "403")
+                        or str(code) in ("401", "403")
+                    )
+                    if is_auth_error:
+                        should_retry = should_retry or retry_config["retry_on_unauthorized"]
+
                     if should_retry:
                         retry_delay *= retry_config["retry_backoff_factor"]
                         if retry_delay > retry_config["retry_timeout"]:
