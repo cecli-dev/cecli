@@ -5,6 +5,7 @@ from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
+from cecli.utils import safe_relpath
 
 
 class Tool(BaseTool):
@@ -70,21 +71,14 @@ class Tool(BaseTool):
                     with os.scandir(abs_path) as entries:
                         for entry in entries:
                             if not entry.name.startswith("."):
-                                try:
-                                    rel_path = os.path.relpath(entry.path, coder.root)
-                                except ValueError:
-                                    rel_path = entry.path
-                                contents.append(rel_path)
+                                contents.append(safe_relpath(entry.path, coder.root))
                 except OSError as e:
                     coder.io.tool_error(f"Error listing directory '{dir_path}': {e}")
                     response.append_result(f"Error: {e}")
                     return response
             elif os.path.isfile(abs_path):
                 # It's a file, just return its relative path
-                try:
-                    contents.append(os.path.relpath(abs_path, coder.root))
-                except ValueError:
-                    contents.append(abs_path)
+                contents.append(safe_relpath(abs_path, coder.root))
 
             if contents:
                 coder.io.tool_output(

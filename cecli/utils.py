@@ -178,6 +178,19 @@ def safe_abs_path(res):
     return str(res)
 
 
+def safe_relpath(path, start=None):
+    """Return ``os.path.relpath(path, start)``, falling back to *path* on cross-drive.
+
+    On Windows, ``os.path.relpath`` raises ``ValueError`` when *path* and *start*
+    (or the implicit CWD) are on different drives. Keep the absolute path in that
+    case instead of crashing.
+    """
+    try:
+        return os.path.relpath(path, start)
+    except ValueError:
+        return str(path)
+
+
 def format_content(role, content):
     formatted_lines = []
     for line in content.splitlines():

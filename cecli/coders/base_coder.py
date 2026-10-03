@@ -66,7 +66,7 @@ from cecli.report import update_error_prefix
 from cecli.run_cmd import run_cmd_async
 from cecli.tools.utils.output import print_tool_response
 from cecli.tools.utils.registry import ToolRegistry
-from cecli.utils import copy_tool_call, format_tokens, is_image_file
+from cecli.utils import copy_tool_call, format_tokens, is_image_file, safe_relpath
 
 from ..dump import dump  # noqa: F401
 from ..prompts.utils.registry import PromptObject, PromptRegistry
@@ -4879,10 +4879,7 @@ class Coder(metaclass=UsageMeta):
             return
 
         if not Path(full_path).exists():
-            try:
-                rel_path = os.path.relpath(full_path)
-            except ValueError:
-                rel_path = full_path
+            rel_path = safe_relpath(full_path)
             if not await self.io.confirm_ask(f"Create new file? ({rel_path})", subject=path):
                 self.io.tool_output(f"Skipping edits to {path}")
                 return

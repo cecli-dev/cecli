@@ -13,6 +13,7 @@ from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
+from cecli.utils import safe_relpath
 
 # Default directories to exclude from search results across various languages
 DEFAULT_EXCLUDE_DIRS = [
@@ -824,11 +825,7 @@ class Tool(BaseTool):
                             if os.path.isabs(raw_path)
                             else os.path.normpath(os.path.join(repo.root, raw_path))
                         )
-                        try:
-                            rel_path = os.path.relpath(abs_path, repo.root)
-                        except ValueError:
-                            rel_path = abs_path
-                        rel_files.append((rel_path, file_count))
+                        rel_files.append((safe_relpath(abs_path, repo.root), file_count))
                     rel_files.sort(key=lambda item: (-item[1], item[0]))
 
                     shown_files = rel_files[:MAX_FILES]
@@ -887,10 +884,7 @@ class Tool(BaseTool):
                                 pf["count_from_pass"] = counts[raw_path]
                             else:
                                 # Try with repo root prefix stripped
-                                try:
-                                    rel = os.path.relpath(raw_path, repo.root)
-                                except ValueError:
-                                    rel = raw_path
+                                rel = safe_relpath(raw_path, repo.root)
                                 pf["count_from_pass"] = counts.get(rel, pf["match_count"])
                     else:
                         for pf in parsed_files:
@@ -904,10 +898,7 @@ class Tool(BaseTool):
 
                     rendered = []
                     for pf in parsed_files[:MAX_FILES]:
-                        try:
-                            rel_path = os.path.relpath(pf["path"], repo.root)
-                        except ValueError:
-                            rel_path = pf["path"]
+                        rel_path = safe_relpath(pf["path"], repo.root)
                         count = pf.get("count_from_pass", 0)
                         total_matches += count
 

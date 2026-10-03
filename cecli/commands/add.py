@@ -10,7 +10,7 @@ from cecli.commands.utils.helpers import (
     parse_quoted_filenames,
     quote_filename,
 )
-from cecli.utils import is_image_file, run_fzf
+from cecli.utils import is_image_file, run_fzf, safe_relpath
 
 
 class AddCommand(BaseCommand):
@@ -67,10 +67,7 @@ class AddCommand(BaseCommand):
                 io.tool_output(f"You can add to git with: /git add {fname}")
                 continue
 
-            try:
-                confirm_fname = os.path.relpath(fname)
-            except ValueError:
-                confirm_fname = str(fname)
+            confirm_fname = safe_relpath(fname)
             if len(confirm_fname) > 64:
                 confirm_fname = f".../{os.path.basename(confirm_fname)}"
 
