@@ -20,7 +20,7 @@ Typical usage:
             return True
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 class HookHelpers:
@@ -191,3 +191,58 @@ class HookHelpers:
         agent_service = AgentService.get_instance(coder)
 
         return await agent_service.invoke(name, prompt, **kwargs)
+
+    @staticmethod
+    async def system_one(
+        coder: Any,
+        state: Any = None,
+        questions: Optional[Dict[str, Any]] = None,
+        decide: Optional[Union[str, Dict[str, Any]]] = None,
+        judge: Optional[Union[str, Dict[str, Any]]] = None,
+        rate: Optional[Union[List[Any], Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        last_n: int = 20,
+    ) -> Dict[str, Any]:
+        """Ask a System One decision model about the conversation or a state.
+
+        System One endpoints answer typed questions (``noul`` yes/no,
+        ``choice`` and ``score``) in a single non-generative pass, so this
+        returns structured verdicts rather than prose. Provide exactly one of
+        ``questions``, ``decide``, ``judge`` or ``rate``.
+
+        Args:
+            coder: The coder instance (passed to hook's ``execute()``).
+            state: Content to evaluate (str, object or array). When ``None``,
+                the last ``last_n`` conversation messages are used.
+            questions: Map of question id to a question dict (see
+                ``cecli.helpers.system_one.noul`` / ``choice`` / ``score``).
+                A bare string is treated as a yes/no question.
+            decide: Option map (or ``{"choices": ..., "instructions": ...}``)
+                for a single Choice question.
+            judge: Instructions (or ``{"instructions": ..., "criteria": ...}``)
+                for a single Noul question.
+            rate: ``{"levels": [...], "instructions": ...}``, or a bare list of
+                levels, for one Score question.
+            model: Endpoint model name override.
+            last_n: How many recent messages to build the default state from.
+
+        Returns:
+            ``{"model": str, "usage": {...}, "answers": {id: {...}}}`` where
+            each answer is a plain dict of the parsed decision. Single-question
+            shorthands come back under the ids ``decision``, ``judgment`` and
+            ``rating``.
+
+        Raises:
+            ValueError: If other than exactly one of the four forms is given.
+            Exception: Endpoint errors (``SystemOneError`` and transport
+                failures) propagate; guard the call when the decision is only
+                advisory or the endpoint may be down.
+        """
+        from cecli.helpers.system_one import integrations
+
+        if state is None:
+            state = HookHelpers.get_messages(coder, last_n=last_n)
+
+        return await integrations.evaluate(
+            state, questions=questions, decide=decide, judge=judge, rate=rate, model=model
+        )

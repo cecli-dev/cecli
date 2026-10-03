@@ -170,6 +170,7 @@ YAML_TO_JSON_ARG_KEYS = {
     "hooks": "hooks",
     "workspaces": "workspaces",
     "model_providers": "model-providers",
+    "system_one": "system-one",
     "server_config": "server-config",
 }
 
@@ -1053,6 +1054,17 @@ async def main_async(
                         io.tool_output(f"  - {slug}")
         except json.JSONDecodeError as e:
             io.tool_error(f"Failed to parse --model-providers JSON: {e}")
+
+    if args.system_one:
+        from cecli.helpers import system_one
+
+        try:
+            system_one_config = json.loads(args.system_one)
+        except json.JSONDecodeError as e:
+            io.tool_error(f"Failed to parse --system-one JSON: {e}")
+        else:
+            if system_one.configure(system_one_config) and args.verbose:
+                io.tool_output(f"System One endpoint: {system_one.get_config().endpoint_url}")
 
     if args.list_models:
         models.print_matching_models(io, args.list_models)

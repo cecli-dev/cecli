@@ -110,6 +110,7 @@ def test_all_yaml_to_json_args_deep_merge_with_config_file():
         "hooks",
         "workspaces",
         "model_providers",
+        "system_one",
         "server_config",
     }
     assert all("_" not in key for key in YAML_TO_JSON_ARG_KEYS.values())
