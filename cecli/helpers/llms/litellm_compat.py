@@ -402,6 +402,16 @@ class _FacadeException(Exception):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+    def __str__(self) -> str:
+        s = super().__str__()
+        if s:
+            return s
+        cause = getattr(self, "__cause__", None)
+        if cause is not None:
+            cause_str = str(cause) or repr(cause)
+            return f"{self.__class__.__name__}: {cause_str}"
+        return self.__class__.__name__
+
 
 class APIConnectionError(_FacadeException):
     pass
@@ -509,7 +519,7 @@ def _translate_http_error(err: httpx.HTTPStatusError) -> _FacadeException:
     except Exception:
         text = ""
     body = text.lower()
-    message = text or str(err)
+    message = text or str(err) or repr(err)
 
     if status == 400 and any(
         token in body for token in ("context", "context_length", "maximum context")
@@ -874,11 +884,11 @@ class _LiteLLMFacade:
                 **passthrough,
             )
         except httpx.TimeoutException as err:
-            raise Timeout(str(err)) from err
+            raise Timeout(str(err) or repr(err)) from err
         except httpx.HTTPStatusError as err:
             raise _translate_http_error(err) from err
         except httpx.HTTPError as err:
-            raise APIConnectionError(str(err)) from err
+            raise APIConnectionError(str(err) or repr(err)) from err
 
         return _response_shim(resp, model)
 
@@ -892,11 +902,11 @@ class _LiteLLMFacade:
             async for chunk in gen:
                 yield _chunk_shim(chunk, model)
         except httpx.TimeoutException as err:
-            raise Timeout(str(err)) from err
+            raise Timeout(str(err) or repr(err)) from err
         except httpx.HTTPStatusError as err:
             raise _translate_http_error(err) from err
         except httpx.HTTPError as err:
-            raise APIConnectionError(str(err)) from err
+            raise APIConnectionError(str(err) or repr(err)) from err
 
     def stream_chunk_builder(
         self, chunks: List[Any], messages: Optional[Any] = None, **kwargs: Any

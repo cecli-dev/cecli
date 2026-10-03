@@ -607,6 +607,24 @@ class TestModels:
             allowed_openai_params=["tools", "tool_choice"],
         )
 
+    @patch("cecli.models.litellm.acompletion")
+    async def test_send_completion_retry_with_debug(self, mock_completion):
+        from cecli.io import InputOutput
+        from cecli.llm import litellm
+
+        io = InputOutput()
+        model = Model("gpt-4", io=io, debug=True)
+        model.extra_params = {}
+        mock_completion.side_effect = [
+            litellm.ServiceUnavailableError(
+                "Service unavailable", llm_provider="openai", model="gpt-4"
+            ),
+            MagicMock(),
+        ]
+        messages = [{"role": "user", "content": "Hello"}]
+        hash_obj, res = await model.send_completion(messages, functions=None, stream=False)
+        assert mock_completion.call_count == 2
+
     def test_model_override_kwargs(self):
         """Test that override kwargs are applied to model extra_params."""
         # Test with override kwargs
