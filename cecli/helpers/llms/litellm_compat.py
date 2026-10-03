@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional
 from cecli.dump import dump  # noqa: F401
 from cecli.http import httpx
 
+from .constants import CONTROL_KWARGS
+from .identifiers import is_ollama
 from .runtime import log_error_response
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -400,6 +402,16 @@ class _FacadeException(Exception):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+    def __str__(self) -> str:
+        s = super().__str__()
+        if s:
+            return s
+        cause = getattr(self, "__cause__", None)
+        if cause is not None:
+            cause_str = str(cause) or repr(cause)
+            return f"{self.__class__.__name__}: {cause_str}"
+        return self.__class__.__name__
+
 
 class APIConnectionError(_FacadeException):
     pass
@@ -507,7 +519,7 @@ def _translate_http_error(err: httpx.HTTPStatusError) -> _FacadeException:
     except Exception:
         text = ""
     body = text.lower()
-    message = text or str(err)
+    message = text or str(err) or repr(err)
 
     if status == 400 and any(
         token in body for token in ("context", "context_length", "maximum context")
@@ -801,16 +813,32 @@ class _LiteLLMFacade:
         if headers:
             extra_headers = {**headers, **extra_headers}
 
+        # Ollama's native runner options (num_ctx, keep_alive, top_p, ...) live
+        # outside the OpenAI parameter set, so forward every request-level kwarg
+        # the caller supplied except those this shim or the pipeline consume
+        # internally. Every other provider keeps the narrow whitelist below so
+        # unrelated runtime kwargs are not leaked into its request body.
+        provider, _, route = (model or "").partition("/")
         passthrough: Dict[str, Any] = {}
-        for key in (
-            "temperature",
-            "tool_choice",
-            "extra_body",
-            "prompt_cache_key",
-            "stream_options",
-        ):
-            if kwargs.get(key) is not None:
-                passthrough[key] = kwargs[key]
+
+        if is_ollama(provider, route, None):
+            for key, value in kwargs.items():
+                if key in CONTROL_KWARGS or value is None:
+                    continue
+
+                passthrough[key] = value
+
+            passthrough.pop("max_completion_tokens", None)
+        else:
+            for key in (
+                "temperature",
+                "tool_choice",
+                "extra_body",
+                "prompt_cache_key",
+                "stream_options",
+            ):
+                if kwargs.get(key) is not None:
+                    passthrough[key] = kwargs[key]
 
         # The model-config pipeline formatters (helpers.format_reasoning /
         # helpers.format_thinking) lift reasoning_effort/thinking OUT of
@@ -856,11 +884,11 @@ class _LiteLLMFacade:
                 **passthrough,
             )
         except httpx.TimeoutException as err:
-            raise Timeout(str(err)) from err
+            raise Timeout(str(err) or repr(err)) from err
         except httpx.HTTPStatusError as err:
             raise _translate_http_error(err) from err
         except httpx.HTTPError as err:
-            raise APIConnectionError(str(err)) from err
+            raise APIConnectionError(str(err) or repr(err)) from err
 
         return _response_shim(resp, model)
 
@@ -874,11 +902,11 @@ class _LiteLLMFacade:
             async for chunk in gen:
                 yield _chunk_shim(chunk, model)
         except httpx.TimeoutException as err:
-            raise Timeout(str(err)) from err
+            raise Timeout(str(err) or repr(err)) from err
         except httpx.HTTPStatusError as err:
             raise _translate_http_error(err) from err
         except httpx.HTTPError as err:
-            raise APIConnectionError(str(err)) from err
+            raise APIConnectionError(str(err) or repr(err)) from err
 
     def stream_chunk_builder(
         self, chunks: List[Any], messages: Optional[Any] = None, **kwargs: Any

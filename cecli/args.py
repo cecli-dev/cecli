@@ -61,6 +61,7 @@ DEEP_MERGE_JSON_FIELDS: frozenset[str] = frozenset(
         "security_config",
         "retries",
         "custom",
+        "system_one",
         "tui_config",
     }
 )
@@ -360,7 +361,7 @@ def get_parser(default_config_files, git_root):
         metavar="RETRIES_JSON",
         help=(
             'Specify LLM retry configuration as a JSON/YAML string (e.g., \'{"retry_on_empty": '
-            "true}')"
+            'true, "retry-on-unauthorized": false}\')'
         ),
         default=None,
     )
@@ -425,6 +426,16 @@ def get_parser(default_config_files, git_root):
         "--hooks",
         metavar="HOOKS_CONFIG_JSON",
         help="Specify hooks configuration as a JSON string",
+        default=None,
+    )
+    group.add_argument(
+        "--system-one",
+        metavar="SYSTEM_ONE_JSON",
+        help=(
+            "Specify the System One decision endpoint as a JSON/YAML string (e.g.,"
+            ' \'{"api_base": "http://127.0.0.1:8000", "api_key_env": ["SYSTEM_ONE_API_KEY"],'
+            ' "model_name": "von-latest"}\')'
+        ),
         default=None,
     )
     group.add_argument(

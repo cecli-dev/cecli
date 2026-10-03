@@ -133,6 +133,8 @@ class ModelSettings:
     retries: Optional[dict] = None
     retry_backoff_factor: float = 1.5
     retry_on_unavailable: bool = True
+    retry_on_forbidden: bool = False
+    retry_on_unauthorized: bool = False
     retry_timeout: float = 30
     request_timeout: int = request_timeout
     debug: bool = False
@@ -566,7 +568,10 @@ class Model(ModelSettings):
         self._apply_reasoning_defaults()
         self.get_weak_model(weak_model)
         self.get_agent_model(agent_model)
-        self.retries = retries
+        # Keep a `retries:` block from model settings unless an explicit value
+        # was passed (main.py passes retries=None when --retries is unset).
+        if retries is not None:
+            self.retries = retries
         self.debug = debug
 
         if editor_model is False:
@@ -1452,21 +1457,20 @@ class Model(ModelSettings):
         litellm_ex = LiteLLMExceptions()
         retry_delay = 0.125
 
-        if self.retries:
-            retry_config = dict()
-            try:
-                retry_config = json.loads(self.retries)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                retry_config = dict()
-                pass
+        retry_config = parse_retry_config(self.retries)
+        self.retry_on_unavailable = retry_config["retry_on_unavailable"]
+        self.retry_on_forbidden = retry_config["retry_on_forbidden"]
+        self.retry_on_unauthorized = retry_config["retry_on_unauthorized"]
+        self.retry_backoff_factor = retry_config["retry_backoff_factor"]
+        self.retry_timeout = retry_config["retry_timeout"]
 
-            self.retry_on_unavailable = bool(
-                nested.getter(retry_config, "retry-on-unavailable", True)
-            )
-            self.retry_backoff_factor = float(
-                nested.getter(retry_config, "retry-backoff-factor", 1.5)
-            )
-            self.retry_timeout = float(nested.getter(retry_config, "retry-timeout", 30))
+        if override_kwargs:
+            kwargs = deep_merge(kwargs, override_kwargs)
+
+        kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
+
+        if self.debug:
+            kwargs["logger_fn"] = self._log_request
 
         while True:
             try:
@@ -1475,14 +1479,6 @@ class Model(ModelSettings):
                 if self.caches_by_default:
                     if random.random() < 0.25:
                         await asyncio.sleep(random.uniform(min_wait, max_wait))
-
-                if override_kwargs:
-                    kwargs = deep_merge(kwargs, override_kwargs)
-
-                kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
-
-                if self.debug:
-                    kwargs["logger_fn"] = self._log_request
 
                 completion_coro = litellm.acompletion(**kwargs)
                 res, interrupted = await coroutines.interruptible(completion_coro, interrupt_event)
@@ -1493,10 +1489,7 @@ class Model(ModelSettings):
             except litellm.ContextWindowExceededError as err:
                 raise err
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
-                should_retry = ex_info.retry
-                if ex_info.name == "ServiceUnavailableError":
-                    should_retry = should_retry or self.retry_on_unavailable
+                should_retry, ex_info = parse_model_error(retry_config, err)
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1517,7 +1510,7 @@ class Model(ModelSettings):
                     should_retry = False
 
                 if not should_retry:
-                    print(f"API Error: {str(err)}")
+                    print(f"API Error: {str(err) or repr(err)}")
                     if ex_info.description:
                         print(ex_info.description)
                     if stream:
@@ -1526,7 +1519,7 @@ class Model(ModelSettings):
                         return hash_object, self.model_error_response()
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
-                print(f"API Error: {str(err)}")
+                print(f"API Error: {str(err) or repr(err)}")
                 if interrupt_event:
                     _res, interrupted = await coroutines.interruptible(
                         asyncio.sleep(retry_delay), interrupt_event
@@ -1556,6 +1549,10 @@ class Model(ModelSettings):
         retry_delay = 0.125
         temperature = None
         tools = None
+
+        retry_config = parse_retry_config(self.retries)
+        retry_backoff_factor = retry_config["retry_backoff_factor"]
+        retry_timeout = retry_config["retry_timeout"]
 
         if self.verbose:
             dump(messages)
@@ -1602,19 +1599,19 @@ class Model(ModelSettings):
 
                 return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
+                should_retry, ex_info = parse_model_error(retry_config, err)
                 print(str(err))
                 if ex_info.description:
                     print(ex_info.description)
-                should_retry = ex_info.retry
+
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
                     retry_delay = custom_retry_delay
                     should_retry = True
                 elif should_retry:
-                    retry_delay *= 2
+                    retry_delay *= retry_backoff_factor
 
-                if retry_delay > RETRY_TIMEOUT:
+                if retry_delay > retry_timeout:
                     should_retry = False
 
                 if not should_retry:
@@ -1790,6 +1787,82 @@ class Model(ModelSettings):
             return prefix
 
         return provider
+
+
+def parse_retry_config(retries_input):
+    """
+    Parse and normalize retry configuration from a JSON string or dict.
+    Returns a unified dict with defaults:
+      retry_timeout: 30
+      retry_backoff_factor: 1.5
+      retry_on_unavailable: True
+      retry_on_forbidden: False
+      retry_on_empty: False
+      retry_on_unauthorized: False
+    """
+    config = dict()
+    if isinstance(retries_input, str):
+        try:
+            config = json.loads(retries_input)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            config = dict()
+    elif isinstance(retries_input, dict):
+        config = retries_input.copy()
+
+    # Helper to get either hyphenated or underscored key
+    def _get(key, default):
+        val = config.get(key)
+        if val is not None:
+            return val
+        val = config.get(key.replace("_", "-"))
+        if val is not None:
+            return val
+        return default
+
+    return {
+        "retry_timeout": float(_get("retry_timeout", 30)),
+        "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
+        "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
+        "retry_on_forbidden": bool(_get("retry_on_forbidden", False)),
+        "retry_on_unauthorized": bool(_get("retry_on_unauthorized", False)),
+        "retry_on_empty": bool(_get("retry_on_empty", False)),
+    }
+
+
+def parse_model_error(retry_config, error):
+    """
+    Determine whether a model error should be retried and return its metadata.
+
+    ``retry_config`` is the dict produced by :func:`parse_retry_config`; ``error``
+    is a litellm exception. Returns a ``(should_retry, ex_info)`` tuple so callers
+    can reuse the parsed exception info for messaging.
+
+    Some providers (e.g. vertex_ai_beta) carry the status on ``code`` or omit
+    ``status_code`` entirely, so auth failures are matched on the exception name
+    first, then on the status/code fields.
+    """
+    from cecli.exceptions import LiteLLMExceptions
+
+    ex_info = LiteLLMExceptions().get_ex_info(error)
+
+    should_retry = ex_info.retry
+    if ex_info.name == "ServiceUnavailableError":
+        should_retry = should_retry or retry_config["retry_on_unavailable"]
+
+    if ex_info.name == "PermissionDeniedError":
+        should_retry = should_retry or retry_config["retry_on_forbidden"]
+
+    status_code = getattr(error, "status_code", None)
+    code = getattr(error, "code", None)
+    is_auth_error = (
+        ex_info.name in ("AuthenticationError", "PermissionDeniedError")
+        or status_code in (401, 403, "401", "403")
+        or str(code) in ("401", "403")
+    )
+    if is_auth_error:
+        should_retry = should_retry or retry_config["retry_on_unauthorized"]
+
+    return should_retry, ex_info
 
 
 def register_models(model_settings_fnames):

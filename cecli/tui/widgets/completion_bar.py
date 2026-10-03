@@ -7,6 +7,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
+from cecli.utils import safe_relpath
+
 
 class CompletionBar(Widget, can_focus=False):
     """Bar showing autocomplete suggestions above input (non-focusable)."""
@@ -130,7 +132,7 @@ class CompletionBar(Widget, can_focus=False):
         if is_absolute:
             candidates = self.suggestions
         else:
-            candidates = [os.path.relpath(s) for s in self.suggestions]
+            candidates = [safe_relpath(s) for s in self.suggestions]
 
         # Find common directory prefix
         dirs = [os.path.dirname(s) for s in candidates]
@@ -140,7 +142,11 @@ class CompletionBar(Widget, can_focus=False):
             self._display_names = [os.path.basename(s) for s in candidates]
         else:
             # Find longest common path prefix
-            common = os.path.commonpath(candidates) if candidates else ""
+            try:
+                common = os.path.commonpath(candidates) if candidates else ""
+            except ValueError:
+                # Mixed drives (Windows): no common prefix to collapse.
+                common = ""
             if common and os.sep in common:
                 # Use the directory part of common prefix
                 self._common_prefix = common.rsplit(os.sep, 1)[0] + os.sep

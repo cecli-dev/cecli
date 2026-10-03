@@ -84,6 +84,7 @@ The following fields are stored as JSON/YAML strings but are **internally deep-m
 - `mcp-servers` - MCP server definitions
 - `hooks` - Hook configurations
 - `model-providers` - Model provider configurations
+- `system-one` - System One decision endpoint configuration
 - `security-config` - Security settings
 - `retries` - Retry configuration
 - `custom` - Custom configurations

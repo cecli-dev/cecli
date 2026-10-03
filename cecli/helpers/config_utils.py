@@ -226,11 +226,22 @@ def read_and_merge_all_configs(
     return merged
 
 
+def _safe_deepcopy(val, memo=None):
+    try:
+        return copy.deepcopy(val, memo)
+    except (TypeError, copy.Error):
+        if isinstance(val, dict):
+            return {k: _safe_deepcopy(v, memo) for k, v in val.items()}
+        elif isinstance(val, list):
+            return [_safe_deepcopy(item, memo) for item in val]
+        return val
+
+
 def deep_merge(dict1: dict, dict2: dict, deep_merge_arrays: bool = True) -> dict:
     """
     Recursively merges dict2 into dict1.
     """
-    merged = copy.deepcopy(dict1)
+    merged = _safe_deepcopy(dict1)
 
     for key, value in dict2.items():
         if deep_merge_arrays and value is None:
@@ -248,7 +259,7 @@ def deep_merge(dict1: dict, dict2: dict, deep_merge_arrays: bool = True) -> dict
             merged[key] = _deduplicate_list(merged[key], value)
 
         else:
-            merged[key] = copy.deepcopy(value)
+            merged[key] = _safe_deepcopy(value)
 
     return merged
 

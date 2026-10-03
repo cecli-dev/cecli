@@ -56,6 +56,12 @@ async def acompletion(
     # payload (e.g. Bedrock Mantle's SigV4 path).
     resolved["_signer"] = getattr(provider, "sign_request", None)
 
+    # The chat domain reads the provider back off ``resolved`` so it can
+    # delegate endpoint/payload/parsing to providers that override the shared
+    # chat wire (e.g. Ollama's native /api/chat) without threading a new
+    # argument through every family entry point.
+    resolved["_provider"] = provider
+
     headers = dict(resolved.get("extra_headers") or {})
     headers.update(extra_headers or {})
 
