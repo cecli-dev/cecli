@@ -1,7 +1,7 @@
 (async function get_contributors(){
     let all_contributors = [];
     for (let i = 1; i < 11; i++){
-        const response = await fetch(`https://api.github.com/repos/dwash96/aider-ce/contributors?anon=1&per_page=100&page=${i}`);
+        const response = await fetch(`https://api.github.com/repos/cecli-dev/cecli/contributors?anon=1&per_page=100&page=${i}`);
         const data = await response.json();
 
         all_contributors = all_contributors.concat(data)
@@ -12,7 +12,7 @@
 
     all_contributors.forEach((item) => {
         if(item.login){
-            output.push(`<a href="https://github.com/dwash96/aider-ce/commits/main?author=${item.login}">@${item.login}</a>`)
+            output.push(`<a href="https://github.com/cecli-dev/cecli/commits/main?author=${item.login}">@${item.login}</a>`)
         }else{
             output.push(`${item.name}`)
         }
