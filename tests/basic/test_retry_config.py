@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, call, patch
 import pytest
 
 from cecli.llm import litellm
-from cecli.models import Model, _parse_retry_config
+from cecli.models import Model, parse_retry_config
 
 
-def test_parse_retry_config_string():
+def testparse_retry_config_string():
     config_str = '{"retry_timeout": 15, "retry-on-empty": true}'
-    result = _parse_retry_config(config_str)
+    result = parse_retry_config(config_str)
     assert result["retry_timeout"] == 15.0
     assert result["retry_on_empty"] is True
     # defaults
@@ -16,13 +16,13 @@ def test_parse_retry_config_string():
     assert result["retry_on_unavailable"] is True
 
 
-def test_parse_retry_config_dict():
+def testparse_retry_config_dict():
     config_dict = {
         "retry_timeout": 10.0,
         "retry_backoff_factor": 2.0,
         "retry-on-unavailable": False,
     }
-    result = _parse_retry_config(config_dict)
+    result = parse_retry_config(config_dict)
     assert result["retry_timeout"] == 10.0
     assert result["retry_backoff_factor"] == 2.0
     assert result["retry_on_unavailable"] is False
