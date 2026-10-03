@@ -117,7 +117,7 @@ class TUI(App):
             patch_textual_strip_render_with_cache()
 
         self.bind(
-            self._encode_keys(self.get_keys_for("newline")),
+            self._get_binding_keys("newline"),
             "noop",
             description="New Line",
             show=True,
@@ -1641,6 +1641,13 @@ class TUI(App):
 
         return self.query_one("#output", OutputContainer)
 
+    def _get_binding_keys(self, type):
+        """Return all accepted key forms for use in a Textual binding string."""
+        keys = self.get_keys_for(type)
+        encoded = self._encode_keys(keys)
+
+        return keys if encoded == keys else f"{keys},{encoded}"
+
     def _encode_keys(self, key):
         key = key.replace("shift+enter", "ctrl+j")
 
@@ -1653,8 +1660,11 @@ class TUI(App):
 
     def is_key_for(self, type, key):
         allowed_keys = self.tui_config["key_bindings"][type].split(",")
-        if key in allowed_keys:
-            return True
+        normalized_key = self._decode_keys(key)
+
+        for allowed_key in allowed_keys:
+            if normalized_key == self._decode_keys(allowed_key):
+                return True
 
         return False
 
