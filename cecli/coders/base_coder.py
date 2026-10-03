@@ -2857,11 +2857,7 @@ class Coder(metaclass=UsageMeta):
 
                     retry_config = models.parse_retry_config(self.get_active_model().retries)
 
-                    should_retry = ex_info.retry
-                    if ex_info.name == "ServiceUnavailableError":
-                        should_retry = should_retry or retry_config["retry_on_unavailable"]
-                    if ex_info.name == "PermissionDeniedError":
-                        should_retry = should_retry or retry_config["retry_on_forbidden"]
+                    should_retry, _ = models.parse_model_error(retry_config, err)
 
                     if should_retry:
                         retry_delay *= retry_config["retry_backoff_factor"]

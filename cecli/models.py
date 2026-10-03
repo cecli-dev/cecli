@@ -134,6 +134,7 @@ class ModelSettings:
     retry_backoff_factor: float = 1.5
     retry_on_unavailable: bool = True
     retry_on_forbidden: bool = False
+    retry_on_unauthorized: bool = False
     retry_timeout: float = 30
     request_timeout: int = request_timeout
     debug: bool = False
@@ -567,7 +568,10 @@ class Model(ModelSettings):
         self._apply_reasoning_defaults()
         self.get_weak_model(weak_model)
         self.get_agent_model(agent_model)
-        self.retries = retries
+        # Keep a `retries:` block from model settings unless an explicit value
+        # was passed (main.py passes retries=None when --retries is unset).
+        if retries is not None:
+            self.retries = retries
         self.debug = debug
 
         if editor_model is False:
@@ -1456,6 +1460,7 @@ class Model(ModelSettings):
         retry_config = parse_retry_config(self.retries)
         self.retry_on_unavailable = retry_config["retry_on_unavailable"]
         self.retry_on_forbidden = retry_config["retry_on_forbidden"]
+        self.retry_on_unauthorized = retry_config["retry_on_unauthorized"]
         self.retry_backoff_factor = retry_config["retry_backoff_factor"]
         self.retry_timeout = retry_config["retry_timeout"]
 
@@ -1484,12 +1489,7 @@ class Model(ModelSettings):
             except litellm.ContextWindowExceededError as err:
                 raise err
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
-                should_retry = ex_info.retry
-                if ex_info.name == "ServiceUnavailableError":
-                    should_retry = should_retry or self.retry_on_unavailable
-                elif ex_info.name == "PermissionDeniedError":
-                    should_retry = should_retry or self.retry_on_forbidden
+                should_retry, ex_info = parse_model_error(retry_config, err)
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1553,8 +1553,6 @@ class Model(ModelSettings):
         retry_config = parse_retry_config(self.retries)
         retry_backoff_factor = retry_config["retry_backoff_factor"]
         retry_timeout = retry_config["retry_timeout"]
-        retry_on_unavailable = retry_config["retry_on_unavailable"]
-        retry_on_forbidden = retry_config["retry_on_forbidden"]
 
         if self.verbose:
             dump(messages)
@@ -1601,15 +1599,10 @@ class Model(ModelSettings):
 
                 return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
+                should_retry, ex_info = parse_model_error(retry_config, err)
                 print(str(err))
                 if ex_info.description:
                     print(ex_info.description)
-                should_retry = ex_info.retry
-                if ex_info.name == "ServiceUnavailableError":
-                    should_retry = should_retry or retry_on_unavailable
-                elif ex_info.name == "PermissionDeniedError":
-                    should_retry = should_retry or retry_on_forbidden
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1805,6 +1798,7 @@ def parse_retry_config(retries_input):
       retry_on_unavailable: True
       retry_on_forbidden: False
       retry_on_empty: False
+      retry_on_unauthorized: False
     """
     config = dict()
     if isinstance(retries_input, str):
@@ -1830,8 +1824,45 @@ def parse_retry_config(retries_input):
         "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
         "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
         "retry_on_forbidden": bool(_get("retry_on_forbidden", False)),
+        "retry_on_unauthorized": bool(_get("retry_on_unauthorized", False)),
         "retry_on_empty": bool(_get("retry_on_empty", False)),
     }
+
+
+def parse_model_error(retry_config, error):
+    """
+    Determine whether a model error should be retried and return its metadata.
+
+    ``retry_config`` is the dict produced by :func:`parse_retry_config`; ``error``
+    is a litellm exception. Returns a ``(should_retry, ex_info)`` tuple so callers
+    can reuse the parsed exception info for messaging.
+
+    Some providers (e.g. vertex_ai_beta) carry the status on ``code`` or omit
+    ``status_code`` entirely, so auth failures are matched on the exception name
+    first, then on the status/code fields.
+    """
+    from cecli.exceptions import LiteLLMExceptions
+
+    ex_info = LiteLLMExceptions().get_ex_info(error)
+
+    should_retry = ex_info.retry
+    if ex_info.name == "ServiceUnavailableError":
+        should_retry = should_retry or retry_config["retry_on_unavailable"]
+
+    if ex_info.name == "PermissionDeniedError":
+        should_retry = should_retry or retry_config["retry_on_forbidden"]
+
+    status_code = getattr(error, "status_code", None)
+    code = getattr(error, "code", None)
+    is_auth_error = (
+        ex_info.name in ("AuthenticationError", "PermissionDeniedError")
+        or status_code in (401, 403, "401", "403")
+        or str(code) in ("401", "403")
+    )
+    if is_auth_error:
+        should_retry = should_retry or retry_config["retry_on_unauthorized"]
+
+    return should_retry, ex_info
 
 
 def register_models(model_settings_fnames):
