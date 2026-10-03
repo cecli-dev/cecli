@@ -1517,7 +1517,7 @@ class Model(ModelSettings):
                     should_retry = False
 
                 if not should_retry:
-                    print(f"API Error: {str(err)}")
+                    print(f"API Error: {str(err) or repr(err)}")
                     if ex_info.description:
                         print(ex_info.description)
                     if stream:
@@ -1526,7 +1526,7 @@ class Model(ModelSettings):
                         return hash_object, self.model_error_response()
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
-                print(f"API Error: {str(err)}")
+                print(f"API Error: {str(err) or repr(err)}")
                 if interrupt_event:
                     _res, interrupted = await coroutines.interruptible(
                         asyncio.sleep(retry_delay), interrupt_event
