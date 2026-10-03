@@ -70,7 +70,10 @@ class Tool(BaseTool):
                     with os.scandir(abs_path) as entries:
                         for entry in entries:
                             if not entry.name.startswith("."):
-                                rel_path = os.path.relpath(entry.path, coder.root)
+                                try:
+                                    rel_path = os.path.relpath(entry.path, coder.root)
+                                except ValueError:
+                                    rel_path = entry.path
                                 contents.append(rel_path)
                 except OSError as e:
                     coder.io.tool_error(f"Error listing directory '{dir_path}': {e}")
@@ -78,7 +81,10 @@ class Tool(BaseTool):
                     return response
             elif os.path.isfile(abs_path):
                 # It's a file, just return its relative path
-                contents.append(os.path.relpath(abs_path, coder.root))
+                try:
+                    contents.append(os.path.relpath(abs_path, coder.root))
+                except ValueError:
+                    contents.append(abs_path)
 
             if contents:
                 coder.io.tool_output(
