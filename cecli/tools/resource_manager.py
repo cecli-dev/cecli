@@ -35,18 +35,12 @@ class Tool(BaseTool):
                     "add": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "List of file paths to add to context. Limit to at most 2 at a time. "
-                            "Command output aliases (command_key::) are rejected; use paging instead."
-                        ),
+                        "description": "List of file paths to add to context.",
                     },
                     "read_only": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "List of file paths to add as read-only. Limit to at most 2 at a time. "
-                            "Command output aliases (command_key::) are rejected; use paging instead."
-                        ),
+                        "description": "List of file paths to add as read-only.",
                     },
                     "create": {
                         "type": "array",
@@ -98,9 +92,9 @@ class Tool(BaseTool):
                     "paging": {
                         "type": "array",
                         "description": (
-                            "View 1-3 saved command output pages without adding files to context. "
+                            "View 1-3 saved command output pages. "
                             'Format: [{"target": "<command key>", "page": 1}]. '
-                            "Pages are numbered from 1."
+                            "Pages are 1-indexed."
                         ),
                         "items": {
                             "type": "object",
