@@ -455,7 +455,7 @@ async def test_request_uses_configured_endpoint_and_headers(monkeypatch):
     )
 
     seen = {}
-    _fake_httpx_client(monkeypatch, httpx, seen, [httpx.Response(200, json=_noul_body("judgment"))])
+    _fake_httpx_client(monkeypatch, seen, [httpx.Response(200, json=_noul_body("judgment"))])
 
     answer = await system_one.judge(state="x", instructions="blocking?")
 
@@ -484,7 +484,7 @@ async def test_rate_limited_responses_are_retried(monkeypatch):
         httpx.Response(200, json=_noul_body("judgment")),
     ]
 
-    _fake_httpx_client(monkeypatch, httpx, seen, responses)
+    _fake_httpx_client(monkeypatch, seen, responses)
 
     answer = await system_one.judge(state="x", instructions="blocking?")
 
@@ -507,7 +507,6 @@ async def test_missing_api_key_is_named_in_auth_errors(monkeypatch):
 
     _fake_httpx_client(
         monkeypatch,
-        httpx,
         {"count": 0},
         [httpx.Response(403, json={"detail": "Must supply an API key"})],
     )
@@ -528,7 +527,6 @@ async def test_error_status_raises_system_one_error(monkeypatch):
 
     _fake_httpx_client(
         monkeypatch,
-        httpx,
         {"count": 0},
         [httpx.Response(422, json={"detail": "missing field: questions"})],
     )
@@ -540,8 +538,15 @@ async def test_error_status_raises_system_one_error(monkeypatch):
     assert "missing field" in str(excinfo.value)
 
 
-def _fake_httpx_client(monkeypatch, httpx, seen, responses):
-    """Replace httpx.AsyncClient with one that replays *responses* in order."""
+def _fake_httpx_client(monkeypatch, seen, responses):
+    """Replace the client's AsyncClient with one that replays *responses* in order.
+
+    SystemOneClient imports its http module through :mod:`cecli.http`, which
+    resolves to ``httpx2`` when the installed mcp SDK is >= 2, so patch that
+    module rather than plain ``httpx``.
+    """
+
+    from cecli.http import httpx as client_httpx
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -561,7 +566,7 @@ def _fake_httpx_client(monkeypatch, httpx, seen, responses):
 
             return responses.pop(0)
 
-    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(client_httpx, "AsyncClient", FakeClient)
 
     return FakeClient
 
