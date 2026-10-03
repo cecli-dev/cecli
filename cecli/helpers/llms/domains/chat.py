@@ -139,7 +139,7 @@ async def chat_complete(
     else:
         post_kwargs["json"] = payload
 
-    async with make_client(timeout=DEFAULT_TIMEOUT, verify=VERIFY_SSL) as client:
+    async with make_client(timeout=_request_timeout(kwargs), verify=VERIFY_SSL) as client:
         resp = await client.post(url, headers=hdrs, params=params, **post_kwargs)
         resp.raise_for_status()
         data = resp.json()
@@ -191,7 +191,7 @@ async def chat_stream(
     else:
         stream_kwargs["json"] = payload
 
-    async with make_client(timeout=DEFAULT_TIMEOUT, verify=VERIFY_SSL) as client:
+    async with make_client(timeout=_request_timeout(kwargs), verify=VERIFY_SSL) as client:
         async with client.stream("POST", url, headers=hdrs, params=params, **stream_kwargs) as resp:
             resp.raise_for_status()
             last_finish_reason = None
@@ -441,6 +441,19 @@ def _openai_env_override() -> Optional[Tuple[str, Optional[str]]]:
         return None
 
     return (raw.strip().rstrip("/"), os.environ.get("OPENAI_API_KEY") or None)
+
+
+def _request_timeout(kwargs: Dict[str, Any]) -> float:
+    """Client timeout in seconds: the configured/request timeout, else the default.
+
+    The higher-level request kwargs carry ``timeout`` (issue #703); honoring it
+    here keeps long non-streaming responses from being cut off at
+    :data:`DEFAULT_TIMEOUT`.
+    """
+    try:
+        return float(kwargs.get("timeout") or DEFAULT_TIMEOUT)
+    except (TypeError, ValueError):
+        return DEFAULT_TIMEOUT
 
 
 __all__ = [
