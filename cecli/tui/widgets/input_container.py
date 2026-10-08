@@ -20,7 +20,8 @@ class InputContainer(Vertical):
 
     def _refresh_sub_agents(self):
         """Re-render the border title with current sub-agent status."""
-        self.show_squares = not self.show_squares
+        if self.app.animation_level != "none":
+            self.show_squares = not self.show_squares
         self.update_mode(self.coder_mode)
 
     def update_mode(self, mode: str):

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from prompt_toolkit.enums import EditingMode
 
 
 @pytest.fixture
@@ -84,3 +85,17 @@ class TestIOSpinnerGating:
         io.start_spinner("Awaiting Confirmation...")
         assert io.fallback_spinner is None
         assert io.spinner_running is False
+
+    def test_no_spinner_suppresses_tui_spinner_messages(self):
+        """The existing spinner option also gates the Textual adapter."""
+        from cecli.args import get_parser
+        from cecli.tui import create_tui_io
+
+        args = get_parser(default_config_files=[], git_root=None).parse_args(["--no-spinner"])
+        io, output_queue, _ = create_tui_io(args, EditingMode.EMACS)
+
+        io.start_spinner("Working")
+        io.stop_spinner()
+
+        assert io.spinner_active is False
+        assert output_queue.empty()
