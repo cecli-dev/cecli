@@ -988,6 +988,12 @@ class InputOutput:
                 if not multiline_input:
                     if self.file_watcher:
                         self.file_watcher.start()
+
+                        # The catch-up scan may have found files changed while the
+                        # watcher was stopped; handle them before prompting.
+                        if self.file_watcher.changed_files:
+                            return self.file_watcher.process_changes()
+
                     if self.clipboard_watcher:
                         self.clipboard_watcher.start()
 

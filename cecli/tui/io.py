@@ -492,6 +492,11 @@ class TextualInputOutput(InputOutput):
                 if not self.file_watcher.is_running:
                     self.file_watcher.start()
 
+                # Handle files the catch-up scan found before waiting for input
+                if self.file_watcher.changed_files:
+                    cmd = self.file_watcher.process_changes()
+                    return cmd
+
                 # Check if we were interrupted by a file change
                 if self.interrupted:
                     cmd = self.file_watcher.process_changes()

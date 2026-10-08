@@ -1,5 +1,7 @@
+import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -16,9 +18,10 @@ def load_gitignores(gitignore_paths: list[Path]) -> Optional[PathSpec]:
     if not gitignore_paths:
         return None
 
-    patterns = [
+    always_ignore = [
         ".cecli*",
         ".git",
+        ".git/",  # Git metadata
         # Common editor backup/temp files
         "*~",  # Emacs/vim backup
         "*.bak",  # Generic backup
@@ -45,14 +48,22 @@ def load_gitignores(gitignore_paths: list[Path]) -> Optional[PathSpec]:
         # Environment files
         ".env",  # Environment variables
         ".venv/",  # Python virtual environments
+        "venv/",  # Python virtual environments
+        "env/",  # Python virtual environments
+        ".tox/",  # Tox environments
+        "*.egg-info/",  # Python package metadata
         "node_modules/",  # Node.js dependencies
         "vendor/",  # Various dependencies
         # Logs and caches
         "*.log",  # Log files
         ".cache/",  # Cache directories
         ".pytest_cache/",  # Python test cache
+        ".ruff_cache/",  # Ruff cache
+        ".mypy_cache/",  # Mypy cache
         "coverage/",  # Code coverage reports
-    ]  # Always ignore
+    ]
+
+    patterns = []
     for path in gitignore_paths:
         if path.exists():
             try:
@@ -60,6 +71,11 @@ def load_gitignores(gitignore_paths: list[Path]) -> Optional[PathSpec]:
                     patterns.extend(f.readlines())
             except Exception:
                 pass  # Ignore files that can't be read
+
+    # Always-ignore patterns go last: in gitignore semantics the last matching
+    # pattern wins, so a repo's negations (e.g. "!*/") cannot re-enable heavy
+    # directories like virtualenvs, caches or .git.
+    patterns.extend(always_ignore)
 
     return PathSpec.from_lines(GitWildMatchPattern, patterns) if patterns else None
 
@@ -75,13 +91,14 @@ class FileWatcher:
     def __init__(self, coder, gitignores=None, verbose=False, root=None):
         self.coder = coder
         self.io = coder.io
-        self.root = Path(root) if root else Path(coder.root)
+        self.root = (Path(root) if root else Path(coder.root)).absolute()
         self.verbose = verbose
         self.stop_event = None
         self.watcher_thread = None
         self.changed_files = set()
         self.gitignores = gitignores
         self.is_running = False
+        self.last_scan_time = time.time()
 
         self.gitignore_spec = load_gitignores(
             [Path(g) for g in self.gitignores] if self.gitignores else []
@@ -169,6 +186,14 @@ class FileWatcher:
         """Start watching for file changes"""
         self.stop_event = threading.Event()
         self.changed_files = set()
+
+        # Watchfiles only sees changes that happen while it is running, so pick
+        # up anything created while the watcher was stopped before we begin.
+        try:
+            self.catch_up_scan()
+        except Exception as e:
+            if self.verbose:
+                dump(f"File watcher catch-up scan error: {e}")
 
         self.is_running = True
         self.watcher_thread = threading.Thread(target=self.watch_files, daemon=True)
@@ -282,6 +307,67 @@ class FileWatcher:
         if not line_nums:
             return None, None, None
         return line_nums, comments, has_action
+
+    def catch_up_scan(self):
+        """Catch AI comments in files changed since the last scan
+
+        watchfiles only reports changes that happen while it is running, so a
+        file created while the watcher was stopped (or inside a directory created
+        after watching began) would otherwise be missed. This mtime-gated scan
+        looks only at files changed since the previous scan and applies the same
+        gitignore and comment rules as the live watcher.
+        """
+        scan_started = time.time()
+        threshold = self.last_scan_time
+        found = set()
+
+        for root in self.get_roots_to_watch():
+            root_path = Path(root)
+            if root_path.is_file():
+                try:
+                    candidates = [root_path] if root_path.stat().st_mtime >= threshold else []
+                except OSError:
+                    candidates = []
+            else:
+                candidates = self._iter_recent_files(root_path, threshold)
+
+            for path in candidates:
+                try:
+                    if self.filter_func(None, str(path)):
+                        found.add(str(path.absolute()))
+                except Exception:
+                    continue
+
+        self.last_scan_time = scan_started
+
+        if found:
+            self.changed_files.update(found)
+
+        return bool(found)
+
+    def _iter_recent_files(self, directory, threshold):
+        """Yield files under directory modified at or after threshold"""
+        for dirpath, dirnames, filenames in os.walk(directory):
+            rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, "/")
+            prefix = "" if rel_dir == "." else rel_dir + "/"
+
+            if self.gitignore_spec:
+                dirnames[:] = [
+                    name
+                    for name in dirnames
+                    if not self.gitignore_spec.match_file(prefix + name + "/")
+                ]
+
+            for name in filenames:
+                if self.gitignore_spec and self.gitignore_spec.match_file(prefix + name):
+                    continue
+
+                path = Path(dirpath) / name
+                try:
+                    if path.stat().st_mtime >= threshold:
+                        yield path
+                except OSError:
+                    continue
 
 
 def main():
