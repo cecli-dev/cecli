@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from cecli.dump import dump  # noqa
@@ -164,3 +165,115 @@ def test_ai_comment_pattern():
         len(lisp_lines) == lisp_expected
     ), f"Expected {lisp_expected} AI comments in Lisp fixture, found {len(lisp_lines)}"
     assert lisp_has_bang == "!", "Expected at least one bang (!) comment in Lisp fixture"
+
+
+def test_catch_up_scan_detects_recent_file(tmp_path):
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+    watcher.last_scan_time = 0
+
+    new_file = tmp_path / "new.py"
+    new_file.write_text("# ai!\n")
+
+    assert watcher.catch_up_scan()
+    assert str(new_file.absolute()) in watcher.changed_files
+
+
+def test_catch_up_scan_ignores_old_files(tmp_path):
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+
+    old_file = tmp_path / "old.py"
+    old_file.write_text("# ai!\n")
+    watcher.last_scan_time = time.time() + 5
+
+    assert not watcher.catch_up_scan()
+    assert watcher.changed_files == set()
+
+
+def test_catch_up_scan_respects_gitignore(tmp_path):
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("ignored/\n")
+    (tmp_path / "ignored").mkdir()
+    (tmp_path / "ignored" / "hidden.py").write_text("# ai!\n")
+    (tmp_path / "kept.py").write_text("# ai!\n")
+
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, gitignores=[gitignore], root=tmp_path)
+    watcher.last_scan_time = 0
+    watcher.catch_up_scan()
+
+    assert str((tmp_path / "kept.py").absolute()) in watcher.changed_files
+    assert str((tmp_path / "ignored" / "hidden.py").absolute()) not in watcher.changed_files
+
+
+def test_catch_up_scan_advances_threshold(tmp_path):
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+    watcher.last_scan_time = 0
+    (tmp_path / "a.py").write_text("# ai!\n")
+
+    assert watcher.catch_up_scan()
+    watcher.changed_files = set()
+
+    # Nothing changed since the previous scan, so the same file is not re-found.
+    assert not watcher.catch_up_scan()
+    assert watcher.changed_files == set()
+
+
+def test_process_changes_consumes_catch_up(tmp_path):
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+    watcher.last_scan_time = 0
+
+    target = tmp_path / "a.py"
+    target.write_text("# ai!\n")
+
+    assert watcher.catch_up_scan()
+    res = watcher.process_changes()
+
+    assert res
+    assert str(target.absolute()) in coder.abs_fnames
+    assert not watcher.is_running
+
+
+def test_start_runs_catch_up_scan(tmp_path):
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+    watcher.last_scan_time = 0
+
+    target = tmp_path / "a.py"
+    target.write_text("# ai!\n")
+
+    watcher.start()
+    try:
+        assert str(target.absolute()) in watcher.changed_files
+    finally:
+        watcher.stop()
+
+
+def test_catch_up_scan_gates_file_roots(tmp_path):
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("ignored/\n")
+
+    top_file = tmp_path / "top.py"
+    top_file.write_text("# ai!\n")
+
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, gitignores=[gitignore], root=tmp_path)
+    watcher.last_scan_time = 0
+
+    assert watcher.catch_up_scan()
+    assert str(top_file.absolute()) in watcher.changed_files
+
+    # top.py is a watched file root, but its mtime predates the new threshold.
+    watcher.changed_files = set()
+    assert not watcher.catch_up_scan()
+    assert watcher.changed_files == set()

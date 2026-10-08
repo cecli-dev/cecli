@@ -137,191 +137,209 @@ Use the tool installation so cecli doesn't interfere with your development envir
     * Past Decision Records
     * Repo Map Found Files
 
-11. **Quality of Life**
+11. **Robustness**
+  * [ ] Refine Orchestrate tool call for a more intuitive tool calling syntax and system one model integration
+  * [x] Unified error message/system state logging inside of `.cecli` directory
+
+12. **Quality of Life**
   * [ ] Add hot keys support for running repeatable commands like switching between preferred models
-  * [ ] Unified error message logging inside of `.cecli` directory
+  * [ ] Creator mode (from `/creator`) that will help users import and create skills and sub agents as needed
+  * [ ] Scheduled background jobs that can be ran on repeat at an interval while the program is active
+  * [ ] Support audio and video inputs across providers
 
 ### All Contributors (Both Cecli and Aider main)
 
 <table>
 <tbody>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=paul-gauthier">@paul-gauthier</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=dwash96">@dwash96</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=szmania">@szmania</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=johbo">@johbo</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=paul-gauthier">@paul-gauthier</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tekacs">@tekacs</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ErichBSchulz">@ErichBSchulz</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ei-grad">@ei-grad</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=joshuavial">@joshuavial</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=chrisnestrud">@chrisnestrud</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=joshuavial">@joshuavial</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=chr15m">@chr15m</a></td>
-</tr>
-<tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=johbo">@johbo</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=fry69">@fry69</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=quinlanjager">@quinlanjager</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=caseymcc">@caseymcc</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gopar">@gopar</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=caseymcc">@caseymcc</a></td>
+<td>Quinlan Jager</td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=shladnik">@shladnik</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jamwil">@jamwil</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=itlackey">@itlackey</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tomjuggler">@tomjuggler</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=szmania">@szmania</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=vk4s">@vk4s</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jamwil">@jamwil</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=itlackey">@itlackey</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=JessicaMulein">@JessicaMulein</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=vikash-paf">@vikash-paf</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=titusz">@titusz</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=quinlanjager">@quinlanjager</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=bphd">@bphd</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=synth-mania">@synth-mania</a></td>
 </tr>
 <tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=daniel-vainsencher">@daniel-vainsencher</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=1broseidon">@1broseidon</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=akaihola">@akaihola</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=schpet">@schpet</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=iamFIREcracker">@iamFIREcracker</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jalammar">@jalammar</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=schpet">@schpet</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=iamFIREcracker">@iamFIREcracker</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=akaihola">@akaihola</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=1broseidon">@1broseidon</a></td>
 <td>JV</td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=KennyDizi">@KennyDizi</a></td>
-</tr>
-<tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ivanfioravanti">@ivanfioravanti</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mdeweerd">@mdeweerd</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=itsmeknt">@itsmeknt</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=fahmad91">@fahmad91</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=DinoChiesa">@DinoChiesa</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=itsmeknt">@itsmeknt</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mdeweerd">@mdeweerd</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ivanfioravanti">@ivanfioravanti</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=KennyDizi">@KennyDizi</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cheahjs">@cheahjs</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=youknow04">@youknow04</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pjcreath">@pjcreath</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pcamp">@pcamp</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pcamp">@pcamp</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=miradnanali">@miradnanali</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=o-nix">@o-nix</a></td>
 <td>Jonathan Ellis</td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=codeofdusk">@codeofdusk</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=claui">@claui</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jpshackelford">@jpshackelford</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=BecoKo">@BecoKo</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=codeofdusk">@codeofdusk</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=claui">@claui</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Taik">@Taik</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Hambaobao">@Hambaobao</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=therealmarv">@therealmarv</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=muravvv">@muravvv</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=hypn4">@hypn4</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gmoz22">@gmoz22</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=contributor">@contributor</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ctoth">@ctoth</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=thehunmonkgroup">@thehunmonkgroup</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gcp">@gcp</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ctoth">@ctoth</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gcp">@gcp</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=sentienthouseplant">@sentienthouseplant</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ktakayama">@ktakayama</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=apaz-cli">@apaz-cli</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tgbender">@tgbender</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=lreeves">@lreeves</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=nims11">@nims11</a></td>
 </tr>
 <tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=preynal">@preynal</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tgbender">@tgbender</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=apaz-cli">@apaz-cli</a></td>
-<td>Alexander Kjeldaas</td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=zhyu">@zhyu</a></td>
 <td>Yutaka Matsubara</td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=burnettk">@burnettk</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cryptekbits">@cryptekbits</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=manan-ramnani">@manan-ramnani</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=deansher">@deansher</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=kennyfrc">@kennyfrc</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=lentil32">@lentil32</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=malkoG">@malkoG</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=malkoG">@malkoG</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=susliko">@susliko</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mubashir1osmani">@mubashir1osmani</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=TimPut">@TimPut</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=zjy1412">@zjy1412</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=savioursho">@savioursho</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=zjy1412">@zjy1412</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=savioursho">@savioursho</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jayeshthk">@jayeshthk</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=susliko">@susliko</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=brainsparker">@brainsparker</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=FeepingCreature">@FeepingCreature</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=DhirajBhakta">@DhirajBhakta</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aelaguiz">@aelaguiz</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=misteral">@misteral</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aelaguiz">@aelaguiz</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=DhirajBhakta">@DhirajBhakta</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gopar">@gopar</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ekrntt">@ekrntt</a></td>
+<td>Alexander Kjeldaas</td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=eltociear">@eltociear</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tao12345666333">@tao12345666333</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jpshack-at-palomar">@jpshack-at-palomar</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=smh">@smh</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=nhs000">@nhs000</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=sannysanoff">@sannysanoff</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ryanfreckleton">@ryanfreckleton</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jpshack-at-palomar">@jpshack-at-palomar</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mbokinala">@mbokinala</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=yamitzky">@yamitzky</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mobyvb">@mobyvb</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ozapinq">@ozapinq</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=nicolasperez19">@nicolasperez19</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=varchasgopalaswamy">@varchasgopalaswamy</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ozapinq">@ozapinq</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ryanfreckleton">@ryanfreckleton</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=sannysanoff">@sannysanoff</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ffluk3">@ffluk3</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tanavamsikrishna">@tanavamsikrishna</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tylersatre">@tylersatre</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pcgeek86">@pcgeek86</a></td>
-</tr>
-<tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tamirzb">@tamirzb</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=taha-yassine">@taha-yassine</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=strayer">@strayer</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=StevenTCramer">@StevenTCramer</a></td>
-</tr>
-<tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Skountz">@Skountz</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=sestrella">@sestrella</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=rnevius">@rnevius</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=holoskii">@holoskii</a></td>
-</tr>
-<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=smh">@smh</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=nhs000">@nhs000</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Netzvamp">@Netzvamp</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=rnevius">@rnevius</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=sestrella">@sestrella</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Skountz">@Skountz</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=StevenTCramer">@StevenTCramer</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=strayer">@strayer</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=taha-yassine">@taha-yassine</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tamirzb">@tamirzb</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pcgeek86">@pcgeek86</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tylersatre">@tylersatre</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=tanavamsikrishna">@tanavamsikrishna</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=varchasgopalaswamy">@varchasgopalaswamy</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=you-n-g">@you-n-g</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=philippeback">@philippeback</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=peterhadlaw">@peterhadlaw</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=pauldw">@pauldw</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=paulmaunders">@paulmaunders</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=omri123">@omri123</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=omri123">@omri123</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=MatthewZMD">@MatthewZMD</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mbailey">@mbailey</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=golergka">@golergka</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mx3ev">@mx3ev</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=matfat55">@matfat55</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mtofano">@mtofano</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=massimo-zaniboni">@massimo-zaniboni</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=maledorak">@maledorak</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=mlang">@mlang</a></td>
 </tr>
 <tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=marcomayer">@marcomayer</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=you-n-g">@you-n-g</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=holoskii">@holoskii</a></td>
 <td>wangboxue</td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=rti">@rti</a></td>
 </tr>
@@ -351,104 +369,110 @@ Use the tool installation so cecli doesn't interfere with your development envir
 </tr>
 <tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=coredevorg">@coredevorg</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cattishly-rgb">@cattishly-rgb</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cantalupo555">@cantalupo555</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=caetanominuzzo">@caetanominuzzo</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=yzx9">@yzx9</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=yzx9">@yzx9</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=zackees">@zackees</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=wietsevenema">@wietsevenema</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=krewenki">@krewenki</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=vinnymac">@vinnymac</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=vinnymac">@vinnymac</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=vlagorsse">@vlagorsse</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=szepeviktor">@szepeviktor</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=lattwood">@lattwood</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=elohmeier">@elohmeier</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=emmanuel-ferdman">@emmanuel-ferdman</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=spdustin">@spdustin</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=henderkes">@henderkes</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=daysm">@daysm</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=daysm">@daysm</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=devriesd">@devriesd</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=daniel-sc">@daniel-sc</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=damms005">@damms005</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=curran">@curran</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=curran">@curran</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cclauss">@cclauss</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=cjoach">@cjoach</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=csala">@csala</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=bexelbie">@bexelbie</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=bexelbie">@bexelbie</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=branchv">@branchv</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=bkowalik">@bkowalik</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=h0x91b">@h0x91b</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aroffe99">@aroffe99</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aroffe99">@aroffe99</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=banjo">@banjo</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=anjor">@anjor</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=andreypopp">@andreypopp</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ivnvxd">@ivnvxd</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ivnvxd">@ivnvxd</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=andreakeesys">@andreakeesys</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ameramayreh">@ameramayreh</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=a1ooha">@a1ooha</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=maliayas">@maliayas</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=maliayas">@maliayas</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=akirak">@akirak</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=adrianlzt">@adrianlzt</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=codefromthecrypt">@codefromthecrypt</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aweis89">@aweis89</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aj47">@aj47</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=noitcudni">@noitcudni</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=solatis">@solatis</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=aj47">@aj47</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=ffluk3">@ffluk3</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=lattwood">@lattwood</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=noitcudni">@noitcudni</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=solatis">@solatis</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=webkonstantin">@webkonstantin</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=khulnasoft-bot">@khulnasoft-bot</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=KebobZ">@KebobZ</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=acro5piano">@acro5piano</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=acro5piano">@acro5piano</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=josx">@josx</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=joshvera">@joshvera</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jklina">@jklina</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jkeys089">@jkeys089</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jkeys089">@jkeys089</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=johanvts">@johanvts</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=joejoinerr">@joejoinerr</a></td>
 <td>Jim White</td>
+</tr>
+<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gengjiawen">@gengjiawen</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jevon">@jevon</a></td>
-</tr>
-<tr>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jesstelford">@jesstelford</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=JeongJuhyeon">@JeongJuhyeon</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jackhallam">@jackhallam</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Mushoz">@Mushoz</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jasonbcox">@jasonbcox</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=jackhallam">@jackhallam</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=Mushoz">@Mushoz</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=zestysoft">@zestysoft</a></td>
+</tr>
+<tr>
 <td>Henry Fraser</td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=gwpl">@gwpl</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=garrett-hopper">@garrett-hopper</a></td>
+<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=filiptrplan">@filiptrplan</a></td>
 </tr>
 <tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=filiptrplan">@filiptrplan</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=FelixLisczyk">@FelixLisczyk</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=evnoj">@evnoj</a></td>
 <td><a href="https://github.com/cecli-dev/cecli/commits/main?author=erykwieliczko">@erykwieliczko</a></td>
-</tr>
-<tr>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=elohmeier">@elohmeier</a></td>
-<td><a href="https://github.com/cecli-dev/cecli/commits/main?author=emmanuel-ferdman">@emmanuel-ferdman</a></td>
-<td></td>
 <td></td>
 </tr>
 </tbody>

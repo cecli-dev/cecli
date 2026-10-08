@@ -6,7 +6,7 @@ from cecli.llm import litellm
 from cecli.models import Model, parse_retry_config
 
 
-def test_parse_retry_config_string():
+def testparse_retry_config_string():
     config_str = '{"retry_timeout": 15, "retry-on-empty": true}'
     result = parse_retry_config(config_str)
     assert result["retry_timeout"] == 15.0
@@ -16,7 +16,7 @@ def test_parse_retry_config_string():
     assert result["retry_on_unavailable"] is True
 
 
-def test_parse_retry_config_dict():
+def testparse_retry_config_dict():
     config_dict = {
         "retry_timeout": 10.0,
         "retry_backoff_factor": 2.0,
@@ -40,10 +40,7 @@ async def test_simple_send_with_retries_honors_timeout():
     # attempt 2 fails -> 0.25 * 2.0 = 0.50 (<= 0.5, sleep and retry)
     # attempt 3 fails -> 0.50 * 2.0 = 1.00 (> 0.5, give up)
     err = litellm.APIConnectionError(
-        message="Simulated connection error",
-        llm_provider="openai",
-        model="gpt-4o",
-        request=None,
+        message="Simulated connection error", llm_provider="openai", model="gpt-4o", request=None
     )
 
     mock_send = AsyncMock(side_effect=err)

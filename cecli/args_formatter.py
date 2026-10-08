@@ -138,6 +138,7 @@ class YamlHelpFormatter(argparse.HelpFormatter):
             parts.append("#  retry-timeout: 60")
             parts.append("#  retry-backoff-factor: 2.0")
             parts.append("#  retry-on-unavailable: true")
+            parts.append("#  retry-on-unauthorized: false")
             parts.append("#  retry-on-empty: false")
             parts.append("")
             return "\n".join(parts)

@@ -248,9 +248,18 @@ class SessionManager:
                 self.io.tool_warning(f"Could not restore sub-agent from {sub_file}: {e}")
 
     async def _reload_sub_agent(self, service, sub_file: Path) -> None:
-        """Spawn and restore a single sub-agent from its saved payload."""
+        """Spawn and restore a single sub-agent from its saved payload.
+
+        Only sub-agents that were still relevant when the session was saved are
+        rebuilt: independent agents are always restored, while a dependent agent
+        is restored only if it had not finished or errored. The transient
+        ``memorizer`` helper is never restored.
+        """
         sub_data = self._read_session_payload(sub_file, quiet=True)
         if not isinstance(sub_data, dict):
+            return
+
+        if not subagents.should_restore_sub_agent(sub_data):
             return
 
         name = subagents.resolve_reload_agent_name(
@@ -259,8 +268,10 @@ class SessionManager:
         if not name:
             return
 
+        independent = bool(sub_data.get("independent", True))
+
         new_coder, _info = await service.spawn(
-            name, parent=self.coder, auto_reap=False, independent=True
+            name, parent=self.coder, auto_reap=False, independent=independent
         )
 
         sub_manager = SessionManager(new_coder, self.io)

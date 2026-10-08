@@ -66,7 +66,7 @@ from cecli.report import update_error_prefix
 from cecli.run_cmd import run_cmd_async
 from cecli.tools.utils.output import print_tool_response
 from cecli.tools.utils.registry import ToolRegistry
-from cecli.utils import copy_tool_call, format_tokens, is_image_file
+from cecli.utils import copy_tool_call, format_tokens, is_image_file, safe_relpath
 
 from ..dump import dump  # noqa: F401
 from ..prompts.utils.registry import PromptObject, PromptRegistry
@@ -2857,11 +2857,7 @@ class Coder(metaclass=UsageMeta):
 
                     retry_config = models.parse_retry_config(self.get_active_model().retries)
 
-                    should_retry = ex_info.retry
-                    if ex_info.name == "ServiceUnavailableError":
-                        should_retry = should_retry or retry_config["retry_on_unavailable"]
-                    if ex_info.name == "PermissionDeniedError":
-                        should_retry = should_retry or retry_config["retry_on_forbidden"]
+                    should_retry, _ = models.parse_model_error(retry_config, err)
 
                     if should_retry:
                         retry_delay *= retry_config["retry_backoff_factor"]
@@ -4887,7 +4883,7 @@ class Coder(metaclass=UsageMeta):
             return
 
         if not Path(full_path).exists():
-            rel_path = os.path.relpath(full_path)
+            rel_path = safe_relpath(full_path)
             if not await self.io.confirm_ask(f"Create new file? ({rel_path})", subject=path):
                 self.io.tool_output(f"Skipping edits to {path}")
                 return
