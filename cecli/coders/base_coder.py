@@ -3984,7 +3984,7 @@ class Coder(metaclass=UsageMeta):
         if (
             not len(self.partial_response_content)
             and not len(self.partial_response_tool_calls)
-            and not len(self.partial_response_reasoning_content)
+            and not _is_meaningful_reasoning(self.partial_response_reasoning_content)
         ):
             self.empty_response = True
             return
@@ -4114,7 +4114,8 @@ class Coder(metaclass=UsageMeta):
 
                             text += reasoning_content
                             self.got_reasoning_content = True
-                            received_content = True
+                            if _is_meaningful_reasoning(reasoning_content):
+                                received_content = True
 
                         self.token_profiler.on_token()
                         self.io.update_spinner_suffix(reasoning_content)
@@ -4190,7 +4191,14 @@ class Coder(metaclass=UsageMeta):
             self.io.tool_warning("Execution stopped by on message hook")
             return
 
-        if not received_content and len(self.partial_response_tool_calls) == 0:
+        # Treat the response as empty when nothing was received, or when the
+        # only thing received was reasoning made entirely of non-alphanumeric
+        # characters (e.g. moonshotai/kimi-k3 returning "!!!!").
+        if (
+            not received_content
+            and len(self.partial_response_tool_calls) == 0
+            and not _is_meaningful_reasoning(self.partial_response_reasoning_content)
+        ):
             self.empty_response = True
             return
 
@@ -5379,3 +5387,15 @@ def _first_usage_tokens(usage: object, paths: list[str], default: int = 0) -> in
         if value is not None:
             return value
     return default
+
+
+def _is_meaningful_reasoning(text):
+    """Return True if reasoning text contains at least one alphanumeric character.
+
+    Some providers (e.g. moonshotai/kimi-k3) occasionally return completions
+    with empty ``content`` and a ``reasoning_content`` made entirely of
+    punctuation (e.g. ``"!!!!"``). Those responses are effectively empty, so
+    the empty-response detector only lets reasoning count as response
+    content when it holds at least one alphanumeric character.
+    """
+    return bool(text) and any(ch.isalnum() for ch in text)

@@ -11,6 +11,7 @@ Cecli can be configured to retry failed API calls. This is useful for handling i
 - `retry-timeout`: The timeout in seconds for each retry.
 - `retry-backoff-factor`: The backoff factor to use between retries.
 - `retry-on-unavailable`: Whether to retry on 503 Service Unavailable errors.
+- `retry-on-empty`: Whether to retry when the model returns an empty response. A response is considered empty when it has no content, no tool calls, and no *meaningful* reasoning. Reasoning that contains no alphanumeric characters (for example a `reasoning_content` of `"!!!!"`) does not count as a response, so it is retried like any other empty response.
 - `retry-on-unauthorized`: Whether to retry on 401 Unauthorized (and 403 Forbidden) errors. Default: false.
 
 Example usage in `.cecli.conf.yml`:
