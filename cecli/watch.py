@@ -318,6 +318,8 @@ class FileWatcher:
         gitignore and comment rules as the live watcher.
         """
         scan_started = time.time()
+        # Strict ">", not ">=": on coarse-grained clocks a file written just
+        # before this scan can share the threshold tick and must not be re-found.
         threshold = self.last_scan_time
         found = set()
 
@@ -325,7 +327,7 @@ class FileWatcher:
             root_path = Path(root)
             if root_path.is_file():
                 try:
-                    candidates = [root_path] if root_path.stat().st_mtime >= threshold else []
+                    candidates = [root_path] if root_path.stat().st_mtime > threshold else []
                 except OSError:
                     candidates = []
             else:
@@ -346,7 +348,7 @@ class FileWatcher:
         return bool(found)
 
     def _iter_recent_files(self, directory, threshold):
-        """Yield files under directory modified at or after threshold"""
+        """Yield files under directory modified strictly after threshold"""
         for dirpath, dirnames, filenames in os.walk(directory):
             rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, "/")
             prefix = "" if rel_dir == "." else rel_dir + "/"
@@ -364,7 +366,7 @@ class FileWatcher:
 
                 path = Path(dirpath) / name
                 try:
-                    if path.stat().st_mtime >= threshold:
+                    if path.stat().st_mtime > threshold:
                         yield path
                 except OSError:
                     continue

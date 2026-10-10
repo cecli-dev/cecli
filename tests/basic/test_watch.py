@@ -1,3 +1,4 @@
+import os
 import time
 from pathlib import Path
 
@@ -221,6 +222,28 @@ def test_catch_up_scan_advances_threshold(tmp_path):
     watcher.changed_files = set()
 
     # Nothing changed since the previous scan, so the same file is not re-found.
+    assert not watcher.catch_up_scan()
+    assert watcher.changed_files == set()
+
+
+def test_catch_up_scan_ignores_file_at_threshold(tmp_path):
+    """A file sharing the previous scan's clock tick must not be re-found"""
+    io = InputOutput(pretty=False, fancy_input=False, yes=False)
+    coder = MinimalCoder(io)
+    watcher = FileWatcher(coder, root=tmp_path)
+    watcher.last_scan_time = 0
+
+    target = tmp_path / "a.py"
+    target.write_text("# ai!\n")
+
+    assert watcher.catch_up_scan()
+    watcher.changed_files = set()
+
+    # Simulate a coarse-grained clock (e.g. Windows) where the file and the new
+    # threshold fall in the same timestamp tick.
+    ts = watcher.last_scan_time
+    os.utime(target, (ts, ts))
+
     assert not watcher.catch_up_scan()
     assert watcher.changed_files == set()
 
