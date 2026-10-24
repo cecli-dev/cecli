@@ -998,12 +998,12 @@ class Coder(metaclass=UsageMeta):
             settings_items.append(f"reasoning {reasoning_effort}")
 
         # Prompt cache
-        if self.add_cache_headers or main_model.caches_by_default:
-            settings_items.append("prompt cache")
+        # if self.add_cache_headers or main_model.caches_by_default:
+        #   settings_items.append("prompt cache")
 
         # Infinite output
-        if main_model.info.get("supports_assistant_prefill") and self.verbose:
-            settings_items.append("infinite output")
+        # if main_model.info.get("supports_assistant_prefill") and self.verbose:
+        #    settings_items.append("infinite output")
 
         # Copy/paste mode
         if self.copy_paste_mode:
@@ -1033,10 +1033,6 @@ class Coder(metaclass=UsageMeta):
                 refresh = self.repo_map.refresh
                 env_items.append(f"map ({map_tokens} tokens, {refresh} refresh)")
                 repo_map_tokens = map_tokens
-            else:
-                env_items.append("repo-map disabled")
-        else:
-            env_items.append("repo-map disabled")
 
         sections["Environment"] = {"items": env_items}
         # --- CAPABILITIES ---
@@ -1076,7 +1072,7 @@ class Coder(metaclass=UsageMeta):
             if mcp_servers:
                 capabilities["Servers"] = mcp_servers
 
-        if capabilities:
+        if capabilities and not getattr(self.args, "tui", False):
             # sections["Extensions"] = {"subsections": capabilities}
             sections["Environment"]["subsections"] = capabilities
 
@@ -2351,6 +2347,7 @@ class Coder(metaclass=UsageMeta):
             ConversationService.get_files(self).clear_file_cache()
             ConversationService.get_chunks(self).flush_removals()
             ConversationService.get_chunks(self).reset_clear_count()
+            ConversationService.get_chunks(self).clear_creator_docs_seen(remove_messages=True)
             ObservationService.get_instance(self).reset_index()
 
         if not force and combined_tokens < self.context_compaction_max_tokens:
@@ -2462,6 +2459,7 @@ class Coder(metaclass=UsageMeta):
             ConversationService.get_files(self).clear_file_cache()
             ConversationService.get_chunks(self).flush_removals()
             ConversationService.get_chunks(self).reset_clear_count()
+            ConversationService.get_chunks(self).clear_creator_docs_seen(remove_messages=True)
             ObservationService.get_instance(self).reset_index()
             self.format_chat_chunks()
 
@@ -2707,6 +2705,9 @@ class Coder(metaclass=UsageMeta):
 
         ConversationService.get_manager(self).flush_queue()
 
+        # Inject newly retrieved documentation for the creator sub-agent only.
+        ConversationService.get_chunks(self).add_creator_docs_context()
+
         # Return formatted messages for LLM
         return ConversationService.get_manager(self).get_messages_dict()
 
@@ -2773,7 +2774,7 @@ class Coder(metaclass=UsageMeta):
     async def check_tokens(self, messages):
         """Check if the messages will fit within the model's token limits."""
         input_tokens = self.get_active_model().token_count(messages)
-        max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 128000
+        max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 256000
 
         if max_input_tokens and input_tokens >= max_input_tokens:
             if (

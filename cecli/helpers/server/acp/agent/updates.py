@@ -30,7 +30,6 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # Normalized cecli tool name -> ACP ToolKind
 _TOOL_KINDS = {
     "readfile": "read",
-    "ls": "read",
     "gitstatus": "read",
     "gitlog": "read",
     "gitshow": "read",
@@ -46,7 +45,6 @@ _TOOL_KINDS = {
     # Not "execute": Zed treats execute calls as live terminals and hides its
     # progress spinner while one runs, but cecli runs commands itself
     "command": "other",
-    "thinking": "think",
 }
 
 # Argument keys worth showing in a tool call's title, in priority order

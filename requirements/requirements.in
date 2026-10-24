@@ -34,6 +34,10 @@ pypandoc>=1.15
 
 # storage/caching
 chromadb>=1.5.9
+# chromadb's default ONNX embedder needs these directly; keep them in the base
+# install so /help and creator docs work without the optional [help] extra.
+numpy>=1.26.4
+onnxruntime>=1.14.1
 diskcache>=5.6.3
 
 # general string parsing

@@ -197,8 +197,13 @@ def test_responses_generic_reasoning_keys_stripped():
 def test_responses_copilot_opt_in_to_summary():
     """Copilot gpt-5 (responses mode) opts in to a reasoning summary even with no
     configured effort, so the model returns (and the capture logic exposes) the
-    readable ``summary`` block."""
+    readable ``summary`` block.
+
+    The bundled metadata currently resolves a default effort for this route, so
+    drop it to exercise the summary-only opt-in path.
+    """
     resolved = resolve_model_config("github_copilot/gpt-5.1")
+    resolved["api_block"].pop("reasoning_effort", None)
     payload = _build("responses", resolved, {})
     assert payload["reasoning"] == {"summary": "auto"}
     assert payload["include"] == ["reasoning.encrypted_content"]

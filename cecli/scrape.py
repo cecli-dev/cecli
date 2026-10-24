@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import asyncio
 import re
 import sys
 
@@ -290,4 +291,4 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python playw.py <URL>")
         sys.exit(1)
-    main(sys.argv[1])
+    asyncio.run(main(sys.argv[1]))

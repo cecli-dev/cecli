@@ -1891,13 +1891,18 @@ class InputOutput:
                 except Exception as e:
                     self.tool_warning(f"Failed to run bell command: {e}")
 
-    def notify_user_input_required(self):
+    def notify_user_input_required(self, **kwargs):
         """Send a notification that user input is required."""
+        if kwargs.get("is_workflow", False):
+            return
         if self.notifications or self.notification_bell or self.custom_notification_command:
             self._send_notification()
 
-    def ring_bell(self):
-        """Ring the terminal bell if needed and clear the flag"""
+    def ring_bell(self, **kwargs):
+        """Ring the terminal bell if needed and clear the flag."""
+        if kwargs.get("is_workflow", False):
+            self.bell_on_next_input = False
+            return
         if self.bell_on_next_input:
             if self.notifications or self.notification_bell or self.custom_notification_command:
                 self._send_notification()

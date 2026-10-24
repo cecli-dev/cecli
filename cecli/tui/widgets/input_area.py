@@ -252,6 +252,12 @@ class InputArea(TextArea):
             event.prevent_default()
             self.app.action_paste_clipboard()
 
+        if self.app.is_key_for("panels", event.key):
+            event.stop()
+            event.prevent_default()
+            self.app.action_toggle_floating_panels()
+            return
+
         if self.app.is_key_for("history", event.key):
             event.stop()
             event.prevent_default()

@@ -1356,7 +1356,9 @@ async def main_async(
         coder = await Coder.create(
             from_coder=from_coder,
             main_model=main_model,
-            edit_format=args.edit_format,
+            # Agent mode is the startup default; an explicit flag/config/env value
+            # still wins, and reloads keep the session's current mode.
+            edit_format=args.edit_format or "agent",
             io=io,
             args=args,
             repo=repo,

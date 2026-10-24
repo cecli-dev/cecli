@@ -14,6 +14,7 @@ Resolution order, highest precedence first:
 4. ``<git_root or cwd>/.agents/workflows/*.yml`` / ``*.yaml`` — globbed in stable sorted order.
 5. ``merged_config["workflows"]`` — the deep-merged ``.cecli.conf.yml`` value.
 6. ``~/.cecli/workflows/*.yml`` / ``*.yaml`` — globbed in stable sorted order.
+7. ``~/.agents/workflows/*.yml`` / ``*.yaml`` — globbed in stable sorted order.
 
 Each source may hold a single workflow mapping or a ``workflows: [...]`` list.
 On a duplicate ``name`` the higher-precedence definition wins and the loser is
@@ -104,6 +105,7 @@ def resolve_workflow_configs(
         ordered += _entries(merged_config.get("workflows"), None, _CONFIG_LABEL)
 
     ordered += _entries_from_home()
+    ordered += _entries_from_home_agents()
 
     return _dedupe(ordered)
 
@@ -313,6 +315,12 @@ def _entries_from_home() -> List[_Discovered]:
     """Resolve ``~/.cecli/workflows/*.yml|*.yaml`` in stable sorted order."""
 
     return _entries_from_dir(Path.home() / WORKFLOW_DIR)
+
+
+def _entries_from_home_agents() -> List[_Discovered]:
+    """Resolve ``~/.agents/workflows/*.yml|*.yaml`` in stable sorted order."""
+
+    return _entries_from_dir(Path.home() / AGENTS_WORKFLOW_DIR)
 
 
 def _entries_from_dir(root: Path) -> List[_Discovered]:

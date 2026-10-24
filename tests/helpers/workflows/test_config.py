@@ -40,6 +40,14 @@ def _home_workflow(wdir: Path, filename: str, text: str) -> Path:
     return path
 
 
+def _home_agents_workflow(home: Path, filename: str, text: str) -> Path:
+    wdir = home / ".agents" / "workflows"
+    wdir.mkdir(parents=True, exist_ok=True)
+    path = wdir / filename
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def _mapping_text(name: str, prompt: str) -> str:
     return f"name: {name}\ntasks:\n  - prompt: {prompt}\n"
 
@@ -109,6 +117,28 @@ def test_glob_of_home_files_is_stably_sorted(isolated):
     _home_workflow(isolated["wdir"], "a_first.yml", _mapping_text("a", "first"))
 
     assert [wf.name for wf in load_workflows()] == ["a", "b"]
+
+
+def test_home_agents_dir_files_are_loaded(isolated):
+    _home_agents_workflow(
+        isolated["home"], "pipelines.yml", _mapping_text("home-agents-dir", "check")
+    )
+
+    configs = load_workflows()
+
+    assert [wf.name for wf in configs] == ["home-agents-dir"]
+    assert configs[0].source_path == str(
+        isolated["home"] / ".agents" / "workflows" / "pipelines.yml"
+    )
+
+
+def test_home_cecli_dir_wins_over_home_agents_dir(isolated):
+    _home_agents_workflow(isolated["home"], "dup.yml", _mapping_text("dup", "agents"))
+    _home_workflow(isolated["wdir"], "dup.yml", _mapping_text("dup", "cecli"))
+
+    configs = load_workflows()
+
+    assert [wf.tasks[0].prompt for wf in configs] == ["cecli"]
 
 
 # ── Case 3: hyphen-case keys normalize ──────────────────────────────────────

@@ -10,7 +10,10 @@ class Tool(BaseTool):
         "type": "function",
         "function": {
             "name": "UndoChange",
-            "description": "Undo a previously applied change.",
+            "description": (
+                "Revert a previous edit that corrupted a file or introduced errors."
+                " Use change_id or file_path."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

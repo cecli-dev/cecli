@@ -1,3 +1,4 @@
+import fnmatch
 import math
 import os
 import re
@@ -13,6 +14,10 @@ from pathlib import Path
 from diskcache import Cache
 
 from cecli.dump import dump
+from cecli.helpers.file_exclusions import (
+    DEFAULT_EXCLUDE_DIR_GLOBS,
+    DEFAULT_EXCLUDE_DIRS,
+)
 from cecli.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -717,13 +722,24 @@ class RepoMap:
 
         personalization = dict()
 
-        fnames = set(chat_fnames).union(set(other_fnames))
+        fnames = set(chat_fnames)
+        skipped_excluded = 0
+        for fname in other_fnames:
+            if fname in fnames:
+                continue
+            rel_fname = self.get_rel_fname(fname)
+            if rel_fname not in mentioned_fnames and _is_excluded_rel_path(rel_fname):
+                # Chat and mentioned files are kept even inside an excluded directory.
+                skipped_excluded += 1
+                continue
+            fnames.add(fname)
+
         chat_rel_fnames = set()
 
         fnames = sorted(fnames)
 
         # Default personalization for unspecified files is 1/num_nodes
-        personalize = 100 / len(fnames)
+        personalize = 100 / len(fnames) if fnames else 0.0
 
         fname_to_parts = {}
         fname_to_suffix = {}
@@ -848,6 +864,11 @@ class RepoMap:
         if skipped_missing > 2:
             self.io.tool_output(
                 f"Repo-map skipped {skipped_missing} paths that are not readable on disk."
+            )
+
+        if skipped_excluded and self.verbose:
+            self.io.tool_output(
+                f"Repo-map skipped {skipped_excluded} paths under excluded directories."
             )
 
         self.io.profile("Process Files")
@@ -1053,7 +1074,11 @@ class RepoMap:
                 continue
             ranked_tags += list(definitions.get((fname, ident), []))
 
-        rel_other_fnames_without_tags = set(self.get_rel_fname(fname) for fname in other_fnames)
+        rel_other_fnames_without_tags = {
+            rel
+            for rel in (self.get_rel_fname(fname) for fname in other_fnames)
+            if not _is_excluded_rel_path(rel)
+        }
 
         fnames_already_included = set(rt[0] for rt in ranked_tags)
 
@@ -1182,7 +1207,11 @@ class RepoMap:
 
         self.io.profile("Finish Getting Ranked Tags")
 
-        other_rel_fnames = sorted(set(self.get_rel_fname(fname) for fname in other_fnames))
+        other_rel_fnames = sorted(
+            rel
+            for rel in (self.get_rel_fname(fname) for fname in other_fnames)
+            if not _is_excluded_rel_path(rel)
+        )
         special_fnames = filter_important_files(other_rel_fnames)
         ranked_tags_fnames = set(tag[0] for tag in ranked_tags)
         special_fnames = [fn for fn in special_fnames if fn not in ranked_tags_fnames]
@@ -1427,6 +1456,26 @@ class RepoMap:
 
         self._has_last_mentioned_idents = True
         return cache_key_component
+
+
+def _is_excluded_rel_path(rel_path, exclude_dirs=DEFAULT_EXCLUDE_DIRS, exclude_globs=None):
+    """Return True when *rel_path* lives under a directory the repo map should not scan.
+
+    Only the parent path components are compared, so a source file that happens to be
+    named ``build`` or ``vendor`` still maps normally.
+    """
+    if exclude_globs is None:
+        exclude_globs = DEFAULT_EXCLUDE_DIR_GLOBS
+
+    parts = Path(str(rel_path).replace("\\", "/")).parts
+
+    for part in parts[:-1]:
+        if part in exclude_dirs:
+            return True
+        if any(fnmatch.fnmatchcase(part, pattern) for pattern in exclude_globs):
+            return True
+
+    return False
 
 
 def truncate_long_lines(text, max_length):

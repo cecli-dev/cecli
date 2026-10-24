@@ -206,6 +206,7 @@ nodeenv==1.9.1
 numpy==2.3.5
     # via
     #   -r requirements/requirements-help.in
+    #   -r requirements/requirements.in
     #   chromadb
     #   contourpy
     #   matplotlib
@@ -219,7 +220,9 @@ oauthlib==3.3.1
 objgraph==3.6.2
     # via -r requirements/requirements-dev.in
 onnxruntime==1.29.0
-    # via chromadb
+    # via
+    #   -r requirements/requirements.in
+    #   chromadb
 opentelemetry-api==1.44.0
     # via
     #   chromadb

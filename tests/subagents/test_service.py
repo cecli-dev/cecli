@@ -1026,6 +1026,39 @@ class TestAgentInheritPrefixes:
         assert merged["allow_nested_delegation"] is True  # defaulted
 
     @pytest.mark.asyncio
+    async def test_wf_servers_allowlist_forces_local(self, service):
+        """A wf: servers allowlist always keeps the Local server available."""
+        service.coder.agent_config = {}
+        self._register(
+            "wf:demo",
+            {"servers_includelist": ["GitLab"], "skip_cli_confirmations": True},
+        )
+
+        merged = await self._create(service, "wf:demo")
+
+        assert merged["servers_includelist"] == ["gitlab", "local"]
+
+    @pytest.mark.asyncio
+    async def test_wf_without_allowlist_does_not_force_local(self, service):
+        """Only an explicit allowlist gets the Local server added."""
+        service.coder.agent_config = {}
+        self._register("wf:demo", {"skip_cli_confirmations": True})
+
+        merged = await self._create(service, "wf:demo")
+
+        assert "servers_includelist" not in merged
+
+    @pytest.mark.asyncio
+    async def test_ws_servers_allowlist_does_not_force_local(self, service):
+        """Local is forced for wf: agents only, not for other inherit-prefix agents."""
+        service.coder.agent_config = {}
+        self._register("ws:app", {"servers_includelist": ["github"]})
+
+        merged = await self._create(service, "ws:app")
+
+        assert merged["servers_includelist"] == ["github"]
+
+    @pytest.mark.asyncio
     async def test_wf_respects_explicit_optout(self, service):
         """wf: uses setdefault, so an explicit False in the config survives."""
         service.coder.agent_config = {"allow_nested_delegation": False}
@@ -1160,3 +1193,29 @@ class TestCrossLoopLocks:
         assert "c1" in order
         assert "c2" in order
         assert "holder-released" in order
+
+
+class TestStartGenerateTaskSwitch:
+    """A mid-turn command signal rebuilds the sub-agent coder in place."""
+
+    @pytest.mark.asyncio
+    async def test_switch_signal_switches_sub_agent_instead_of_escaping(self, service):
+        from cecli.signals import SwitchCoderSignal
+
+        coder = MagicMock()
+        coder.uuid = "sub-uuid"
+
+        async def raise_switch(**kwargs):
+            raise SwitchCoderSignal(edit_format="subagent")
+
+        coder.generate = AsyncMock(side_effect=raise_switch)
+        info = SubAgentInfo(name="wf:demo", coder=coder, parent_uuid="parent-uuid")
+        info.detached = True
+        service.switch_sub_agent_coder = AsyncMock()
+
+        task = service.start_generate_task(info, "/load-mcp github")
+        await task
+
+        service.switch_sub_agent_coder.assert_awaited_once()
+        assert service.switch_sub_agent_coder.call_args.args[0] is info
+        assert info.status == SubAgentStatus.FINISHED

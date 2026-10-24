@@ -15,7 +15,9 @@ from rich.color import ColorSystem
 from rich.style import Style
 from textual import events
 from textual.app import App, ComposeResult
+from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
+from textual.widgets import Static
 
 from cecli import __version__
 from cecli.decoding import safe_open
@@ -29,6 +31,7 @@ from cecli.io import CommandCompletionException
 from .widgets import (
     CompletionBar,
     FileList,
+    FloatingPanels,
     InputArea,
     InputContainer,
     KeyHints,
@@ -211,6 +214,13 @@ class TUI(App):
             show=True,
         )
 
+        self.bind(
+            self._encode_keys(self.get_keys_for("panels")),
+            "toggle_floating_panels",
+            description="Toggle Panels",
+            show=False,
+        )
+
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
 
@@ -294,6 +304,7 @@ class TUI(App):
             "history": "alt+shift+h",
             "voice": "ctrl+r",
             "paste": "alt+v",
+            "panels": "alt+p",
             "focus": "ctrl+f",
             "cancel": "ctrl+c",
             "clear": "ctrl+l",
@@ -365,13 +376,21 @@ class TUI(App):
         # Git info loaded in on_mount to avoid blocking startup
         yield OutputContainer(id="output")
         yield StatusBar(id="status-bar")
-        yield InputContainer(
-            InputArea(history_file=history_file, id="input"),
-            FileList(id="file-list", classes="empty"),
-            id="input-container",
-            coder_mode=coder_mode,
-        )
-        yield KeyHints(id="key-hints")
+        with Horizontal(id="input-row"):
+            with Vertical(id="input-column"):
+                yield InputContainer(
+                    InputArea(history_file=history_file, id="input"),
+                    FileList(id="file-list", classes="empty"),
+                    id="input-container",
+                    coder_mode=coder_mode,
+                )
+                yield KeyHints(id="key-hints")
+            with Vertical(id="extensions-column"):
+                yield FloatingPanels(id="floating-panels")
+                yield Static(
+                    f"{self.get_keys_for('panels')} to toggle",
+                    id="extensions-hint",
+                )
         yield MainFooter(
             model_name=model_name,
             project_name=project_name,
@@ -928,6 +947,12 @@ class TUI(App):
             self._handle_spawn_agent_command(user_input, stripped)
             return
 
+        # Intercept /creator to spawn the creator sub-agent immediately, even
+        # while the primary coder is generating.
+        if stripped == "/creator" or stripped.startswith("/creator "):
+            self._handle_creator_command(user_input, stripped)
+            return
+
         # Intercept /workspace <ws:name> to open an already-registered workspace
         # sub-agent immediately, mirroring /spawn-agent.
         if stripped == "/workspace" or stripped.startswith("/workspace "):
@@ -1160,6 +1185,29 @@ class TUI(App):
 
         self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_spawn()))
 
+    def _handle_creator_command(self, user_input: str, stripped: str) -> None:
+        """Dispatch /creator immediately without a full generation cycle."""
+        from cecli.commands.creator import CreatorCommand
+
+        parts = stripped.split(maxsplit=1)
+        creator_args = parts[1].strip() if len(parts) > 1 else ""
+
+        input_area = self.query_one("#input", InputArea)
+        input_area.value = ""
+
+        input_area.save_to_history(user_input)
+        self.add_user_message(user_input)
+
+        coder = self.worker.coder
+        if self.worker.loop is None:
+            self.show_error("Worker loop not available. Cannot spawn creator sub-agent.")
+            return
+
+        async def _run_creator():
+            await CreatorCommand.execute(coder.io, coder, creator_args)
+
+        self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_creator()))
+
     def _handle_workspace_command(self, user_input: str, stripped: str) -> None:
         """Dispatch /workspace <ws:name> immediately without a full generation cycle.
 
@@ -1272,6 +1320,13 @@ class TUI(App):
 
         # Delay exit to allow status bar to render
         self.set_timer(0.3, self._do_quit)
+
+    def action_toggle_floating_panels(self):
+        """Show or hide the floating status panels."""
+        try:
+            self.query_one(FloatingPanels).toggle_visible()
+        except Exception:
+            pass
 
     def action_noop(self):
         pass

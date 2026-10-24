@@ -7,7 +7,8 @@ class MessageTag(str, Enum):
     Enumeration of message tags matching current chunk types.
 
     Fixed set of valid tags matching current chunk types:
-    - SYSTEM, STATIC, EXAMPLES, REPO, READONLY_FILES, CHAT_FILES, EDIT_FILES, DIFFS, CUR, DONE, REMINDER
+    - SYSTEM, STATIC, EXAMPLES, REPO, READONLY_FILES, CHAT_FILES, EDIT_FILES,
+      DIFFS, CUR, DONE, REMINDER, CREATOR_DOCS
     """
 
     SYSTEM = "system"
@@ -24,6 +25,7 @@ class MessageTag(str, Enum):
     ACTIVE_SKILLS = "active_skills"
     CUR = "cur"
     DONE = "done"
+    CREATOR_DOCS = "creator_docs"
     REMINDER = "reminder"
 
 
@@ -44,6 +46,7 @@ DEFAULT_TAG_PRIORITY: Dict[MessageTag, int] = {
     MessageTag.DONE: 200,
     MessageTag.CUR: 200,
     MessageTag.ACTIVE_SKILLS: 200,
+    MessageTag.CREATOR_DOCS: 210,
     MessageTag.REMINDER: 300,
 }
 
@@ -65,6 +68,7 @@ DEFAULT_TAG_TIMESTAMP_OFFSET: Dict[MessageTag, int] = {
     MessageTag.DONE: 0,
     MessageTag.CUR: 0,
     MessageTag.ACTIVE_SKILLS: 0,
+    MessageTag.CREATOR_DOCS: 0,
     MessageTag.REMINDER: 0,
 }
 

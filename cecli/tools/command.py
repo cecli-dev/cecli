@@ -18,7 +18,7 @@ import xxhash
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.run_cmd import run_cmd, run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
-from cecli.tools.utils.helpers import ToolError
+from cecli.tools.utils.helpers import ToolError, is_creator_coder
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
@@ -214,7 +214,7 @@ class Tool(BaseTool):
             return response
 
         # Check for implicit background (trailing & on Linux)
-        if ".cecli/agents" in command:
+        if ".cecli/agents" in command and not is_creator_coder(coder):
             response.append_error(
                 "Do not attempt to access internal files with "
                 "standard cli tools. Please use the tools you have been provided."

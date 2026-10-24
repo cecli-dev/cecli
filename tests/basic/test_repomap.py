@@ -7,7 +7,7 @@ import pytest
 
 from cecli.dump import dump  # noqa: F401
 from cecli.io import InputOutput
-from cecli.repomap import RepoMap
+from cecli.repomap import RepoMap, _is_excluded_rel_path
 from cecli.utils import GitTemporaryDirectory, IgnorantTemporaryDirectory
 
 
@@ -63,6 +63,62 @@ class TestRepoMap:
             assert ranked is not None
             assert len(ranked) > 0
             del repo_map
+
+    def test_repo_map_excludes_default_dirs(self):
+        """Vendored/generated trees stay out of the map (issue #720)."""
+        test_rel_paths = [
+            os.path.join("src", "app.py"),
+            os.path.join(".venv", "lib", "python3", "site-packages", "dep.py"),
+            os.path.join("node_modules", "pkg", "index.js"),
+            os.path.join("mypkg.egg-info", "requires.txt"),
+        ]
+
+        with IgnorantTemporaryDirectory() as temp_dir:
+            for rel_path in test_rel_paths:
+                abs_path = os.path.join(temp_dir, rel_path)
+                os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                with open(abs_path, "w", encoding="utf-8") as f:
+                    f.write("def vendored_function():\n    return 1\n")
+
+            io = InputOutput()
+            repo_map = RepoMap(main_model=self.GPT35, io=io, repo_root=temp_dir)
+            other_files = [os.path.join(temp_dir, rel_path) for rel_path in test_rel_paths]
+            result = repo_map.get_repo_map([], other_files)
+
+            files_dict = result["files"]
+            assert any("app.py" in fname for fname in files_dict)
+            assert not any("dep.py" in fname for fname in files_dict), list(files_dict)
+            assert not any("index.js" in fname for fname in files_dict), list(files_dict)
+            assert not any("requires.txt" in fname for fname in files_dict), list(files_dict)
+
+            del repo_map
+
+    def test_repo_map_keeps_mentioned_files_in_excluded_dirs(self):
+        """A file the user mentioned is mapped even if it lives in an excluded dir."""
+        rel_path = os.path.join("vendor", "lib.go")
+
+        with IgnorantTemporaryDirectory() as temp_dir:
+            abs_path = os.path.join(temp_dir, rel_path)
+            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+            with open(abs_path, "w", encoding="utf-8") as f:
+                f.write("package vendor\n\nfunc VendorHelper() {}\n")
+
+            io = InputOutput()
+            repo_map = RepoMap(main_model=self.GPT35, io=io, repo_root=temp_dir)
+            ranked = repo_map.get_ranked_tags([], [abs_path], {rel_path}, set(), progress=False)
+
+            assert any(getattr(tag, "rel_fname", None) == rel_path for tag in ranked)
+
+            del repo_map
+
+    def test_is_excluded_rel_path(self):
+        assert _is_excluded_rel_path(os.path.join(".venv", "lib", "mod.py"))
+        assert _is_excluded_rel_path("node_modules/pkg/index.js")
+        assert _is_excluded_rel_path(os.path.join("pkg.egg-info", "requires.txt"))
+        assert _is_excluded_rel_path(".venv\\lib\\mod.py")
+        assert not _is_excluded_rel_path(os.path.join("src", "build.py"))
+        assert not _is_excluded_rel_path(os.path.join("src", "vendor.py"))
+        assert not _is_excluded_rel_path("mod.py")
 
     def test_repo_map_refresh_files(self):
         with GitTemporaryDirectory() as temp_dir:

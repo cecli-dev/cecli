@@ -231,6 +231,22 @@ class Tool(BaseTool):
             except Exception:
                 logger.warning("Failed to reap finished sub-agents", exc_info=True)
 
+            # Creator agents may have changed extensions on disk; reload them so
+            # the new skills, hooks, workflows, tools, commands, and servers are
+            # available to the rest of the session immediately.
+            if coder.edit_format == "subagent":
+                try:
+                    agent_service = AgentService.get_instance(coder)
+                    if agent_service.get_agent_name(coder) == "creator":
+                        from cecli.helpers.creator.utils import (
+                            reload_creator_extensions,
+                        )
+
+                        for message in await reload_creator_extensions(coder):
+                            coder.io.tool_output(message)
+                except Exception as e:
+                    logger.warning("Failed to reload creator extensions: %s", e)
+
             coder.agent_finished = True
 
             # If this is a sub-agent, capture the summary for the parent

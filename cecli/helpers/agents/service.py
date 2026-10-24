@@ -664,6 +664,15 @@ class AgentService:
                 inherited.setdefault("allow_nested_delegation", True)
             agent_config = inherited
 
+        # Workflow agents always keep the Local server available: its tools are
+        # the file/exec primitives a worker needs, and an explicit ``servers:``
+        # allowlist must not filter them out.
+        if name.startswith("wf:") and agent_config.get("servers_includelist"):
+            servers = [str(server).lower() for server in agent_config["servers_includelist"]]
+            if "local" not in servers:
+                servers.append("local")
+            agent_config["servers_includelist"] = servers
+
         kwargs = dict(
             io=parent_coder.io,
             from_coder=parent_coder,
@@ -909,6 +918,17 @@ class AgentService:
                 info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
+            except SwitchCoderSignal as switch:
+                # A command run mid-turn (e.g. /load-mcp) asks for this
+                # sub-agent's coder to be rebuilt. Absorb the signal here:
+                # letting it escape would recreate the *primary* coder from a
+                # sub-agent. The switch also drains any prompts staged behind
+                # the command, mirroring run_one()'s post-command drain.
+                await self.switch_sub_agent_coder(info, switch, preproc=True)
+                await self._inject_sub_agent_result(info)
+                if info.status == SubAgentStatus.RUNNING:
+                    info.status = SubAgentStatus.FINISHED
+                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
             except Exception as exc:
                 stop_reason, error = "error", str(exc) or exc.__class__.__name__
                 await self._inject_sub_agent_result(info)
@@ -920,8 +940,6 @@ class AgentService:
                     exc,
                     exc_info=True,
                 )
-                raise
-            except SwitchCoderSignal:
                 raise
             finally:
                 _subagent_event(

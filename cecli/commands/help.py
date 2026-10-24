@@ -32,7 +32,7 @@ class HelpCommand(BaseCommand):
         has_args = bool(getattr(coder, "args", None))
 
         try:
-            if not commands_instance or not hasattr(commands_instance, "help"):
+            if not commands_instance or commands_instance.help is None:
                 res = await install_help_extra(io)
                 if not res:
                     io.tool_error("Unable to initialize interactive help.")
@@ -61,7 +61,7 @@ class HelpCommand(BaseCommand):
             kwargs["from_coder"] = coder
             kwargs["edit_format"] = "help"
             kwargs["summarize_from_coder"] = False
-            kwargs["map_tokens"] = 512
+            kwargs["map_tokens"] = 0
             kwargs["map_mul_no_files"] = 1
             kwargs["main_model"] = editor_model
             kwargs["args"] = coder.args

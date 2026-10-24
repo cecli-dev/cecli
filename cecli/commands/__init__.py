@@ -25,6 +25,7 @@ from .context_management import ContextManagementCommand
 from .copy import CopyCommand
 from .copy_context import CopyContextCommand
 from .core import Commands
+from .creator import CreatorCommand
 from .diff import DiffCommand
 from .drop import DropCommand
 from .editor import EditCommand, EditorCommand
@@ -121,6 +122,7 @@ CommandRegistry.register(ContextCommand)
 CommandRegistry.register(ContextManagementCommand)
 CommandRegistry.register(CopyCommand)
 CommandRegistry.register(CopyContextCommand)
+CommandRegistry.register(CreatorCommand)
 CommandRegistry.register(DiffCommand)
 CommandRegistry.register(DropCommand)
 CommandRegistry.register(EditCommand)
@@ -211,6 +213,7 @@ __all__ = [
     "ContextManagementCommand",
     "CopyCommand",
     "CopyContextCommand",
+    "CreatorCommand",
     "DiffCommand",
     "DropCommand",
     "EditCommand",

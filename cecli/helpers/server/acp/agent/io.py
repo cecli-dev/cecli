@@ -194,8 +194,8 @@ class AcpInputOutput(InputOutput):
     def rule(self):
         pass
 
-    def ring_bell(self):
+    def ring_bell(self, **kwargs):
         pass
 
-    def notify_user_input_required(self):
+    def notify_user_input_required(self, **kwargs):
         pass

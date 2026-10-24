@@ -761,6 +761,9 @@ def test_boolean_flags(flag_arg, attr_name, expected, dummy_io, git_temp_dir):
 def test_no_verify_ssl_sets_model_info_manager(dummy_io, git_temp_dir, mocker):
     mock_set_verify_ssl = mocker.patch("cecli.models.ModelInfoManager.set_verify_ssl")
     mock_model = mocker.patch("cecli.models.Model")
+    # Startup now builds the default agent coder, so the fully mocked model
+    # must return a real int for map tokens (base_coder compares it to 0).
+    mock_model.return_value.get_repo_map_tokens.return_value = 0
     mock_model.return_value.info = {}
     mock_model.return_value.name = "gpt-4"
     mock_model.return_value.validate_environment.return_value = {
@@ -889,6 +892,31 @@ def test_invalid_edit_format(dummy_io, git_temp_dir, mocker, capsys):
     stderr_output = captured.err
     assert "invalid choice" in stderr_output
     assert "not-a-real-format" in stderr_output
+
+
+def test_default_edit_format_is_agent(dummy_io, git_temp_dir):
+    coder = main(["--exit", "--yes-always"], **dummy_io, return_coder=True)
+    assert coder.edit_format == "agent"
+
+
+@pytest.mark.parametrize(
+    "flag_arg,expected_format",
+    [
+        ("--edit-format", "whole"),
+        ("--chat-mode", "whole"),
+        (None, "agent"),
+    ],
+    ids=["edit_format_flag", "chat_mode_alias", "unset_defaults_to_agent"],
+)
+def test_edit_format_flag_overrides_agent_default(
+    flag_arg, expected_format, dummy_io, git_temp_dir, mock_coder
+):
+    args = ["--exit", "--yes-always"]
+    if flag_arg:
+        args = [flag_arg, expected_format] + args
+    main(args, **dummy_io)
+    _, kwargs = mock_coder.call_args
+    assert kwargs["edit_format"] == expected_format
 
 
 @pytest.mark.parametrize(

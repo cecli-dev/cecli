@@ -251,6 +251,7 @@ ngram==4.0.3
 numpy==2.3.5
     # via
     #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements.in
     #   chromadb
     #   moonshine-voice
     #   onnxruntime
@@ -263,6 +264,7 @@ oauthlib==3.3.1
 onnxruntime==1.29.0
     # via
     #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements.in
     #   chromadb
 opentelemetry-api==1.44.0
     # via

@@ -65,10 +65,8 @@ class AgentCoder(Coder):
         self.read_tools = {
             "command",
             "explorecode",
-            "ls",
             "readfile",
             "grep",
-            "thinking",
             "updatetodolist",
             "searchfacts",
         }
@@ -348,6 +346,10 @@ class AgentCoder(Coder):
             verbose = getattr(self.args, "verbose", False) if self.args else False
             self.mcp_manager = McpServerManager([], self.io, verbose)
 
+        await self._initialize_local_server()
+        await self._connect_configured_servers()
+
+    async def _initialize_local_server(self):
         server_name = "Local"
         server = self.mcp_manager.get_server(server_name)
 
@@ -368,6 +370,35 @@ class AgentCoder(Coder):
             await self.mcp_manager.add_server(local_server, connect=True)
         else:
             await self.mcp_manager.connect_server(server_name)
+
+    async def _connect_configured_servers(self):
+        """Open connections for servers named in this agent's ``servers`` allowlist.
+
+        ``McpServerManager.spawn_child`` only mirrors servers the parent already
+        had connected, so a workflow's declarative ``servers:`` list would never
+        open a connection for servers that are disabled by default (or whose
+        parent connection failed).
+        """
+        included = getattr(self, "registered_servers", {}).get("included") or set()
+
+        for name in sorted(included):
+            if name == "local":
+                continue
+
+            server = self.mcp_manager.get_server(name)
+            if server is None:
+                self.io.tool_warning(
+                    f"MCP server '{name}' is required by this agent but is not configured"
+                )
+                continue
+
+            if server.is_connected:
+                continue
+
+            if not await self.mcp_manager.connect_server(server.name):
+                self.io.tool_warning(
+                    f"Failed to connect MCP server '{server.name}' required by this agent"
+                )
 
     async def _execute_mcp_tool(self, server, tool_name, params):
         """Helper to execute a single MCP tool call, created from legacy format."""
@@ -648,6 +679,9 @@ class AgentCoder(Coder):
         ConversationService.get_chunks(self).add_chat_files_messages()
 
         ConversationService.get_manager(self).flush_queue()
+
+        # Inject newly retrieved documentation for the creator sub-agent only.
+        ConversationService.get_chunks(self).add_creator_docs_context()
 
         # Add post-message context blocks (priority 250 - between CUR and REMINDER)
         ConversationService.get_chunks(self).add_post_message_context_blocks()

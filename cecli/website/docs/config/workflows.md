@@ -9,7 +9,7 @@ A **workflow** is a named, optionally scheduled sequence of prompts that run una
 
 ## Where to define them
 
-Preferred: one YAML file per workflow in `~/.cecli/workflows/`:
+Preferred: one YAML file per workflow in `~/.cecli/workflows/` (with `~/.agents/workflows/` also discovered):
 
 ```
 ~/.cecli/workflows/
@@ -25,6 +25,7 @@ Also supported: a repo-local `.cecli/workflows/` or `.agents/workflows/` directo
 4. **Standard local directory** — `.agents/workflows/*.yml` / `*.yaml` in the git root (or working directory), loaded in sorted order.
 5. **Merged config** — the `workflows:` key in `.cecli.conf.yml`.
 6. **Global files** — `~/.cecli/workflows/*.yml` / `*.yaml`, loaded in sorted order.
+7. **Standard global directory** — `~/.agents/workflows/*.yml` / `*.yaml`, loaded in sorted order.
 
 On a duplicate `name`, the higher-precedence definition wins and the loser is skipped with a warning. A source that fails to parse is skipped with a warning as well — a malformed workflows file never crashes startup.
 
@@ -147,7 +148,7 @@ tasks:
 
 ## Compatibility
 
-- Workflows are additive: nothing changes until you create a `workflows:` key or a file in `~/.cecli/workflows/`.
+- Workflows are additive: nothing changes until you create a `workflows:` key or a file in `~/.cecli/workflows/` or `~/.agents/workflows/`.
 - `wf:` agents show up in `/agent-tree` alongside `ws:` agents; a workflow can itself delegate sub-agents (nested delegation enabled).
 - Existing `/queue` semantics are unchanged; workflows reuse the same queue.
 

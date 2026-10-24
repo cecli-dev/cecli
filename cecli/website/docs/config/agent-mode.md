@@ -46,7 +46,7 @@ This loop continues automatically until the `Yield` tool is called, or the maxim
 
 Agent Mode uses a centralized local tool registry. The standard tools include:
 
-- **Discovery and inspection**: `ExploreCode`, `Ls`, `Grep`, `ReadFile`, and `Thinking`
+- **Discovery and inspection**: `ExploreCode`, `Grep`, and `ReadFile`
 - **Context and editing**: `ResourceManager`, `EditFile`, `UndoChange`, and `UpdateTodoList`
 - **Execution and orchestration**: `Command` and `Orchestrate`
 - **Sub-agent coordination**: `Delegate` and `Yield`

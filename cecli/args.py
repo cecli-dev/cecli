@@ -253,7 +253,7 @@ def get_parser(default_config_files, git_root):
         metavar="EDIT_FORMAT",
         choices=edit_format_choices,
         default=None,
-        help="Specify what edit format the LLM should use (default depends on model)",
+        help="Specify what edit format the LLM should use (default: agent)",
     )
     group.add_argument(
         "--ask",

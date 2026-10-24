@@ -23,6 +23,8 @@ class ConversationChunks:
         self.last_clear_count = 0
         self._deferred_removals = set()
         self.message_tracker = dict()
+        self.creator_docs_seen = dict()
+        self.creator_docs_last_query = None
 
     @classmethod
     def get_instance(cls, coder) -> "ConversationChunks":
@@ -777,6 +779,10 @@ class ConversationChunks:
         Reset the entire conversation system to initial state.
         """
         coder = self.get_coder()
+        self.clear_creator_docs_seen()
+        ConversationService.get_manager(coder).reset()
+        if coder:
+            ConversationService.get_files(coder).reset()
         ConversationService.get_manager(coder).reset()
         if coder:
             ConversationService.get_files(coder).reset()
@@ -1075,6 +1081,79 @@ class ConversationChunks:
             hash_key=("sub_agent_states", str(time.monotonic_ns())),
         )
 
+    def add_creator_docs_context(self) -> None:
+        """Inject newly retrieved documentation for the creator sub-agent.
+
+        Only chunks that have not already been injected for this agent are
+        emitted, so the documentation stream is append-only and never repeats
+        the same text across turns.
+        """
+        coder = self.get_coder()
+        if not coder or not self._is_creator(coder):
+            return
+
+        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
+            return
+
+        query = self._creator_doc_query(coder)
+        if not query:
+            return
+
+        query_hash = xxhash.xxh3_128_hexdigest(query.encode("utf-8", errors="replace"))
+        if query_hash == self.creator_docs_last_query:
+            return
+        self.creator_docs_last_query = query_hash
+
+        docs = self._retrieve_creator_docs(coder, query)
+        if not docs:
+            return
+
+        for doc in docs:
+            self.creator_docs_seen[doc["id"]] = doc.get("url", "")
+
+        lines = [
+            '<context name="creator_docs" from="agent">',
+            "## Newly Retrieved Documentation",
+            (
+                f"Retrieved {len(docs)} new documentation chunk(s). Previously retrieved"
+                f" chunks ({len(self.creator_docs_seen) - len(docs)}) are not repeated."
+            ),
+            "",
+        ]
+
+        for doc in docs:
+            url = doc.get("url", "")
+            url_attr = f' from_url="{url}"' if url else ""
+            lines.append(f"<doc{url_attr}>")
+            lines.append(doc["document"])
+            lines.append("</doc>")
+            lines.append("")
+
+        lines.append("</context>")
+        block = "\n".join(lines)
+        content_hash = xxhash.xxh3_128_hexdigest(block.encode("utf-8"))
+
+        ConversationService.get_manager(coder).add_message(
+            message_dict={"role": "user", "content": block},
+            tag=MessageTag.CREATOR_DOCS,
+            priority=DEFAULT_TAG_PRIORITY[MessageTag.CREATOR_DOCS],
+            hash_key=("creator_docs", content_hash),
+            force=True,
+            update_timestamp=False,
+        )
+
+    def clear_creator_docs_seen(self, remove_messages: bool = False) -> None:
+        """Forget which documentation chunks this agent has already seen."""
+        self.creator_docs_seen.clear()
+        self.creator_docs_last_query = None
+
+        if not remove_messages:
+            return
+
+        coder = self.get_coder()
+        if coder:
+            ConversationService.get_manager(coder).clear_tag(MessageTag.CREATOR_DOCS)
+
     def defer_removal(self, file_path: str):
         self._deferred_removals.add(file_path)
 
@@ -1083,6 +1162,58 @@ class ConversationChunks:
 
     def reset_clear_count(self):
         self.last_clear_count = 0
+
+    @staticmethod
+    def _is_creator(coder) -> bool:
+        """Return True when *coder* is the creator sub-agent."""
+        agent_config = getattr(coder, "agent_config", {}) or {}
+        return bool(agent_config.get("creator_mode"))
+
+    def _creator_doc_query(self, coder) -> str:
+        """Build a retrieval query from the creator's recent conversation."""
+        manager = ConversationService.get_manager(coder)
+        messages = manager.get_messages_dict(MessageTag.CUR)
+        if not messages:
+            messages = manager.get_messages_dict(MessageTag.DONE)
+
+        parts = []
+        for message in reversed(messages):
+            role = message.get("role")
+            content = message.get("content") or ""
+            if role not in ("user", "assistant"):
+                continue
+            if content.lstrip().startswith('<context name="creator_docs"'):
+                continue
+
+            parts.append(content)
+            if len(parts) >= 2:
+                break
+
+        if not parts:
+            return ""
+
+        query = "\n".join(reversed(parts))
+        return query[:4000]
+
+    def _retrieve_creator_docs(self, coder, query) -> list:
+        """Retrieve unseen documentation chunks, degrading to keyword search if needed."""
+        exclude_ids = set(self.creator_docs_seen)
+
+        try:
+            from cecli.help import Help, keyword_retrieve
+
+            try:
+                help_instance = Help(coder=coder)
+                docs = help_instance.retrieve(query, exclude_ids=exclude_ids, n_results=8)
+            except Exception:
+                docs = []
+
+            if docs:
+                return docs
+
+            return keyword_retrieve(query, exclude_ids=exclude_ids, n_results=3)
+        except Exception:
+            return []
 
     def reset_message_tracker(self):
         self.message_tracker = dict()

@@ -447,9 +447,8 @@ class Tool(BaseTool):
     def _create(cls, coder, file_path):
         """Create a new file on the file system and make it editable in the coder's context."""
         try:
-            abs_path = coder.abs_root_path(file_path)
+            abs_path = coder.abs_root_path(os.path.expanduser(file_path))
 
-            # Check if file already exists
             if os.path.exists(abs_path):
                 coder.io.tool_output(f"⚠ File '{file_path}' already exists", type="tool-result")
                 return f"File already exists: {file_path}"
@@ -488,7 +487,7 @@ class Tool(BaseTool):
                 filename = parts[1]
                 rel_path = coder.local_agent_folder(f"{command_key}/{filename}")
                 return coder.abs_root_path(rel_path)
-        return coder.abs_root_path(file_path)
+        return coder.abs_root_path(os.path.expanduser(file_path))
 
     @classmethod
     def _load_skill(cls, coder, skill_name):

@@ -34,6 +34,16 @@ class TestToolRegistry:
         for tool in essential_tools:
             assert tool in tools, f"Essential tool {tool} should be registered"
 
+    def test_thinking_tool_removed(self):
+        """Thinking is redundant now that models expose native reasoning."""
+        assert "thinking" not in ToolRegistry.list_tools()
+        assert ToolRegistry.get_tool("thinking") is None
+
+    def test_ls_tool_removed(self):
+        """Ls is covered by ExploreCode, Grep, and ReadFile."""
+        assert "ls" not in ToolRegistry.list_tools()
+        assert ToolRegistry.get_tool("ls") is None
+
     def test_get_tool(self):
         """Test getting individual tools by name"""
         # Get existing tool

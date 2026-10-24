@@ -29,9 +29,44 @@ def is_provided(value, *, treat_zero_as_missing=False):
     return True
 
 
+def is_creator_coder(coder) -> bool:
+    """Return True for the creator sub-agent or agents allowed external paths.
+
+    The creator frequently edits files outside the project root (global config,
+    user skills, hooks) and inside ``.cecli`` directories, so path guards must
+    not confine it to the project.
+    """
+    agent_config = getattr(coder, "agent_config", {}) or {}
+    if agent_config.get("creator_mode") or agent_config.get("allow_external_paths"):
+        return True
+
+    try:
+        from cecli.helpers.agents.service import AgentService
+
+        return AgentService.get_instance(coder).get_agent_name(coder) == "creator"
+    except Exception:
+        return False
+
+
+def is_path_within_root(path, root) -> bool:
+    """Return True when *path* resolves inside *root*.
+
+    Uses ``commonpath`` so sibling paths sharing a string prefix (for example
+    ``/repo-other`` and ``/repo``) are not treated as contained.
+    """
+    try:
+        common = os.path.commonpath(
+            [os.path.realpath(os.path.abspath(path)), os.path.realpath(os.path.abspath(root))]
+        )
+        return common == os.path.realpath(os.path.abspath(root))
+    except (ValueError, OSError):
+        return False
+
+
 def resolve_paths(coder, file_path):
     """Resolves absolute and relative paths for a given file path."""
     try:
+        file_path = os.path.expanduser(file_path)
         abs_path = coder.abs_root_path(file_path)
         rel_path = coder.get_rel_fname(abs_path)
         return abs_path, rel_path
