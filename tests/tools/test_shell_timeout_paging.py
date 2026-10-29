@@ -10,8 +10,8 @@ import pytest
 import pytest_asyncio
 
 from cecli.helpers import background_commands
-from cecli.tools.command import Tool as CommandTool
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
+from cecli.tools.shell import Tool as ShellTool
 
 
 @pytest_asyncio.fixture
@@ -70,7 +70,7 @@ async def elapsed_command(monkeypatch, tmp_path):
         coder.large_file_token_threshold = threshold
         coder.context_management_enabled = enabled
         state["output"] = output
-        response = await CommandTool._execute_with_timeout(
+        response = await ShellTool._execute_with_timeout(
             coder, "pending command", 0.001, use_pty=False
         )
         result = response.to_dict()
@@ -116,7 +116,7 @@ async def test_elapsed_timeout_pages_output_and_exposes_command_keys(elapsed_com
     assert num_pages >= 1
     assert output not in content
     assert f"Output paged to disk: {num_pages} page(s)." in content
-    assert "ResourceManager" in content
+    assert "ManageResources" in content
     assert "not added to file context" in content
     assert "command_key::" not in content
     example = next(line for line in content.splitlines() if line.startswith('{"paging"'))
@@ -133,7 +133,7 @@ async def test_elapsed_timeout_pages_output_and_exposes_command_keys(elapsed_com
 
     editable_before = coder.abs_fnames.copy()
     read_only_before = coder.abs_read_only_fnames.copy()
-    response = await ResourceManagerTool.execute(coder, paging=[{"target": target, "page": 1}])
+    response = await ManageResourcesTool.execute(coder, paging=[{"target": target, "page": 1}])
     result = response.to_dict()
     assert result["errors"] == []
     assert result["result"][0]["content"].endswith(output[:page_size])

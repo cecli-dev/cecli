@@ -106,18 +106,18 @@ Backing files are left on disk by default so you can inspect them; say "delete t
 
 ## Safety Notes
 
-- The creator never hand-edits `.cecli.conf.yml`, `conf.yml`, or `creator.yml`. All writes go through its Create tool, which merges rather than replaces existing content.
+- The creator never hand-edits `.cecli.conf.yml`, `conf.yml`, or `creator.yml`. All writes go through its ManageExtensions tool, which merges rather than replaces existing content.
 - It inspects existing files before changing them, but it is designed to run unattended, so review its summary and use `list` when you want to confirm what was persisted.
 - Removing an entry prunes references but keeps backing files unless you ask to delete them.
 - Settings that only apply at startup (for example some model/provider options) may need `/hot-reload` or a restart; the creator tells you when that is the case.
 
 ## Advanced Reference
 
-Everything below describes the underlying Create tool. You normally do not need it — ask the creator instead.
+Everything below describes the underlying ManageExtensions tool. You normally do not need it — ask the creator instead.
 
-### Create tool
+### ManageExtensions tool
 
-The Create tool is scoped to the creator sub-agent (`creator_mode: true`). The primary agent and other sub-agents cannot call it directly; delegate the request to the creator. One action runs per call.
+The ManageExtensions tool is scoped to the creator sub-agent (`creator_mode: true`). The primary agent and other sub-agents cannot call it directly; delegate the request to the creator. One action runs per call.
 
 | Action | Behavior |
 |--------|----------|
@@ -181,7 +181,7 @@ See [Hooks](hooks.html) for the hook payload schema.
 
 #### `skill`
 
-Writes `<scope>/skills/<name>/SKILL.md` from `content`. If `content` is omitted and the file does not exist, Create scaffolds a minimal `SKILL.md` with `name` and `description` front matter for the author to fill in. The skill directory is recorded in `agent-config.skills_paths`; when a live coder already runs with a non-empty `skills_includelist`, the new name is added there as well.
+Writes `<scope>/skills/<name>/SKILL.md` from `content`. If `content` is omitted and the file does not exist, ManageExtensions scaffolds a minimal `SKILL.md` with `name` and `description` front matter for the author to fill in. The skill directory is recorded in `agent-config.skills_paths`; when a live coder already runs with a non-empty `skills_includelist`, the new name is added there as well.
 
 ```yaml
 agent-config:
@@ -195,7 +195,7 @@ After an `add`, the creator activates the skill for the targeted coders (or ever
 
 #### `custom_tool`
 
-Writes `<scope>/tools/<name>.py` from `content` and records the scope's tools directory in `agent-config.tools_paths`. `~/.cecli/tools` and `<root>/.cecli/tools` are scanned by default, but recording the path keeps the directory explicit. If a live coder's `tools_excludelist` names the tool, Create notes that the tool stays hidden there.
+Writes `<scope>/tools/<name>.py` from `content` and records the scope's tools directory in `agent-config.tools_paths`. `~/.cecli/tools` and `<root>/.cecli/tools` are scanned by default, but recording the path keeps the directory explicit. If a live coder's `tools_excludelist` names the tool, ManageExtensions notes that the tool stays hidden there.
 
 ```yaml
 agent-config:
@@ -215,7 +215,7 @@ custom:
 
 #### `workflow`
 
-Writes `<scope>/workflows/<name>.yml` from `content` or from a dict `config` (a `name` is added when missing). Workflows are discovered by scanning the workflows directories, so Create records **no fragment** in `creator.yml`. If the workflow has `enabled: false`, Create warns that no `wf:<name>` sub-agent will register.
+Writes `<scope>/workflows/<name>.yml` from `content` or from a dict `config` (a `name` is added when missing). Workflows are discovered by scanning the workflows directories, so ManageExtensions records **no fragment** in `creator.yml`. If the workflow has `enabled: false`, ManageExtensions warns that no `wf:<name>` sub-agent will register.
 
 > **Important:** Workflows are never recorded as a top-level list of dicts in `creator.yml`. A `workflows:` list in that file would bypass the normal workflow file discovery and precedence rules.
 
@@ -251,7 +251,7 @@ agents:
         - github
 ```
 
-`agents:` is read **only** from `creator.yml` (global then project-local); entries in `.cecli.conf.yml` or `.cecli/conf.yml` are ignored. Create refreshes the index after every successful change, so sub-agents spawned later in the same session pick up the override without a restart.
+`agents:` is read **only** from `creator.yml` (global then project-local); entries in `.cecli.conf.yml` or `.cecli/conf.yml` are ignored. ManageExtensions refreshes the index after every successful change, so sub-agents spawned later in the same session pick up the override without a restart.
 
 **Names and patterns.** Targets are exact registry names or `fnmatch` patterns (`"*"`, `"wf:*"`, `"ws:*"`). When a sub-agent spawns, matching overrides merge most-specific-last:
 

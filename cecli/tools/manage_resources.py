@@ -8,7 +8,6 @@ from cecli.commands.utils.helpers import (
     update_server_registration,
 )
 from cecli.decoding import safe_open
-from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError, parse_arg_as_list
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -17,17 +16,17 @@ from cecli.tools.validations import ToolValidations
 
 
 class Tool(BaseTool):
-    NORM_NAME = "resourcemanager"
+    NORM_NAME = "manageresources"
     RESULT_TYPE = "list"
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "ResourceManager",
+            "name": "ManageResources",
             "description": (
-                "Manage files, long running commands, skills, and MCP servers"
-                " in the chat context: add, read_only, create, remove files;"
+                "Manage files, skills, and MCP servers in the chat context:"
+                " add, read_only, create, remove files;"
                 " view up to 3 pages of command output with paging;"
-                " stop background commands; load/remove skills and load/remove MCP servers."
+                " load/remove skills and load/remove MCP servers."
             ),
             "parameters": {
                 "type": "object",
@@ -51,11 +50,6 @@ class Tool(BaseTool):
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "List of file paths to remove from context.",
-                    },
-                    "stop": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of command keys to stop background commands for.",
                     },
                     "load_skill": {
                         "type": "array",
@@ -102,7 +96,7 @@ class Tool(BaseTool):
                                 "target": {
                                     "type": "string",
                                     "description": (
-                                        "Command key returned by Command (e.g., bg_1_1234), "
+                                        "Command key returned by Shell (e.g., bg_1_1234), "
                                         "matching ^bg_[0-9]+_[0-9]+$."
                                     ),
                                 },
@@ -127,7 +121,6 @@ class Tool(BaseTool):
         add=None,
         read_only=None,
         create=None,
-        stop=None,
         load_skill=None,
         remove_skill=None,
         load_mcp=None,
@@ -150,8 +143,6 @@ class Tool(BaseTool):
             Files to add as read-only (not command output aliases).
         create: list[str] | None
             Files to create and make editable.
-        stop: list[str] | None
-            Command keys to stop background commands for.
         load_skill: list[str] | None
             Skill names to load.
         remove_skill: list[str] | None
@@ -170,7 +161,6 @@ class Tool(BaseTool):
         editable_files = sorted(parse_arg_as_list(add), key=cls._natural_sort_key)
         view_files = sorted(parse_arg_as_list(read_only), key=cls._natural_sort_key)
         create_files = sorted(parse_arg_as_list(create), key=cls._natural_sort_key)
-        stop_keys = sorted(parse_arg_as_list(stop), key=cls._natural_sort_key)
         load_skill_names = sorted(parse_arg_as_list(load_skill), key=cls._natural_sort_key)
         remove_skill_names = sorted(parse_arg_as_list(remove_skill), key=cls._natural_sort_key)
         load_mcp_servers = sorted(parse_arg_as_list(load_mcp), key=cls._natural_sort_key)
@@ -192,7 +182,6 @@ class Tool(BaseTool):
             and not editable_files
             and not view_files
             and not create_files
-            and not stop_keys
             and not load_skill_names
             and not remove_skill_names
             and not load_mcp_servers
@@ -201,7 +190,7 @@ class Tool(BaseTool):
             and paging is None
         ):
             raise ToolError(
-                "You must specify at least one of: remove, add, read_only, create, stop, "
+                "You must specify at least one of: remove, add, read_only, create, "
                 "load_skill, remove_skill, load_mcp, remove_mcp, actions, or paging"
             )
 
@@ -270,8 +259,6 @@ class Tool(BaseTool):
                 response.append_result(cls._create(coder, f))
             else:
                 response.append_result(cls._editable(coder, f))
-        for key in stop_keys:
-            response.append_result(cls._stop_command(coder, key))
         for skill_name in load_skill_names:
             response.append_result(cls._load_skill(coder, skill_name))
         for skill_name in remove_skill_names:
@@ -298,7 +285,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for ResourceManager tool."""
+        """Format output for ManageResources tool."""
         color_start, color_end = color_markers(coder)
 
         # Output header
@@ -318,7 +305,6 @@ class Tool(BaseTool):
             "remove": "remove",
             "view": "view",
             "editable": "editable",
-            "stop": "stop",
             "load_skill": "load_skill",
             "remove_skill": "remove_skill",
             "load_mcp": "load_mcp",
@@ -374,32 +360,6 @@ class Tool(BaseTool):
         except Exception as e:
             coder.io.tool_error(f"Error removing file '{file_path}': {str(e)}")
             return f"Error removing {file_path}: {e}"
-
-    @classmethod
-    def _stop_command(cls, coder, command_key):
-        """Stop a background command by its command key."""
-        try:
-            success, output, exit_code = BackgroundCommandManager.stop_background_command(
-                command_key
-            )
-            if success:
-                coder.io.tool_output(
-                    f"✗ Stopped background command '{command_key}'", type="tool-result"
-                )
-                return (
-                    f"Background command stopped: {command_key}\n"
-                    f"Exit code: {exit_code}\n"
-                    f"Final output:\n{output}"
-                )
-            else:
-                coder.io.tool_output(
-                    f"⚠ Background command '{command_key}' not found or not running",
-                    type="tool-result",
-                )
-                return f"Command not found or not running: {command_key}"
-        except Exception as e:
-            coder.io.tool_error(f"Error stopping command '{command_key}': {str(e)}")
-            return f"Error stopping {command_key}: {e}"
 
     @classmethod
     def _editable(cls, coder, file_path):

@@ -687,9 +687,9 @@ async def test_load_session_benefits_from_retry(mock_server, mock_io, mock_tools
 
 
 @pytest.mark.asyncio
-async def test_resource_manager_benefits_from_retry(mock_server, mock_io, mock_tools, mock_session):
-    """TC-021: ResourceManager _load_mcp uses connect_server which now retries."""
-    from cecli.tools.resource_manager import Tool as ResourceManagerTool
+async def test_manage_resources_benefits_from_retry(mock_server, mock_io, mock_tools, mock_session):
+    """TC-021: ManageResources _load_mcp uses connect_server which now retries."""
+    from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
     coder = _make_mock_coder(mock_server, mock_io)
 
@@ -707,9 +707,9 @@ async def test_resource_manager_benefits_from_retry(mock_server, mock_io, mock_t
     # Mock the context block check
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
 
-    with patch("cecli.tools.resource_manager.iter_all_coders", return_value=[coder]):
-        with patch("cecli.tools.resource_manager.update_server_registration"):
-            result = await ResourceManagerTool._load_mcp(coder, "test-server")
+    with patch("cecli.tools.manage_resources.iter_all_coders", return_value=[coder]):
+        with patch("cecli.tools.manage_resources.update_server_registration"):
+            result = await ManageResourcesTool._load_mcp(coder, "test-server")
 
     assert "Loaded server: test-server" in result
 

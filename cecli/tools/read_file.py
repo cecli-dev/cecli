@@ -250,7 +250,7 @@ class Tool(BaseTool):
                             "outline": "",
                             "note": (
                                 f"File {rel_path} is empty. Next: use EditFile with start_line @000 and"
-                                " end_line @000 to write content, or ResourceManager to scaffold —"
+                                " end_line @000 to write content, or ManageResources to scaffold —"
                                 " do not call ReadFile again on this empty file."
                             ),
                         }

@@ -1,4 +1,4 @@
-"""ResourceManager paging returns command output without adding context files."""
+"""ManageResources paging returns command output without adding context files."""
 
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 from cecli.tools.utils.helpers import ToolError
 from cecli.tools.utils.responses import ToolResponse
 
@@ -40,7 +40,6 @@ def operations(monkeypatch):
         "_remove",
         "_view",
         "_editable",
-        "_stop_command",
         "_load_skill",
         "_remove_skill",
         "_load_mcp",
@@ -49,7 +48,7 @@ def operations(monkeypatch):
     ):
         mock_type = AsyncMock if name in ("_load_mcp", "_remove_mcp", "_list_mcp_servers") else Mock
         mocks[name] = mock_type(return_value="operation completed")
-        monkeypatch.setattr(ResourceManagerTool, name, mocks[name])
+        monkeypatch.setattr(ManageResourcesTool, name, mocks[name])
 
     return mocks
 
@@ -66,7 +65,7 @@ async def test_paging_returns_page_contents_without_adding_context(coder, target
     coder.abs_root_path.reset_mock()
     coder.local_agent_folder.reset_mock()
 
-    response = await ResourceManagerTool.execute(coder, paging=[{"target": target, "page": page}])
+    response = await ManageResourcesTool.execute(coder, paging=[{"target": target, "page": page}])
 
     assert isinstance(response, ToolResponse)
     result = response.to_dict()
@@ -85,7 +84,7 @@ async def test_missing_page_appends_response_error(coder):
     editable_before = coder.abs_fnames.copy()
     read_only_before = coder.abs_read_only_fnames.copy()
 
-    response = await ResourceManagerTool.execute(coder, paging=[{"target": "bg_1_1234", "page": 1}])
+    response = await ManageResourcesTool.execute(coder, paging=[{"target": "bg_1_1234", "page": 1}])
 
     assert isinstance(response, ToolResponse)
     result = response.to_dict()
@@ -116,7 +115,7 @@ async def test_missing_page_appends_response_error(coder):
 )
 async def test_invalid_paging_object_raises_before_operations(coder, operations, paging):
     with pytest.raises(ToolError):
-        await ResourceManagerTool.execute(coder, paging=paging, create=["untouched.txt"])
+        await ManageResourcesTool.execute(coder, paging=paging, create=["untouched.txt"])
 
     for operation in operations.values():
         operation.assert_not_called()
@@ -144,7 +143,7 @@ async def test_invalid_paging_object_raises_before_operations(coder, operations,
 )
 async def test_invalid_paging_target_raises_before_operations(coder, operations, target):
     with pytest.raises(ToolError):
-        await ResourceManagerTool.execute(
+        await ManageResourcesTool.execute(
             coder, paging=[{"target": target, "page": 1}], create=["untouched.txt"]
         )
 
@@ -156,7 +155,7 @@ async def test_invalid_paging_target_raises_before_operations(coder, operations,
 @pytest.mark.parametrize("page", [0, -1, 1.0, 1.5, "1", True, False, None, [], {}])
 async def test_invalid_page_number_raises_before_operations(coder, operations, page):
     with pytest.raises(ToolError):
-        await ResourceManagerTool.execute(
+        await ManageResourcesTool.execute(
             coder, paging=[{"target": "bg_1_1234", "page": page}], create=["untouched.txt"]
         )
 
@@ -183,7 +182,7 @@ async def test_command_key_alias_rejected_before_any_operations(coder, operation
     kwargs[action].append(alias)
 
     with pytest.raises(ToolError):
-        await ResourceManagerTool.execute(coder, **kwargs)
+        await ManageResourcesTool.execute(coder, **kwargs)
 
     for operation in operations.values():
         operation.assert_not_called()
@@ -192,7 +191,7 @@ async def test_command_key_alias_rejected_before_any_operations(coder, operation
 
 
 def test_paging_schema_requires_exact_target_and_positive_integer_page():
-    parameters = ResourceManagerTool.SCHEMA["function"]["parameters"]
+    parameters = ManageResourcesTool.SCHEMA["function"]["parameters"]
     paging = parameters["properties"]["paging"]
 
     assert paging["type"] == "array"
@@ -214,12 +213,12 @@ def test_format_output_shows_paging_target_and_page(coder):
         id="test-paging",
         type="function",
         function=SimpleNamespace(
-            name="ResourceManager",
+            name="ManageResources",
             arguments=json.dumps({"paging": [{"target": "bg_1_1234", "page": 7}]}),
         ),
     )
 
-    ResourceManagerTool.format_output(coder, SimpleNamespace(name="Local"), tool_response)
+    ManageResourcesTool.format_output(coder, SimpleNamespace(name="Local"), tool_response)
 
     output = "\n".join(
         str(call.args[0]) for call in coder.io.tool_output.call_args_list if call.args
@@ -241,7 +240,7 @@ async def test_three_pages_return_in_order_without_context_changes(coder):
 
     editable_before = coder.abs_fnames.copy()
     read_only_before = coder.abs_read_only_fnames.copy()
-    response = await ResourceManagerTool.execute(coder, paging=paging)
+    response = await ManageResourcesTool.execute(coder, paging=paging)
     result = response.to_dict()
 
     assert result["errors"] == []
@@ -259,7 +258,7 @@ async def test_invalid_later_entry_validated_before_reading_or_operations(coder,
     paging = [{"target": "bg_1_1234", "page": 1}, {"target": "bg_1_1234", "page": False}]
 
     with pytest.raises(ToolError):
-        await ResourceManagerTool.execute(coder, paging=paging, create=["untouched.txt"])
+        await ManageResourcesTool.execute(coder, paging=paging, create=["untouched.txt"])
 
     coder.local_agent_folder.assert_not_called()
     coder.abs_root_path.assert_not_called()
@@ -275,13 +274,13 @@ async def test_command_large_output_guidance_uses_paging_array(
     import asyncio
 
     from cecli.helpers import background_commands
-    from cecli.tools import command
+    from cecli.tools import shell
 
     coder.root = str(tmp_path)
     coder.large_file_token_threshold = 10
     coder.context_management_enabled = True
     coder.interrupt_event = asyncio.Event()
-    manager = command.BackgroundCommandManager
+    manager = shell.BackgroundCommandManager
     target = "bg_1_1234"
     output = "large command output\n" * 50
     monkeypatch.setattr(manager, "_generate_command_key", Mock(return_value=target))
@@ -289,8 +288,8 @@ async def test_command_large_output_guidance_uses_paging_array(
     monkeypatch.setattr(manager, "save_paginated_output", save)
 
     if execution_path == "foreground":
-        monkeypatch.setattr(command, "run_cmd_subprocess", Mock(return_value=(0, output)))
-        response = await command.Tool._execute_foreground(coder, "echo test")
+        monkeypatch.setattr(shell, "run_cmd_subprocess", Mock(return_value=(0, output)))
+        response = await shell.Tool._execute_foreground(coder, "echo test")
     else:
         process = Mock()
         process.wait.return_value = 0
@@ -306,14 +305,14 @@ async def test_command_large_output_guidance_uses_paging_array(
             return buffer
 
         monkeypatch.setattr(background_commands, "PagedOutputBuffer", make_buffer)
-        response = await command.Tool._execute_with_timeout(coder, "echo test", 30, use_pty=False)
+        response = await shell.Tool._execute_with_timeout(coder, "echo test", 30, use_pty=False)
 
     result = response.to_dict()
     assert result["errors"] == []
     content = result["result"][0]["content"]
     example = next(line for line in content.splitlines() if line.startswith('{"paging"'))
     assert json.loads(example) == {"paging": [{"target": target, "page": 1}]}
-    assert "ResourceManager" in content
+    assert "ManageResources" in content
     assert "command_key::" not in content
     assert "not added to file context" in content
 

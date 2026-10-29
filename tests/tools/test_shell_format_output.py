@@ -1,4 +1,4 @@
-"""Regression tests for Command.format_output rendering.
+"""Regression tests for Shell.format_output rendering.
 
 format_output() prints the "Tool Call:" header before execute() runs, so it
 must clearly communicate what execute() is about to do — including the case
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cecli.tools import command
+from cecli.tools import shell
 
 
 class DummyIO:
@@ -45,14 +45,14 @@ def make_tool_response(args):
         id="test-id",
         type="function",
         function=SimpleNamespace(
-            name="Command",
+            name="Shell",
             arguments=json.dumps(args),
         ),
     )
 
 
 def render(coder, args):
-    command.Tool.format_output(
+    shell.Tool.format_output(
         coder,
         mcp_server=SimpleNamespace(name="Local"),
         tool_response=make_tool_response(args),
@@ -72,7 +72,7 @@ def test_format_output_empty_args_shows_explicit_placeholder():
     """Regression test: an empty-args call (no command, no background_key/action)
     must not render a header with a silently blank body.
 
-    Reproduces a real session where the model called `Command` with `{}` —
+    Reproduces a real session where the model called `Shell` with `{}` —
     execute() correctly rejects this ("'command' must be provided."), but the
     displayed panel showed nothing after the header, which was mistaken for
     a display bug (auto-approved commands failing to render their body).
@@ -111,7 +111,7 @@ async def test_execute_rejects_empty_args_matching_format_output_case():
             self.agent_config = {}
 
     coder = ExecCoder()
-    response = await command.Tool.execute(coder)
+    response = await shell.Tool.execute(coder)
     result = response.to_dict()
     assert result["result"] == []
     assert "'command' must be provided." in result["errors"]

@@ -1,4 +1,4 @@
-"""Create tool - persists cecli extensions into the session's creator.yml files."""
+"""ManageExtensions tool - persists cecli extensions into the session's creator.yml files."""
 
 import json
 import shutil
@@ -34,15 +34,16 @@ _EXTENSION_MODULES = {
 
 
 class Tool(BaseTool):
-    NORM_NAME = "create"
+    NORM_NAME = "manageextensions"
     RESULT_TYPE = "list"
+    TRACK_INVOCATIONS = False
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "Create",
+            "name": "ManageExtensions",
             "description": (
-                "Persist a cecli extension or config change into creator.yml so it "
-                "survives sessions. One action per call: add/update entries of a given "
+                "Manage persisted cecli extensions and config in creator.yml so they "
+                "survive sessions. One action per call: add/update entries of a given "
                 "type into the global (~/.cecli/creator.yml) or local "
                 "(<root>/.cecli/creator.yml) file, remove entries, or list current "
                 "contents. Scoped to the creator sub-agent."
@@ -149,7 +150,7 @@ class Tool(BaseTool):
         """
         if not is_creator_coder(coder):
             raise ToolError(
-                "The Create tool is scoped to the creator sub-agent. Delegate the "
+                "The ManageExtensions tool is scoped to the creator sub-agent. Delegate the "
                 "request to the creator agent instead."
             )
 
@@ -224,7 +225,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for Create tool - preview the requested change."""
+        """Format output for ManageExtensions tool - preview the requested change."""
         color_start, color_end = color_markers(coder)
 
         tool_header(coder=coder, mcp_server=mcp_server, tool_response=tool_response)

@@ -59,13 +59,13 @@ INTERACTIVE_COMMAND_PATTERNS = [
 
 
 class Tool(BaseTool):
-    NORM_NAME = "command"
+    NORM_NAME = "shell"
     TRACK_INVOCATIONS = False
     ALLOWED_SESSION_COMMANDS = {}
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "Command",
+            "name": "Shell",
             "description": "Execute a shell command or interact with background processes.",
             "parameters": {
                 "type": "object",
@@ -177,7 +177,7 @@ class Tool(BaseTool):
         Commands run with timeout from agent_config['command_timeout'] (default: 30 seconds),
         """
         response = ToolResponse(
-            "command",
+            "shell",
             result_type=cls.RESULT_TYPE if hasattr(cls, "RESULT_TYPE") else "str",
         )
         # Handle interactions with an existing background command
@@ -295,7 +295,7 @@ class Tool(BaseTool):
             prompt,
             explicit_yes_required=True,
             allow_never=True,
-            group_response="Command Tool",
+            group_response="Shell Tool",
         )
 
         if confirmed:
@@ -597,7 +597,7 @@ class Tool(BaseTool):
                 f"Output saved in {len(file_list)} pages.]\n"
                 f"Command key: {fg_key}\n"
                 f"Pages: 1-{len(file_list)}\n"
-                "Use `ResourceManager` to view up to 3 pages at a time:\n"
+                "Use `ManageResources` to view up to 3 pages at a time:\n"
                 f'{{"paging": [{{"target": "{fg_key}", "page": 1}}]}}\n'
                 "Change page or add entries to read other pages (maximum 3 entries). "
                 "Do not use add, read_only, or standard CLI tools to view command output "
@@ -764,7 +764,7 @@ class Tool(BaseTool):
             f"Output so far: {info.get('total_chars', 0):,} chars",
         ]
         if pages:
-            lines.append(f"Paged output: pages 1-{pages}. Read with ResourceManager paging.")
+            lines.append(f"Paged output: pages 1-{pages}. Read with ManageResources paging.")
             lines.append(f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}')
 
         if output.strip():
@@ -787,7 +787,7 @@ class Tool(BaseTool):
             f"[Output paged to disk: {page_count} page(s).]\n"
             f"Command key: {command_key}\n"
             f"Pages: 1-{page_count}\n"
-            "Use `ResourceManager` to view up to 3 pages at a time:\n"
+            "Use `ManageResources` to view up to 3 pages at a time:\n"
             f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
             "Change the page number to read other pages (maximum 3 entries). "
             "Do not use add, read_only, or standard CLI tools to view command output "
@@ -796,7 +796,7 @@ class Tool(BaseTool):
 
     @classmethod
     def format_output(cls, coder, mcp_server, tool_response):
-        """Format output for Command tool."""
+        """Format output for Shell tool."""
         color_start, color_end = color_markers(coder)
 
         # Output header

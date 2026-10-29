@@ -63,7 +63,7 @@ class AgentCoder(Coder):
         self.tool_similarity_threshold = 0.95
         self.max_tool_vector_history = 20
         self.read_tools = {
-            "command",
+            "shell",
             "explorecode",
             "readfile",
             "grep",
@@ -71,7 +71,7 @@ class AgentCoder(Coder):
             "searchfacts",
         }
         self.write_tools = {
-            "command",
+            "shell",
             "editfile",
             "undochange",
             "replacefacts",
@@ -234,7 +234,7 @@ class AgentCoder(Coder):
             config,
             ["tools_excludelist", "tools_blacklist"],
             [
-                "create",
+                "manageextensions",
                 "gitbranch",
                 "gitdiff",
                 "gitlog",
@@ -783,7 +783,7 @@ class AgentCoder(Coder):
                 result += f" ({percentage:.1f}% of limit)"
                 if percentage > 80:
                     result += "\n\n⚠ **Context is getting full!**\n"
-                    result += "- Remove non-essential files, skills and tool servers via the `ResourceManager` tool.\n"
+                    result += "- Remove non-essential files, skills and tool servers via the `ManageResources` tool.\n"
                     result += "- Keep only essential files, skills, and MCP servers in context for best performance"
             result += "\n</context>"
             if not hasattr(self, "context_blocks_cache"):
@@ -1519,7 +1519,7 @@ class AgentCoder(Coder):
 
         Override parent's method to disable implicit file mention handling in agent mode.
         Files should only be added via explicit tool commands
-        (`ResourceManager`).
+        (`ManageResources`).
         """
         pass
 
@@ -1964,7 +1964,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
         Emits a roster of active commands (keeping command keys in context)
         plus any new incremental output. Output that has been paged to disk is
-        advertised by command key and read on demand through ``ResourceManager``
+        advertised by command key and read on demand through ``ManageResources``
         paging.
         """
         command_info = BackgroundCommandManager.list_background_commands()
@@ -1997,7 +1997,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             output += f"\nNew output ({command_key}):\n{cmd_output}\n"
 
         if paged_keys:
-            output += "\nPaged output is available via `ResourceManager` (up to 3 pages):\n"
+            output += "\nPaged output is available via `ManageResources` (up to 3 pages):\n"
             for command_key in paged_keys:
                 output += f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
 

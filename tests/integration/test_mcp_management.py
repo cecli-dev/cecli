@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
 
 class CoderMock:
@@ -58,14 +58,14 @@ async def test_integration_load_and_remove_server(coder):
     coder.coroutines.interruptible = coder.mock_interruptible
 
     # Load the server
-    load_result = await ResourceManagerTool.execute(coder, load_mcp=["integration-test-server"])
+    load_result = await ManageResourcesTool.execute(coder, load_mcp=["integration-test-server"])
     assert "Loaded server: integration-test-server" in str(load_result)
 
     # Mock the connected server for the remove tool
     coder.mcp_manager.connected_servers = {"integration-test-server": coder.mcp_manager.servers[0]}
 
     # Remove the server
-    remove_result = await ResourceManagerTool.execute(coder, remove_mcp=["integration-test-server"])
+    remove_result = await ManageResourcesTool.execute(coder, remove_mcp=["integration-test-server"])
     assert "Removed server: integration-test-server" in str(remove_result)
 
 
@@ -78,7 +78,7 @@ async def test_integration_wildcard_load_and_remove(coder):
     coder.coroutines.interruptible = coder.mock_interruptible
 
     # Load all enabled servers
-    load_result = await ResourceManagerTool.execute(coder, load_mcp=["*"])
+    load_result = await ManageResourcesTool.execute(coder, load_mcp=["*"])
     assert "Loaded server: server1" in str(load_result)
     assert "Loaded server: server2" in str(load_result)
     # Non-enabled servers are filtered out silently by wildcard expansion
@@ -90,6 +90,6 @@ async def test_integration_wildcard_load_and_remove(coder):
     }
 
     # Remove all connected servers
-    remove_result = await ResourceManagerTool.execute(coder, remove_mcp=["*"])
+    remove_result = await ManageResourcesTool.execute(coder, remove_mcp=["*"])
     assert "Removed server: server1" in str(remove_result)
     assert "Removed server: server2" in str(remove_result)
