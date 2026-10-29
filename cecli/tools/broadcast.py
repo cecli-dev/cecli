@@ -142,18 +142,22 @@ class Tool(BaseTool):
     def _collect_targets(cls, service, targets, originator_uuid):
         """Return ``(target_infos, errors)`` for the broadcast.
 
-        When ``targets`` is empty, returns every active sub-agent except the
-        originator. When ``targets`` is provided, each entry is resolved by
-        UUID, UUID prefix, or agent name (including ``primary`` for the primary
-        agent); unknown IDs produce an error.
+        When ``targets`` is empty, returns every active sub-agent visible to
+        the originator. When ``targets`` is provided, each entry is resolved by
+        UUID, UUID prefix, or agent name (including ``primary`` when visible);
+        unknown or invisible IDs produce an error.
         """
         from cecli.helpers.agents.service import SubAgentInfo, SubAgentStatus
+        from cecli.helpers.agents.tree import AgentTree
+
+        visible_uuids = AgentTree.get_visible_uuids(originator_uuid)
 
         if not targets:
             infos = [
                 info
                 for info in service.sub_agents.values()
                 if str(info.coder.uuid) != originator_uuid
+                and str(info.coder.uuid) in visible_uuids
                 and info.status not in (SubAgentStatus.ERROR,)
             ]
             return infos, []
@@ -161,7 +165,7 @@ class Tool(BaseTool):
         infos = []
         errors = []
         for target in targets:
-            info = cls._resolve_target(service, target)
+            info = cls._resolve_target(service, target, visible_uuids)
             if info is None:
                 errors.append(f"Unknown sub-agent target '{target}'.")
                 continue
@@ -172,31 +176,42 @@ class Tool(BaseTool):
         return infos, errors
 
     @staticmethod
-    def _resolve_target(service, target):
+    def _resolve_target(service, target, visible_uuids=None):
         """Resolve a target sub-agent by UUID, UUID prefix, or agent name.
 
         The primary agent is also resolvable by its name (``primary``) or UUID
-        so sub-agents can broadcast a message back to their parent.
+        so sub-agents can broadcast a message back to their parent. When
+        *visible_uuids* is provided, candidates outside that set are ignored.
         """
         target = str(target).strip()
         if not target:
             return None
 
+        def _visible(candidate):
+            if visible_uuids is None:
+                return True
+            return str(candidate.coder.uuid) in visible_uuids
+
         info = service.sub_agents.get(target)
-        if info is not None:
+        if info is not None and _visible(info):
             return info
 
         for uuid, candidate in service.sub_agents.items():
-            if uuid.startswith(target):
+            if uuid.startswith(target) and _visible(candidate):
                 return candidate
 
         for candidate in service.sub_agents.values():
-            if candidate.name == target:
+            if candidate.name == target and _visible(candidate):
                 return candidate
 
         primary_coder = service.coder
         primary_uuid = str(getattr(primary_coder, "uuid", ""))
-        if primary_coder is not None and (target == "primary" or target == primary_uuid):
+        primary_visible = visible_uuids is None or primary_uuid in visible_uuids
+        if (
+            primary_coder is not None
+            and primary_visible
+            and (target == "primary" or target == primary_uuid)
+        ):
             return primary_coder
 
         return None

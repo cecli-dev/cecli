@@ -91,6 +91,14 @@ class Tool(BaseTool):
             if "prompt" not in d or not d["prompt"]:
                 response.append_error(f"delegations[{i}] is missing a 'prompt'.")
                 return response
+            # Workflow agents run in isolated trees and are launched by the
+            # workflow runner, never delegated to directly.
+            if str(d["name"]).startswith("wf:"):
+                response.append_error(
+                    f"delegations[{i}] targets a workflow agent; "
+                    "run workflows with the /workflows command instead."
+                )
+                return response
 
         from cecli.helpers.agents.service import AgentService
 

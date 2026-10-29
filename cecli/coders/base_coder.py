@@ -1054,8 +1054,11 @@ class Coder(metaclass=UsageMeta):
             from cecli.helpers.agents.service import AgentService
 
             registry = AgentService.get_registry()
-            if registry:
-                capabilities["Subagents"] = sorted(registry.keys())
+            # Workflow agents belong to isolated trees, so they are not
+            # advertised as general-purpose subagent types.
+            subagents = sorted(name for name in registry if not name.startswith("wf:"))
+            if subagents:
+                capabilities["Subagents"] = subagents
         except Exception:
             pass
 

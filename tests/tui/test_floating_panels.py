@@ -203,7 +203,10 @@ async def _run_panel_checks():
 
 def test_floating_panels_layout_scroll_and_toggle():
     agent_service = SimpleNamespace(
-        sub_agents={"u1": SimpleNamespace(name="worker")},
+        sub_agents={
+            "u1": SimpleNamespace(name="worker"),
+            "u2": SimpleNamespace(name="wf:demo"),
+        },
         foreground_uuid="u1",
         foreground_coder=None,
     )
@@ -214,7 +217,7 @@ def test_floating_panels_layout_scroll_and_toggle():
         ),
         patch(
             "cecli.helpers.agents.service.AgentService.get_registry",
-            return_value={"tester": None, "worker": None},
+            return_value={"tester": None, "worker": None, "wf:demo": None},
         ),
     ):
         asyncio.run(_run_panel_checks())

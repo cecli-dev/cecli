@@ -335,8 +335,18 @@ class FloatingPanels(Vertical):
             from cecli.helpers.agents.service import AgentService
 
             service = AgentService.get_instance(primary)
-            registered = set(AgentService.get_registry().keys())
-            live = {info.name for info in service.sub_agents.values() if info is not None}
+            # Workflow agents run in isolated trees and are not spawnable from
+            # this panel.
+            registered = {
+                name
+                for name in AgentService.get_registry().keys()
+                if not str(name).startswith("wf:")
+            }
+            live = {
+                info.name
+                for info in service.sub_agents.values()
+                if info is not None and not str(info.name).startswith("wf:")
+            }
             active_name = None
             foreground_uuid = getattr(service, "foreground_uuid", None)
             if foreground_uuid:
