@@ -45,6 +45,8 @@ IS_WINDOWS = False
 if platform.system() == "Windows":
     IS_WINDOWS = True
 
+MODIFIER_ORDER = ("alt", "ctrl", "shift", "super")
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,116 +124,39 @@ class TUI(App):
         if other.get("use_terminal_background", True):
             patch_textual_strip_render_with_cache()
 
-        self.bind(
-            self._get_binding_keys("newline"),
-            "noop",
-            description="New Line",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("submit")), "noop", description="Submit", show=True
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cycle_forward")),
-            "noop",
-            description="Cycle Forward",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cycle_backward")),
-            "noop",
-            description="Cycle Backward",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("prev_agent")),
-            "switch_prev_agent",
-            description="Previous Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("next_agent")),
-            "switch_next_agent",
-            description="Next Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("main_agent")),
-            "switch_to_primary",
-            description="Main Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("panel_up")),
-            "scroll_panel_up",
-            description="Scroll Panels Up",
-            show=False,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("panel_down")),
-            "scroll_panel_down",
-            description="Scroll Panels Down",
-            show=False,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cancel")),
-            "interrupt",
-            description="Cancel",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("editor")),
-            "open_editor",
-            description="Editor",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("history")),
-            "history_search",
-            description="History Search",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("focus")),
-            "focus_input",
-            description="Focus Input",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("stop")),
-            "interrupt",
-            description="Interrupt",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("clear")),
-            "clear_output",
-            description="Clear",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("quit")), "quit", description="Quit", show=True
+        app_bindings = (
+            # Input-context keys stay non-priority so InputArea can keep
+            # handling selection, completion, and submit behavior.
+            ("newline", "noop", "New Line", False, True),
+            ("submit", "noop", "Submit", False, True),
+            ("cycle_forward", "noop", "Cycle Forward", False, True),
+            ("cycle_backward", "noop", "Cycle Backward", False, True),
+            ("cancel", "interrupt", "Cancel", False, True),
+            ("stop", "interrupt", "Interrupt", False, True),
+            # These actions must work regardless of which widget has focus.
+            ("prev_agent", "switch_prev_agent", "Previous Agent", True, True),
+            ("next_agent", "switch_next_agent", "Next Agent", True, True),
+            ("main_agent", "switch_to_primary", "Main Agent", True, True),
+            ("panel_up", "scroll_panel_up", "Scroll Panels Up", True, False),
+            ("panel_down", "scroll_panel_down", "Scroll Panels Down", True, False),
+            ("editor", "open_editor", "Editor", True, True),
+            ("history", "history_search", "History Search", True, True),
+            ("focus", "focus_input", "Focus Input", True, True),
+            ("clear", "clear_output", "Clear", True, True),
+            ("quit", "quit", "Quit", True, True),
+            ("voice", "start_voice", "Record Voice", True, True),
+            ("paste", "paste_clipboard", "Paste Clipboard", True, True),
+            ("panels", "toggle_floating_panels", "Toggle Panels", True, False),
         )
 
-        self.bind(
-            self._encode_keys(self.get_keys_for("voice")),
-            "start_voice",
-            description="Record Voice",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("paste")),
-            "paste_clipboard",
-            description="Paste Clipboard",
-            show=True,
-        )
-
-        self.bind(
-            self._encode_keys(self.get_keys_for("panels")),
-            "toggle_floating_panels",
-            description="Toggle Panels",
-            show=False,
-        )
+        for binding_type, action, description, priority, show in app_bindings:
+            self._bind_key(
+                binding_type,
+                action,
+                description=description,
+                priority=priority,
+                show=show,
+            )
 
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
@@ -1774,10 +1699,28 @@ class TUI(App):
 
         return keys if encoded == keys else f"{keys},{encoded}"
 
+    def _bind_key(self, type, action, description="", priority=True, show=True):
+        """Register a configured key binding on the app.
+
+        Args:
+            type: The key binding name in ``tui_config``.
+            action: The Textual action to invoke.
+            description: Short description for the binding.
+            priority: Check the binding before the focused widget.
+            show: Whether the binding is shown in the footer.
+        """
+        self._bindings.bind(
+            self._get_binding_keys(type),
+            action,
+            description=description,
+            show=show,
+            priority=priority,
+        )
+
     def _encode_keys(self, key):
         key = key.replace("shift+enter", "ctrl+j")
 
-        return key
+        return self._canonicalize_key_list(key)
 
     def _decode_keys(self, key):
         key = key.replace("ctrl+j", "shift+enter")
@@ -1786,10 +1729,10 @@ class TUI(App):
 
     def is_key_for(self, type, key):
         allowed_keys = self.tui_config["key_bindings"][type].split(",")
-        normalized_key = self._decode_keys(key)
+        normalized_key = self._encode_keys(key)
 
         for allowed_key in allowed_keys:
-            if normalized_key == self._decode_keys(allowed_key):
+            if normalized_key == self._encode_keys(allowed_key):
                 return True
 
         return False
@@ -1797,6 +1740,23 @@ class TUI(App):
     def get_keys_for(self, type):
         allowed_keys = self.tui_config["key_bindings"][type]
         return self._decode_keys(allowed_keys)
+
+    def _canonicalize_key_list(self, keys):
+        """Return comma-separated keys in Textual's canonical modifier order."""
+        return ",".join(self._canonicalize_key(key.strip()) for key in keys.split(","))
+
+    def _canonicalize_key(self, key):
+        """Return a key with modifiers ordered as Textual emits them."""
+        if "+" not in key:
+            return key
+
+        *modifiers, name = key.split("+")
+        if not modifiers or any(modifier not in MODIFIER_ORDER for modifier in modifiers):
+            return key
+
+        modifiers = sorted(set(modifiers), key=MODIFIER_ORDER.index)
+
+        return "+".join([*modifiers, name])
 
     def _do_quit(self):
         """Perform the actual quit after UI updates."""
