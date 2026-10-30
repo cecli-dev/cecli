@@ -2300,13 +2300,13 @@ class Coder(metaclass=UsageMeta):
         is_min_size = all_tokens >= self.context_compaction_max_tokens
 
         # Condition 2: Percentage check (is chat history a significant part of the context?)
-        is_worth_by_percentage = all_tokens > 0 and (compactable_tokens / all_tokens) >= 0.20
+        is_worth_by_percentage = all_tokens > 0 and (compactable_tokens / all_tokens) >= 0.15
 
         # Condition 3: Absolute savings check (would compacting save enough tokens to fit?)
         tokens_over_limit = all_tokens - (self.context_compaction_max_tokens or all_tokens)
         potential_savings = compactable_tokens * 0.90
         is_worth_by_absolute_savings = (
-            tokens_over_limit > 0 and potential_savings >= tokens_over_limit
+            tokens_over_limit > 0 and potential_savings >= (tokens_over_limit * 0.50)
         )
 
         if not force:
