@@ -3532,9 +3532,13 @@ class Coder(metaclass=UsageMeta):
         if tool_groups:
             self._print_tool_call_info(server_tool_calls=tool_groups)
 
-        # 4. Ask for user confirmation
-        if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
-            return False
+        # 4. Local read-only tool calls are auto-approved; write tools and
+        # external server tools still ask before running.
+        if self._tool_calls_need_confirmation(tool_groups):
+            if not await self.io.confirm_ask(
+                "Approve tool calls?", group_response="Approve Tool Calls"
+            ):
+                return False
 
         # 5. Execute tools
         self.interrupt_event.clear()
@@ -3567,6 +3571,31 @@ class Coder(metaclass=UsageMeta):
                 )
 
         return bool(tool_responses)
+
+    def _tool_calls_need_confirmation(self, tool_groups):
+        """Return True when a tool-call batch still requires explicit approval.
+
+        Local tools outside ``write_tools`` only read state, so they run without
+        prompting. Local write tools and external MCP server tools keep the
+        existing approval prompt.
+        """
+        write_tools = getattr(self, "write_tools", None)
+
+        for server, tool_calls in tool_groups.items():
+            if not isinstance(server, LocalServer):
+                return True
+
+            if not write_tools:
+                continue
+
+            for tool_call in tool_calls:
+                tool_name = responses.unprefix_tool_name(nested.getter(tool_call, "function.name"))[
+                    1
+                ]
+                if tool_name.lower() in write_tools:
+                    return True
+
+        return False
 
     def _print_tool_call_info(self, server_tool_calls):
         """Print information about an MCP tool call."""
