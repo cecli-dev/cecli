@@ -135,9 +135,60 @@ class OutputContainer(SelectableRichLog):
                 if wrapped.strip():
                     self.output(escape(wrapped), render_markdown=True)
 
-    async def end_response(self):
+    async def end_response(self, coder_uuid=None):
         """End the current LLM response."""
         await self._stop_stream()
+        # Append the average generation speed for this response segment
+        self._append_generation_speed(coder_uuid)
+
+    def _append_generation_speed(self, coder_uuid=None):
+        """Append a dim-styled line showing the average generation speed (t/s)
+
+        for the just-completed LLM response segment. Reads the underlying
+        coder's token_profiler via coder_uuid (falling back to the primary
+        coder). The styling matches system messages (dim + left indent), the
+        same font color used by the Models/Settings/Environment block.
+        """
+        if not hasattr(self, "app") or self.app is None:
+            return
+        try:
+            coder = self._resolve_coder(coder_uuid)
+            if coder is None or not hasattr(coder, "token_profiler"):
+                return
+            speed = coder.token_profiler.get_generation_speed()
+            if speed is None or speed <= 0:
+                return
+            text = f"• {speed:.0f} t/s"
+            # Same styling as system messages: dim + left padding of 2
+            self.output(Padding(f"[dim]{escape(text)}[/dim]", (0, 0, 0, 2)))
+        except Exception:
+            pass
+
+    def _resolve_coder(self, coder_uuid):
+        """Resolve a coder object from a coder_uuid.
+
+        Falls back to the primary worker coder when coder_uuid is None or the
+        uuid belongs to the primary agent. Looks up sub-agents via
+        AgentService when available.
+        """
+        coder = getattr(getattr(self, "app", None), "worker", None)
+        coder = getattr(coder, "coder", None)
+        if coder is None or coder_uuid is None:
+            return coder
+        primary_uuid = str(getattr(coder, "uuid", ""))
+        if str(coder_uuid) == primary_uuid:
+            return coder
+        try:
+            from cecli.helpers.agents.service import AgentService
+
+            service = AgentService.get_instance(coder)
+            for info in service.sub_agents.values():
+                sub = info.coder if info is not None else None
+                if sub is not None and str(sub.uuid) == str(coder_uuid):
+                    return sub
+        except Exception:
+            pass
+        return coder
 
     async def _stop_stream(self):
         """Stop the current markdown stream."""
