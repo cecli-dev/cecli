@@ -49,7 +49,7 @@ auto-save: true
 auto-load: true
 ```
 
-When `--auto-save` is enabled, cecli will automatically save your session as 'auto-save' when you exit. When `--auto-load` is enabled, cecli will automatically load the 'auto-save' session on startup if it exists.
+`--auto-save` is enabled by default, so cecli will automatically save your session as 'auto-save' when you exit; use `--no-auto-save` to disable it. When `--auto-load` is enabled, cecli will automatically load the 'auto-save' session on startup if it exists.
 
 ### `/sessions load <name>`
 Load a previously saved session by name or file path.
