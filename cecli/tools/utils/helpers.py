@@ -92,12 +92,12 @@ def validate_file_for_edit(coder, file_path):
     if abs_path not in coder.abs_fnames:
         if abs_path in coder.abs_read_only_fnames:
             raise ToolError(
-                f"File '{file_path}' is read-only. Make editable with `ResourceManager` first."
+                f"File '{file_path}' is read-only. Make editable with `ManageResources` first."
             )
         # else:
         #    # File exists but is not in context at all
         #    raise ToolError(
-        #        f"File '{file_path}' not in context. Make editable with `ResourceManager` first."
+        #        f"File '{file_path}' not in context. Make editable with `ManageResources` first."
         #    )
 
     # Reread content immediately before potential modification

@@ -16,6 +16,7 @@ from uuid import uuid4
 
 import cecli.models as models
 from cecli.helpers import nested
+from cecli.helpers.agents.tree import AgentTree
 from cecli.helpers.coroutines import fire_and_forget
 
 logger = logging.getLogger(__name__)
@@ -351,6 +352,11 @@ class AgentService:
         # Register the primary coder in the global uuid map
         if hasattr(coder, "uuid"):
             self._uuid_coder_map[str(coder.uuid)] = weakref.ref(coder)
+            AgentTree.register(
+                str(coder.uuid),
+                parent_uuid=getattr(coder, "parent_uuid", None) or None,
+                name="primary",
+            )
         # uuid -> SubAgentInfo
         self.sub_agents: Dict[str, SubAgentInfo] = {}
         # Ordered list of sub-agent UUIDs for LRU reap
@@ -581,6 +587,7 @@ class AgentService:
         # not the parent's service instance. The parent's instance is cleaned
         # up separately in cleanup_all_for_parent().
         self._uuid_coder_map.pop(info.coder.uuid, None)
+        AgentTree.unregister(info.coder.uuid)
         self.destroy_instance(info.coder.uuid)
 
     def _check_max_sub_agents(self) -> None:
@@ -786,8 +793,13 @@ class AgentService:
         with self._get_lock(self._spawn_locks, parent_coder.uuid):
             self._check_max_sub_agents()
 
-            # Register in global coder lookup
+            # Register in global coder lookup and the visibility tree
             self._uuid_coder_map[new_uuid] = weakref.ref(new_coder)
+            AgentTree.register(
+                str(new_coder.uuid),
+                parent_uuid=str(parent_coder.uuid),
+                name=name,
+            )
 
             info = SubAgentInfo(
                 name=name,
@@ -882,6 +894,7 @@ class AgentService:
         kwargs["summarize_from_coder"] = False
 
         new_coder = await Coder.create(**kwargs)
+        AgentTree.replace(old_coder.uuid, new_coder.uuid)
 
         new_coder.prompt_queue = list(old_coder.prompt_queue)
         new_coder._queue_counter = old_coder._queue_counter
@@ -966,7 +979,7 @@ class AgentService:
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
             except SwitchCoderSignal as switch:
-                # A command run mid-turn (e.g. /load-mcp) asks for this
+                # A command run mid-turn (e.g. /mcp load) asks for this
                 # sub-agent's coder to be rebuilt. Absorb the signal here:
                 # letting it escape would recreate the *primary* coder from a
                 # sub-agent. The switch also drains any prompts staged behind
@@ -1389,6 +1402,7 @@ class AgentService:
         """Clean up all sub-agents when the parent session ends."""
         for uuid in list(self.sub_agents.keys()):
             self._cleanup_sub_agent(uuid)
+        AgentTree.unregister(self.coder.uuid)
         # Clean up lock pools to prevent memory leaks
         self._spawn_locks.pop(self.coder.uuid, None)
         self._conversation_locks.pop(self.coder.uuid, None)

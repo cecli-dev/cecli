@@ -1054,8 +1054,11 @@ class Coder(metaclass=UsageMeta):
             from cecli.helpers.agents.service import AgentService
 
             registry = AgentService.get_registry()
-            if registry:
-                capabilities["Subagents"] = sorted(registry.keys())
+            # Workflow agents belong to isolated trees, so they are not
+            # advertised as general-purpose subagent types.
+            subagents = sorted(name for name in registry if not name.startswith("wf:"))
+            if subagents:
+                capabilities["Subagents"] = subagents
         except Exception:
             pass
 
@@ -2048,7 +2051,7 @@ class Coder(metaclass=UsageMeta):
             remaining = command_queue.get_queue_length(self)
             self.io.tool_warning(
                 f"Queue processing interrupted. {remaining} prompt(s) remain"
-                " queued; use /run-queue to resume."
+                " queued; use /queue run to resume."
             )
 
         from cecli.helpers.agents.service import AgentService
@@ -2297,13 +2300,13 @@ class Coder(metaclass=UsageMeta):
         is_min_size = all_tokens >= self.context_compaction_max_tokens
 
         # Condition 2: Percentage check (is chat history a significant part of the context?)
-        is_worth_by_percentage = all_tokens > 0 and (compactable_tokens / all_tokens) >= 0.20
+        is_worth_by_percentage = all_tokens > 0 and (compactable_tokens / all_tokens) >= 0.15
 
         # Condition 3: Absolute savings check (would compacting save enough tokens to fit?)
         tokens_over_limit = all_tokens - (self.context_compaction_max_tokens or all_tokens)
         potential_savings = compactable_tokens * 0.90
-        is_worth_by_absolute_savings = (
-            tokens_over_limit > 0 and potential_savings >= tokens_over_limit
+        is_worth_by_absolute_savings = tokens_over_limit > 0 and potential_savings >= (
+            tokens_over_limit * 0.50
         )
 
         if not force:
@@ -2787,10 +2790,6 @@ class Coder(metaclass=UsageMeta):
                 self.enable_context_compaction
                 and input_tokens >= self.context_compaction_max_tokens * 0.95
             ):
-                self.io.tool_output(
-                    f"Estimated chat context of {input_tokens:,} tokens exceeds the"
-                    f" {max_input_tokens:,} token limit. Attempting to compact..."
-                )
                 await self.compact_context_if_needed()
 
                 # After compaction, re-format messages and re-check tokens
@@ -2804,13 +2803,12 @@ class Coder(metaclass=UsageMeta):
                 if getattr(self, "_last_compaction_warning_time", 0) + 300 < time.time():
                     self._last_compaction_warning_time = time.time()
                     self.io.tool_error(
-                        f"Your estimated chat context of {input_tokens:,} tokens still exceeds the"
-                        f" {max_input_tokens:,} token limit for {self.get_active_model().name}!"
+                        f"Your estimated chat context of {input_tokens:,} tokens exceeds the"
+                        f" {max_input_tokens:,} token limit for {self.get_active_model().name}"
                     )
                     self.io.tool_output("To reduce the chat context:")
                     self.io.tool_output("- Use /drop to remove unneeded files from the chat")
                     self.io.tool_output("- Use /clear to clear the chat history")
-                    self.io.tool_output("- Break your code into smaller files")
                     self.io.tool_output(
                         "It's probably safe to try and send the request, most providers won't charge if"
                         " the context limit is exceeded."
@@ -3534,9 +3532,13 @@ class Coder(metaclass=UsageMeta):
         if tool_groups:
             self._print_tool_call_info(server_tool_calls=tool_groups)
 
-        # 4. Ask for user confirmation
-        if not await self.io.confirm_ask("Run tools?", group_response="Run MCP Tools"):
-            return False
+        # 4. Local read-only tool calls are auto-approved; write tools and
+        # external server tools still ask before running.
+        if self._tool_calls_need_confirmation(tool_groups):
+            if not await self.io.confirm_ask(
+                "Approve tool calls?", group_response="Approve Tool Calls"
+            ):
+                return False
 
         # 5. Execute tools
         self.interrupt_event.clear()
@@ -3569,6 +3571,31 @@ class Coder(metaclass=UsageMeta):
                 )
 
         return bool(tool_responses)
+
+    def _tool_calls_need_confirmation(self, tool_groups):
+        """Return True when a tool-call batch still requires explicit approval.
+
+        Local tools outside ``write_tools`` only read state, so they run without
+        prompting. Local write tools and external MCP server tools keep the
+        existing approval prompt.
+        """
+        write_tools = getattr(self, "write_tools", None)
+
+        for server, tool_calls in tool_groups.items():
+            if not isinstance(server, LocalServer):
+                return True
+
+            if not write_tools:
+                continue
+
+            for tool_call in tool_calls:
+                tool_name = responses.unprefix_tool_name(nested.getter(tool_call, "function.name"))[
+                    1
+                ]
+                if tool_name.lower() in write_tools:
+                    return True
+
+        return False
 
     def _print_tool_call_info(self, server_tool_calls):
         """Print information about an MCP tool call."""

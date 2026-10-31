@@ -40,11 +40,12 @@ _TOOL_KINDS = {
     "explorecode": "search",
     "searchfacts": "search",
     "editfile": "edit",
+    "manageextensions": "edit",
     "undochange": "edit",
     "replacefacts": "edit",
     # Not "execute": Zed treats execute calls as live terminals and hides its
     # progress spinner while one runs, but cecli runs commands itself
-    "command": "other",
+    "shell": "other",
 }
 
 # Argument keys worth showing in a tool call's title, in priority order

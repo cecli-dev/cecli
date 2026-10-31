@@ -307,7 +307,7 @@ class SessionManager:
             return session_file
 
         self.io.tool_error(f"Session not found: {session_identifier}")
-        self.io.tool_output("Use /list-sessions to see available sessions.")
+        self.io.tool_output("Use /sessions list to see available sessions.")
 
         return None
 

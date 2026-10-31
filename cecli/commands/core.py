@@ -16,7 +16,14 @@ class Commands:
 
     # Commands that receive their full argument text for completion (nested
     # hosts and subcommand commands whose names take an argument).
-    FULL_ARGS_COMPLETION_COMMANDS = ("/queue", "/insert-queue", "/workflows")
+    FULL_ARGS_COMPLETION_COMMANDS = (
+        "/queue",
+        "/workflows",
+        "/mcp",
+        "/skills",
+        "/sessions",
+        "/hooks",
+    )
 
     def _get_coder(self):
         """Return coder via weak reference, or None if collected."""
@@ -94,7 +101,7 @@ class Commands:
         self.last_command_show_notification = True
 
         # Commands that should NOT trigger auto-processing of the queue
-        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue", "run-queue"}
+        self._MANAGEMENT_COMMANDS = {"queue"}
 
     def _load_custom_commands(self, custom_commands):
         """
@@ -169,13 +176,47 @@ class Commands:
     def get_completions(self, cmd, args="", coder=None):
         assert cmd.startswith("/")
         cmd = cmd[1:]
+
+        alias = CommandRegistry.resolve_alias(cmd)
+        if alias:
+            cmd, subcommand = alias
+            args = f"{subcommand} {args}" if args else f"{subcommand} "
+
         command_class = CommandRegistry.get_command(cmd)
         if command_class:
             return command_class.get_completions(self.io, coder or self.coder, args)
         return []
 
-    def get_commands(self):
-        registry_commands = CommandRegistry.list_commands()
+    def has_subcommands(self, cmd):
+        """Return True when *cmd* declares subcommands."""
+        cmd = cmd[1:] if cmd.startswith("/") else cmd
+        command_class = CommandRegistry.get_command(cmd)
+        return bool(getattr(command_class, "SUBCOMMANDS", ()))
+
+    def uses_full_args_completion(self, cmd):
+        """Return True when *cmd* needs its whole argument string for completion."""
+        if cmd in self.FULL_ARGS_COMPLETION_COMMANDS:
+            return True
+
+        name = cmd[1:] if cmd.startswith("/") else cmd
+        return CommandRegistry.resolve_alias(name) is not None
+
+    def at_subcommand_boundary(self, text):
+        """Return True when *text* ends after a command or first subcommand token."""
+        if not text.endswith(" "):
+            return False
+
+        words = text.split()
+        if not words or not words[0].startswith("/"):
+            return False
+
+        if not self.has_subcommands(words[0]):
+            return False
+
+        return len(words) <= 2
+
+    def get_commands(self, include_aliases=True):
+        registry_commands = CommandRegistry.list_commands(include_aliases=include_aliases)
         commands = [f"/{cmd}" for cmd in registry_commands]
         return sorted(commands)
 
@@ -189,8 +230,11 @@ class Commands:
             active_coder.io.tool_output(f"Error: Command {cmd_name} not found.")
             return
 
+        alias = CommandRegistry.resolve_alias(cmd_name)
+        management_name = alias[0] if alias else cmd_name
+
         self.last_command_show_notification = command_class.show_completion_notification
-        if cmd_name not in self._MANAGEMENT_COMMANDS:
+        if management_name not in self._MANAGEMENT_COMMANDS:
             self.cmd_running_event.clear()
 
         try:
@@ -223,13 +267,13 @@ class Commands:
             if self.coder.tui and self.coder.tui():
                 self.coder.tui().refresh()
 
-    def matching_commands(self, inp):
+    def matching_commands(self, inp, include_aliases=False):
         words = inp.strip().split()
         if not words:
             return
         first_word = words[0]
         rest_inp = inp[len(words[0]) :].strip()
-        all_commands = self.get_commands()
+        all_commands = self.get_commands(include_aliases=include_aliases)
         matching_commands = [cmd for cmd in all_commands if cmd.startswith(first_word)]
         return matching_commands, first_word, rest_inp
 
@@ -266,7 +310,7 @@ class Commands:
     def get_help_md(self):
         """Show help about all commands in markdown"""
         res = "\n|Command|Description|\n|:------|:----------|\n"
-        commands = sorted(self.get_commands())
+        commands = sorted(self.get_commands(include_aliases=False))
         for cmd in commands:
             cmd_name = cmd[1:]
             command_class = CommandRegistry.get_command(cmd_name)

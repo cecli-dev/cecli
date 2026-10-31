@@ -83,8 +83,9 @@ class TestInputOutput:
     def test_autocompleter_get_command_completions(self):
         # Step 3: Mock the commands object
         commands = MagicMock()
+        commands.has_subcommands.return_value = False
         commands.get_commands.return_value = ["/help", "/add", "/drop"]
-        commands.matching_commands.side_effect = lambda inp: (
+        commands.matching_commands.side_effect = lambda inp, include_aliases=True: (
             [cmd for cmd in commands.get_commands() if cmd.startswith(inp.strip().split()[0])],
             inp.strip().split()[0],
             " ".join(inp.strip().split()[1:]),

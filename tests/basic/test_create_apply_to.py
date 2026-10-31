@@ -1,4 +1,4 @@
-"""Tests for per-agent targeting (``Create --apply_to``)."""
+"""Tests for per-agent targeting (``ManageExtensions --apply_to``)."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -10,7 +10,7 @@ from cecli.helpers.agents import overrides as agent_overrides
 from cecli.helpers.agents.config import SubAgentConfig
 from cecli.helpers.agents.service import AgentService
 from cecli.helpers.creator import utils as creator_utils
-from cecli.tools.create import Tool
+from cecli.tools.manage_extensions import Tool
 from cecli.tools.utils.helpers import ToolError
 
 

@@ -1213,7 +1213,7 @@ class TestStartGenerateTaskSwitch:
         info.detached = True
         service.switch_sub_agent_coder = AsyncMock()
 
-        task = service.start_generate_task(info, "/load-mcp github")
+        task = service.start_generate_task(info, "/mcp load github")
         await task
 
         service.switch_sub_agent_coder.assert_awaited_once()

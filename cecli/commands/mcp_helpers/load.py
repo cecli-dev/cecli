@@ -1,0 +1,120 @@
+"""Implementation of ``/mcp load``."""
+
+from cecli.commands.utils.helpers import (
+    format_command_result,
+    iter_all_coders,
+    update_server_registration,
+)
+
+# Legacy command name, kept so the returned status string does not change.
+RESULT_NAME = "load-mcp"
+
+
+async def cmd_load(io, coder, args):
+    """Load MCP server(s) by name, or use '*' to load all enabled servers."""
+    if not args.strip():
+        return format_command_result(io, RESULT_NAME, "Usage: /mcp load <mcp-name>")
+
+    if not coder.mcp_manager or not coder.mcp_manager.servers:
+        return format_command_result(io, RESULT_NAME, "No MCP servers found, nothing to load.")
+
+    server_names = args.strip().split()
+
+    results = []
+
+    servers_to_load = []
+
+    # Handle '*' wildcard to load all servers enabled by default
+    if server_names == ["*"]:
+        for server in coder.mcp_manager.servers:
+            if server in coder.mcp_manager.connected_servers:
+                results.append(f"Server already loaded: {server.name}")
+                continue
+
+            auto_connect = server.config.get("enabled", True)
+            if not auto_connect:
+                results.append(f"Skipping server (not enabled by default): {server.name}")
+                continue
+
+            servers_to_load.append(server)
+    else:
+        for server_name in server_names:
+            server = coder.mcp_manager.get_server(server_name)
+            if server is None:
+                io.tool_error(f"MCP server {server_name} does not exist.")
+                results.append(f"MCP server {server_name} does not exist.")
+            else:
+                servers_to_load.append(server)
+
+    # Early exit if nothing valid to process
+    if not servers_to_load and results:
+        return format_command_result(io, RESULT_NAME, "", "\n".join(results))
+
+    # Before connecting any new server, convert coders with empty included sets
+    # to explicit include lists of all currently connected MCP servers.
+    # This moves them from "implicitly include all" to explicit state-machine
+    # management, preventing the new server from being implicitly available
+    # to all coders.
+    connected_names = {s.name.lower() for s in coder.mcp_manager.connected_servers}
+    if connected_names:
+        for c in iter_all_coders(coder):
+            if not c.registered_servers["included"]:
+                included = set(connected_names) - c.registered_servers["excluded"]
+                if c.edit_format in ("agent", "subagent"):
+                    included.add("local")  # "local" is always available
+                c.registered_servers["included"] = included
+
+    # Process connections with interrupt support
+    for server in servers_to_load:
+        server_name = server.name
+        coder.interrupt_event.clear()
+
+        did_connect, interrupted = await coder.coroutines.interruptible(
+            coder.mcp_manager.connect_server(server_name),
+            coder.interrupt_event,
+        )
+
+        if interrupted:
+            io.tool_warning(f"MCP connection interrupted: {server_name}")
+            results.append(f"Interrupted: {server_name}")
+            continue
+
+        if did_connect:
+            # Force-include on the primary (active) coder
+            update_server_registration(coder, server_name, "include", force=True)
+
+            # Safe-exclude on all other coders (respects existing inclusions)
+            for other_coder in iter_all_coders(coder):
+                if other_coder is coder:
+                    continue
+                update_server_registration(other_coder, server_name, "exclude", force=False)
+            results.append(f"Loaded server: {server_name}")
+        else:
+            results.append(f"Unable to load server: {server_name}")
+
+    io.tool_output("\n".join(results))
+
+    from cecli.commands import SwitchCoderSignal
+
+    raise SwitchCoderSignal(
+        edit_format=coder.edit_format,
+        summarize_from_coder=False,
+        from_coder=coder,
+        show_announcements=True,
+    )
+
+
+def get_completions(io, coder):
+    """Completion options for load: servers that are not connected yet."""
+    if not coder.mcp_manager or not coder.mcp_manager.servers:
+        return []
+
+    try:
+        server_names = [
+            server.name
+            for server in coder.mcp_manager
+            if server not in coder.mcp_manager.connected_servers and server.name != "unnamed-server"
+        ]
+        return server_names
+    except Exception:
+        return []

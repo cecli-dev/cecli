@@ -294,7 +294,7 @@ def test_tail_background_command_reports_output_and_pages(monkeypatch):
     """The tail action reports status, page roster, and new output."""
     import asyncio
 
-    from cecli.tools.command import Tool as CommandTool
+    from cecli.tools.shell import Tool as ShellTool
 
     monkeypatch.setattr(
         BackgroundCommandManager,
@@ -312,7 +312,7 @@ def test_tail_background_command_reports_output_and_pages(monkeypatch):
         BackgroundCommandManager, "get_new_command_output", lambda key: "new line\n"
     )
 
-    response = asyncio.run(CommandTool._tail_background_command(object(), "bg_1_1234"))
+    response = asyncio.run(ShellTool._tail_background_command(object(), "bg_1_1234"))
     content = response.to_dict()["result"][0]["content"]
 
     assert "bg_1_1234" in content
@@ -325,11 +325,11 @@ def test_tail_background_command_reports_output_and_pages(monkeypatch):
 def test_tail_background_command_missing_key(monkeypatch):
     import asyncio
 
-    from cecli.tools.command import Tool as CommandTool
+    from cecli.tools.shell import Tool as ShellTool
 
     monkeypatch.setattr(BackgroundCommandManager, "list_background_commands", lambda: {})
 
-    response = asyncio.run(CommandTool._tail_background_command(object(), "bg_9_9999"))
+    response = asyncio.run(ShellTool._tail_background_command(object(), "bg_9_9999"))
 
     assert response.to_dict()["errors"]
 

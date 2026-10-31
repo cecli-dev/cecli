@@ -224,8 +224,10 @@ class AutoCompleter(Completer):
             # Compare with command names without leading '/'
             candidates = [cmd for cmd in self.command_names if cmd[1:].startswith(partial)]
             for candidate in sorted(candidates):
-                # Add back the leading '/' for the completion
-                yield Completion(candidate, start_position=-len(words[-1]))
+                # Advance to the subcommand section, but never emit two
+                # spaces in a row when the user already typed one.
+                suffix = " " if self.commands.has_subcommands(candidate) else ""
+                yield Completion(candidate.rstrip() + suffix, start_position=-len(words[-1]))
             return
 
         # Handle command followed by space: trigger auto-completion with empty partial
@@ -249,7 +251,9 @@ class AutoCompleter(Completer):
             cmd_text = text
 
         # Pass the text (without trailing space if present) to matching_commands
-        matches, matched_cmd, _ = self.commands.matching_commands(cmd_text.rstrip())
+        matches, matched_cmd, _ = self.commands.matching_commands(
+            cmd_text.rstrip(), include_aliases=True
+        )
         if not matches:
             return
 
@@ -265,7 +269,7 @@ class AutoCompleter(Completer):
             yield from raw_completer(document, complete_event)
             return
 
-        if cmd in self.commands.FULL_ARGS_COMPLETION_COMMANDS:
+        if self.commands.uses_full_args_completion(cmd):
             nested_text = text[len(words[0]) :].lstrip()
             candidates = self.commands.get_completions(cmd, nested_text)
             # The substring filter and start_position below operate on the last
@@ -915,7 +919,18 @@ class InputOutput:
 
         @kb.add("c-space")
         def _(event):
-            "Ignore Ctrl when pressing space bar"
+            """Ignore Ctrl when pressing space bar"""
+            event.current_buffer.insert_text(" ")
+
+        @kb.add(" ")
+        def _(event):
+            """Insert one space, but not a second at a subcommand boundary."""
+            text = event.current_buffer.text
+            check_boundary = getattr(commands, "at_subcommand_boundary", None)
+            if text.endswith(" ") and check_boundary and check_boundary(text):
+                event.current_buffer.start_completion(select_first=False)
+                return
+
             event.current_buffer.insert_text(" ")
 
         @kb.add("c-up")

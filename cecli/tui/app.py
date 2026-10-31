@@ -45,6 +45,8 @@ IS_WINDOWS = False
 if platform.system() == "Windows":
     IS_WINDOWS = True
 
+MODIFIER_ORDER = ("alt", "ctrl", "shift", "super")
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,116 +124,39 @@ class TUI(App):
         if other.get("use_terminal_background", True):
             patch_textual_strip_render_with_cache()
 
-        self.bind(
-            self._get_binding_keys("newline"),
-            "noop",
-            description="New Line",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("submit")), "noop", description="Submit", show=True
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cycle_forward")),
-            "noop",
-            description="Cycle Forward",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cycle_backward")),
-            "noop",
-            description="Cycle Backward",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("prev_agent")),
-            "switch_prev_agent",
-            description="Previous Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("next_agent")),
-            "switch_next_agent",
-            description="Next Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("main_agent")),
-            "switch_to_primary",
-            description="Main Agent",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("panel_up")),
-            "scroll_panel_up",
-            description="Scroll Panels Up",
-            show=False,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("panel_down")),
-            "scroll_panel_down",
-            description="Scroll Panels Down",
-            show=False,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("cancel")),
-            "interrupt",
-            description="Cancel",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("editor")),
-            "open_editor",
-            description="Editor",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("history")),
-            "history_search",
-            description="History Search",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("focus")),
-            "focus_input",
-            description="Focus Input",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("stop")),
-            "interrupt",
-            description="Interrupt",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("clear")),
-            "clear_output",
-            description="Clear",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("quit")), "quit", description="Quit", show=True
+        app_bindings = (
+            # Input-context keys stay non-priority so InputArea can keep
+            # handling selection, completion, and submit behavior.
+            ("newline", "noop", "New Line", False, True),
+            ("submit", "noop", "Submit", False, True),
+            ("cycle_forward", "noop", "Cycle Forward", False, True),
+            ("cycle_backward", "noop", "Cycle Backward", False, True),
+            ("cancel", "interrupt", "Cancel", False, True),
+            ("stop", "interrupt", "Interrupt", False, True),
+            # These actions must work regardless of which widget has focus.
+            ("prev_agent", "switch_prev_agent", "Previous Agent", True, True),
+            ("next_agent", "switch_next_agent", "Next Agent", True, True),
+            ("main_agent", "switch_to_primary", "Main Agent", True, True),
+            ("panel_up", "scroll_panel_up", "Scroll Panels Up", True, False),
+            ("panel_down", "scroll_panel_down", "Scroll Panels Down", True, False),
+            ("editor", "open_editor", "Editor", True, True),
+            ("history", "history_search", "History Search", True, True),
+            ("focus", "focus_input", "Focus Input", True, True),
+            ("clear", "clear_output", "Clear", True, True),
+            ("quit", "quit", "Quit", True, True),
+            ("voice", "start_voice", "Record Voice", True, True),
+            ("paste", "paste_clipboard", "Paste Clipboard", True, True),
+            ("panels", "toggle_floating_panels", "Toggle Panels", True, False),
         )
 
-        self.bind(
-            self._encode_keys(self.get_keys_for("voice")),
-            "start_voice",
-            description="Record Voice",
-            show=True,
-        )
-        self.bind(
-            self._encode_keys(self.get_keys_for("paste")),
-            "paste_clipboard",
-            description="Paste Clipboard",
-            show=True,
-        )
-
-        self.bind(
-            self._encode_keys(self.get_keys_for("panels")),
-            "toggle_floating_panels",
-            description="Toggle Panels",
-            show=False,
-        )
+        for binding_type, action, description, priority, show in app_bindings:
+            self._bind_key(
+                binding_type,
+                action,
+                description=description,
+                priority=priority,
+                show=show,
+            )
 
         self.register_theme(BASE_THEME)
         self.theme = "cecli"
@@ -531,35 +456,27 @@ class TUI(App):
         except Exception:
             pass
 
-    def _update_key_hints_for_commands(self, text: str, is_completion: bool = False):
+    def _update_key_hints_for_commands(self, text: str):
         """
-        Update key hints left area with command description.
-
-        Handles both regular input text and completion suggestions.
+        Update key hints left area with command or subcommand description.
 
         Args:
-            text: The text to analyze (input text or completion suggestion)
-            is_completion: Whether this is a completion suggestion (default: False)
+            text: The text to analyze (input text or completion preview)
         """
         # Check if text starts with slash
         if text.startswith("/"):
-            # Extract command name
-            # For completions, we just need to remove the leading slash
-            # For regular input, we need to extract the first word after slash
-            if is_completion:
-                # Completion suggestion like "/help" - just remove leading slash
-                cmd_name = text[1:].strip()
-            else:
-                # Regular input like "/help arg1 arg2" - extract first word
-                parts = text[1:].strip().split()
-                cmd_name = parts[0] if parts else ""
+            # Extract the command name and optional subcommand. Completion
+            # previews are inserted text, so the same parsing works for both.
+            parts = text[1:].strip().split()
+            cmd_name = parts[0] if parts else ""
+            subcommand = parts[1].lower() if len(parts) > 1 else ""
 
             # Get command description if we have a command name
             if cmd_name:
                 try:
                     from cecli.commands.utils.registry import CommandRegistry
 
-                    description = CommandRegistry.get_command_description(cmd_name)
+                    description = CommandRegistry.get_command_description(cmd_name, subcommand)
                     if description:
                         self.update_key_hints_left(f"{description}")
                         return
@@ -889,7 +806,7 @@ class TUI(App):
 
     def on_input_area_text_changed(self, message: InputArea.TextChanged):
         """Handle text changes in input area."""
-        self._update_key_hints_for_commands(message.text, is_completion=False)
+        self._update_key_hints_for_commands(message.text)
 
     def on_input_area_submit(self, message: InputArea.Submit):
         """Handle input submission."""
@@ -1011,18 +928,13 @@ class TUI(App):
                 self._handle_workspace_command(user_input, stripped)
                 return
 
-        # Intercept queue management commands (/queue, /list-queue, /remove-queue,
-        # /insert-queue) to dispatch immediately without a full generation cycle -
-        # they only modify the active coder's prompt_queue.
-        if (
-            stripped == "/queue"
-            or stripped.startswith("/queue ")
-            or stripped == "/list-queue"
-            or stripped == "/remove-queue"
-            or stripped.startswith("/remove-queue ")
-            or stripped == "/insert-queue"
-            or stripped.startswith("/insert-queue ")
-        ):
+        # Intercept queue management commands (/queue add/insert/list/remove)
+        # to dispatch immediately without a full generation cycle - they only
+        # modify the active coder's prompt_queue. /queue run is left to the
+        # normal command path so queue draining behaves like the old /run-queue.
+        is_queue_command = stripped == "/queue" or stripped.startswith("/queue ")
+        is_queue_run = stripped == "/queue run" or stripped.startswith("/queue run ")
+        if is_queue_command and not is_queue_run:
             self._handle_queue_command(stripped)
             return
 
@@ -1103,10 +1015,11 @@ class TUI(App):
                 queues.wake_input_waiters()
 
     def _handle_queue_command(self, stripped: str) -> None:
-        """Dispatch /queue, /list-queue and /remove-queue immediately.
+        """Dispatch queue subcommands that only mutate ``prompt_queue``.
 
-        These commands only mutate the active coder's ``prompt_queue``, so they
-        are handled here without running a full generation cycle.
+        These commands are handled here without running a full generation
+        cycle. ``/queue run`` is not intercepted; it needs the normal command
+        path so the queue drain can signal correctly.
         """
         from cecli.helpers import command_queue
         from cecli.helpers.agents.service import AgentService
@@ -1119,10 +1032,18 @@ class TUI(App):
         active_coder = (
             AgentService.get_instance(self.worker.coder).foreground_coder or self.worker.coder
         )
-        cmd, _, args = stripped.partition(" ")
+        _, _, raw_args = stripped.partition(" ")
+        raw_args = raw_args.strip()
+        sub, _, args = raw_args.partition(" ")
+        sub = sub.lower()
         args = args.strip()
 
-        if cmd == "/queue":
+        if sub not in {"add", "insert", "list", "remove"}:
+            # Legacy shorthand: everything after /queue is an add prompt.
+            args = raw_args
+            sub = "add"
+
+        if sub == "add":
             if not args:
                 self.show_error("Usage: /queue <prompt text>")
                 return
@@ -1138,7 +1059,7 @@ class TUI(App):
                 f"Prompt queued at position {position} (id: {item['id']})"
             )
 
-        elif cmd == "/list-queue":
+        elif sub == "list":
             items = command_queue.list_queue(active_coder)
             if not items:
                 self._get_visible_container().add_output("Queue is empty.")
@@ -1153,10 +1074,10 @@ class TUI(App):
 
             self._get_visible_container().add_output("\n".join(lines))
 
-        elif cmd == "/insert-queue":
+        elif sub == "insert":
             parts = args.split(maxsplit=1)
             if len(parts) != 2:
-                self.show_error("Usage: /insert-queue <index> <prompt text>")
+                self.show_error("Usage: /queue insert <index> <prompt text>")
                 return
 
             try:
@@ -1176,9 +1097,9 @@ class TUI(App):
                 f"Prompt inserted at position {index + 1} (id: {item['id']})"
             )
 
-        elif cmd == "/remove-queue":
+        elif sub == "remove":
             if not args:
-                self.show_error("Usage: /remove-queue <index|*>")
+                self.show_error("Usage: /queue remove <index|*>")
                 return
 
             if args == "*":
@@ -1191,7 +1112,7 @@ class TUI(App):
             try:
                 index = int(args)
             except ValueError:
-                self.show_error("Usage: /remove-queue <index|*>")
+                self.show_error("Usage: /queue remove <index|*>")
                 return
 
             removed = command_queue.remove_from_queue(active_coder, index - 1)
@@ -1774,10 +1695,28 @@ class TUI(App):
 
         return keys if encoded == keys else f"{keys},{encoded}"
 
+    def _bind_key(self, type, action, description="", priority=True, show=True):
+        """Register a configured key binding on the app.
+
+        Args:
+            type: The key binding name in ``tui_config``.
+            action: The Textual action to invoke.
+            description: Short description for the binding.
+            priority: Check the binding before the focused widget.
+            show: Whether the binding is shown in the footer.
+        """
+        self._bindings.bind(
+            self._get_binding_keys(type),
+            action,
+            description=description,
+            show=show,
+            priority=priority,
+        )
+
     def _encode_keys(self, key):
         key = key.replace("shift+enter", "ctrl+j")
 
-        return key
+        return self._canonicalize_key_list(key)
 
     def _decode_keys(self, key):
         key = key.replace("ctrl+j", "shift+enter")
@@ -1786,10 +1725,10 @@ class TUI(App):
 
     def is_key_for(self, type, key):
         allowed_keys = self.tui_config["key_bindings"][type].split(",")
-        normalized_key = self._decode_keys(key)
+        normalized_key = self._encode_keys(key)
 
         for allowed_key in allowed_keys:
-            if normalized_key == self._decode_keys(allowed_key):
+            if normalized_key == self._encode_keys(allowed_key):
                 return True
 
         return False
@@ -1797,6 +1736,23 @@ class TUI(App):
     def get_keys_for(self, type):
         allowed_keys = self.tui_config["key_bindings"][type]
         return self._decode_keys(allowed_keys)
+
+    def _canonicalize_key_list(self, keys):
+        """Return comma-separated keys in Textual's canonical modifier order."""
+        return ",".join(self._canonicalize_key(key.strip()) for key in keys.split(","))
+
+    def _canonicalize_key(self, key):
+        """Return a key with modifiers ordered as Textual emits them."""
+        if "+" not in key:
+            return key
+
+        *modifiers, name = key.split("+")
+        if not modifiers or any(modifier not in MODIFIER_ORDER for modifier in modifiers):
+            return key
+
+        modifiers = sorted(set(modifiers), key=MODIFIER_ORDER.index)
+
+        return "+".join([*modifiers, name])
 
     def _do_quit(self):
         """Perform the actual quit after UI updates."""
@@ -2064,7 +2020,7 @@ class TUI(App):
                 else:
                     # Use standard command completions (no file fallback)
                     try:
-                        if cmd_name in commands.FULL_ARGS_COMPLETION_COMMANDS:
+                        if commands.uses_full_args_completion(cmd_name):
                             # Nested-host commands receive the FULL text after
                             # the command name so inner slash-command argument
                             # completion works (e.g. "/queue /add <tab>").
@@ -2111,7 +2067,7 @@ class TUI(App):
             parts = current_text.rsplit(maxsplit=1)
             commands = self.worker.coder.commands
             host = current_text.split(maxsplit=1)[0]
-            is_nested_host = host in getattr(commands, "FULL_ARGS_COMPLETION_COMMANDS", ())
+            is_nested_host = commands.uses_full_args_completion(host)
 
             if is_nested_host and current_text.endswith(" "):
                 return current_text + completion
@@ -2128,7 +2084,7 @@ class TUI(App):
                         has_completions = False
 
                 if has_completions:
-                    return completion + " "
+                    return completion.rstrip() + " "
                 else:
                     return completion
             else:
@@ -2151,7 +2107,8 @@ class TUI(App):
     def on_input_area_completion_requested(self, message: InputArea.CompletionRequested):
         """Handle completion request - show or update completion bar."""
         input_area = self.query_one("#input", InputArea)
-        text = message.text
+        text = input_area.text
+        input_area._completion_prefix = text
         suggestions = self._get_suggestions(text)
 
         # Check if completion bar already exists
@@ -2176,7 +2133,8 @@ class TUI(App):
             # Update key hints with description for first suggestion
             if suggestions:
                 first_suggestion = suggestions[0]
-                self._update_key_hints_for_commands(first_suggestion, is_completion=True)
+                preview = self._get_completed_text(text, first_suggestion)
+                self._update_key_hints_for_commands(preview)
         else:
             # No suggestions - dismiss if active
             input_area.completion_active = False
@@ -2196,7 +2154,7 @@ class TUI(App):
                 new_text = self._get_completed_text(base_text, selected)
                 input_area.set_completion_preview(new_text)
                 # Update key hints with command description for selected completion
-                self._update_key_hints_for_commands(selected, is_completion=True)
+                self._update_key_hints_for_commands(new_text)
         except Exception:
             pass
 
@@ -2213,7 +2171,7 @@ class TUI(App):
                 new_text = self._get_completed_text(base_text, selected)
                 input_area.set_completion_preview(new_text)
                 # Update key hints with command description for selected completion
-                self._update_key_hints_for_commands(selected, is_completion=True)
+                self._update_key_hints_for_commands(new_text)
         except Exception:
             pass
 
@@ -2226,7 +2184,7 @@ class TUI(App):
             pass
         # Update key hints based on accepted completion
         input_area = self.query_one("#input", InputArea)
-        self._update_key_hints_for_commands(input_area.text, is_completion=False)
+        self._update_key_hints_for_commands(input_area.text)
 
     def on_input_area_completion_dismiss(self, message: InputArea.CompletionDismiss):
         """Handle Escape to dismiss completions."""
@@ -2238,7 +2196,7 @@ class TUI(App):
         except Exception:
             pass
         # Update key hints back to normal based on current input
-        self._update_key_hints_for_commands(input_area.text, is_completion=False)
+        self._update_key_hints_for_commands(input_area.text)
 
     def on_completion_bar_selected(self, message: CompletionBar.Selected):
         """Handle completion selection."""
