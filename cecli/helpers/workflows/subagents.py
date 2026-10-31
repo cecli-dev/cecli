@@ -3,8 +3,10 @@
 Each *enabled* workflow becomes a ``wf:{name}`` worker sub-agent, mirroring
 the ``ws:`` workspace registration (:mod:`cecli.helpers.workspaces.subagents`).
 The declarative ``skills`` / ``servers`` / ``root`` fields map onto the
-sub-agent's ``metadata["agent-config"]``; ``skip_cli_confirmations`` is always
-forced because workflow workers run unattended.
+sub-agent's ``metadata["agent-config"]``; a workflow ``metadata`` block supplies
+workspace-style overrides (``model`` / ``hooks`` / ``auto_reap`` plus arbitrary
+metadata), and ``skip_cli_confirmations`` is always forced because workflow
+workers run unattended. ``persist`` workers are never auto-reaped.
 
 The most recent configs are cached module-level (``_workflow_configs_by_agent``
  including disabled workflows) so ``/workflows`` and session restore can look
@@ -58,11 +60,53 @@ def register_workflow_subagents(workflow_configs) -> List[str]:
             agent_config.setdefault("skills_includelist", [])
         if wf.servers:
             agent_config["servers_includelist"] = [s.lower() for s in wf.servers]
-        # workflow workers run unattended: never block on an interactive confirm
+
+        # A workflow may supply its own sub-agent setup under ``metadata``,
+        # matching workspace projects and .md definitions.
+        wf_metadata = dict(wf.metadata or {})
+        # ``root``, ``name`` and ``description`` are derived from the workflow
+        # definition and cannot be overridden by the metadata block.
+        wf_metadata.pop("root", None)
+        wf_metadata.pop("name", None)
+        wf_metadata.pop("description", None)
+        config_keys = {"model", "hooks", "auto_reap"}
+        meta_agent_config = wf_metadata.pop("agent-config", None)
+        if meta_agent_config is None:
+            # from_dict normalizes nested keys, so ``agent-config`` arrives as
+            # ``agent_config``.
+            meta_agent_config = wf_metadata.pop("agent_config", None)
+        for key, value in wf_metadata.items():
+            if key in config_keys:
+                continue
+            metadata[key] = value
+
+        model = (
+            wf_metadata["model"]
+            if "model" in wf_metadata
+            else (wf.model or (worker.model if worker else None))
+        )
+        meta_hooks = wf_metadata.get("hooks")
+        if isinstance(meta_hooks, dict):
+            hooks = dict(meta_hooks)
+        elif wf.hooks:
+            hooks = dict(wf.hooks)
+        else:
+            hooks = dict(worker.hooks) if worker else {}
+
+        auto_reap = wf_metadata["auto_reap"] if "auto_reap" in wf_metadata else False
+        if wf.persist:
+            # Persistent workers must survive the run so the next one can reuse them.
+            auto_reap = False
+
+        if isinstance(meta_agent_config, dict):
+            agent_config.update(meta_agent_config)
+
+        # workflows run unattended: never block on an interactive confirm
         agent_config["skip_cli_confirmations"] = True
         # ...and are detached: their results never surface in the parent's
         # conversation (background operations stay out of its context).
         agent_config["detached"] = True
+
         if wf.root:
             metadata["root"] = str(Path(wf.root).expanduser().resolve())
 
@@ -77,9 +121,9 @@ def register_workflow_subagents(workflow_configs) -> List[str]:
             SubAgentConfig(
                 name=agent_name,
                 prompt=worker.prompt if worker else "",
-                model=wf.model or (worker.model if worker else None),
-                hooks=dict(wf.hooks) if wf.hooks else (dict(worker.hooks) if worker else {}),
-                auto_reap=False,  # persist for the run; the runner reaps at the end
+                model=model,
+                hooks=hooks,
+                auto_reap=auto_reap,  # persist for the run; the runner reaps at the end
                 metadata=metadata,
             ),
         )

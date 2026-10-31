@@ -45,6 +45,8 @@ class FakeService:
         self.gen = gen
         self.calls = []
         self.info = SubAgentInfo(name="wf:demo", coder=worker, parent_uuid="primary-uuid")
+        self.sub_agents = {}
+        self.children = []
         self.reaped = []
 
     async def spawn(self, name, prompt=None, parent=None, auto_reap=None, independent=False):
@@ -76,6 +78,9 @@ class FakeService:
                 raise
 
         info.generate_task = asyncio.create_task(_run())
+
+    def get_children(self, coder):
+        return list(self.children)
 
     def _cleanup_sub_agent(self, uuid):
         self.reaped.append(uuid)
@@ -423,3 +428,51 @@ async def test_session_archive_failure_is_not_fatal(coder):
         result = await _execute(service, wf, coder)
 
     assert result.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_persist_worker_is_not_reaped(coder):
+    worker = make_worker()
+    worker.received = []
+    service = FakeService(worker, _drain)
+    wf = _wf(TaskConfig(prompt="x"), persist=True)
+
+    result = await _execute(service, wf, coder)
+
+    assert result.status == "ok"
+    assert service.reaped == []
+
+
+@pytest.mark.asyncio
+async def test_persist_reuses_existing_worker(coder):
+    existing = make_worker()
+    existing.received = []
+    existing.prompt_queue = [{"id": "1", "text": "stale", "timestamp": 0}]
+    info = SubAgentInfo(
+        name="wf:demo",
+        coder=existing,
+        parent_uuid="primary-uuid",
+        status=SubAgentStatus.FINISHED,
+    )
+
+    service = FakeService(make_worker(), _drain)
+    service.children = [info]
+    wf = _wf(TaskConfig(prompt="fresh"), TaskConfig(prompt="tail"), persist=True)
+
+    with (
+        patch("cecli.helpers.conversation.service.ConversationService.get_chunks") as get_chunks,
+        patch("cecli.helpers.conversation.service.ConversationService.get_manager") as get_manager,
+        patch("cecli.helpers.conversation.service.ConversationService.get_files") as get_files,
+    ):
+        result = await _execute(service, wf, coder)
+
+    assert result.status == "ok"
+    assert not any(call[0] == "spawn" for call in service.calls)
+    assert existing.received == ["tail"]
+    assert any(call[0] == "start" and call[1] == "fresh" for call in service.calls)
+    assert existing.prompt_queue == []
+    get_manager.return_value.reset.assert_called_once()
+    get_manager.return_value.initialize.assert_called_once()
+    get_files.return_value.reset.assert_called_once()
+    get_chunks.return_value.add_system_message.assert_called_once()
+    assert service.reaped == []

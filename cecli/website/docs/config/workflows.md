@@ -45,6 +45,10 @@ hooks:                         # optional, same schema as Hooks
 skills: [gitlab-ci]            # optional -> preloaded as skills_init
 servers: [gitlab]              # optional -> active MCP servers (lowercased)
 on_failure: stop               # stop | continue
+persist: true                  # keep the worker in the TUI and reuse it next run
+metadata:                      # optional sub-agent overrides (see below)
+  agent-config:
+    allow_nested_delegation: false
 tasks:
   - name: attach-gitlab
     prompt: /mcp load gitlab
@@ -73,6 +77,8 @@ Field meanings:
 | `hooks` | {} | Per-workflow hooks (start/end/pre_tool/…); run on the worker |
 | `skills` | [] | Skills loaded into the worker's context at start |
 | `servers` | [] | MCP servers made available to the worker |
+| `metadata` | {} | Sub-agent overrides, matching workspace project metadata: `model`, `hooks` and `auto_reap` map to the sub-agent config fields, an `agent-config` mapping is merged on top of the declarative `skills`/`servers`, and any other key is merged into the sub-agent metadata. `name`, `description` and `root` always come from the workflow definition |
+| `persist` | false | Keep the worker sub-agent (and its TUI container) after the run finishes. The next run reuses the same worker after clearing its conversation, file context and prompt queue. Persistent workers are never auto-reaped |
 | `on_failure` | `stop` | What to do after a task errors: `stop` drops the remaining tasks, `continue` runs them anyway |
 | `catch_up` | scheduler default | Per-workflow override of the [scheduler's](scheduler.html) `catch_up` (replay of slots missed while cecli was closed) |
 
@@ -92,6 +98,7 @@ Run-time placeholders are expanded in task prompts in addition to load-time env 
 2. The task prompts are queued to that worker **in order**, using the same prompt queue as `/queue`. Each prompt is processed to completion before the next.
 3. If a task errors, the remaining queued prompts are dropped according to `on_failure` (or the failing task's `continue_on_error`), then the worker is reaped. (Caveat: errors that abort the queue-drain chain behave like `stop` even under `continue_on_error`, since the remaining prompts never get a chance to drain; errors handled inside a prompt continue normally.)
 4. The run is **detached**: a workflow worker never injects summaries or status into the parent's conversation (background operations stay out of its context). A finished `/workflows run` is announced once in the terminal only; the durable record lives in the run log and outputs.
+5. With `persist: true`, the worker is not reaped when the run finishes: it stays in the TUI and the next run of the same workflow reuses it. Before staging the new tasks, the runner waits for any in-flight run, clears the worker's conversation (re-adding its system prompt) and file context, resets the prompt queue and per-run status, and then runs the new task list on the same agent.
 
 Because a run is a sub-agent, it doesn't block the main conversation — watch it with `/agent-tree` or the TUI sub-agent pane. Every run also appends a JSON-lines audit log to `~/.cecli/workflows/runs/<YYYY-MM-DD>/<name>.<id>.jsonl`: a `start` line (with the definition hash), one `task` line per task, and a `finish` line. Before the worker is reaped, its full session is archived to `~/.cecli/workflows/outputs/<workflow>/<run>/session.json` using the standard session format (encrypted when session encryption is enabled) — so every run, including replayed or tool-less replies, is completely reviewable on disk without ever touching the parent's context.
 

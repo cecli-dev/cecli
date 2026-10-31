@@ -67,16 +67,12 @@ async def execute_workflow(
 
         texts = [_expand(task.prompt, wf=wf, run_id=run_id) for task in wf.tasks]
 
-        # Spawn WITHOUT a prompt so the whole queue can be staged first; the
-        # daemon variant runs on its own tree branch, everything else shares
-        # the owning session.
-        worker, info = await service.spawn(
-            wf.agent_name,
-            None,
-            parent=coder,
-            auto_reap=False,
-            independent=(source == "scheduler_daemon"),
-        )
+        # Persistent workflows reuse their previous worker (clearing its
+        # conversation and queue) so they stay visible in the TUI; everything
+        # else spawns WITHOUT a prompt so the whole task list can be staged
+        # first. The daemon variant runs on its own tree branch, everything
+        # else shares the owning session.
+        worker, info = await _obtain_worker(service, coder, wf, source)
 
         for text in texts[1:]:
             command_queue.enqueue_prompt(worker, text)
@@ -117,7 +113,8 @@ async def execute_workflow(
     finally:
         if worker is not None:
             _save_session(worker, coder, wf, result)
-            _reap_worker(service, worker)
+            if not wf.persist:
+                _reap_worker(service, worker)
         result.finished_at = datetime.now(timezone.utc).isoformat()
         logs.finish_log(handle, result)
 
@@ -127,6 +124,24 @@ async def execute_workflow(
 # --------------------------------------------------------------------------- #
 # Private helpers
 # --------------------------------------------------------------------------- #
+
+
+async def _obtain_worker(service: Any, coder: Any, wf: WorkflowConfig, source: str) -> Any:
+    """Reuse a persistent ``wf:`` worker when possible, else spawn a new one."""
+
+    if wf.persist:
+        info = _find_reusable_worker(service, coder, wf)
+        if info is not None:
+            await _prepare_reused_worker(info, wf)
+            return info.coder, info
+
+    return await service.spawn(
+        wf.agent_name,
+        None,
+        parent=coder,
+        auto_reap=False,
+        independent=(source == "scheduler_daemon"),
+    )
 
 
 async def _await_run(info: Any) -> Any:
@@ -153,6 +168,77 @@ async def _await_run(info: Any) -> Any:
         return "error", str(info.error or "")
 
     return "ok", ""
+
+
+def _find_reusable_worker(service: Any, coder: Any, wf: WorkflowConfig) -> Any:
+    """Return the run's persistent worker for *wf*, if one exists."""
+
+    get_children = getattr(service, "get_children", None)
+    if get_children is None:
+        return None
+
+    for info in reversed(get_children(coder)):
+        if getattr(info, "name", None) != wf.agent_name:
+            continue
+
+        return info
+
+    return None
+
+
+async def _prepare_reused_worker(info: Any, wf: WorkflowConfig) -> None:
+    """Wait for an in-flight run, then reset *info*'s conversation and queue."""
+    import asyncio
+
+    from cecli.helpers import command_queue
+    from cecli.helpers.conversation.service import ConversationService
+
+    task = getattr(info, "generate_task", None)
+    if task is not None and not task.done():
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # The reused worker is reset below regardless of how the prior run
+            # ended; its outcome was already recorded by that run.
+            pass
+
+    worker = info.coder
+
+    command_queue.clear_queue(worker)
+    worker._queue_counter = 0
+    worker._processing_queue = False
+    worker._active_queue_prompt = None
+    worker._drain_queue_after_command = False
+
+    # File context belongs to the run that added it; start the next one with
+    # the same empty file lists a freshly spawned worker would have.
+    worker.abs_fnames = set()
+    worker.abs_read_only_fnames = set()
+    worker.abs_read_only_stubs_fnames = set()
+
+    info.summary = None
+    info.error = None
+    info.cancel_requested = False
+    info.auto_reap = False
+
+    chunks = ConversationService.get_chunks(worker)
+    chunks.flush_removals()
+    ConversationService.get_manager(worker).reset()
+    ConversationService.get_files(worker).reset()
+    ConversationService.get_manager(worker).initialize(reformat=True)
+    chunks.reset_clear_count()
+    chunks.reset_message_tracker()
+    chunks.add_system_message(_worker_prompt(wf))
+
+
+def _worker_prompt(wf: WorkflowConfig) -> str:
+    """System prompt of the registered ``wf:`` agent that runs *wf*."""
+    from cecli.helpers.agents.service import AgentService
+
+    config = AgentService.get_registry().get(wf.agent_name)
+    return getattr(config, "prompt", "") or ""
 
 
 def _task_results(wf, outcome, detail, executed_tail) -> List[TaskResult]:

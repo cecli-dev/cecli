@@ -154,3 +154,32 @@ def test_worker_prompt_inherited():
     assert cfg.prompt == worker.prompt
     # (the built-in worker default may legitimately have an empty body)
     assert cfg.auto_reap is False
+
+
+# ---------------------------------------------------------------- case 15 --
+
+
+def test_workflow_metadata_overrides_subagent_config():
+    wf = _wf(
+        servers=["GitLab"],
+        persist=True,
+        metadata={
+            "model": "meta-model",
+            "auto_reap": True,
+            "custom": "value",
+            "agent-config": {"skills_init": ["meta-skill"]},
+        },
+    )
+    register_workflow_subagents([wf])
+    cfg = AgentService.get_registry()["wf:check-pipeline"]
+
+    assert cfg.model == "meta-model"
+    # persist workers must never be auto-reaped
+    assert cfg.auto_reap is False
+    assert cfg.metadata["custom"] == "value"
+
+    agent_config = cfg.metadata["agent-config"]
+    assert agent_config["skills_init"] == ["meta-skill"]
+    assert agent_config["servers_includelist"] == ["gitlab"]
+    assert agent_config["skip_cli_confirmations"] is True
+    assert agent_config["detached"] is True
