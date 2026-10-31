@@ -825,6 +825,7 @@ class BackgroundCommandManager:
                 result[command_key] = {
                     "command": bg_process.command,
                     "running": bg_process.is_alive(),
+                    "persist": getattr(bg_process, "persist", False),
                     "buffer_size": bg_process.buffer.size(),
                     "pages": getattr(bg_process.buffer, "page_count", 0),
                     "total_chars": getattr(

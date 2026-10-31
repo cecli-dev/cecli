@@ -29,6 +29,7 @@ from cecli.helpers.file_system import FileSystemService
 from cecli.io import CommandCompletionException
 
 from .widgets import (
+    BackgroundCommandsPanel,
     CompletionBar,
     FileList,
     FloatingPanels,
@@ -67,6 +68,10 @@ class TUI(App):
         # Binding("ctrl+l", "clear_output", "Clear", show=True),
         # Binding("escape", "interrupt", "Interrupt", show=True),
     ]
+
+    PANELS = {
+        "commands": "#background-commands-panel",
+    }
 
     def __init__(self, coder_worker, output_queue, input_queue, args):
         """Initialize the cecli TUI app."""
@@ -147,6 +152,7 @@ class TUI(App):
             ("voice", "start_voice", "Record Voice", True, True),
             ("paste", "paste_clipboard", "Paste Clipboard", True, True),
             ("panels", "toggle_floating_panels", "Toggle Panels", True, False),
+            ("panel_cycle", "cycle_panel", "Cycle Panels", True, False),
         )
 
         for binding_type, action, description, priority, show in app_bindings:
@@ -244,6 +250,7 @@ class TUI(App):
             "voice": "ctrl+r",
             "paste": "alt+v",
             "panels": "alt+p",
+            "panel_cycle": "alt+o",
             "focus": "ctrl+f",
             "cancel": "ctrl+c",
             "clear": "ctrl+l",
@@ -337,6 +344,8 @@ class TUI(App):
             coder_mode=coder_mode,
             id="footer",
         )
+
+        yield BackgroundCommandsPanel(id="background-commands-panel")
 
     BANNER_COLORS = [
         "spring_green2",
@@ -803,6 +812,7 @@ class TUI(App):
     def on_resize(self) -> None:
         file_list = self.query_one("#file-list", FileList)
         file_list.update_files()
+        self._position_panel()
 
     def on_input_area_text_changed(self, message: InputArea.TextChanged):
         """Handle text changes in input area."""
@@ -936,6 +946,13 @@ class TUI(App):
         is_queue_run = stripped == "/queue run" or stripped.startswith("/queue run ")
         if is_queue_command and not is_queue_run:
             self._handle_queue_command(stripped)
+            return
+
+        if stripped == "/open" or stripped.startswith("/open "):
+            parts = stripped.split(maxsplit=1)
+            panel_name = parts[1].strip().lower() if len(parts) > 1 else "commands"
+            self.query_one("#input", InputArea).value = ""
+            self.open_panel(panel_name)
             return
 
         # Save to history before clearing
@@ -1252,6 +1269,9 @@ class TUI(App):
         """
         Interrupt the current task, or copy selected text to clipboard.
         """
+        if self._panel_is_visible():
+            self.action_close_panel()
+            return
 
         # Determine which coder is in the foreground
         coder = self.worker.coder if self.worker else None
@@ -1298,6 +1318,107 @@ class TUI(App):
             self.query_one(FloatingPanels).toggle_visible()
         except Exception:
             pass
+
+    def open_panel(self, name: str):
+        """Show a floating panel by name, centered over the TUI."""
+        selector = self.PANELS.get(name)
+
+        if selector is None:
+            self.show_error(f"Unknown panel: {name}")
+            return
+
+        try:
+            panel = self.query_one(selector)
+        except Exception:
+            return
+
+        for other_selector in self.PANELS.values():
+            if other_selector == selector:
+                continue
+
+            try:
+                self.query_one(other_selector).display = False
+            except Exception:
+                pass
+
+        panel.display = True
+
+        if hasattr(panel, "refresh_data"):
+            panel.refresh_data()
+
+        self._position_panel(panel)
+        self.call_after_refresh(self._position_panel, panel)
+
+        if hasattr(panel, "focus_panel"):
+            panel.focus_panel()
+        else:
+            panel.focus()
+
+    def action_cycle_panel(self):
+        """Open the first panel, cycle forward, then close after the last."""
+        names = list(self.PANELS)
+
+        if not names:
+            return
+
+        current = None
+
+        for name, selector in self.PANELS.items():
+            try:
+                if self.query_one(selector).display:
+                    current = name
+                    break
+            except Exception:
+                pass
+
+        if current is None:
+            self.open_panel(names[0])
+            return
+
+        index = names.index(current)
+
+        if index + 1 >= len(names):
+            self.action_close_panel()
+            return
+
+        self.open_panel(names[index + 1])
+
+    def action_close_panel(self):
+        """Hide floating panels and return focus to the prompt."""
+        for selector in self.PANELS.values():
+            try:
+                self.query_one(selector).display = False
+            except Exception:
+                pass
+
+        self.query_one("#input").focus()
+
+    def _panel_is_visible(self) -> bool:
+        """Return True when any floating panel is displayed."""
+        for selector in self.PANELS.values():
+            try:
+                if self.query_one(selector).display:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
+    def _position_panel(self, panel=None):
+        """Center a floating panel over the screen."""
+        try:
+            panel = panel or self.query_one("#background-commands-panel", BackgroundCommandsPanel)
+            width, height = panel.outer_size
+        except Exception:
+            return
+
+        if width <= 0 or height <= 0:
+            return
+
+        screen_width, screen_height = self.screen.size
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        panel.styles.offset = (x, y)
 
     def action_scroll_panel_up(self):
         """Scroll the floating status panels up one line."""
@@ -2332,6 +2453,30 @@ def patch_textual_strip_render_with_cache():
     textual.strip.Strip.render_ansi = classmethod(cached_version)
 
 
+def patch_underline_render_without_track():
+    """Render tab underlines as a marker only, with no background track."""
+    from rich.style import Style
+    from rich.text import Text
+    from textual.renderables.bar import Bar
+    from textual.widgets._tabs import Underline
+
+    def render_without_track(self):
+        bar_style = self.get_component_rich_style("underline--bar")
+        start, end = self._highlight_range
+
+        if start == end == 0:
+            return Text(" " * self.size.width)
+
+        return Bar(
+            highlight_range=(start, end),
+            highlight_style=Style.from_color(bar_style.color),
+            background_style=Style(color="default"),
+        )
+
+    Underline.render = render_without_track
+
+
 # Execute the patches
 patch_color_name_to_rgb()
+patch_underline_render_without_track()
 # patch_textual_strip_render_with_cache()

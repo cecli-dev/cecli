@@ -47,6 +47,7 @@ from .merge import MergeCommand
 from .model import ModelCommand
 from .models import ModelsCommand
 from .multiline_mode import MultilineModeCommand
+from .open import OpenCommand
 from .paste import PasteCommand
 from .queue import QueueCommand
 from .quit import QuitCommand
@@ -130,6 +131,7 @@ CommandRegistry.register(MergeCommand)
 CommandRegistry.register(ModelCommand)
 CommandRegistry.register(ModelsCommand)
 CommandRegistry.register(MultilineModeCommand)
+CommandRegistry.register(OpenCommand)
 CommandRegistry.register(PasteCommand)
 CommandRegistry.register(QueueCommand)
 CommandRegistry.register(QuitCommand)
@@ -210,6 +212,7 @@ __all__ = [
     "ModelCommand",
     "ModelsCommand",
     "MultilineModeCommand",
+    "OpenCommand",
     "parse_quoted_filenames",
     "PasteCommand",
     "QueueCommand",
