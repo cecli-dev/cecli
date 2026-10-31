@@ -31,6 +31,7 @@ class TokenProfiler:
         self._input_tokens: int = 0
         self._output_tokens: int = 0
         self._has_seen_first_token: bool = False
+        self._token_ticker: int = 0
 
     def start(self) -> None:
         """Start timing an LLM request."""
@@ -40,14 +41,17 @@ class TokenProfiler:
         self._has_seen_first_token = False
         self._input_tokens = 0
         self._output_tokens = 0
+        self._token_ticker = 0
 
     def on_token(self) -> None:
         """
         Record that a token was received.
         Auto-detects if this is the first token.
         """
-        if not self._enabled or not self._start_time:
+        if not self._start_time:
             return
+
+        self._token_ticker += 1
 
         if not self._has_seen_first_token:
             self._first_token_time = time.time()
@@ -61,9 +65,6 @@ class TokenProfiler:
             input_tokens: Number of input/prompt tokens
             output_tokens: Number of output/generated tokens
         """
-        if not self._enabled:
-            return
-
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
 
@@ -74,6 +75,30 @@ class TokenProfiler:
 
         if self._end_time is None:
             self._end_time = time.time()
+
+
+    def get_generation_speed(self) -> Optional[float]:
+        """Live output generation speed in tokens/sec."""
+        if not self._start_time:
+            return None
+        end = self._end_time or time.time()
+        output_tokens = self._output_tokens if self._output_tokens > 0 else self._token_ticker
+        if output_tokens <= 0:
+            return None
+        gen_start = self._first_token_time or self._start_time
+        gen_time = end - gen_start
+        if gen_time <= 0:
+            return None
+        return output_tokens / gen_time
+
+    def get_prompt_speed(self) -> Optional[float]:
+        """Live prompt-processing speed in prompt tokens/sec."""
+        if not self._start_time or self._first_token_time is None:
+            return None
+        ttft = self._first_token_time - self._start_time
+        if ttft <= 0 or self._input_tokens <= 0:
+            return None
+        return self._input_tokens / ttft
 
     def get_report(self) -> Optional[str]:
         """
