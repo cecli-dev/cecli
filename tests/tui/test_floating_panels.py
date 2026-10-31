@@ -140,11 +140,22 @@ async def _run_panel_checks():
             ("servers", "github", False),
         ]
 
-        assert panels._command_class("subagents", False).__name__ == "SpawnAgentCommand"
-        assert panels._command_class("skills", True).__name__ == "RemoveSkillCommand"
-        assert panels._command_class("skills", False).__name__ == "LoadSkillCommand"
-        assert panels._command_class("servers", True).__name__ == "RemoveMcpCommand"
-        assert panels._command_class("servers", False).__name__ == "LoadMcpCommand"
+        command_cls, command_args = panels._command_for("subagents", "worker", False)
+        assert command_cls.__name__ == "SpawnAgentCommand"
+        assert command_args == "worker"
+
+        for category, active, expected_args in [
+            ("skills", True, "remove pdf"),
+            ("skills", False, "load pdf"),
+            ("servers", True, "remove github"),
+            ("servers", False, "load github"),
+        ]:
+            command_cls, command_args = panels._command_for(
+                category, "pdf" if category == "skills" else "github", active
+            )
+            expected_cls = "SkillsCommand" if category == "skills" else "McpCommand"
+            assert command_cls.__name__ == expected_cls
+            assert command_args == expected_args
 
         panels._collect_skills = lambda coder: [("z", True), ("a", True), ("b", False)]
         panels.refresh_data()
