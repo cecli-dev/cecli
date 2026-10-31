@@ -936,18 +936,13 @@ class TUI(App):
                 self._handle_workspace_command(user_input, stripped)
                 return
 
-        # Intercept queue management commands (/queue, /list-queue, /remove-queue,
-        # /insert-queue) to dispatch immediately without a full generation cycle -
-        # they only modify the active coder's prompt_queue.
-        if (
-            stripped == "/queue"
-            or stripped.startswith("/queue ")
-            or stripped == "/list-queue"
-            or stripped == "/remove-queue"
-            or stripped.startswith("/remove-queue ")
-            or stripped == "/insert-queue"
-            or stripped.startswith("/insert-queue ")
-        ):
+        # Intercept queue management commands (/queue add/insert/list/remove)
+        # to dispatch immediately without a full generation cycle - they only
+        # modify the active coder's prompt_queue. /queue run is left to the
+        # normal command path so queue draining behaves like the old /run-queue.
+        is_queue_command = stripped == "/queue" or stripped.startswith("/queue ")
+        is_queue_run = stripped == "/queue run" or stripped.startswith("/queue run ")
+        if is_queue_command and not is_queue_run:
             self._handle_queue_command(stripped)
             return
 
@@ -1028,10 +1023,11 @@ class TUI(App):
                 queues.wake_input_waiters()
 
     def _handle_queue_command(self, stripped: str) -> None:
-        """Dispatch /queue, /list-queue and /remove-queue immediately.
+        """Dispatch queue subcommands that only mutate ``prompt_queue``.
 
-        These commands only mutate the active coder's ``prompt_queue``, so they
-        are handled here without running a full generation cycle.
+        These commands are handled here without running a full generation
+        cycle. ``/queue run`` is not intercepted; it needs the normal command
+        path so the queue drain can signal correctly.
         """
         from cecli.helpers import command_queue
         from cecli.helpers.agents.service import AgentService
@@ -1044,10 +1040,18 @@ class TUI(App):
         active_coder = (
             AgentService.get_instance(self.worker.coder).foreground_coder or self.worker.coder
         )
-        cmd, _, args = stripped.partition(" ")
+        _, _, raw_args = stripped.partition(" ")
+        raw_args = raw_args.strip()
+        sub, _, args = raw_args.partition(" ")
+        sub = sub.lower()
         args = args.strip()
 
-        if cmd == "/queue":
+        if sub not in {"add", "insert", "list", "remove"}:
+            # Legacy shorthand: everything after /queue is an add prompt.
+            args = raw_args
+            sub = "add"
+
+        if sub == "add":
             if not args:
                 self.show_error("Usage: /queue <prompt text>")
                 return
@@ -1063,7 +1067,7 @@ class TUI(App):
                 f"Prompt queued at position {position} (id: {item['id']})"
             )
 
-        elif cmd == "/list-queue":
+        elif sub == "list":
             items = command_queue.list_queue(active_coder)
             if not items:
                 self._get_visible_container().add_output("Queue is empty.")
@@ -1078,10 +1082,10 @@ class TUI(App):
 
             self._get_visible_container().add_output("\n".join(lines))
 
-        elif cmd == "/insert-queue":
+        elif sub == "insert":
             parts = args.split(maxsplit=1)
             if len(parts) != 2:
-                self.show_error("Usage: /insert-queue <index> <prompt text>")
+                self.show_error("Usage: /queue insert <index> <prompt text>")
                 return
 
             try:
@@ -1101,9 +1105,9 @@ class TUI(App):
                 f"Prompt inserted at position {index + 1} (id: {item['id']})"
             )
 
-        elif cmd == "/remove-queue":
+        elif sub == "remove":
             if not args:
-                self.show_error("Usage: /remove-queue <index|*>")
+                self.show_error("Usage: /queue remove <index|*>")
                 return
 
             if args == "*":
@@ -1116,7 +1120,7 @@ class TUI(App):
             try:
                 index = int(args)
             except ValueError:
-                self.show_error("Usage: /remove-queue <index|*>")
+                self.show_error("Usage: /queue remove <index|*>")
                 return
 
             removed = command_queue.remove_from_queue(active_coder, index - 1)

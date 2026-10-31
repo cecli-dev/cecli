@@ -207,7 +207,7 @@ def nested_command_completions(coder, text: str) -> list:
     """Completions for a nested slash-command inside queued prompt text (CLI-33).
 
     While the inner command is still being typed (no space yet), suggest
-    matching command names from the registry (e.g. "/sa" -> "/save-session").
+    matching command names from the registry (e.g. "/sess" -> "/sessions").
     Once the inner command is complete, delegate to the original command's
     ``get_completions`` so ``/queue /add <tab>`` behaves exactly like ``/add <tab>``.
     """

@@ -16,7 +16,14 @@ class Commands:
 
     # Commands that receive their full argument text for completion (nested
     # hosts and subcommand commands whose names take an argument).
-    FULL_ARGS_COMPLETION_COMMANDS = ("/queue", "/insert-queue", "/workflows", "/mcp", "/skills")
+    FULL_ARGS_COMPLETION_COMMANDS = (
+        "/queue",
+        "/workflows",
+        "/mcp",
+        "/skills",
+        "/sessions",
+        "/hooks",
+    )
 
     def _get_coder(self):
         """Return coder via weak reference, or None if collected."""
@@ -94,7 +101,7 @@ class Commands:
         self.last_command_show_notification = True
 
         # Commands that should NOT trigger auto-processing of the queue
-        self._MANAGEMENT_COMMANDS = {"queue", "list-queue", "remove-queue", "run-queue"}
+        self._MANAGEMENT_COMMANDS = {"queue"}
 
     def _load_custom_commands(self, custom_commands):
         """

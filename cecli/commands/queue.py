@@ -1,95 +1,144 @@
-"""Queue command for CLI-33: adds a prompt to the processing queue."""
+"""/queue — queue prompts and manage the processing queue.
+
+Subcommands: add, insert, list, remove, run. Bare text after ``/queue`` is
+treated as ``add`` for backwards compatibility.
+"""
 
 from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
-from cecli.commands.utils.helpers import format_command_result
-from cecli.helpers import command_queue
 
 
 class QueueCommand(BaseCommand):
     NORM_NAME = "queue"
-    DESCRIPTION = "Queue a prompt for processing after current tasks complete"
+    DESCRIPTION = "Queue a prompt or manage the processing queue"
+
+    SUBCOMMANDS = ("add", "insert", "list", "remove", "run")
+    NAME_SUBCOMMANDS = ()
+    HELPER_MODULES = {
+        "add": "cecli.commands.queue_helpers.add",
+        "insert": "cecli.commands.queue_helpers.insert",
+        "list": "cecli.commands.queue_helpers.list",
+        "remove": "cecli.commands.queue_helpers.remove",
+        "run": "cecli.commands.queue_helpers.run",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
-        """Execute the queue command with given parameters.
+        """Dispatch a queue subcommand.
 
-        Args:
-            io: InputOutput instance
-            coder: Coder instance (may be None for some commands)
-            args: Command arguments as string (the prompt text to queue)
-            **kwargs: Additional context
-
-        Returns:
-            Formatted result string
+        Syntax:
+            /queue add <prompt>             — Queue a prompt
+            /queue <prompt>                 — Legacy shorthand for add
+            /queue insert <index> <prompt>  — Insert at a 1-based position
+            /queue list                     — Show queued prompts
+            /queue remove <index>|*         — Remove one prompt or clear the queue
+            /queue run                      — Process queued prompts now
         """
-        # Sad path: coder.commands is None
-        if not coder.commands:
-            return format_command_result(
-                io, cls.NORM_NAME, "", error="Command system not available. Cannot queue prompts."
-            )
+        raw = (args or "").strip()
+        parts = raw.split(maxsplit=1)
+        sub = parts[0].lower() if parts else ""
+        rest = parts[1].strip() if len(parts) > 1 else ""
 
-        # Sad path: no args (empty prompt text)
-        if not args or not args.strip():
-            return format_command_result(
-                io,
-                cls.NORM_NAME,
-                "",
-                error=(
-                    "Usage: /queue <prompt text> - Add a prompt to the queue "
-                    "for processing after current tasks complete."
-                ),
-            )
+        if sub == "add":
+            return cls.loader("add").cmd_add(io, coder, rest)
 
-        prompt_text = args.strip()
+        if sub == "insert":
+            return cls.loader("insert").cmd_insert(io, coder, rest)
 
-        # Sad path: prompt exceeds 10000 characters
-        if len(prompt_text) > 10000:
-            return format_command_result(
-                io,
-                cls.NORM_NAME,
-                "",
-                error=f"Prompt exceeds maximum length of 10000 characters "
-                f"(got {len(prompt_text)}).",
-            )
+        if sub == "list":
+            return cls.loader("list").cmd_list(io, coder, rest)
 
-        # Happy path: enqueue the prompt
-        try:
-            item = command_queue.enqueue_prompt(coder, prompt_text)
-            position = command_queue.get_queue_length(coder)
-            io.tool_output(f"Prompt queued at position {position} (id: {item['id']})")
+        if sub == "remove":
+            return cls.loader("remove").cmd_remove(io, coder, rest)
 
-            return f"Successfully executed {cls.NORM_NAME}."
-        except ValueError as e:
-            return format_command_result(io, cls.NORM_NAME, "", error=str(e))
-        except RuntimeError as e:
-            return format_command_result(io, cls.NORM_NAME, "", error=str(e))
+        if sub == "run":
+            return await cls.loader("run").cmd_run(io, coder, rest)
+
+        return cls.loader("add").cmd_add(io, coder, raw)
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
-        """Get completion options for queue command.
+        """Complete the subcommand, then the current argument token.
 
-        When the queued prompt starts with a slash command, mirror the
-        original command's completions (e.g. /queue /add <tab> offers files).
+        ``add`` and the prompt portion of ``insert`` delegate to nested slash
+        command completion so ``/queue add /ad<tab>`` behaves like ``/ad<tab>``.
         """
-        return command_queue.nested_command_completions(coder, args)
+        from cecli.helpers import command_queue
+
+        head = (args or "").lstrip()
+
+        if not head:
+            return list(cls.SUBCOMMANDS)
+
+        if head.startswith("/"):
+            return command_queue.nested_command_completions(coder, head)
+
+        if " " not in head:
+            return [s for s in cls.SUBCOMMANDS if s.startswith(head.lower())] or list(
+                cls.SUBCOMMANDS
+            )
+
+        sub, _, rest = head.partition(" ")
+        sub = sub.lower()
+        if sub not in cls.SUBCOMMANDS:
+            # Legacy shorthand: the whole argument string is an add prompt.
+            return command_queue.nested_command_completions(coder, head)
+
+        if sub == "add":
+            return command_queue.nested_command_completions(coder, rest)
+
+        if sub == "insert":
+            first_space = rest.find(" ")
+            if first_space == -1:
+                return cls._index_completions(coder)
+
+            return command_queue.nested_command_completions(coder, rest[first_space + 1 :])
+
+        if sub == "remove":
+            return cls._remove_completions(coder)
+
+        return []
 
     @classmethod
     def get_help(cls) -> str:
         """Get help text for the queue command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /queue <prompt text>  # Queue a prompt for later processing\n"
+        help_text += "  /queue <prompt text>              # Queue a prompt for later processing\n"
+        help_text += "  /queue add <prompt text>          # Same as above, explicit form\n"
+        help_text += "  /queue insert <index> <prompt>    # Insert at a 1-based position\n"
+        help_text += "  /queue list                       # Display all queued prompts\n"
+        help_text += "  /queue remove <index>             # Remove the prompt at an index\n"
+        help_text += "  /queue remove *                   # Clear the entire queue\n"
+        help_text += "  /queue run                        # Process all queued prompts now\n"
         help_text += "\nDescription:\n"
-        help_text += "  Adds a prompt to an in-memory FIFO queue. Queued prompts are\n"
-        help_text += "  processed sequentially after the current command completes.\n"
-        help_text += "\nConstraints:\n"
-        help_text += "  - Maximum prompt length: 10,000 characters\n"
-        help_text += "  - Maximum queue size: 100 items\n"
-        help_text += "  - Queue is in-memory only (lost on session restart)\n"
+        help_text += "  Queued prompts are processed sequentially after the current command\n"
+        help_text += "  completes. The queue is in-memory only (lost on session restart).\n"
         help_text += "\nExamples:\n"
         help_text += "  /queue Review the changes in src/main.py\n"
-        help_text += "  /queue Write unit tests for the new feature\n"
-        help_text += "\nSee also: /insert-queue, /list-queue, /remove-queue, /run-queue\n"
+        help_text += "  /queue insert 1 Write tests for the new feature\n"
+        help_text += "  /queue remove 2\n"
         return help_text
+
+    @classmethod
+    def _index_completions(cls, coder) -> List[str]:
+        """Suggest valid 1-based insertion positions."""
+        from cecli.helpers import command_queue
+
+        if not coder.commands:
+            return []
+
+        return [str(i) for i in range(1, command_queue.get_queue_length(coder) + 2)]
+
+    @classmethod
+    def _remove_completions(cls, coder) -> List[str]:
+        """Suggest queue indices plus the clear-all wildcard."""
+        from cecli.helpers import command_queue
+
+        if not coder.commands:
+            return []
+
+        completions = [str(i) for i in range(1, command_queue.get_queue_length(coder) + 1)]
+        completions.append("*")
+        return completions

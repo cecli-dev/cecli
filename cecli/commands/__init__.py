@@ -37,13 +37,8 @@ from .help import HelpCommand
 from .history_search import HistorySearchCommand
 from .hooks import HooksCommand
 from .hot_reload import HotReloadCommand
-from .insert_queue import InsertQueueCommand
 from .lint import LintCommand
-from .list_queue import ListQueueCommand
-from .list_sessions import ListSessionsCommand
 from .load import LoadCommand
-from .load_hook import LoadHookCommand
-from .load_session import LoadSessionCommand
 from .ls import LsCommand
 from .map import MapCommand
 from .map_refresh import MapRefreshCommand
@@ -59,17 +54,14 @@ from .read_only import ReadOnlyCommand
 from .read_only_stub import ReadOnlyStubCommand
 from .reap_agent import ReapAgentCommand
 from .reasoning_effort import ReasoningEffortCommand
-from .remove_hook import RemoveHookCommand
 from .remove_memory import RemoveMemoryCommand
-from .remove_queue import RemoveQueueCommand
 from .report import ReportCommand
 from .reset import ResetCommand
 from .rules import RulesCommand
 from .run import RunCommand
-from .run_queue import RunQueueCommand
 from .save import SaveCommand
-from .save_session import SaveSessionCommand
 from .search_memory import SearchMemoryCommand
+from .sessions import SessionsCommand
 from .settings import SettingsCommand
 from .skills import SkillsCommand
 from .spawn_agent import SpawnAgentCommand
@@ -128,13 +120,8 @@ CommandRegistry.register(HelpCommand)
 CommandRegistry.register(HistorySearchCommand)
 CommandRegistry.register(HooksCommand)
 CommandRegistry.register(HotReloadCommand)
-CommandRegistry.register(InsertQueueCommand)
 CommandRegistry.register(LintCommand)
-CommandRegistry.register(ListQueueCommand)
-CommandRegistry.register(ListSessionsCommand)
 CommandRegistry.register(LoadCommand)
-CommandRegistry.register(LoadHookCommand)
-CommandRegistry.register(LoadSessionCommand)
 CommandRegistry.register(LsCommand)
 CommandRegistry.register(MapCommand)
 CommandRegistry.register(MapRefreshCommand)
@@ -150,17 +137,14 @@ CommandRegistry.register(ReadOnlyCommand)
 CommandRegistry.register(ReadOnlyStubCommand)
 CommandRegistry.register(ReapAgentCommand)
 CommandRegistry.register(ReasoningEffortCommand)
-CommandRegistry.register(RemoveHookCommand)
 CommandRegistry.register(RemoveMemoryCommand)
-CommandRegistry.register(RemoveQueueCommand)
 CommandRegistry.register(ReportCommand)
 CommandRegistry.register(ResetCommand)
 CommandRegistry.register(RulesCommand)
 CommandRegistry.register(RunCommand)
-CommandRegistry.register(RunQueueCommand)
 CommandRegistry.register(SaveCommand)
-CommandRegistry.register(SaveSessionCommand)
 CommandRegistry.register(SearchMemoryCommand)
+CommandRegistry.register(SessionsCommand)
 CommandRegistry.register(SettingsCommand)
 CommandRegistry.register(SkillsCommand)
 CommandRegistry.register(SpawnAgentCommand)
@@ -216,13 +200,8 @@ __all__ = [
     "HistorySearchCommand",
     "HooksCommand",
     "HotReloadCommand",
-    "InsertQueueCommand",
     "LintCommand",
-    "ListQueueCommand",
-    "ListSessionsCommand",
     "LoadCommand",
-    "LoadHookCommand",
-    "LoadSessionCommand",
     "LsCommand",
     "MapCommand",
     "MapRefreshCommand",
@@ -241,17 +220,14 @@ __all__ = [
     "ReapAgentCommand",
     "ReasoningEffortCommand",
     "ReloadProgramSignal",
-    "RemoveHookCommand",
     "RemoveMemoryCommand",
-    "RemoveQueueCommand",
     "ReportCommand",
     "ResetCommand",
     "RulesCommand",
     "RunCommand",
-    "RunQueueCommand",
     "SaveCommand",
-    "SaveSessionCommand",
     "SearchMemoryCommand",
+    "SessionsCommand",
     "SettingsCommand",
     "SkillsCommand",
     "SpawnAgentCommand",

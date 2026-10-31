@@ -2051,7 +2051,7 @@ class Coder(metaclass=UsageMeta):
             remaining = command_queue.get_queue_length(self)
             self.io.tool_warning(
                 f"Queue processing interrupted. {remaining} prompt(s) remain"
-                " queued; use /run-queue to resume."
+                " queued; use /queue run to resume."
             )
 
         from cecli.helpers.agents.service import AgentService

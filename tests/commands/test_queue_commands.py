@@ -8,11 +8,7 @@ import pytest
 
 # Import the actual classes to test
 from cecli.commands.core import Commands
-from cecli.commands.insert_queue import InsertQueueCommand
-from cecli.commands.list_queue import ListQueueCommand
 from cecli.commands.queue import QueueCommand
-from cecli.commands.remove_queue import RemoveQueueCommand
-from cecli.commands.run_queue import RunQueueCommand
 from cecli.commands.utils.registry import CommandRegistry
 from cecli.helpers import command_queue
 from cecli.signals import ReloadProgramSignal, SwitchCoderSignal
@@ -372,7 +368,7 @@ class TestListQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_07_list_queue_shows_numbered_list(self, mock_io, populated_queue):
         """ITC-07: /list-queue displays numbered list of queued prompts with timestamps."""
-        result = await ListQueueCommand.execute(mock_io, populated_queue, "")
+        result = await QueueCommand.execute(mock_io, populated_queue, "list")
 
         assert result == "Successfully executed list-queue."
         mock_io.tool_output.assert_called()
@@ -383,7 +379,7 @@ class TestListQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_08_list_queue_empty_shows_message(self, mock_io, mock_coder):
         """ITC-08: /list-queue on empty queue shows "Queue is empty" message."""
-        result = await ListQueueCommand.execute(mock_io, mock_coder, "")
+        result = await QueueCommand.execute(mock_io, mock_coder, "list")
 
         assert result == "Successfully executed list-queue."
         mock_io.tool_output.assert_called()
@@ -393,7 +389,7 @@ class TestListQueueCommand:
         self, mock_io, mock_coder_no_commands
     ):
         """ITC-09: /list-queue handles coder.commands is None with error message."""
-        result = await ListQueueCommand.execute(mock_io, mock_coder_no_commands, "")
+        result = await QueueCommand.execute(mock_io, mock_coder_no_commands, "list")
 
         assert "Error" in result or "not available" in result.lower()
 
@@ -402,7 +398,7 @@ class TestListQueueCommand:
         """ITC-10: /list-queue truncates prompts longer than display threshold."""
         coder = _make_coder_with_commands(("x" * 120,))
 
-        await ListQueueCommand.execute(mock_io, coder, "")
+        await QueueCommand.execute(mock_io, coder, "list")
 
         calls = [str(call) for call in mock_io.tool_output.call_args_list]
         output_text = " ".join(calls)
@@ -415,7 +411,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_11_remove_by_index(self, mock_io, populated_queue):
         """ITC-11: /remove-queue <index> removes exact item and confirms removal."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "2")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove 2")
 
         assert result == "Successfully executed remove-queue."
         assert len(populated_queue.prompt_queue) == 2
@@ -424,7 +420,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_12_remove_wildcard_clears_all(self, mock_io, populated_queue):
         """ITC-12: /remove-queue * clears entire queue and confirms count removed."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "*")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove *")
 
         assert result == "Successfully executed remove-queue."
         assert len(populated_queue.prompt_queue) == 0
@@ -433,7 +429,7 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_13_remove_interactive_mode(self, mock_io, populated_queue):
         """ITC-13: /remove-queue with no args enters interactive selection."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove")
 
         # Interactive mode shows queue list and prompt, returns success status
         assert result == "Successfully executed remove-queue."
@@ -445,41 +441,41 @@ class TestRemoveQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_14_remove_invalid_index_non_integer(self, mock_io, populated_queue):
         """ITC-14: /remove-queue with non-integer index shows invalid index error."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "abc")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove abc")
 
         assert "Error" in result or "Invalid index" in result
 
     @pytest.mark.asyncio
     async def test_itc_15_remove_out_of_bounds_index(self, mock_io, populated_queue):
         """ITC-15: /remove-queue with out-of-bounds index shows error."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "99")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove 99")
 
         assert "Error" in result or "out of range" in result.lower()
 
     @pytest.mark.asyncio
     async def test_itc_16_remove_negative_index(self, mock_io, populated_queue):
         """ITC-16: /remove-queue with negative index shows error."""
-        result = await RemoveQueueCommand.execute(mock_io, populated_queue, "-1")
+        result = await QueueCommand.execute(mock_io, populated_queue, "remove -1")
 
         assert "Error" in result or "Invalid index" in result
 
     @pytest.mark.asyncio
     async def test_itc_17_remove_empty_queue(self, mock_io, mock_coder):
         """ITC-17: /remove-queue on empty queue shows error."""
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder, "1")
+        result = await QueueCommand.execute(mock_io, mock_coder, "remove 1")
 
         assert "Error" in result or "empty" in result.lower()
 
     @pytest.mark.asyncio
     async def test_itc_18_remove_handles_coder_commands_none(self, mock_io, mock_coder_no_commands):
         """ITC-18: /remove-queue handles coder.commands is None."""
-        result = await RemoveQueueCommand.execute(mock_io, mock_coder_no_commands, "1")
+        result = await QueueCommand.execute(mock_io, mock_coder_no_commands, "remove 1")
 
         assert "Error" in result or "not available" in result.lower()
 
     def test_itc_19_get_completions_returns_indices_and_wildcard(self, populated_queue):
         """ITC-19: RemoveQueueCommand.get_completions() returns valid index completions and '*'."""
-        completions = RemoveQueueCommand.get_completions(None, populated_queue, "")
+        completions = QueueCommand.get_completions(None, populated_queue, "remove ")
 
         assert "1" in completions
         assert "2" in completions
@@ -487,11 +483,11 @@ class TestRemoveQueueCommand:
         assert "*" in completions
 
     def test_itc_20_commands_registered_in_registry(self):
-        """ITC-20: All four queue commands are registered and discoverable via registry lookup."""
-        assert CommandRegistry.get_command("queue") is not None
-        assert CommandRegistry.get_command("list-queue") is not None
-        assert CommandRegistry.get_command("remove-queue") is not None
-        assert CommandRegistry.get_command("run-queue") is not None
+        """ITC-20: The queue dispatcher is registered and legacy names are gone."""
+        assert CommandRegistry.get_command("queue") is QueueCommand
+
+        for legacy in ("list-queue", "insert-queue", "remove-queue", "run-queue"):
+            assert CommandRegistry.get_command(legacy) is None
 
 
 class TestRunQueueCommand:
@@ -510,7 +506,7 @@ class TestRunQueueCommand:
 
         coder.process_prompt_queue = fake_drain
 
-        result = await RunQueueCommand.execute(mock_io, coder, "")
+        result = await QueueCommand.execute(mock_io, coder, "run")
 
         assert result == "Successfully executed run-queue."
         assert processed == ["first", "second", "third"]
@@ -526,7 +522,7 @@ class TestRunQueueCommand:
 
         coder.process_prompt_queue = failing_drain
 
-        result = await RunQueueCommand.execute(mock_io, coder, "")
+        result = await QueueCommand.execute(mock_io, coder, "run")
 
         assert "Error" in result
         assert "drain exploded" in result
@@ -535,7 +531,7 @@ class TestRunQueueCommand:
     @pytest.mark.asyncio
     async def test_itc_23_run_queue_empty_queue_informs_user(self, mock_io, mock_coder):
         """ITC-23: /run-queue on an empty queue informs the user without error."""
-        result = await RunQueueCommand.execute(mock_io, mock_coder, "")
+        result = await QueueCommand.execute(mock_io, mock_coder, "run")
 
         assert result == "Successfully executed run-queue."
         calls = [str(call) for call in mock_io.tool_output.call_args_list]
@@ -546,7 +542,7 @@ class TestRunQueueCommand:
         self, mock_io, mock_coder_no_commands
     ):
         """ITC-24: /run-queue handles coder.commands is None with error message."""
-        result = await RunQueueCommand.execute(mock_io, mock_coder_no_commands, "")
+        result = await QueueCommand.execute(mock_io, mock_coder_no_commands, "run")
 
         assert "Error" in result or "not available" in result.lower()
 
@@ -622,7 +618,7 @@ class TestQueueIdleNoAutoDrain:
 
         coder.process_prompt_queue = fake_drain
 
-        result = await InsertQueueCommand.execute(mock_io, coder, "1 idle insert")
+        result = await QueueCommand.execute(mock_io, coder, "insert 1 idle insert")
 
         assert result == "Successfully executed insert-queue."
         assert drain_calls == []
@@ -641,7 +637,7 @@ class TestQueueIdleNoAutoDrain:
 
         coder.process_prompt_queue = fake_drain
 
-        result = await InsertQueueCommand.execute(mock_io, coder, "1 busy insert")
+        result = await QueueCommand.execute(mock_io, coder, "insert 1 busy insert")
 
         assert result == "Successfully executed insert-queue."
         assert drain_calls == []
@@ -847,7 +843,10 @@ class TestSubAgentCoderSwitch:
 
         with (
             patch("cecli.coders.Coder.create", AsyncMock(return_value=new_coder)) as create,
-            patch("cecli.helpers.agents.service.AgentService.get_instance", return_value=service),
+            patch(
+                "cecli.helpers.agents.service.AgentService.get_instance",
+                return_value=service,
+            ),
         ):
             await Coder.process_prompt_queue(coder)
 
@@ -909,8 +908,8 @@ class TestTUICompletionApplication:
         app = self._app(coder)
 
         assert (
-            app._get_completed_text("/insert-queue 1 /save-session ", "auto-save")
-            == "/insert-queue 1 /save-session auto-save"
+            app._get_completed_text("/queue insert1 /sessions save ", "auto-save")
+            == "/queue insert1 /sessions save auto-save"
         )
 
     def test_non_nested_argument_completion_keeps_existing_behavior(self, mock_io):
@@ -927,13 +926,13 @@ class TestNestedCompletions:
     """Unit tests for nested slash-command completions in /queue and /insert-queue."""
 
     def test_ntc_01_queue_prefix_matches_registry_commands(self, mock_io):
-        """NTC-01: /queue /sa offers inner commands whose names start with "sa"."""
+        """NTC-01: /queue /sess offers inner commands whose names start with "sess"."""
         coder = _make_coder_with_commands()
 
-        result = QueueCommand.get_completions(mock_io, coder, "/sa")
+        result = QueueCommand.get_completions(mock_io, coder, "/sess")
 
-        assert "/save-session" in result
-        assert all(name.startswith("/sa") for name in result)
+        assert "/sessions" in result
+        assert all(name.startswith("/sess") for name in result)
         assert result == sorted(result)
 
     def test_ntc_02_queue_full_inner_command_delegates_to_original(self, mock_io):
@@ -949,23 +948,22 @@ class TestNestedCompletions:
         coder.commands.get_completions.assert_called_once_with("/add", "", coder=coder)
 
     def test_ntc_03_queue_save_session_delegates_session_names(self, mock_io):
-        """NTC-03: /queue /save-session <tab> delegates to SaveSessionCommand so
-        existing session names are offered exactly like /save-session <tab>."""
+        """NTC-03: /queue add /sessions save <tab> delegates to SessionsCommand."""
         coder = _make_coder_with_commands()
         session_names = ["auto-save", "feature-x"]
         coder.commands.get_completions = MagicMock(return_value=session_names)
 
-        result = QueueCommand.get_completions(mock_io, coder, "/save-session ")
+        result = QueueCommand.get_completions(mock_io, coder, "add /sessions save ")
 
         assert result == session_names
-        coder.commands.get_completions.assert_called_once_with("/save-session", "", coder=coder)
+        coder.commands.get_completions.assert_called_once_with("/sessions", "save ", coder=coder)
 
     def test_ntc_04_queue_plain_text_returns_empty(self, mock_io):
         """NTC-04: non-command queued text (and empty args) have no completions."""
         coder = _make_coder_with_commands()
 
         assert QueueCommand.get_completions(mock_io, coder, "plain text") == []
-        assert QueueCommand.get_completions(mock_io, coder, "") == []
+        assert QueueCommand.get_completions(mock_io, coder, "") == list(QueueCommand.SUBCOMMANDS)
 
     def test_ntc_05_queue_unknown_inner_command_returns_empty(self, mock_io):
         """NTC-05: delegation errors (e.g. unknown inner command) degrade to []."""
@@ -979,22 +977,22 @@ class TestNestedCompletions:
         assert QueueCommand.get_completions(mock_io, coder, "/no-such-cmd arg ") == []
 
     def test_ntc_06_insert_queue_delegates_after_index(self, mock_io):
-        """NTC-06: /insert-queue 1 /save-session <tab> delegates after the index."""
+        """NTC-06: /queue insert 1 /sessions <tab> delegates after the index."""
         coder = _make_coder_with_commands()
         session_names = ["auto-save"]
         coder.commands.get_completions = MagicMock(return_value=session_names)
 
-        result = InsertQueueCommand.get_completions(mock_io, coder, "1 /save-session ")
+        result = QueueCommand.get_completions(mock_io, coder, "insert 1 /sessions ")
 
         assert result == session_names
-        coder.commands.get_completions.assert_called_once_with("/save-session", "", coder=coder)
+        coder.commands.get_completions.assert_called_once_with("/sessions", "", coder=coder)
 
     def test_ntc_07_insert_queue_index_only_suggests_positions(self, mock_io):
-        """NTC-07: while typing the index, /insert-queue offers clamped positions."""
+        """NTC-07: while typing the index, /queue insert offers valid positions."""
         coder = _make_coder_with_commands()
         command_queue.enqueue_prompt(coder, "only item")
 
-        result = InsertQueueCommand.get_completions(mock_io, coder, "1")
+        result = QueueCommand.get_completions(mock_io, coder, "insert 1")
 
         # Queue holds 1 item, so positions 1..2 (append at end) are valid.
         assert result == ["1", "2"]
@@ -1039,12 +1037,7 @@ class TestQueueLifecycle:
         self, mock_io, clean_commands
     ):
         """ETC-06: Management commands do not trigger auto-processing of queued items."""
-        assert clean_commands._MANAGEMENT_COMMANDS == {
-            "queue",
-            "list-queue",
-            "remove-queue",
-            "run-queue",
-        }
+        assert clean_commands._MANAGEMENT_COMMANDS == {"queue"}
 
     @pytest.mark.asyncio
     async def test_etc_05_prevent_infinite_loop(self, populated_queue):
@@ -1114,17 +1107,10 @@ class TestRegression:
         assert callable(mock_coder.commands.execute)
 
     def test_rtc_04_init_py_imports_all_commands(self):
-        """RTC-04: cecli/commands/__init__.py imports all commands without conflicts."""
-        from cecli.commands import (
-            CommandRegistry,
-            ListQueueCommand,
-            QueueCommand,
-            RemoveQueueCommand,
-        )
+        """RTC-04: cecli/commands/__init__.py imports the queue dispatcher."""
+        from cecli.commands import CommandRegistry, QueueCommand
 
         assert CommandRegistry.get_command("queue") is QueueCommand
-        assert CommandRegistry.get_command("list-queue") is ListQueueCommand
-        assert CommandRegistry.get_command("remove-queue") is RemoveQueueCommand
 
     def test_rtc_05_thread_safety_under_concurrent_access(self, clean_commands):
         """RTC-05: The queue lock is a real threading.Lock created on first use."""
@@ -1177,38 +1163,29 @@ class TestCommandRegistration:
     """Tests for command registration in CommandRegistry."""
 
     def test_all_queue_commands_registered(self):
-        """Verify all queue commands are properly registered."""
+        """Verify the queue dispatcher is registered under its family name."""
         commands = CommandRegistry.list_commands()
 
         assert "queue" in commands
-        assert "list-queue" in commands
-        assert "remove-queue" in commands
-        assert "run-queue" in commands
+        assert "list-queue" not in commands
+        assert "insert-queue" not in commands
+        assert "remove-queue" not in commands
+        assert "run-queue" not in commands
 
     def test_command_classes_have_required_attributes(self):
-        """Verify command classes have NORM_NAME and DESCRIPTION."""
+        """Verify the dispatcher exposes its subcommands and helper modules."""
         assert QueueCommand.NORM_NAME == "queue"
         assert QueueCommand.DESCRIPTION is not None
+        assert QueueCommand.SUBCOMMANDS == ("add", "insert", "list", "remove", "run")
 
-        assert ListQueueCommand.NORM_NAME == "list-queue"
-        assert ListQueueCommand.DESCRIPTION is not None
-
-        assert RemoveQueueCommand.NORM_NAME == "remove-queue"
-        assert RemoveQueueCommand.DESCRIPTION is not None
-
-        assert RunQueueCommand.NORM_NAME == "run-queue"
-        assert RunQueueCommand.DESCRIPTION is not None
+        for sub in QueueCommand.SUBCOMMANDS:
+            assert sub in QueueCommand.HELPER_MODULES
 
     def test_command_classes_have_execute_method(self):
-        """Verify command classes have async execute method."""
+        """Verify the dispatcher has an async execute method."""
         assert hasattr(QueueCommand, "execute")
-        assert hasattr(ListQueueCommand, "execute")
-        assert hasattr(RemoveQueueCommand, "execute")
-
         assert callable(QueueCommand.execute)
-        assert callable(ListQueueCommand.execute)
-        assert callable(RemoveQueueCommand.execute)
-        assert callable(RunQueueCommand.execute)
+        assert callable(QueueCommand.get_completions)
 
 
 # ============================================================================
@@ -1306,17 +1283,17 @@ class TestCompleterPlumbing:
         assert seen == ["s"]
 
     def test_tcp_03_queue_inner_command_names(self):
-        """TCP-03: /queue /sa surfaces matching inner command names."""
+        """TCP-03: /queue /sess surfaces matching inner command names."""
         coder = _make_coder_with_commands()
 
-        result = coder.commands.get_completions("/queue", args="/sa")
+        result = coder.commands.get_completions("/queue", args="/sess")
 
-        assert "/save-session" in result
-        assert all(name.startswith("/sa") for name in result)
+        assert "/sessions" in result
+        assert all(name.startswith("/sess") for name in result)
 
     def test_tcp_04_queue_save_session_delegates_session_names(self, monkeypatch):
-        """TCP-04: /queue /save-session pre reaches SaveSessionCommand with "pre"."""
-        from cecli.commands.save_session import SaveSessionCommand
+        """TCP-04: /queue add /sessions save pre reaches SessionsCommand."""
+        from cecli.commands.sessions import SessionsCommand
 
         coder = _make_coder_with_commands()
         seen = []
@@ -1325,12 +1302,12 @@ class TestCompleterPlumbing:
             seen.append(args)
             return ["presentation"]
 
-        monkeypatch.setattr(SaveSessionCommand, "get_completions", classmethod(spy))
+        monkeypatch.setattr(SessionsCommand, "get_completions", classmethod(spy))
 
-        result = coder.commands.get_completions("/queue", args="/save-session pre")
+        result = coder.commands.get_completions("/queue", args="add /sessions save pre")
 
         assert result == ["presentation"]
-        assert seen == ["pre"]
+        assert seen == ["save pre"]
 
     def test_tcp_05_queue_plain_text_returns_empty(self):
         """TCP-05: /queue plain text has no completions."""
@@ -1339,7 +1316,7 @@ class TestCompleterPlumbing:
         assert coder.commands.get_completions("/queue", args="plain text") == []
 
     def test_tcp_06_insert_queue_delegates_after_index(self, monkeypatch):
-        """TCP-06: /insert-queue 1 /add <tab> delegates to AddCommand after index."""
+        """TCP-06: /queue insert1 /add <tab> delegates to AddCommand after index."""
         from cecli.commands.add import AddCommand
 
         coder = _make_coder_with_commands()
@@ -1351,7 +1328,7 @@ class TestCompleterPlumbing:
 
         monkeypatch.setattr(AddCommand, "get_completions", classmethod(spy))
 
-        result = coder.commands.get_completions("/insert-queue", args="1 /add ")
+        result = coder.commands.get_completions("/queue", args="insert 1 /add ")
 
         assert result == ["file_a.py"]
         assert seen == [""]
