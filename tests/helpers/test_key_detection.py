@@ -49,6 +49,119 @@ def test_detects_credential_words_that_are_not_separate_name_words():
     assert key_detection.detect_api_keys(environ=environ) == [FAKE_TOKEN]
 
 
+def test_ignores_names_where_credential_word_is_not_a_suffix():
+    environ = {
+        "TOKENIZER": f"Bearer {FAKE_TOKEN}",
+        "KEYBOARD_LAYOUT": f"Bearer {FAKE_TOKEN}",
+        "SSH_KEY_PATH": "/home/some/repo/lower_case-4/file.txt",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == [FAKE_TOKEN]
+
+
+def test_ignores_path_shaped_identifiers():
+    environ = {
+        "PWD": "/home/some/repo/my_project_worktree_checkout-4",
+        "PYTHONPATH": "/home/some/project_with_a_really_long_name-4/lib",
+        "SOME_PROVIDER": "parent_with_a_very_long_name-4/lower_case-4/file.txt",
+        "SOME_OTHER": "parent_with_a_very_long_name-4/lower_case_checkout",
+        "CLIENT_SECRET": "/home/some/project_with_a_really_long_name-4/secret.txt",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == []
+
+
+def test_contains_credential_word_requires_a_key_like_value():
+    environ = {
+        "API_KEY_V2": FAKE_KEY,
+        "KEY_DESCRIPTION_V2": "ordinary human readable words",
+        "KEY_LOW_DIVERSITY_V2": "abc123 abc123 abc123 abc123",
+        "KEY_LOCATION_V2": "parent_with_a_very_long_name-4/file.txt",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == [FAKE_KEY]
+
+
+def test_detects_keys_embedded_in_path_shaped_values():
+    environ = {"SOME_PROVIDER": f"/usr/bin/foo {FAKE_KEY}"}
+
+    assert key_detection.detect_api_keys(environ=environ) == [FAKE_KEY]
+
+
+def test_ambiguous_suffix_names_require_key_like_values():
+    environ = {
+        "MONKEY": "ordinary-value",
+        "TURKEY": "ordinary-value",
+        "sortKey": "ordinary-value",
+        "lookupKey": "ordinary-value",
+        "HOTKEYS": "ordinary-value",
+        "MYTOKEN2": "ordinary-value",
+    }
+    merged = {"hotkeys": {"copy": "ordinary-value"}}
+
+    assert key_detection.detect_api_keys(environ=environ) == []
+    assert key_detection.detect_api_keys(merged, environ={}) == []
+
+
+def test_entropy_gate_rejects_whitespace_and_prose():
+    environ = {"sortKey": "rotate this api key every90 days"}
+
+    assert key_detection.detect_api_keys(environ=environ) == []
+
+
+def test_path_detection_handles_urls_windows_and_relative_paths():
+    looks_like_path = key_detection._looks_like_path
+
+    assert not looks_like_path("https://example.com/a/b")
+    assert looks_like_path(r"C:\Users\some\project_with_a_long_name-4")
+    assert looks_like_path(r"\\server\share\project_with_a_long_name-4")
+    assert looks_like_path("parent_with_a_long_name-4/lower_case_checkout/index.txt")
+    assert not looks_like_path("parent_with_a_long_name-4/lower_case_checkout")
+    assert key_detection._looks_path_ish("parent_with_a_long_name-4/lower_case_checkout")
+    assert not looks_like_path("AbCd/EfGh12/IjKl34/MnOp56")
+    assert not looks_like_path(r"abc\def")
+    assert not looks_like_path(FAKE_KEY)
+
+
+def test_entropy_thresholds_cover_secret_words():
+    assert set(key_detection.SECRET_NAME_SUFFIXES) <= set(
+        key_detection.CREDENTIAL_ENTROPY_THRESHOLDS
+    )
+
+
+def test_keeps_slash_containing_secrets():
+    slash_key = "AbCd/EfGh12/IjKl34/MnOp56/QrSt78"
+    environ = {"API_KEY": slash_key, "CLIENT_SECRET": slash_key}
+    merged = {"api_key": "abcd1234/efgh5678/ijkl9012mnop3456qrst"}
+
+    assert key_detection.detect_api_keys(environ=environ) == [slash_key]
+    assert key_detection.detect_api_keys(merged, environ={}) == [
+        "abcd1234/efgh5678/ijkl9012mnop3456qrst"
+    ]
+
+
+def test_ambiguous_suffix_names_still_detect_key_like_values():
+    environ = {"authToken": FAKE_TOKEN, "sortKey": FAKE_KEY, "MYTOKEN2": FAKE_TOKEN}
+
+    assert key_detection.detect_api_keys(environ=environ) == sorted({FAKE_KEY, FAKE_TOKEN})
+
+
+def test_credential_words_take_precedence_over_benign_words():
+    environ = {"KEY_ID": FAKE_KEY, "TOKEN_NAME": FAKE_TOKEN}
+
+    assert key_detection.detect_api_keys(environ=environ) == sorted({FAKE_KEY, FAKE_TOKEN})
+
+
+def test_version_suffixed_unambiguous_names_are_trusted():
+    environ = {
+        "SECRET_KEY_1": "p@ss:w0rd!",
+        "API_KEY_1": "pa:ssw0rd",
+        "DB_PASSWORD_2": "hunter2hunter2",
+    }
+
+    assert set(key_detection.detect_api_keys(environ=environ)) == set(environ.values())
+
+
 def test_ignores_short_values_of_key_named_env_vars():
     environ = {"SOME_FLAG_KEY": "true"}
 
