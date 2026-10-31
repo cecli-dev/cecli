@@ -652,9 +652,9 @@ class TUI(App):
             container = self._get_output_container(msg)
             self.run_worker(self._stream_chunk(container, msg["text"]))
         elif msg_type == "end_response":
-            # End the current LLM response
+            # End the current LLM response and append its average generation speed
             container = self._get_output_container(msg)
-            self.run_worker(self._end_response(container))
+            self.run_worker(self._end_response(container, msg.get("coder_uuid")))
         elif msg_type == "start_task":
             container = self._get_output_container(msg)
             container.start_task(msg["task_id"], msg["title"], msg.get("task_type"))
@@ -759,11 +759,11 @@ class TUI(App):
             container = self.query_one("#output", OutputContainer)
         await container.stream_chunk(text)
 
-    async def _end_response(self, container=None):
+    async def _end_response(self, container=None, coder_uuid=None):
         """End the current LLM response (async helper)."""
         if container is None:
             container = self.query_one("#output", OutputContainer)
-        await container.end_response()
+        await container.end_response(coder_uuid)
 
     def add_user_message(self, text: str):
         """Add a user message to output, routing to the active container."""

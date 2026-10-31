@@ -24,6 +24,8 @@ class MainFooter(Static):
     spinner_visible = reactive(False)
     _spinner_frame = 0
     _spinner_chars = "⠏⠛⠹⠼⠶⠧"
+    # Live generation speed readout (tokens/sec), refreshed while streaming.
+    gen_speed = reactive(0.0)
 
     def __init__(
         self,
@@ -56,10 +58,24 @@ class MainFooter(Static):
         )
 
     def _animate_spinner(self):
-        """Animate the spinner character."""
+        """Animate the spinner character and update live generation speed."""
         if self.spinner_visible:
             self._spinner_frame = (self._spinner_frame + 1) % len(self._spinner_chars)
+            self._update_gen_speed()
             self.refresh()
+
+    def _update_gen_speed(self) -> None:
+        """Update live generation speed from the active coder's token profiler."""
+        try:
+            coder = self.app.worker.coder
+            if hasattr(coder, 'token_profiler'):
+                speed = coder.token_profiler.get_generation_speed()
+                if speed is not None:
+                    self.gen_speed = speed
+                    return
+        except Exception:
+            pass
+        self.gen_speed = 0.0
 
     def _get_display_model(self) -> str:
         """Get shortened model name for display.
@@ -115,6 +131,9 @@ class MainFooter(Static):
             if self.spinner_suffix:
                 left.append(" • ")
                 left.append(self.spinner_suffix)
+            if self.gen_speed > 0:
+                left.append(" • ")
+                left.append(f"{self.gen_speed:.1f} t/s")
         else:
             left.append("cecli")
             left.append(" • ")
@@ -217,6 +236,7 @@ class MainFooter(Static):
             self._spinner_interval.pause()
         self.spinner_text = ""
         self.agent_name = ""
+        self.gen_speed = 0.0
         self.refresh()
 
     def _has_running_sub_agent(self) -> bool:
