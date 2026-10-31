@@ -47,7 +47,7 @@ servers: [gitlab]              # optional -> active MCP servers (lowercased)
 on_failure: stop               # stop | continue
 tasks:
   - name: attach-gitlab
-    prompt: /load-mcp gitlab
+    prompt: /mcp load gitlab
   - name: triage
     prompt: >
       Monitor the gitlab test pipeline and recent builds; summarize any errors
@@ -80,7 +80,7 @@ Task fields:
 
 | field | default | meaning |
 |-------|---------|---------|
-| `prompt` | — | Required. A list entry may also be a bare string, which is taken as the prompt. Slash commands (`/load-mcp`, `/model`, …) work exactly as if typed |
+| `prompt` | — | Required. A list entry may also be a bare string, which is taken as the prompt. Slash commands (`/mcp load`, `/model`, …) work exactly as if typed |
 | `name` | `task-N` | Label used in run logs and status output |
 | `save_to` | none | On success, writes the run's final summary to a persistent per-run file under `~/.cecli/workflows/outputs/{workflow}/{run}/` (named after the key; the path is recorded in the run log) |
 
@@ -131,7 +131,7 @@ schedule: "@every 20m"
 servers: [github]
 on_failure: continue
 tasks:
-  - prompt: /load-mcp github
+  - prompt: /mcp load github
     continue_on_error: true
   - prompt: "List open PRs I haven't reviewed; for each, summarize the diff and flag risky changes."
     save_to: pr_review_notes

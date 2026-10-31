@@ -52,7 +52,7 @@ servers:
   - Demo-MCP
 tasks:
   - name: attach-demo
-    prompt: /load-mcp demo
+    prompt: /mcp load demo
   - name: write-report
     prompt: summarize the demo run into .cecli/reports/demo.md
 """
@@ -83,7 +83,7 @@ async def test_yaml_config_drives_two_runs_through_real_db(tmp_path, monkeypatch
     configs = load_workflows()
     wf = _only_demo(configs)
     assert [t.prompt for t in wf.tasks] == [
-        "/load-mcp demo",
+        "/mcp load demo",
         "summarize the demo run into .cecli/reports/demo.md",
     ], "task order must survive YAML loading"
 

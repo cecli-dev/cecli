@@ -16,7 +16,7 @@ class Commands:
 
     # Commands that receive their full argument text for completion (nested
     # hosts and subcommand commands whose names take an argument).
-    FULL_ARGS_COMPLETION_COMMANDS = ("/queue", "/insert-queue", "/workflows")
+    FULL_ARGS_COMPLETION_COMMANDS = ("/queue", "/insert-queue", "/workflows", "/mcp", "/skills")
 
     def _get_coder(self):
         """Return coder via weak reference, or None if collected."""
@@ -173,6 +173,26 @@ class Commands:
         if command_class:
             return command_class.get_completions(self.io, coder or self.coder, args)
         return []
+
+    def has_subcommands(self, cmd):
+        """Return True when *cmd* declares subcommands."""
+        cmd = cmd[1:] if cmd.startswith("/") else cmd
+        command_class = CommandRegistry.get_command(cmd)
+        return bool(getattr(command_class, "SUBCOMMANDS", ()))
+
+    def at_subcommand_boundary(self, text):
+        """Return True when *text* ends after a command or first subcommand token."""
+        if not text.endswith(" "):
+            return False
+
+        words = text.split()
+        if not words or not words[0].startswith("/"):
+            return False
+
+        if not self.has_subcommands(words[0]):
+            return False
+
+        return len(words) <= 2
 
     def get_commands(self):
         registry_commands = CommandRegistry.list_commands()

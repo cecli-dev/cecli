@@ -246,6 +246,14 @@ class InputArea(TextArea):
         if not is_cycle:
             self._cycling = False
 
+        if event.key == "space" and self._blocks_extra_space():
+            event.stop()
+            event.prevent_default()
+            self._cycling = False
+            self._completion_prefix = self.text
+            self.post_message(self.CompletionRequested(self.text))
+            return
+
         if event.key == "space" and self.completion_active:
             self.completion_active = False
             self.post_message(self.CompletionDismiss())
@@ -395,6 +403,20 @@ class InputArea(TextArea):
 
             if val.startswith("/") or "@" in val or possible_path or self.completion_active:
                 self.post_message(self.CompletionRequested(val))
+
+    def _blocks_extra_space(self) -> bool:
+        """Return True when another space would duplicate a command separator."""
+        text = self.text
+        if not text.endswith(" "):
+            return False
+
+        try:
+            commands = self.app.worker.coder.commands
+        except Exception:
+            return False
+
+        check_boundary = getattr(commands, "at_subcommand_boundary", None)
+        return bool(check_boundary and check_boundary(text))
 
     def _refresh_size(self) -> None:
         """Refresh size, clamping cursor to document bounds first.

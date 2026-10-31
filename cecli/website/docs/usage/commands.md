@@ -32,10 +32,10 @@ Cecli supports commands from within the chat, which all start with `/`.
 | **/history-search** | Fuzzy search your command history and paste the selected command into the chat. |
 | **/lint** | Lint and fix in-chat files or all dirty files if none in chat |
 | **/load** | Load and execute commands from a file |
-| **/load-mcp** | Load a MCP server by name |
 | **/ls** | List all known files and indicate which are included in the chat session |
 | **/map** | Print out the current repository map |
 | **/map-refresh** | Force a refresh of the repository map |
+| **/mcp** | Manage MCP servers: `/mcp list`, `/mcp load <name>`, `/mcp remove <name>` |
 | **/model** | Switch the Main Model to a new LLM |
 | **/models** | Search the list of available models |
 | **/multiline-mode** | Toggle multiline mode (swaps behavior of Enter and Meta+Enter) |
@@ -44,11 +44,11 @@ Cecli supports commands from within the chat, which all start with `/`.
 | **/read-only** | Add files to the chat that are for reference only, or turn added files to read-only |
 | **/reasoning-effort** | Set the reasoning effort level (values: number or low/medium/high depending on model) |
 | **/report** | Report a problem by opening a GitHub Issue |
-| **/remove-mcp** | Remove a MCP server by name |
 | **/reset** | Drop all files and clear the chat history |
 | **/run** | Run a shell command and optionally add the output to the chat (alias: !) |
 | **/save** | Save commands to a file that can reconstruct the current chat session's files |
 | **/settings** | Print out the current settings |
+| **/skills** | Manage skills: `/skills list`, `load`, `include`, `exclude`, `remove`, `import` |
 | **/switch-agent** | Switch to a specific agent by name |
 | **/test** | Run a shell command and add the output to the chat on non-zero exit code |
 | **/think-tokens** | Set the thinking token budget, eg: 8096, 8k, 10.5k, 0.5M, or 0 to disable. |

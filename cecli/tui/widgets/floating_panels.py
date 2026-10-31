@@ -250,15 +250,17 @@ class FloatingPanels(Vertical):
         if coder is None:
             return
 
-        command_cls = self._command_class(category, active)
-        if command_cls is None:
+        command = self._command_for(category, name, active)
+        if command is None:
             return
+
+        command_cls, command_args = command
 
         self._command_running = True
 
         async def runner():
             try:
-                await command_cls.execute(coder.io, coder, name)
+                await command_cls.execute(coder.io, coder, command_args)
             finally:
                 self._command_running = False
                 try:
@@ -276,32 +278,24 @@ class FloatingPanels(Vertical):
         except Exception:
             self._command_running = False
 
-    def _command_class(self, category, active):
-        """Return the command class for an item click."""
+    def _command_for(self, category, name, active):
+        """Return (command class, argument string) for an item click."""
         if category == "subagents":
             from cecli.commands.spawn_agent import SpawnAgentCommand
 
-            return SpawnAgentCommand
+            return SpawnAgentCommand, name
 
         if category == "skills":
-            if active:
-                from cecli.commands.remove_skill import RemoveSkillCommand
+            from cecli.commands.skills import SkillsCommand
 
-                return RemoveSkillCommand
-
-            from cecli.commands.load_skill import LoadSkillCommand
-
-            return LoadSkillCommand
+            sub = "remove" if active else "load"
+            return SkillsCommand, f"{sub} {name}"
 
         if category == "servers":
-            if active:
-                from cecli.commands.remove_mcp import RemoveMcpCommand
+            from cecli.commands.mcp import McpCommand
 
-                return RemoveMcpCommand
-
-            from cecli.commands.load_mcp import LoadMcpCommand
-
-            return LoadMcpCommand
+            sub = "remove" if active else "load"
+            return McpCommand, f"{sub} {name}"
 
         return None
 

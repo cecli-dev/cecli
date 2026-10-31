@@ -570,14 +570,14 @@ async def test_from_servers_warning_after_retries(mock_server, mock_io):
 
 
 # ---------------------------------------------------------------------------
-# TC-017: /load-mcp command benefits from retry logic
+# TC-017: /mcp load command benefits from retry logic
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_load_mcp_command_benefits_from_retry(mock_server, mock_io, mock_tools, mock_session):
-    """TC-017: LoadMcpCommand.execute uses connect_server which now has built-in retry."""
-    from cecli.commands.load_mcp import LoadMcpCommand
+    """TC-017: McpCommand.execute uses connect_server which now has built-in retry."""
+    from cecli.commands.mcp import McpCommand
 
     coder = _make_mock_coder(mock_server, mock_io)
 
@@ -593,31 +593,31 @@ async def test_load_mcp_command_benefits_from_retry(mock_server, mock_io, mock_t
     coder.mcp_manager.get_server = MagicMock(return_value=mock_server)
     coder.mcp_manager.connected_servers = []
 
-    with patch("cecli.commands.load_mcp.iter_all_coders", return_value=[coder]):
-        with patch("cecli.commands.load_mcp.update_server_registration"):
+    with patch("cecli.commands.mcp_helpers.load.iter_all_coders", return_value=[coder]):
+        with patch("cecli.commands.mcp_helpers.load.update_server_registration"):
             with pytest.raises(SwitchCoderSignal):
-                await LoadMcpCommand.execute(mock_io, coder, "test-server")
+                await McpCommand.execute(mock_io, coder, "load test-server")
 
 
 # ---------------------------------------------------------------------------
-# TC-018: /load-mcp command reports failure after retries exhausted
+# TC-018: /mcp load command reports failure after retries exhausted
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_load_mcp_command_reports_failure_after_retries(mock_server, mock_io):
-    """TC-018: LoadMcpCommand.execute reports 'Unable to load server' after retries exhausted."""
-    from cecli.commands.load_mcp import LoadMcpCommand
+    """TC-018: McpCommand.execute reports 'Unable to load server' after retries exhausted."""
+    from cecli.commands.mcp import McpCommand
 
     coder = _make_mock_coder(mock_server, mock_io)
     coder.mcp_manager.connect_server = AsyncMock(return_value=False)
     coder.mcp_manager.get_server = MagicMock(return_value=mock_server)
     coder.mcp_manager.connected_servers = []
 
-    with patch("cecli.commands.load_mcp.iter_all_coders", return_value=[coder]):
-        with patch("cecli.commands.load_mcp.update_server_registration"):
+    with patch("cecli.commands.mcp_helpers.load.iter_all_coders", return_value=[coder]):
+        with patch("cecli.commands.mcp_helpers.load.update_server_registration"):
             with pytest.raises(SwitchCoderSignal):
-                await LoadMcpCommand.execute(mock_io, coder, "test-server")
+                await McpCommand.execute(mock_io, coder, "load test-server")
 
     # Check that the results were output - "Unable to load server" should be in output
     output_calls = [str(call) for call in mock_io.tool_output.call_args_list]
@@ -626,14 +626,14 @@ async def test_load_mcp_command_reports_failure_after_retries(mock_server, mock_
 
 
 # ---------------------------------------------------------------------------
-# TC-019: /load-mcp interruptible wrapper propagates cancellation during retry
+# TC-019: /mcp load interruptible wrapper propagates cancellation during retry
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_load_mcp_propagates_cancellation_during_retry(mock_server, mock_io):
-    """TC-019: LoadMcpCommand interruptible wrapper correctly propagates CancelledError."""
-    from cecli.commands.load_mcp import LoadMcpCommand
+    """TC-019: McpCommand interruptible wrapper correctly propagates CancelledError."""
+    from cecli.commands.mcp import McpCommand
 
     coder = _make_mock_coder(mock_server, mock_io)
 
@@ -650,10 +650,10 @@ async def test_load_mcp_propagates_cancellation_during_retry(mock_server, mock_i
 
     coder.coroutines.interruptible = _propagate_interruptible
 
-    with patch("cecli.commands.load_mcp.iter_all_coders", return_value=[coder]):
-        with patch("cecli.commands.load_mcp.update_server_registration"):
+    with patch("cecli.commands.mcp_helpers.load.iter_all_coders", return_value=[coder]):
+        with patch("cecli.commands.mcp_helpers.load.update_server_registration"):
             with pytest.raises(asyncio.CancelledError):
-                await LoadMcpCommand.execute(mock_io, coder, "test-server")
+                await McpCommand.execute(mock_io, coder, "load test-server")
 
 
 # ---------------------------------------------------------------------------

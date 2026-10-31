@@ -37,6 +37,7 @@ class BaseCommand(ABC, metaclass=CommandMeta):
     NORM_NAME = None  # Normalized command name (e.g., "add", "model")
     DESCRIPTION = None  # Command description for help
     SCHEMA = None  # Optional schema for parameter validation
+    HELPER_MODULES = {}  # subcommand -> helper module path (optional)
     show_completion_notification = False
 
     @classmethod
@@ -178,3 +179,10 @@ class BaseCommand(ABC, metaclass=CommandMeta):
             main_model=original_main_model,
             edit_format=original_edit_format,
         )
+
+    @classmethod
+    def loader(cls, sub):
+        """Import the helper module registered for a subcommand on first use."""
+        from importlib import import_module
+
+        return import_module(cls.HELPER_MODULES[sub])

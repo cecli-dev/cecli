@@ -979,7 +979,7 @@ class AgentService:
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
             except SwitchCoderSignal as switch:
-                # A command run mid-turn (e.g. /load-mcp) asks for this
+                # A command run mid-turn (e.g. /mcp load) asks for this
                 # sub-agent's coder to be rebuilt. Absorb the signal here:
                 # letting it escape would recreate the *primary* coder from a
                 # sub-agent. The switch also drains any prompts staged behind

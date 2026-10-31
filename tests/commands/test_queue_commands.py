@@ -735,7 +735,7 @@ class TestRunOneCommandPathDrain:
         coder.preproc_user_input = fake_preproc
         coder.process_prompt_queue = fake_drain
 
-        await Coder.run_one(coder, "/load-mcp github", preproc=True)
+        await Coder.run_one(coder, "/mcp load github", preproc=True)
 
         assert calls == ["preproc", "drain"]
         assert processed == ["queued prompt"]

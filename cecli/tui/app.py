@@ -2088,7 +2088,7 @@ class TUI(App):
                         has_completions = False
 
                 if has_completions:
-                    return completion + " "
+                    return completion.rstrip() + " "
                 else:
                     return completion
             else:
@@ -2111,7 +2111,8 @@ class TUI(App):
     def on_input_area_completion_requested(self, message: InputArea.CompletionRequested):
         """Handle completion request - show or update completion bar."""
         input_area = self.query_one("#input", InputArea)
-        text = message.text
+        text = input_area.text
+        input_area._completion_prefix = text
         suggestions = self._get_suggestions(text)
 
         # Check if completion bar already exists

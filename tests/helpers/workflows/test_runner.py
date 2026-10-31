@@ -146,14 +146,14 @@ async def test_command_first_task_drains_staged_queue(coder):
     worker.received = []
     service = FakeService(worker, _drain)
     wf = _wf(
-        TaskConfig(prompt="/load-mcp github"),
+        TaskConfig(prompt="/mcp load github"),
         TaskConfig(prompt="triage issues"),
     )
 
     result = await _execute(service, wf, coder)
 
     _, first_text, queue_at_start, drain_after_command = service.calls[1]
-    assert first_text == "/load-mcp github"
+    assert first_text == "/mcp load github"
     assert [item["text"] for item in queue_at_start] == ["triage issues"]
     assert drain_after_command is True
     assert result.status == "ok"
