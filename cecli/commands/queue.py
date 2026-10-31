@@ -22,6 +22,13 @@ class QueueCommand(BaseCommand):
         "remove": "cecli.commands.queue_helpers.remove",
         "run": "cecli.commands.queue_helpers.run",
     }
+    SUBCOMMAND_USAGE = {
+        "add": "/queue add <prompt>",
+        "insert": "/queue insert <index> <prompt>",
+        "list": "/queue list",
+        "remove": "/queue remove <index>|*",
+        "run": "/queue run",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):

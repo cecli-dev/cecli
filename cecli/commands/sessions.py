@@ -20,6 +20,11 @@ class SessionsCommand(BaseCommand):
         "load": "cecli.commands.sessions_helpers.load",
         "save": "cecli.commands.sessions_helpers.save",
     }
+    SUBCOMMAND_USAGE = {
+        "list": "/sessions list",
+        "load": "/sessions load <session-name>",
+        "save": "/sessions save <session-name>",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):

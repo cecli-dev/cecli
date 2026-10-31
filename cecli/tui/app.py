@@ -456,35 +456,27 @@ class TUI(App):
         except Exception:
             pass
 
-    def _update_key_hints_for_commands(self, text: str, is_completion: bool = False):
+    def _update_key_hints_for_commands(self, text: str):
         """
-        Update key hints left area with command description.
-
-        Handles both regular input text and completion suggestions.
+        Update key hints left area with command or subcommand description.
 
         Args:
-            text: The text to analyze (input text or completion suggestion)
-            is_completion: Whether this is a completion suggestion (default: False)
+            text: The text to analyze (input text or completion preview)
         """
         # Check if text starts with slash
         if text.startswith("/"):
-            # Extract command name
-            # For completions, we just need to remove the leading slash
-            # For regular input, we need to extract the first word after slash
-            if is_completion:
-                # Completion suggestion like "/help" - just remove leading slash
-                cmd_name = text[1:].strip()
-            else:
-                # Regular input like "/help arg1 arg2" - extract first word
-                parts = text[1:].strip().split()
-                cmd_name = parts[0] if parts else ""
+            # Extract the command name and optional subcommand. Completion
+            # previews are inserted text, so the same parsing works for both.
+            parts = text[1:].strip().split()
+            cmd_name = parts[0] if parts else ""
+            subcommand = parts[1].lower() if len(parts) > 1 else ""
 
             # Get command description if we have a command name
             if cmd_name:
                 try:
                     from cecli.commands.utils.registry import CommandRegistry
 
-                    description = CommandRegistry.get_command_description(cmd_name)
+                    description = CommandRegistry.get_command_description(cmd_name, subcommand)
                     if description:
                         self.update_key_hints_left(f"{description}")
                         return
@@ -814,7 +806,7 @@ class TUI(App):
 
     def on_input_area_text_changed(self, message: InputArea.TextChanged):
         """Handle text changes in input area."""
-        self._update_key_hints_for_commands(message.text, is_completion=False)
+        self._update_key_hints_for_commands(message.text)
 
     def on_input_area_submit(self, message: InputArea.Submit):
         """Handle input submission."""
@@ -2141,7 +2133,8 @@ class TUI(App):
             # Update key hints with description for first suggestion
             if suggestions:
                 first_suggestion = suggestions[0]
-                self._update_key_hints_for_commands(first_suggestion, is_completion=True)
+                preview = self._get_completed_text(text, first_suggestion)
+                self._update_key_hints_for_commands(preview)
         else:
             # No suggestions - dismiss if active
             input_area.completion_active = False
@@ -2161,7 +2154,7 @@ class TUI(App):
                 new_text = self._get_completed_text(base_text, selected)
                 input_area.set_completion_preview(new_text)
                 # Update key hints with command description for selected completion
-                self._update_key_hints_for_commands(selected, is_completion=True)
+                self._update_key_hints_for_commands(new_text)
         except Exception:
             pass
 
@@ -2178,7 +2171,7 @@ class TUI(App):
                 new_text = self._get_completed_text(base_text, selected)
                 input_area.set_completion_preview(new_text)
                 # Update key hints with command description for selected completion
-                self._update_key_hints_for_commands(selected, is_completion=True)
+                self._update_key_hints_for_commands(new_text)
         except Exception:
             pass
 
@@ -2191,7 +2184,7 @@ class TUI(App):
             pass
         # Update key hints based on accepted completion
         input_area = self.query_one("#input", InputArea)
-        self._update_key_hints_for_commands(input_area.text, is_completion=False)
+        self._update_key_hints_for_commands(input_area.text)
 
     def on_input_area_completion_dismiss(self, message: InputArea.CompletionDismiss):
         """Handle Escape to dismiss completions."""
@@ -2203,7 +2196,7 @@ class TUI(App):
         except Exception:
             pass
         # Update key hints back to normal based on current input
-        self._update_key_hints_for_commands(input_area.text, is_completion=False)
+        self._update_key_hints_for_commands(input_area.text)
 
     def on_completion_bar_selected(self, message: CompletionBar.Selected):
         """Handle completion selection."""

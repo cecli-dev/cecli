@@ -22,6 +22,14 @@ class SkillsCommand(BaseCommand):
         "remove": "cecli.commands.skills_helpers.remove",
         "import": "cecli.commands.skills_helpers.import_skill",
     }
+    SUBCOMMAND_USAGE = {
+        "list": "/skills list",
+        "load": "/skills load <skill-name> ...",
+        "include": "/skills include <skill-name> ...",
+        "exclude": "/skills exclude <skill-name> ...",
+        "remove": "/skills remove <skill-name> ...",
+        "import": "/skills import [--global] <skill-name>",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):

@@ -24,6 +24,16 @@ class WorkflowCommand(BaseCommand):
         "toggle": "cecli.commands.workflow_helpers.toggle",
         "reload": "cecli.commands.workflow_helpers.reload",
     }
+    SUBCOMMAND_USAGE = {
+        "list": "/workflows list",
+        "run": "/workflows run <name>",
+        "show": "/workflows show <name>",
+        "status": "/workflows status [name]",
+        "last": "/workflows last <name>",
+        "enable": "/workflows enable <name>",
+        "disable": "/workflows disable <name>",
+        "reload": "/workflows reload",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):

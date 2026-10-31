@@ -18,6 +18,11 @@ class McpCommand(BaseCommand):
         "load": "cecli.commands.mcp_helpers.load",
         "remove": "cecli.commands.mcp_helpers.remove",
     }
+    SUBCOMMAND_USAGE = {
+        "list": "/mcp list",
+        "load": "/mcp load <mcp-name> ...",
+        "remove": "/mcp remove <mcp-name> ...",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):

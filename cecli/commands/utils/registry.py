@@ -30,19 +30,27 @@ class CommandRegistry:
         return await command_class.process_command(io, coder, args, **kwargs)
 
     @classmethod
-    def get_command_description(cls, name: str) -> str:
+    def get_command_description(cls, name: str, subcommand: str = "") -> str:
         """
-        Get description for a specific command.
+        Get description for a specific command or one of its subcommands.
 
         Args:
             name: Command name
+            subcommand: Optional subcommand name
 
         Returns:
-            Command description string or empty string if command not found
+            Usage hint for the subcommand when one is registered, otherwise the
+            command description, or an empty string if the command is not found
         """
         command_class = cls.get_command(name)
         if not command_class:
             return ""
+
+        if subcommand:
+            usage = getattr(command_class, "SUBCOMMAND_USAGE", {})
+            if subcommand in usage:
+                return usage[subcommand]
+
         return command_class.DESCRIPTION or ""
 
     @classmethod

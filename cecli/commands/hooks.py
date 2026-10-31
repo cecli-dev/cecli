@@ -21,6 +21,11 @@ class HooksCommand(BaseCommand):
         "load": "cecli.commands.hooks_helpers.load",
         "remove": "cecli.commands.hooks_helpers.remove",
     }
+    SUBCOMMAND_USAGE = {
+        "list": "/hooks list [--type T] [--enabled-only|--disabled-only]",
+        "load": "/hooks load <hook-name> ...",
+        "remove": "/hooks remove <hook-name> ...",
+    }
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
