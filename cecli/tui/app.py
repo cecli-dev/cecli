@@ -2020,7 +2020,7 @@ class TUI(App):
                 else:
                     # Use standard command completions (no file fallback)
                     try:
-                        if cmd_name in commands.FULL_ARGS_COMPLETION_COMMANDS:
+                        if commands.uses_full_args_completion(cmd_name):
                             # Nested-host commands receive the FULL text after
                             # the command name so inner slash-command argument
                             # completion works (e.g. "/queue /add <tab>").
@@ -2067,7 +2067,7 @@ class TUI(App):
             parts = current_text.rsplit(maxsplit=1)
             commands = self.worker.coder.commands
             host = current_text.split(maxsplit=1)[0]
-            is_nested_host = host in getattr(commands, "FULL_ARGS_COMPLETION_COMMANDS", ())
+            is_nested_host = commands.uses_full_args_completion(host)
 
             if is_nested_host and current_text.endswith(" "):
                 return current_text + completion

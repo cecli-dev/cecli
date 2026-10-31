@@ -144,9 +144,10 @@ def test_io_completes_mcp_names(mcp_coder):
     command = list(completer.get_command_completions(None, None, "/mc", ["/mc"]))
     assert any(c.text == "/mcp " for c in command)
 
-    no_subcommands = list(completer.get_command_completions(None, None, "/ad", ["/ad"]))
-    assert no_subcommands
-    assert not any(c.text.endswith(" ") for c in no_subcommands)
+    add_completions = list(completer.get_command_completions(None, None, "/ad", ["/ad"]))
+    assert any(c.text == "/add" for c in add_completions)
+    assert not any(c.text == "/add " for c in add_completions)
+    assert any(c.text == "/add-queue " for c in add_completions)
 
     subcommands = list(completer.get_command_completions(None, None, "/mcp ", ["/mcp"]))
     assert {c.text for c in subcommands} == {"list", "load", "remove"}
@@ -207,3 +208,26 @@ def test_tui_completion_request_syncs_prefix():
     app.on_input_area_completion_requested(MagicMock(text="/skil"))
 
     assert input_area._completion_prefix == "/skills "
+
+
+def test_alias_names_appear_in_command_completion(mcp_coder):
+    completer = _io_completer(mcp_coder)
+
+    assert "/load-mcp" in completer.command_names
+    assert "/list-mcp" in completer.command_names
+
+
+def test_alias_arguments_complete_like_their_subcommand(mcp_coder, skills_coder):
+    from cecli.commands.core import Commands
+
+    mcp_commands = Commands(None, mcp_coder)
+    assert mcp_commands.get_completions("/load-mcp", "", coder=mcp_coder) == ["context7"]
+    assert mcp_commands.get_completions("/load-mcp", "con", coder=mcp_coder) == ["context7"]
+
+    skills_commands = Commands(None, skills_coder)
+    assert skills_commands.get_completions("/import-skill", "", coder=skills_coder) == [
+        "--global",
+        "pdf",
+        "docx",
+        "files/slides",
+    ]

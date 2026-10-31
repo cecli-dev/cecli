@@ -24,6 +24,16 @@ class WorkflowCommand(BaseCommand):
         "toggle": "cecli.commands.workflow_helpers.toggle",
         "reload": "cecli.commands.workflow_helpers.reload",
     }
+    ALIASES = {
+        "list-workflows": "list",
+        "run-workflow": "run",
+        "show-workflow": "show",
+        "status-workflow": "status",
+        "last-workflow": "last",
+        "enable-workflow": "enable",
+        "disable-workflow": "disable",
+        "reload-workflows": "reload",
+    }
     SUBCOMMAND_USAGE = {
         "list": "/workflows list",
         "run": "/workflows run <name>",

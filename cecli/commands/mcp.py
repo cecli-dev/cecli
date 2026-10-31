@@ -18,6 +18,11 @@ class McpCommand(BaseCommand):
         "load": "cecli.commands.mcp_helpers.load",
         "remove": "cecli.commands.mcp_helpers.remove",
     }
+    ALIASES = {
+        "list-mcp": "list",
+        "load-mcp": "load",
+        "remove-mcp": "remove",
+    }
     SUBCOMMAND_USAGE = {
         "list": "/mcp list",
         "load": "/mcp load <mcp-name> ...",

@@ -251,7 +251,9 @@ class AutoCompleter(Completer):
             cmd_text = text
 
         # Pass the text (without trailing space if present) to matching_commands
-        matches, matched_cmd, _ = self.commands.matching_commands(cmd_text.rstrip())
+        matches, matched_cmd, _ = self.commands.matching_commands(
+            cmd_text.rstrip(), include_aliases=True
+        )
         if not matches:
             return
 
@@ -267,7 +269,7 @@ class AutoCompleter(Completer):
             yield from raw_completer(document, complete_event)
             return
 
-        if cmd in self.commands.FULL_ARGS_COMPLETION_COMMANDS:
+        if self.commands.uses_full_args_completion(cmd):
             nested_text = text[len(words[0]) :].lstrip()
             candidates = self.commands.get_completions(cmd, nested_text)
             # The substring filter and start_position below operate on the last

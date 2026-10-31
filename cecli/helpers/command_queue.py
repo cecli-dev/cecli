@@ -220,7 +220,9 @@ def nested_command_completions(coder, text: str) -> list:
     if first_space == -1:
         prefix = text[1:].lower()
         return sorted(
-            f"/{cmd}" for cmd in CommandRegistry.list_commands() if cmd.startswith(prefix)
+            f"/{cmd}"
+            for cmd in CommandRegistry.list_commands(include_aliases=True)
+            if cmd.startswith(prefix)
         )
 
     inner_cmd = text[:first_space]

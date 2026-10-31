@@ -22,6 +22,13 @@ class QueueCommand(BaseCommand):
         "remove": "cecli.commands.queue_helpers.remove",
         "run": "cecli.commands.queue_helpers.run",
     }
+    ALIASES = {
+        "add-queue": "add",
+        "insert-queue": "insert",
+        "list-queue": "list",
+        "remove-queue": "remove",
+        "run-queue": "run",
+    }
     SUBCOMMAND_USAGE = {
         "add": "/queue add <prompt>",
         "insert": "/queue insert <index> <prompt>",

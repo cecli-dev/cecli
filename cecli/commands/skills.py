@@ -22,6 +22,14 @@ class SkillsCommand(BaseCommand):
         "remove": "cecli.commands.skills_helpers.remove",
         "import": "cecli.commands.skills_helpers.import_skill",
     }
+    ALIASES = {
+        "list-skills": "list",
+        "load-skill": "load",
+        "include-skill": "include",
+        "exclude-skill": "exclude",
+        "remove-skill": "remove",
+        "import-skill": "import",
+    }
     SUBCOMMAND_USAGE = {
         "list": "/skills list",
         "load": "/skills load <skill-name> ...",

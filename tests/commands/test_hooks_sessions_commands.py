@@ -140,18 +140,21 @@ class TestSessionsCompletions:
 
 
 class TestRegistration:
-    def test_dispatchers_registered_and_legacy_names_removed(self):
+    def test_dispatchers_registered_and_legacy_aliases_route(self):
         assert CommandRegistry.get_command("hooks") is HooksCommand
         assert CommandRegistry.get_command("sessions") is SessionsCommand
 
-        for legacy in (
-            "load-hook",
-            "remove-hook",
-            "list-sessions",
-            "load-session",
-            "save-session",
-        ):
-            assert CommandRegistry.get_command(legacy) is None
+        alias_targets = {
+            "list-hooks": HooksCommand,
+            "load-hook": HooksCommand,
+            "remove-hook": HooksCommand,
+            "list-sessions": SessionsCommand,
+            "load-session": SessionsCommand,
+            "save-session": SessionsCommand,
+        }
+        for alias, command_class in alias_targets.items():
+            assert CommandRegistry.get_command(alias) is command_class
+            assert CommandRegistry.resolve_alias(alias) is not None
 
 
 class TestFullArgsRegistration:

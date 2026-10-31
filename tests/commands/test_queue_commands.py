@@ -483,11 +483,12 @@ class TestRemoveQueueCommand:
         assert "*" in completions
 
     def test_itc_20_commands_registered_in_registry(self):
-        """ITC-20: The queue dispatcher is registered and legacy names are gone."""
+        """ITC-20: The queue dispatcher is registered and legacy names are aliases."""
         assert CommandRegistry.get_command("queue") is QueueCommand
 
         for legacy in ("list-queue", "insert-queue", "remove-queue", "run-queue"):
-            assert CommandRegistry.get_command(legacy) is None
+            assert CommandRegistry.get_command(legacy) is QueueCommand
+            assert CommandRegistry.resolve_alias(legacy) is not None
 
 
 class TestRunQueueCommand:
@@ -1163,14 +1164,14 @@ class TestCommandRegistration:
     """Tests for command registration in CommandRegistry."""
 
     def test_all_queue_commands_registered(self):
-        """Verify the queue dispatcher is registered under its family name."""
+        """Verify the dispatcher is registered under its family name."""
         commands = CommandRegistry.list_commands()
 
         assert "queue" in commands
-        assert "list-queue" not in commands
-        assert "insert-queue" not in commands
-        assert "remove-queue" not in commands
-        assert "run-queue" not in commands
+
+        aliases = CommandRegistry.list_commands(include_aliases=True)
+        for legacy in ("list-queue", "insert-queue", "remove-queue", "run-queue"):
+            assert legacy in aliases
 
     def test_command_classes_have_required_attributes(self):
         """Verify the dispatcher exposes its subcommands and helper modules."""
@@ -1345,7 +1346,7 @@ class TestCompleterPlumbing:
         commands = MagicMock()
         commands.FULL_ARGS_COMPLETION_COMMANDS = ("/queue", "/insert-queue")
         # Mirror Commands.matching_commands: match the input's first word.
-        commands.matching_commands = lambda text: (
+        commands.matching_commands = lambda text, include_aliases=False: (
             (
                 ["/queue"]
                 if text.startswith("/queue")
@@ -1353,6 +1354,9 @@ class TestCompleterPlumbing:
             ),
             text.split()[0],
             "",
+        )
+        commands.uses_full_args_completion = lambda cmd: (
+            cmd in commands.FULL_ARGS_COMPLETION_COMMANDS
         )
         commands.get_raw_completions = lambda cmd: None
 

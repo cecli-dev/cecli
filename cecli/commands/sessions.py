@@ -20,6 +20,11 @@ class SessionsCommand(BaseCommand):
         "load": "cecli.commands.sessions_helpers.load",
         "save": "cecli.commands.sessions_helpers.save",
     }
+    ALIASES = {
+        "list-sessions": "list",
+        "load-session": "load",
+        "save-session": "save",
+    }
     SUBCOMMAND_USAGE = {
         "list": "/sessions list",
         "load": "/sessions load <session-name>",

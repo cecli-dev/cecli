@@ -39,6 +39,7 @@ class BaseCommand(ABC, metaclass=CommandMeta):
     SCHEMA = None  # Optional schema for parameter validation
     HELPER_MODULES = {}  # subcommand -> helper module path (optional)
     SUBCOMMAND_USAGE = {}  # subcommand -> usage hint shown in TUI key hints
+    ALIASES = {}  # alias name -> subcommand it routes to
     show_completion_notification = False
 
     @classmethod

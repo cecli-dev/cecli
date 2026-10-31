@@ -21,6 +21,11 @@ class HooksCommand(BaseCommand):
         "load": "cecli.commands.hooks_helpers.load",
         "remove": "cecli.commands.hooks_helpers.remove",
     }
+    ALIASES = {
+        "list-hooks": "list",
+        "load-hook": "load",
+        "remove-hook": "remove",
+    }
     SUBCOMMAND_USAGE = {
         "list": "/hooks list [--type T] [--enabled-only|--disabled-only]",
         "load": "/hooks load <hook-name> ...",
