@@ -5,41 +5,15 @@ description: The TUI (Terminal User Interface) provides a modern, visually rich 
 ---
 # TUI
 
-TUI (Terminal User Interface) Mode provides a modern, visually rich terminal interface for AI pair programming.
+TUI (Terminal User Interface) Mode provides a modern, visually rich terminal interface for agentic development and other tasks.
 
 ## Activation
 
-The TUI is the default in recent versions of Cecli and on older versions it can be started explicitly  in the terminal with:
+The TUI is the default in current versions of Cecli and on older versions it can be started explicitly in the terminal with:
 
 ```
 cecli ... --tui
 ```
-
-## Linear terminal mode
-
-For an interactive session without the full-screen TUI, use this canonical
-profile in `~/.cecli/conf.yml` or `.cecli.conf.yml`:
-
-```yaml
-tui: false
-linear-output: true
-fancy-input: true
-stream: true
-```
-
-This keeps the sophisticated `prompt_toolkit` input editor, including history
-and completion, while making output unsophisticated and sequential. Streaming
-responses remain enabled, but Cecli does not redraw earlier application output.
-That linear application-output stream contains no cursor-motion or erasure
-sequences, and a carriage return appears only immediately before a line feed as
-part of a CRLF line ending. The input editor may still use terminal controls
-while editing the current prompt.
-
-This conservative output profile is useful over SSH, in limited terminals, and
-when preserving output in logs or passing it through scripts and pipes. Cecli
-automatically disables fancy input when it detects a dumb terminal. For other
-terminals that cannot reliably support `prompt_toolkit`, set
-`fancy-input: false`.
 
 ## Configuration
 
@@ -50,18 +24,6 @@ The TUI can be configured directly in the relevant config.json file or with JSON
 ```yaml
 tui: true
 ```
-
-### Reduce Motion
-
-Set Textual's native animation level in your shell or `.env` file to keep the
-TUI static while preserving status updates:
-
-```dotenv
-TEXTUAL_ANIMATIONS=none
-```
-
-To hide only the activity spinner, use `--no-spinner` or set `spinner: false`
-in a Cecli configuration file.
 
 ### Complete Configuration Example
 
@@ -186,6 +148,32 @@ TUI Mode works seamlessly with other cecli features:
 - **MCP Servers**: Integrated display of MCP tool outputs
 - **Git Operations**: Real-time git status updates in the footer
 
+## Legacy Mode
+
+For an interactive session without the full-screen TUI, use this canonical
+profile in `~/.cecli/conf.yml` or `.cecli.conf.yml`:
+
+```yaml
+tui: false
+linear-output: true
+fancy-input: true
+stream: true
+```
+
+This keeps the sophisticated `prompt_toolkit` input editor, including history
+and completion, while making output unsophisticated and sequential. Streaming
+responses remain enabled, but Cecli does not redraw earlier application output.
+That linear application-output stream contains no cursor-motion or erasure
+sequences, and a carriage return appears only immediately before a line feed as
+part of a CRLF line ending. The input editor may still use terminal controls
+while editing the current prompt.
+
+This conservative output profile is useful over SSH, in limited terminals, and
+when preserving output in logs or passing it through scripts and pipes. Cecli
+automatically disables fancy input when it detects a dumb terminal. For other
+terminals that cannot reliably support `prompt_toolkit`, set
+`fancy-input: false`.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -194,6 +182,18 @@ TUI Mode works seamlessly with other cecli features:
 2. **Display issues**: Try resizing your terminal window
 3. **Performance problems**: Reduce terminal refresh rate or disable animations
 4. **Input lag**: Check for conflicts with terminal multiplexers (tmux, screen)
+
+### Reduce Motion
+
+Set Textual's native animation level in your shell or `.env` file to keep the
+TUI static while preserving status updates:
+
+```dotenv
+TEXTUAL_ANIMATIONS=none
+```
+
+To hide only the activity spinner, use `--no-spinner` or set `spinner: false`
+in a Cecli configuration file.
 
 ### Terminal Requirements
 
