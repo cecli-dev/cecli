@@ -41,7 +41,8 @@ class InputContainer(Vertical):
 
         self._had_sub_agents = True
         self._sub_agent_signature_cache = signature
-        self.show_squares = not self.show_squares
+        if self.app.animation_level != "none":
+            self.show_squares = not self.show_squares
         self._render_border_title(self.coder_mode, sub_agents)
 
     def update_mode(self, mode: str):
