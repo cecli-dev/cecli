@@ -2064,6 +2064,7 @@ class Coder(metaclass=UsageMeta):
                     break
 
                 self.io.tool_output(f"Processing queued prompt (id: {item['id']})...")
+                self.io.user_input(item["text"])
                 try:
                     await self.generate(item["text"], preproc)
                     interrupt_event = getattr(self, "interrupt_event", None)

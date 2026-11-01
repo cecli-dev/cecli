@@ -1412,7 +1412,8 @@ class AgentService:
         self._uuid_coder_map.pop(parent_uuid, None)
         if type(self)._primary_agent_uuid == parent_uuid:
             type(self)._primary_agent_uuid = None
-            
+
+
 def _tui_notify(tui, callback, *args):
     """Invoke *callback* on the TUI app, from either thread.
 

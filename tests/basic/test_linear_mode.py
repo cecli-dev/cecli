@@ -161,7 +161,9 @@ async def test_interrupt_returns_to_usable_linear_prompt(
 
 async def test_local_tool_round_trip_is_serialized(tmp_path, gpt35_model, monkeypatch, capsys):
     (tmp_path / "visible.txt").write_text("visible")
-    tool_call = tool_call_response("local--ls", '{"path":"."}', "call_ls")
+    tool_call = tool_call_response(
+        "local--ReadFile", '{"read":[{"file_path":"visible.txt"}]}', "call_read"
+    )
     done = tool_call_response(
         "local--Yield", '{"summary":"tool round trip complete"}', "call_yield"
     )
@@ -173,13 +175,13 @@ async def test_local_tool_round_trip_is_serialized(tmp_path, gpt35_model, monkey
         edit_format="agent",
     )
 
-    await asyncio.wait_for(coder._run_linear("list the directory"), timeout=5)
+    await asyncio.wait_for(coder._run_linear("read the file"), timeout=5)
 
     transcript = transcript_path.read_text(encoding="utf-8")
     assert_linear_transcript(captured_terminal(capsys))
-    assert "Tool Call: local • ls" in transcript
-    assert "path: ." in transcript
-    assert "Listed" in transcript
+    assert "Tool Call: local • ReadFile" in transcript
+    assert "visible.txt" in transcript
+    assert "visible" in transcript
     assert "tool round trip complete" in transcript
 
 
@@ -231,17 +233,17 @@ async def test_mcp_tool_round_trip_returns_to_conversation(
 async def test_confirmation_rejection_returns_to_usable_prompt(
     tmp_path, gpt35_model, monkeypatch, capsys
 ):
-    command_call = tool_call_response(
-        "local--Command",
+    shell_call = tool_call_response(
+        "local--Shell",
         '{"command":"printf confirmation-sentinel"}',
-        "call_command",
+        "call_shell",
     )
 
     coder, transcript_path = await make_linear_coder(
         tmp_path,
         gpt35_model,
         [
-            command_call,
+            shell_call,
             tool_call_response(
                 "local--Yield", '{"summary":"first turn complete"}', "call_first_yield"
             ),
@@ -260,14 +262,14 @@ async def test_confirmation_rejection_returns_to_usable_prompt(
     await asyncio.wait_for(coder._run_linear("request after confirmation"), timeout=5)
 
     transcript = transcript_path.read_text(encoding="utf-8")
-    command_result = next(
-        message for message in coder.cur_messages if message.get("tool_call_id") == "call_command"
+    shell_result = next(
+        message for message in coder.cur_messages if message.get("tool_call_id") == "call_shell"
     )
     assert_linear_transcript(captured_terminal(capsys))
     assert coder.io.get_confirmation_acknowledgement() is False
     assert len(prompts) == 1
     assert prompts[0].startswith("Allow execution of this command?")
-    assert "Command execution skipped by user." in command_result["content"]
+    assert "Command execution skipped by user." in shell_result["content"]
     assert transcript.index("first turn complete") < transcript.index("request after confirmation")
     assert transcript.index("request after confirmation") < transcript.index("second turn complete")
 
