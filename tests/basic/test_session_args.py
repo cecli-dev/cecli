@@ -8,7 +8,7 @@ def test_session_encrypt_defaults_off():
     args = parser.parse_args([])
     assert args.session_encrypt is False
     assert args.session_key_file is None
-    assert args.auto_save is False
+    assert args.auto_save is True
     assert args.auto_load is False
     assert args.auto_save_session_name == "auto-save"
 

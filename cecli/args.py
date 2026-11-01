@@ -31,6 +31,7 @@ DEEP_MERGE_LIST_FIELDS: frozenset[str] = frozenset(
         "file",
         "read",
         "mcp_servers_files",
+        "acp_models",
         "set_env",
         "api_key",
         "alias",
@@ -61,7 +62,9 @@ DEEP_MERGE_JSON_FIELDS: frozenset[str] = frozenset(
         "security_config",
         "retries",
         "custom",
+        "system_one",
         "tui_config",
+        "workflows",
     }
 )
 
@@ -250,7 +253,7 @@ def get_parser(default_config_files, git_root):
         metavar="EDIT_FORMAT",
         choices=edit_format_choices,
         default=None,
-        help="Specify what edit format the LLM should use (default depends on model)",
+        help="Specify what edit format the LLM should use (default: agent)",
     )
     group.add_argument(
         "--ask",
@@ -360,7 +363,9 @@ def get_parser(default_config_files, git_root):
         metavar="RETRIES_JSON",
         help=(
             'Specify LLM retry configuration as a JSON/YAML string (e.g., \'{"retry_on_empty": '
-            "true}')"
+            'true, "retry-on-unauthorized": false, "fallbacks": {"models": {"model": '
+            '["backup-model"]}, "keys": {"openai": ["OPENAI_API_KEY", '
+            '"OPENAI_API_KEY_2"]}}}\')'
         ),
         default=None,
     )
@@ -428,6 +433,31 @@ def get_parser(default_config_files, git_root):
         default=None,
     )
     group.add_argument(
+        "--workflows",
+        metavar="WORKFLOWS_JSON",
+        help=(
+            "Specify workflows configuration as an inline JSON/YAML string (e.g.,"
+            ' \'[{"name": "nightly", "tasks": [...]}]\') or a path to a workflows file'
+        ),
+        default=None,
+    )
+    group.add_argument(
+        "--scheduler",
+        metavar="SCHEDULER_CONFIG_JSON",
+        help="Specify scheduler configuration as a JSON string",
+        default=None,
+    )
+    group.add_argument(
+        "--system-one",
+        metavar="SYSTEM_ONE_JSON",
+        help=(
+            "Specify the System One decision endpoint as a JSON/YAML string (e.g.,"
+            ' \'{"api_base": "http://127.0.0.1:8000", "api_key_env": ["SYSTEM_ONE_API_KEY"],'
+            ' "model_name": "von-latest"}\')'
+        ),
+        default=None,
+    )
+    group.add_argument(
         "--agent-model",
         metavar="AGENT_MODEL",
         default=None,
@@ -436,10 +466,10 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--auto-save",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
             "Enable/disable automatic saving of sessions as --auto-save-session-name (default:"
-            " False)"
+            " True)"
         ),
     )
     group.add_argument(
@@ -1285,6 +1315,24 @@ def get_parser(default_config_files, git_root):
         metavar="SERVER_CONFIG_JSON",
         help="Specify server configuration (WebSocket and headless) as a JSON/YAML string",
         default=None,
+    )
+    group.add_argument(
+        "--acp",
+        action="store_true",
+        default=False,
+        help=(
+            "Run as an Agent Client Protocol (ACP) agent over stdio, for editors such as Zed"
+            " (stdout carries the protocol)"
+        ),
+    )
+    group.add_argument(
+        "--acp-models",
+        action="append",
+        metavar="PATTERN",
+        help=(
+            "Limit the ACP model picker's provider lists to models matching this pattern,"
+            " matched like /models (can be used multiple times)"
+        ),
     )
 
     ##########

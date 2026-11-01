@@ -122,12 +122,14 @@ class TestInputLoopLifecycle:
         queues._per_coder_queues.clear()
         queues._input_loop = None
         queues._input_wake = None
+        queues._input_wakes.clear()
 
     def teardown_method(self):
         """Reset the global input-loop state after each test."""
         queues._per_coder_queues.clear()
         queues._input_loop = None
         queues._input_wake = None
+        queues._input_wakes.clear()
 
     def test_wake_with_closed_loop_drops_stale_binding(self):
         """Waking after the bound loop closed must not raise, and resets state."""
@@ -176,3 +178,65 @@ class TestInputLoopLifecycle:
                 await task
 
         asyncio.run(run())
+
+    def test_foreign_live_loop_does_not_steal_primary_binding(self):
+        """A consumer on a foreign *live* loop must not steal the primary binding.
+
+        Regression for the scheduler freeze: a scheduled workflow running on the
+        main (Textual) loop used to call wait_for_input() and rebind the global
+        wake to its own loop, stranding the primary coder's input pump that was
+        parked on the worker-thread loop — with no way to recover.
+        """
+        import threading
+
+        ready = threading.Event()
+        released = threading.Event()
+        loop_a = {}
+
+        async def park():
+            ready.set()
+            await queues.wait_for_input()
+            released.set()
+
+        def run_loop_a():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop_a["loop"] = loop
+            queues.set_input_loop(loop)
+            loop.create_task(park())
+            loop.run_forever()
+
+        thread = threading.Thread(target=run_loop_a, daemon=True)
+        thread.start()
+
+        try:
+            assert ready.wait(timeout=5)
+            assert loop_a["loop"] is queues._input_loop
+
+            async def main():
+                primary = queues._input_loop
+                assert primary is loop_a["loop"]
+                assert not primary.is_closed()
+
+                task = asyncio.create_task(queues.wait_for_input())
+                await asyncio.sleep(0)
+
+                # The foreign loop must NOT rebind the primary wake slot...
+                assert queues._input_loop is primary
+                # ...it gets a dedicated wake event instead.
+                assert asyncio.get_running_loop() in queues._input_wakes
+
+                queues.wake_input_waiters()
+                await asyncio.wait_for(task, timeout=5)
+
+            asyncio.run(main())
+
+            # Both the primary (loop A) and the foreign waiter were released.
+            assert released.wait(timeout=5)
+        finally:
+            loop = loop_a.get("loop")
+            if loop is not None and not loop.is_closed():
+                loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=5)
+            if loop is not None and not loop.is_closed():
+                loop.close()

@@ -178,6 +178,19 @@ def safe_abs_path(res):
     return str(res)
 
 
+def safe_relpath(path, start=None):
+    """Return ``os.path.relpath(path, start)``, falling back to *path* on cross-drive.
+
+    On Windows, ``os.path.relpath`` raises ``ValueError`` when *path* and *start*
+    (or the implicit CWD) are on different drives. Keep the absolute path in that
+    case instead of crashing.
+    """
+    try:
+        return os.path.relpath(path, start)
+    except ValueError:
+        return str(path)
+
+
 def format_content(role, content):
     formatted_lines = []
     for line in content.splitlines():
@@ -402,14 +415,14 @@ def find_common_root(abs_fnames):
             return safe_abs_path(os.path.dirname(list(abs_fnames)[0]))
         elif abs_fnames:
             return safe_abs_path(os.path.commonpath(list(abs_fnames)))
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: cross-drive commonpath on Windows (e.g. C: vs E:).
         pass
-
-    try:
-        return safe_abs_path(os.getcwd())
-    except FileNotFoundError:
-        # Fallback if cwd is deleted
-        return "."
+    # Restore the original safe fallback: callers assign this straight to
+    # Coder.root, and Path(False) (or the implicit None for empty input)
+    # would TypeError on the next Path(root) call. "" resolves as the CWD,
+    # matching the pre-existing behavior.
+    return ""
 
 
 def format_tokens(count):

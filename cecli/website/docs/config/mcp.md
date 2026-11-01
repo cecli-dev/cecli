@@ -106,7 +106,7 @@ mcp-servers-file: /path/to/mcp.json
 
 These options are configurable in any of cecli's config file formats.
 
-Also, you are able to say if you would like an mcp enabled/disabled in the config itself via `"enabled"` key By default MCP servers are enabled, so you MUST explicitly disable them in the config if you dont wish for them to be included when cecli starts up
+Also, you are able to say if you would like an mcp enabled/disabled in the config itself via `"enabled"` key. By default MCP servers are enabled, so you MUST explicitly disable them in the config if you don't wish for them to be included when cecli starts up.
 
 ### Flags
 

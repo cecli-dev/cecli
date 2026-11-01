@@ -2,11 +2,15 @@
 Tests for cecli/helpers/agents/service.py — AgentService.
 """
 
+import asyncio
+import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from cecli.helpers.agents.service import (
+    DEFAULT_SUMMARY_INTERRUPTED,
     AgentService,
     SubAgentInfo,
     SubAgentStatus,
@@ -462,6 +466,95 @@ class TestInvoke:
         assert call_args[2] == "reviewer"  # name
 
 
+def make_sub_coder(service, generate):
+    """A sub-agent coder sharing the parent's io, as IOProxy instances share their target."""
+    sub_coder = MagicMock()
+    sub_coder.tui = None
+    sub_coder.uuid = "child-uuid"
+    sub_coder.root = "/proj"
+    sub_coder.io = service.coder.io
+    sub_coder.generate = AsyncMock(side_effect=generate)
+    return sub_coder
+
+
+class TestSubAgentEvents:
+    """Sub-agent lifecycle reported through ``io.subagent_event``, and cancelling one."""
+
+    @pytest.fixture(autouse=True)
+    def patched_coders(self, service, registry):
+        # After ``service``, which empties the registry
+        with patch("cecli.coders.Coder") as MockCoder:
+            with patch("cecli.helpers.conversation.service.ConversationService"):
+                self.MockCoder = MockCoder
+                yield
+
+    def events(self, service):
+        return [
+            (call.args[0], call.args[1], call.kwargs)
+            for call in service.coder.io.subagent_event.call_args_list
+        ]
+
+    async def test_invoke_reports_the_lifecycle(self, service):
+        async def finish(user_message, **kwargs):
+            info = service.sub_agents["child-uuid"]
+            info.status, info.summary = SubAgentStatus.FINISHED, "all good"
+
+        self.MockCoder.create = AsyncMock(return_value=make_sub_coder(service, finish))
+        assert await service.invoke("reviewer", "review this") == "all good"
+
+        events = self.events(service)
+        assert [(uuid, event) for uuid, event, _ in events] == [
+            ("child-uuid", "created"),
+            ("child-uuid", "message"),
+            ("child-uuid", "running"),
+            ("parent-uuid", "message"),
+            ("child-uuid", "idle"),
+        ]
+        created, delegation, _, result, idle = (kwargs for _, _, kwargs in events)
+        assert created["parent_uuid"] == "parent-uuid"
+        assert created["name"] == "reviewer" and created["root"] == "/proj"
+        assert delegation == {"sender_uuid": "parent-uuid", "text": "review this"}
+        assert result["sender_uuid"] == "child-uuid" and "all good" in result["text"]
+        assert idle == {"stop_reason": "end_turn", "error": None}
+
+    def start_work(self, service, absorb):
+        """Invoke a sub-agent that works until cancelled; returns (invoking task, started)."""
+        started = asyncio.Event()
+
+        async def work(user_message, **kwargs):
+            started.set()
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                if not absorb:
+                    raise
+                # Streaming turns a cancellation into a ^C, and generate() returns
+
+        self.MockCoder.create = AsyncMock(return_value=make_sub_coder(service, work))
+        return asyncio.create_task(service.invoke("reviewer", "review this")), started
+
+    @pytest.mark.parametrize("absorb", [False, True])
+    async def test_cancelling_the_sub_agent_leaves_its_parent_running(self, service, absorb):
+        invoking, started = self.start_work(service, absorb)
+        await started.wait()
+
+        assert service.cancel_sub_agent("child-uuid") is True
+        assert await invoking == DEFAULT_SUMMARY_INTERRUPTED
+        assert self.events(service)[-1][1:] == ("idle", {"stop_reason": "cancelled", "error": None})
+        assert service.cancel_sub_agent("child-uuid") is False
+
+    @pytest.mark.parametrize("absorb", [False, True])
+    async def test_cancelling_the_parent_cancels_the_sub_agent_it_waits_for(self, service, absorb):
+        invoking, started = self.start_work(service, absorb)
+        await started.wait()
+
+        invoking.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await invoking
+        await asyncio.gather(service.sub_agents["child-uuid"].generate_task, return_exceptions=True)
+        assert self.events(service)[-1][1:] == ("idle", {"stop_reason": "cancelled", "error": None})
+
+
 # ================================================================== #
 # Public API: spawn
 # ================================================================== #
@@ -586,6 +679,133 @@ class TestWait:
 
         result = await service.wait(parent_coder)
         assert result == ["completed"]
+
+
+# ================================================================== #
+# Detached agents (workflow islands)
+# ================================================================== #
+
+
+class TestDetachedAgents:
+    """Detached agents stay out of the parent's context and child scans."""
+
+    @pytest.mark.asyncio
+    async def test_detached_result_is_not_injected(self, service, mock_coder):
+        import weakref
+
+        child = MagicMock()
+        child.uuid = "child-uuid"
+        service._uuid_coder_map["parent-uuid"] = weakref.ref(mock_coder)
+        info = SubAgentInfo(
+            name="wf:demo",
+            coder=child,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.FINISHED,
+            summary="all done",
+            detached=True,
+        )
+
+        with patch(
+            "cecli.helpers.conversation.service.ConversationService.get_manager"
+        ) as get_manager:
+            await service._inject_sub_agent_result(info)
+
+        get_manager.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_attached_result_is_injected(self, service, mock_coder):
+        import weakref
+
+        child = MagicMock()
+        child.uuid = "child-uuid"
+        service._uuid_coder_map["parent-uuid"] = weakref.ref(mock_coder)
+        info = SubAgentInfo(
+            name="reviewer",
+            coder=child,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.FINISHED,
+            summary="all done",
+        )
+
+        with patch(
+            "cecli.helpers.conversation.service.ConversationService.get_manager"
+        ) as get_manager:
+            await service._inject_sub_agent_result(info)
+
+        assert get_manager.return_value.add_message.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_wait_skips_detached_children(self, service):
+        parent_coder = MagicMock()
+        parent_coder.uuid = "parent-uuid"
+
+        detached_child = MagicMock()
+        detached_child.uuid = "detached-uuid"
+        service.sub_agents["detached-uuid"] = SubAgentInfo(
+            name="wf:demo",
+            coder=detached_child,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.FINISHED,
+            summary="background run",
+            detached=True,
+        )
+
+        normal_child = MagicMock()
+        normal_child.uuid = "normal-uuid"
+        service.sub_agents["normal-uuid"] = SubAgentInfo(
+            name="reviewer",
+            coder=normal_child,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.FINISHED,
+            summary="done",
+        )
+
+        result = await service.wait(parent_coder)
+
+        assert result == ["done"]
+
+
+# ================================================================== #
+# TUI notification threading
+# ================================================================== #
+
+
+class TestTuiNotify:
+    """Container notifications must work from the app thread or a worker one."""
+
+    def test_same_thread_falls_back_to_direct_call(self):
+        from cecli.helpers.agents.service import _tui_notify
+
+        hits = []
+
+        class AppThreadTui:
+            def call_from_thread(self, callback, *args):
+                raise RuntimeError(
+                    "The `call_from_thread` method must run in a different thread from the app"
+                )
+
+            def container(self, *args):
+                hits.append(args)
+
+        tui = AppThreadTui()
+        _tui_notify(tui, tui.container, "u1", "wf:demo")
+
+        assert hits == [("u1", "wf:demo")]
+
+    def test_cross_thread_uses_call_from_thread(self):
+        from cecli.helpers.agents.service import _tui_notify
+
+        class WorkerThreadTui:
+            def __init__(self):
+                self.via_thread = []
+
+            def call_from_thread(self, callback, *args):
+                self.via_thread.append(args)
+
+        tui = WorkerThreadTui()
+        _tui_notify(tui, lambda *a: None, "u2")
+
+        assert tui.via_thread == [("u2",)]
 
 
 # ================================================================== #
@@ -774,3 +994,240 @@ class TestKeepFiles:
         assert "fnames" not in call_kwargs
         assert "read_only_fnames" not in call_kwargs
         assert "read_only_stubs_fnames" not in call_kwargs
+
+
+# ================================================================== #
+# agent_config inheritance prefixes (ws: / wf:)
+# ================================================================== #
+
+
+class TestAgentInheritPrefixes:
+    """The AGENT_INHERIT_PREFIXES branch of _create_sub_agent_coder()."""
+
+    def _register(self, name, agent_config):
+        from cecli.helpers.agents.config import SubAgentConfig
+
+        AgentService.register_subagent(
+            name,
+            SubAgentConfig(name=name, prompt="", metadata={"agent-config": agent_config}),
+        )
+
+    async def _create(self, service, name):
+        mock_new_coder = MagicMock()
+        mock_new_coder.tui = None
+
+        with patch("cecli.coders.Coder") as MockCoder:
+            MockCoder.create = AsyncMock(return_value=mock_new_coder)
+            with patch("cecli.helpers.conversation.service.ConversationService") as MockConv:
+                MockConv.get_chunks.return_value = MagicMock()
+                await service.spawn(name, parent=service.coder)
+
+        return MockCoder.create.call_args[1]["init_metadata"]["agent_config"]
+
+    @pytest.mark.asyncio
+    async def test_wf_agent_inherits_and_merges(self, service):
+        """wf: inherits the parent agent_config, own keys win, delegation defaults on."""
+        service.coder.agent_config = {"subagent_paths": ["p"], "x": "parent"}
+        self._register("wf:demo", {"x": "child", "skip_cli_confirmations": True})
+
+        merged = await self._create(service, "wf:demo")
+
+        assert merged["subagent_paths"] == ["p"]  # inherited from parent
+        assert merged["x"] == "child"  # own config merged on top
+        assert merged["skip_cli_confirmations"] is True
+        assert merged["allow_nested_delegation"] is True  # defaulted
+
+    @pytest.mark.asyncio
+    async def test_wf_servers_allowlist_forces_local(self, service):
+        """A wf: servers allowlist always keeps the Local server available."""
+        service.coder.agent_config = {}
+        self._register(
+            "wf:demo",
+            {"servers_includelist": ["GitLab"], "skip_cli_confirmations": True},
+        )
+
+        merged = await self._create(service, "wf:demo")
+
+        assert merged["servers_includelist"] == ["gitlab", "local"]
+
+    @pytest.mark.asyncio
+    async def test_wf_without_allowlist_does_not_force_local(self, service):
+        """Only an explicit allowlist gets the Local server added."""
+        service.coder.agent_config = {}
+        self._register("wf:demo", {"skip_cli_confirmations": True})
+
+        merged = await self._create(service, "wf:demo")
+
+        assert "servers_includelist" not in merged
+
+    @pytest.mark.asyncio
+    async def test_ws_servers_allowlist_does_not_force_local(self, service):
+        """Local is forced for wf: agents only, not for other inherit-prefix agents."""
+        service.coder.agent_config = {}
+        self._register("ws:app", {"servers_includelist": ["github"]})
+
+        merged = await self._create(service, "ws:app")
+
+        assert merged["servers_includelist"] == ["github"]
+
+    @pytest.mark.asyncio
+    async def test_wf_respects_explicit_optout(self, service):
+        """wf: uses setdefault, so an explicit False in the config survives."""
+        service.coder.agent_config = {"allow_nested_delegation": False}
+        self._register("wf:opt", {"skip_cli_confirmations": True})
+
+        merged = await self._create(service, "wf:opt")
+
+        assert merged["allow_nested_delegation"] is False
+
+    @pytest.mark.asyncio
+    async def test_ws_hard_set_preserved(self, service):
+        """ws: still hard-sets allow_nested_delegation=True (unchanged behavior)."""
+        service.coder.agent_config = {"allow_nested_delegation": False, "tools_paths": ["t"]}
+        self._register("ws:app", {})
+
+        merged = await self._create(service, "ws:app")
+
+        assert merged["tools_paths"] == ["t"]
+        assert merged["allow_nested_delegation"] is True
+
+    @pytest.mark.asyncio
+    async def test_plain_worker_does_not_inherit(self, service):
+        """A plain name never triggers the inheritance merge."""
+        service.coder.agent_config = {"parent_only": 1, "allow_nested_delegation": False}
+        self._register("worker", {"own": 2})
+
+        merged = await self._create(service, "worker")
+
+        assert merged == {"own": 2}
+
+
+# ================================================================== #
+# Cross-loop lock safety
+# ================================================================== #
+
+
+class TestCrossLoopLocks:
+    """Spawn/conversation locks must be usable from two different event loops.
+
+    ``asyncio.Lock`` binds to the loop of its first *waiting* acquirer and
+    raises ``RuntimeError`` ("... is bound to a different event loop") when
+    awaited from another loop. Spawn, reap and conversation writes reach the
+    same per-parent lock from both the TUI main (Textual) loop and the coder
+    worker-thread loop, so the pools use ``threading.Lock``; the guarded
+    sections are synchronous, so a blocked acquirer simply waits.
+    """
+
+    def setup_method(self):
+        """Isolate the lock pools (class-level, so they leak between tests)."""
+        AgentService._spawn_locks = {}
+        AgentService._conversation_locks = {}
+
+    def teardown_method(self):
+        AgentService._spawn_locks = {}
+        AgentService._conversation_locks = {}
+
+    def test_lock_pools_are_thread_locks(self):
+        """The pools hand out ``threading.Lock``, never ``asyncio.Lock``."""
+        lock = AgentService._get_lock(AgentService._spawn_locks, "parent-uuid")
+        assert isinstance(lock, type(threading.Lock()))
+        assert not isinstance(lock, asyncio.Lock)
+        # Created lazily, but stable per uuid.
+        assert AgentService._get_lock(AgentService._spawn_locks, "parent-uuid") is lock
+
+    def test_contended_lock_is_usable_across_event_loops(self):
+        """Two waiters on their own loops must block, never raise.
+
+        With ``asyncio.Lock`` the *second* waiter (different loop from the one
+        the lock bound to) raises ``RuntimeError``; with ``threading.Lock``
+        both simply wait for the holder to release.
+        """
+        lock = AgentService._get_lock(AgentService._spawn_locks, "parent-uuid")
+
+        entered = threading.Event()
+        release = threading.Event()
+        order = []
+        errors = []
+
+        def run_on_own_loop(coro_factory):
+            """Run the coroutine on a fresh event loop in this thread."""
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(coro_factory())
+            except BaseException as exc:  # noqa: BLE001 - record, do not raise in thread
+                errors.append(exc)
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
+
+        async def holds_lock():
+            with lock:
+                order.append("holder")
+                entered.set()
+                # Await *outside* the lock: guarded sections never await.
+                await asyncio.to_thread(release.wait, 5)
+            order.append("holder-released")
+
+        def contender_factory(tag):
+            async def contends():
+                with lock:
+                    order.append(tag)
+
+            return contends
+
+        holder = threading.Thread(target=run_on_own_loop, args=(holds_lock,))
+        holder.start()
+        first = second = None
+        try:
+            assert entered.wait(timeout=5), "holder never acquired the lock"
+
+            # Waiter #1 blocks on its own loop...
+            first = threading.Thread(target=run_on_own_loop, args=(contender_factory("c1"),))
+            first.start()
+            time.sleep(0.1)
+            # ...waiter #2 on a third loop must block too, not raise.
+            second = threading.Thread(target=run_on_own_loop, args=(contender_factory("c2"),))
+            second.start()
+            time.sleep(0.2)
+
+            assert errors == [], f"cross-loop lock acquisition raised: {errors}"
+            assert order == ["holder"]
+        finally:
+            release.set()
+            holder.join(timeout=5)
+
+        for thread in (first, second):
+            if thread is not None:
+                thread.join(timeout=5)
+
+        assert errors == []
+        assert "c1" in order
+        assert "c2" in order
+        assert "holder-released" in order
+
+
+class TestStartGenerateTaskSwitch:
+    """A mid-turn command signal rebuilds the sub-agent coder in place."""
+
+    @pytest.mark.asyncio
+    async def test_switch_signal_switches_sub_agent_instead_of_escaping(self, service):
+        from cecli.signals import SwitchCoderSignal
+
+        coder = MagicMock()
+        coder.uuid = "sub-uuid"
+
+        async def raise_switch(**kwargs):
+            raise SwitchCoderSignal(edit_format="subagent")
+
+        coder.generate = AsyncMock(side_effect=raise_switch)
+        info = SubAgentInfo(name="wf:demo", coder=coder, parent_uuid="parent-uuid")
+        info.detached = True
+        service.switch_sub_agent_coder = AsyncMock()
+
+        task = service.start_generate_task(info, "/mcp load github")
+        await task
+
+        service.switch_sub_agent_coder.assert_awaited_once()
+        assert service.switch_sub_agent_coder.call_args.args[0] is info
+        assert info.status == SubAgentStatus.FINISHED

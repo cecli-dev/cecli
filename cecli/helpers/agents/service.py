@@ -6,6 +6,7 @@ that tracks sub-agent info and handles invoke/spawn/wait lifecycle.
 
 import asyncio
 import logging
+import threading
 import time
 import weakref
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from uuid import uuid4
 
 import cecli.models as models
 from cecli.helpers import nested
+from cecli.helpers.agents.tree import AgentTree
 from cecli.helpers.coroutines import fire_and_forget
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,30 @@ MODEL_SENTINEL_WEAK = "<weak_model>"
 MODEL_SENTINEL_AGENT = "<agent_model>"
 MODEL_SENTINEL_MAIN = "<main_model>"
 MODEL_SENTINEL_CURRENT = "<current>"
+
+# Sub-agent name prefixes whose coder inherits the parent's ``agent_config``
+# (merged with the agent's own config on top): ``ws:`` workspace agents and
+# ``wf:`` workflow agents.
+AGENT_INHERIT_PREFIXES = ("ws:", "wf:")
+
+
+def _subagent_event(coder: Any, agent_uuid: Any, event: str, **kwargs: Any) -> None:
+    """Report a sub-agent's lifecycle to the IO (see ``InputOutput.subagent_event``)."""
+    io = getattr(coder, "io", None)
+    if io is None:
+        return
+    try:
+        io.subagent_event(str(agent_uuid), event, **kwargs)
+    except Exception:
+        logger.warning("Failed to report sub-agent event %r", event, exc_info=True)
+
+
+def _was_cancelled(info: "SubAgentInfo") -> bool:
+    """Whether the current run was cancelled, even if the coder absorbed it as a ^C."""
+    if info.cancel_requested:
+        return True
+    cancelling = getattr(asyncio.current_task(), "cancelling", None)  # Python 3.11+
+    return bool(cancelling and cancelling())
 
 
 class SubAgentStatus(Enum):
@@ -59,6 +85,8 @@ class SubAgentInfo:
     )
     auto_reap: bool = True  # If True, agent may be automatically reaped when FINISHED
     independent: bool = False
+    detached: bool = False
+    cancel_requested: bool = False  # the current run was cancelled (see _was_cancelled)
 
 
 class AgentService:
@@ -70,12 +98,29 @@ class AgentService:
 
     _instances: Dict[str, "AgentService"] = {}
     _global_registry: Dict[str, Any] = {}  # name -> SubAgentConfig (from .md files)
+    # creator.yml ``agents:`` map: name/pattern -> override entry (see
+    # cecli.helpers.agents.overrides). Applied at spawn, never to the primary.
+    _agent_overrides: Dict[str, Any] = {}
     # UUID -> weakref of coder instance for convenient lookup
     _uuid_coder_map: Dict[str, weakref.ref] = {}
     # Lock pools keyed by parent UUID — created lazily so only parents that
     # actually use them allocate a lock.
-    _spawn_locks: Dict[str, asyncio.Lock] = {}
-    _conversation_locks: Dict[str, asyncio.Lock] = {}
+    #
+    # Plain ``threading.Lock`` (not ``asyncio.Lock``): an ``asyncio.Lock`` binds
+    # itself to the event loop of its first *waiting* acquirer and raises
+    # ``RuntimeError('... is bound to a different event loop')`` when awaited
+    # from another loop. Spawn, reap and conversation writes all reach these
+    # pools from both the TUI main (Textual) loop and the coder worker-thread
+    # loop, and the pools are class-level, so a lock created before a hot reload
+    # outlives the loop it bound to. Every guarded section is fully synchronous,
+    # so a thread lock gives true cross-loop mutual exclusion with no loop
+    # affinity and is immune to task cancellation.
+    #
+    # Invariant: never hold one of these locks across an ``await`` — the guarded
+    # sections must stay synchronous, or the blocking acquire could stall the
+    # event loop.
+    _spawn_locks: Dict[str, threading.Lock] = {}
+    _conversation_locks: Dict[str, threading.Lock] = {}
     _primary_agent_uuid: str = None
 
     # ------------------------------------------------------------------ #
@@ -168,6 +213,27 @@ class AgentService:
     def unregister_subagent(cls, name: str) -> None:
         """Remove a sub-agent from the global registry."""
         cls._global_registry.pop(name, None)
+
+    @classmethod
+    def set_agent_overrides(cls, overrides: Optional[Dict[str, Any]]) -> None:
+        """Replace the creator.yml per-agent override index.
+
+        The mapping is keyed by agent name or fnmatch pattern and is resolved
+        to a concrete override when a sub-agent is spawned.
+        """
+        cls._agent_overrides = dict(overrides) if isinstance(overrides, dict) else {}
+
+    @classmethod
+    def get_agent_overrides(cls) -> Dict[str, Any]:
+        """Return the creator.yml per-agent override index."""
+        return cls._agent_overrides
+
+    @classmethod
+    def _resolve_agent_overrides(cls, name: str) -> Dict[str, Any]:
+        """Collapse the pattern overrides matching *name* into one entry."""
+        from .overrides import resolve_agent_overrides
+
+        return resolve_agent_overrides(name, cls._agent_overrides)
 
     @classmethod
     def mark_sub_agent_finished(
@@ -286,6 +352,11 @@ class AgentService:
         # Register the primary coder in the global uuid map
         if hasattr(coder, "uuid"):
             self._uuid_coder_map[str(coder.uuid)] = weakref.ref(coder)
+            AgentTree.register(
+                str(coder.uuid),
+                parent_uuid=getattr(coder, "parent_uuid", None) or None,
+                name="primary",
+            )
         # uuid -> SubAgentInfo
         self.sub_agents: Dict[str, SubAgentInfo] = {}
         # Ordered list of sub-agent UUIDs for LRU reap
@@ -299,10 +370,15 @@ class AgentService:
     # ------------------------------------------------------------------ #
     # Internal helpers
     @classmethod
-    def _get_lock(cls, pool: Dict[str, asyncio.Lock], uuid: str) -> asyncio.Lock:
-        """Return a lock for *uuid* from *pool*, creating one if absent."""
+    def _get_lock(cls, pool: Dict[str, threading.Lock], uuid: str) -> threading.Lock:
+        """Return a lock for *uuid* from *pool*, creating one if absent.
+
+        Locks are ``threading.Lock`` rather than ``asyncio.Lock`` (see the pool
+        declarations): the guarded sections are synchronous and correct locking
+        must work from any event loop.
+        """
         if uuid not in pool:
-            pool[uuid] = asyncio.Lock()
+            pool[uuid] = threading.Lock()
         return pool[uuid]
 
     @staticmethod
@@ -383,6 +459,8 @@ class AgentService:
         def _has_unfinished_descendants(agent_uuid: str) -> bool:
             """Return True if *agent_uuid* has any non-FINISHED/non-ERROR descendant."""
             for child in parent_to_children.get(agent_uuid, []):
+                if child.detached:
+                    continue
                 if child.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR):
                     return True
                 if _has_unfinished_descendants(child.coder.uuid):
@@ -425,6 +503,8 @@ class AgentService:
         def _has_unfinished_descendants(agent_uuid: str) -> bool:
             """Return True if *agent_uuid* has any non-FINISHED/non-ERROR descendant."""
             for child in parent_to_children.get(agent_uuid, []):
+                if child.detached:
+                    continue
                 if child.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR):
                     return True
                 if _has_unfinished_descendants(child.coder.uuid):
@@ -434,7 +514,7 @@ class AgentService:
         # Acquire the spawn lock for the primary coder to serialise with
         # concurrent spawn operations that also hold this lock.
         parent_coder = parent if parent is not None else self.coder
-        async with self._get_lock(self._spawn_locks, parent_coder.uuid):
+        with self._get_lock(self._spawn_locks, parent_coder.uuid):
             for coder_uuid in list(self._sub_agent_order):
                 info = self.sub_agents.get(coder_uuid)
                 if (
@@ -488,9 +568,11 @@ class AgentService:
             # their own tui attribute; only the primary coder stores it.
             tui = self._get_tui(self.coder)
             if tui is not None:
-                tui.call_from_thread(tui.remove_sub_agent_container, info.coder.uuid)
+                _tui_notify(tui, tui.remove_sub_agent_container, info.coder.uuid)
         except (AttributeError, RuntimeError):
             logger.warning("Failed to notify TUI to remove sub-agent container", exc_info=True)
+
+        _subagent_event(self.coder, info.coder.uuid, "removed")
 
         # Cancel any tracked generate task to avoid floating tasks
         if info.generate_task is not None and not info.generate_task.done():
@@ -505,6 +587,7 @@ class AgentService:
         # not the parent's service instance. The parent's instance is cleaned
         # up separately in cleanup_all_for_parent().
         self._uuid_coder_map.pop(info.coder.uuid, None)
+        AgentTree.unregister(info.coder.uuid)
         self.destroy_instance(info.coder.uuid)
 
     def _check_max_sub_agents(self) -> None:
@@ -564,15 +647,25 @@ class AgentService:
             ValueError: If the named sub-agent is not registered.
             RuntimeError: If the maximum number of sub-agents is reached.
         """
+        from cecli.helpers.agents.overrides import (
+            apply_agent_override,
+            apply_hooks_override,
+        )
+
         config = self._global_registry.get(name)
         if not config:
             raise ValueError(
                 f"Unknown sub-agent '{name}'. " f"Available: {list(self._global_registry.keys())}"
             )
 
-        # Resolve auto_reap: None means defer to sub-agent config, then default to True
+        override = self._resolve_agent_overrides(name)
+
+        # Resolve auto_reap: explicit argument, then creator override, then the
+        # sub-agent config, then the default.
         if auto_reap is None:
-            auto_reap = getattr(config, "auto_reap", None)
+            auto_reap = override.get("auto_reap")
+            if auto_reap is None:
+                auto_reap = getattr(config, "auto_reap", None)
             if auto_reap is None:
                 auto_reap = True
 
@@ -583,7 +676,7 @@ class AgentService:
         # tried to acquire the same lock).
         parent_coder = parent if parent is not None else self.coder
 
-        async with self._get_lock(self._spawn_locks, parent_coder.uuid):
+        with self._get_lock(self._spawn_locks, parent_coder.uuid):
             self._check_max_sub_agents()
             new_uuid = str(uuid4()).split("-")[0]
 
@@ -597,16 +690,41 @@ class AgentService:
         if not configured_root and isinstance(agent_config, dict):
             configured_root = agent_config.get("root")
 
-        # Workspace sub-agents (ws:*) inherit the parent/primary coder's
-        # agent_config as their default and additionally enable nested
-        # delegation so they can themselves serve as delegation bases. The
-        # ws-agent's own metadata agent-config is merged on top.
-        if name.startswith("ws:"):
+        # Workspace/workflow sub-agents (ws:*, wf:*) inherit the parent/primary
+        # coder's agent_config as their default; the agent's own metadata
+        # agent-config is merged on top. ws: additionally hard-enables nested
+        # delegation; wf: only defaults it (setdefault) so an explicit
+        # allow_nested_delegation in the workflow metadata wins.
+        if name.startswith(AGENT_INHERIT_PREFIXES):
             inherited = dict(nested.getter(parent_coder, "agent_config", {}) or {})
             incoming = dict(agent_config)
             inherited.update(incoming)
-            inherited["allow_nested_delegation"] = True
+            if name.startswith("ws:"):
+                inherited["allow_nested_delegation"] = True
+            else:
+                inherited.setdefault("allow_nested_delegation", True)
             agent_config = inherited
+
+        # The creator's per-agent override is the local user's explicit intent,
+        # so it merges on top of the agent's own front matter and any inherited
+        # parent config. The wf: Local-server invariant below still runs after
+        # this merge so an allowlist override cannot hide the file/exec tools.
+        if override:
+            agent_config = apply_agent_override(agent_config, override.get("agent-config"))
+            configured_root = override.get("root") or configured_root
+            if override.get("description") is not None:
+                metadata["description"] = override["description"]
+            if "detached" in override:
+                agent_config["detached"] = bool(override["detached"])
+
+        # Workflow agents always keep the Local server available: its tools are
+        # the file/exec primitives a worker needs, and an explicit ``servers:``
+        # allowlist must not filter them out.
+        if name.startswith("wf:") and agent_config.get("servers_includelist"):
+            servers = [str(server).lower() for server in agent_config["servers_includelist"]]
+            if "local" not in servers:
+                servers.append("local")
+            agent_config["servers_includelist"] = servers
 
         kwargs = dict(
             io=parent_coder.io,
@@ -653,7 +771,7 @@ class AgentService:
                 )
             )
 
-        model_override = getattr(config, "model", None)
+        model_override = override.get("model") or getattr(config, "model", None)
         if model_override:
             # Resolve model sentinels (e.g. "<weak_model>", "<agent_model>")
             resolved = self._resolve_model_sentinel(model_override, parent_coder)
@@ -672,11 +790,16 @@ class AgentService:
 
         # Re-acquire the lock to register — we must re-check max agents since
         # the lock was released and other spawns may have registered in between.
-        async with self._get_lock(self._spawn_locks, parent_coder.uuid):
+        with self._get_lock(self._spawn_locks, parent_coder.uuid):
             self._check_max_sub_agents()
 
-            # Register in global coder lookup
+            # Register in global coder lookup and the visibility tree
             self._uuid_coder_map[new_uuid] = weakref.ref(new_coder)
+            AgentTree.register(
+                str(new_coder.uuid),
+                parent_uuid=str(parent_coder.uuid),
+                name=name,
+            )
 
             info = SubAgentInfo(
                 name=name,
@@ -685,6 +808,8 @@ class AgentService:
                 status=SubAgentStatus.CREATED,
                 auto_reap=auto_reap,
                 independent=independent,
+                detached=isinstance(agent_config, dict)
+                and bool(agent_config.get("detached", False)),
             )
             self.sub_agents[new_coder.uuid] = info
             self._sub_agent_order.append(new_coder.uuid)
@@ -693,18 +818,29 @@ class AgentService:
         try:
             tui = self._get_tui(self.coder)
             if tui is not None:
-                tui.call_from_thread(tui.create_sub_agent_container, new_uuid, name)
+                _tui_notify(tui, tui.create_sub_agent_container, new_uuid, name)
         except Exception:
             logger.warning("Failed to notify TUI to create sub-agent container", exc_info=True)
 
+        _subagent_event(
+            parent_coder,
+            new_coder.uuid,
+            "created",
+            parent_uuid=str(parent_coder.uuid),
+            name=name,
+            description=metadata.get("description") if isinstance(metadata, dict) else None,
+            root=str(getattr(new_coder, "root", "") or ""),
+        )
+
         # Initialize system prompt from config
-        system_prompt = getattr(config, "prompt", "")
+        system_prompt = override.get("prompt") or getattr(config, "prompt", "")
         from cecli.helpers.conversation.service import ConversationService
 
         ConversationService.get_chunks(new_coder).add_system_message(system_prompt)
 
         # Initialize hooks from sub-agent config if defined
-        hooks_config = getattr(config, "hooks", {})
+        hooks_override = override.get("hooks") if isinstance(override, dict) else None
+        hooks_config = apply_hooks_override(getattr(config, "hooks", {}), hooks_override)
         if hooks_config:
             import tempfile
             from pathlib import Path
@@ -737,6 +873,41 @@ class AgentService:
     # ------------------------------------------------------------------ #
     # Public API
     # ------------------------------------------------------------------ #
+
+    async def switch_sub_agent_coder(self, info: SubAgentInfo, switch, preproc=True) -> Any:
+        """Atomically hand a sub-agent's remaining queue to a replacement coder.
+
+        Commands such as /add request a coder rebuild by raising SwitchCoderSignal.
+        A sub-agent must absorb that signal locally: letting it escape recreates the
+        primary coder from the sub-agent and leaves the main session in sub-agent
+        mode. The active prompt has already run, so only the remaining queue moves.
+        """
+        from cecli.coders import Coder
+        from cecli.helpers import command_queue
+
+        old_coder = info.coder
+        kwargs = dict(io=old_coder.io, from_coder=old_coder)
+        kwargs.update(switch.kwargs)
+        kwargs.pop("show_announcements", None)
+        kwargs["from_coder"] = old_coder
+        kwargs["args"] = old_coder.args
+        kwargs["summarize_from_coder"] = False
+
+        new_coder = await Coder.create(**kwargs)
+        AgentTree.replace(old_coder.uuid, new_coder.uuid)
+
+        new_coder.prompt_queue = list(old_coder.prompt_queue)
+        new_coder._queue_counter = old_coder._queue_counter
+        old_coder.prompt_queue.clear()
+
+        command_queue.clear_active_prompt(old_coder)
+
+        info.coder = new_coder
+        self.sub_agents[new_coder.uuid] = info
+        self._uuid_coder_map[new_coder.uuid] = weakref.ref(new_coder)
+
+        await new_coder.process_prompt_queue(preproc)
+        return new_coder
 
     def start_generate_task(self, info: SubAgentInfo, user_message: str) -> asyncio.Task:
         """Start a sub-agent's generate task in the background with status management.
@@ -771,8 +942,14 @@ class AgentService:
 
         async def _run_generate():
             info.status = SubAgentStatus.RUNNING
+            info.cancel_requested = False
+            _subagent_event(info.coder, info.coder.uuid, "running")
+            stop_reason, error = "end_turn", None
             try:
                 await info.coder.generate(user_message=user_message, preproc=True)
+                if _was_cancelled(info):
+                    stop_reason = "cancelled"
+                    info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
                 await self._inject_sub_agent_result(info)
                 if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
@@ -795,12 +972,25 @@ class AgentService:
                     fire_and_forget(_cleanup())
 
             except asyncio.CancelledError:
+                stop_reason = "cancelled"
                 await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.FINISHED
                 info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
+            except SwitchCoderSignal as switch:
+                # A command run mid-turn (e.g. /mcp load) asks for this
+                # sub-agent's coder to be rebuilt. Absorb the signal here:
+                # letting it escape would recreate the *primary* coder from a
+                # sub-agent. The switch also drains any prompts staged behind
+                # the command, mirroring run_one()'s post-command drain.
+                await self.switch_sub_agent_coder(info, switch, preproc=True)
+                await self._inject_sub_agent_result(info)
+                if info.status == SubAgentStatus.RUNNING:
+                    info.status = SubAgentStatus.FINISHED
+                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
             except Exception as exc:
+                stop_reason, error = "error", str(exc) or exc.__class__.__name__
                 await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.ERROR
                 info.error = str(exc)
@@ -811,8 +1001,10 @@ class AgentService:
                     exc_info=True,
                 )
                 raise
-            except SwitchCoderSignal:
-                raise
+            finally:
+                _subagent_event(
+                    info.coder, info.coder.uuid, "idle", stop_reason=stop_reason, error=error
+                )
 
         # Cancel any previous generate task to prevent duplicate concurrent generates
         if info.generate_task is not None and not info.generate_task.done():
@@ -888,6 +1080,9 @@ class AgentService:
         from cecli.helpers.conversation.service import ConversationService
         from cecli.helpers.conversation.tags import MessageTag
 
+        if info.detached:
+            return
+
         # Capture coder UUID early in case the sub-agent is cleaned up before
         # this method completes (the weakref could become invalid).
         coder_uuid = getattr(info.coder, "uuid", "(unknown)")
@@ -933,7 +1128,7 @@ class AgentService:
         else:
             return
 
-        async with self._get_lock(self._conversation_locks, info.parent_uuid):
+        with self._get_lock(self._conversation_locks, info.parent_uuid):
             ConversationService.get_manager(parent_coder).add_message(
                 message_dict={"role": "user", "content": user_content},
                 tag=MessageTag.CUR,
@@ -946,6 +1141,10 @@ class AgentService:
                 hash_key=("sub_agent_result", "assistant", coder_uuid, str(time.monotonic_ns())),
                 force=True,
             )
+
+        _subagent_event(
+            parent_coder, parent_coder.uuid, "message", sender_uuid=coder_uuid, text=user_content
+        )
 
     async def invoke(
         self,
@@ -972,8 +1171,23 @@ class AgentService:
             return None
 
         # Blocking: run the sub-agent with the prompt using start_generate_task
+        sender = parent if parent is not None else self.coder
+        _subagent_event(
+            sender, new_coder.uuid, "message", sender_uuid=str(sender.uuid), text=prompt
+        )
         task = self.start_generate_task(info, prompt)
-        await task
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if info.cancel_requested or task.cancelled():
+                # The sub-agent was cancelled; wait for its interrupted summary
+                await asyncio.gather(task, return_exceptions=True)
+                return info.summary
+
+            # The caller was cancelled: stop the sub-agent it was waiting for
+            info.cancel_requested = True
+            task.cancel()
+            raise
         return info.summary
 
     async def spawn(
@@ -1001,6 +1215,10 @@ class AgentService:
             name, auto_reap=auto_reap, parent=parent, independent=independent
         )
         if prompt:
+            sender = parent if parent is not None else self.coder
+            _subagent_event(
+                sender, new_coder.uuid, "message", sender_uuid=str(sender.uuid), text=prompt
+            )
             self.start_generate_task(info, prompt)
         return new_coder, info
 
@@ -1019,7 +1237,11 @@ class AgentService:
             if the parent has no active children.
         """
         uid = str(parent.uuid) if hasattr(parent, "uuid") else str(parent)
-        children = [info for info in self.sub_agents.values() if info.parent_uuid == uid]
+        children = [
+            info
+            for info in self.sub_agents.values()
+            if info.parent_uuid == uid and not info.detached
+        ]
         if not children:
             logger.debug("wait(%s): no children found", uid)
             return []
@@ -1035,6 +1257,19 @@ class AgentService:
             await asyncio.gather(*tasks)
 
         return [info.summary for info in children]
+
+    def cancel_sub_agent(self, agent_uuid: str) -> bool:
+        """Stop a sub-agent's current work, leaving its parent running.
+
+        A parent waiting on it (a blocking delegation) gets the interrupted
+        summary. Returns False if the sub-agent was not working.
+        """
+        info = self.sub_agents.get(str(agent_uuid))
+        if info is None or info.generate_task is None or info.generate_task.done():
+            return False
+        info.cancel_requested = True
+        info.generate_task.cancel()
+        return True
 
     def get_active_agents(self) -> List[Dict[str, Any]]:
         """Return list of active sub-agents for display."""
@@ -1168,6 +1403,8 @@ class AgentService:
         parent_uuid = self.coder.uuid
         for uuid in list(self.sub_agents.keys()):
             self._cleanup_sub_agent(uuid)
+        AgentTree.unregister(parent_uuid)
+
         # Clean up lock pools to prevent memory leaks
         self._spawn_locks.pop(parent_uuid, None)
         self._conversation_locks.pop(parent_uuid, None)
@@ -1175,3 +1412,19 @@ class AgentService:
         self._uuid_coder_map.pop(parent_uuid, None)
         if type(self)._primary_agent_uuid == parent_uuid:
             type(self)._primary_agent_uuid = None
+            
+def _tui_notify(tui, callback, *args):
+    """Invoke *callback* on the TUI app, from either thread.
+
+    ``call_from_thread`` only works when the caller is not the app's own
+    thread. Scheduler-dispatched workflow runs now execute on the coder's own
+    loop (the TUI worker-thread loop — see ``SchedulerService._on_coder_loop``),
+    so notifications originate from the worker thread and ``call_from_thread``
+    applies; when we are already on the app thread (or the TUI is unavailable),
+    fall back to calling directly.
+    """
+
+    try:
+        tui.call_from_thread(callback, *args)
+    except RuntimeError:
+        callback(*args)

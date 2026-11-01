@@ -43,7 +43,7 @@ While it is not recommended, you can disable cecli's use of git in a few ways:
 
 Cecli sends the `--weak-model` a copy of the diffs and the chat history and asks it to produce a commit message. By default, cecli creates commit messages which follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-You can customize the [commit prompt](https://github.com/cecli-dev/cecli/blob/main/cecli/prompts.py#L5) with the `--commit-prompt` option. You can place that on the command line, or [configure it via a config file or environment variables](config.html).
+You can customize the [commit prompt](https://github.com/cecli-dev/cecli/blob/main/cecli/prompts/utils/system.py#L8) with the `--commit-prompt` option. You can place that on the command line, or [configure it via a config file or environment variables](config.html).
 
 
 ## Commit attribution

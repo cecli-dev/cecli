@@ -10,30 +10,11 @@ from pathlib import Path
 import pathspec
 
 from cecli.decoding import safe_open
+from cecli.helpers.file_exclusions import DEFAULT_EXCLUDE_DIRS, SCANDIR_KEEP_DIRS
 
-# Directories to always ignore (common noise sources)
-DEFAULT_IGNORE_DIRS = frozenset(
-    {
-        "node_modules",
-        ".git",
-        "__pycache__",
-        ".venv",
-        "venv",
-        "env",
-        ".tox",
-        ".eggs",
-        "eggs",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".hypothesis",
-        "build",
-        "dist",
-        ".next",
-        "target",
-        ".gradle",
-    }
-)
+# Directories to always ignore (common noise sources). The scanner keeps
+# walking source-like trees that the repo map and grep prune.
+DEFAULT_IGNORE_DIRS = (DEFAULT_EXCLUDE_DIRS - SCANDIR_KEEP_DIRS) | {"env"}
 
 # File patterns to always ignore
 DEFAULT_IGNORE_PATTERNS = frozenset(

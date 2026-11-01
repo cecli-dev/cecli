@@ -84,7 +84,7 @@ I benchmarked 4 different edit formats, described below. Each description includ
 
 ### whole
 
-The [whole](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/wholefile_prompts.py) format asks GPT to return an updated copy of the entire file, including any changes. The file should be formatted with normal markdown triple-backtick fences, inlined with the rest of its response text.
+The [whole](https://github.com/cecli-dev/cecli/blob/main/cecli/prompts/wholefile.yml) format asks GPT to return an updated copy of the entire file, including any changes. The file should be formatted with normal markdown triple-backtick fences, inlined with the rest of its response text.
 
 This format is very similar to how ChatGPT returns code snippets during normal chats, except with the addition of a filename right before the opening triple-backticks.
 
@@ -100,7 +100,7 @@ def main():
 
 ### diff
 
-The [diff](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/editblock_prompts.py) format also asks GPT to return edits as part of the normal response text, in a simple diff format. Each edit is a fenced code block that specifies the filename and a chunk of ORIGINAL and UPDATED code. GPT provides some original lines from the file and then a new updated set of lines.
+The [diff](https://github.com/cecli-dev/cecli/blob/main/cecli/prompts/editblock.yml) format also asks GPT to return edits as part of the normal response text, in a simple diff format. Each edit is a fenced code block that specifies the filename and a chunk of ORIGINAL and UPDATED code. GPT provides some original lines from the file and then a new updated set of lines.
 
 ````
 Here are the changes you requested to demo.py:

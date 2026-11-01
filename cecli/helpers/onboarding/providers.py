@@ -3,7 +3,7 @@
 import importlib.resources as importlib_resources
 import json
 import os
-from typing import Dict, List
+from typing import Collection, Dict, List, Optional
 
 # Providers that authenticate through mechanisms other than a simple _API_KEY
 # (e.g. GitHub Copilot tokens or AWS credentials), so onboarding should never
@@ -61,11 +61,18 @@ def _load_metadata() -> Dict:
     return data
 
 
-def _models_from_metadata(data: Dict, slug: str) -> List[str]:
-    """Return selectable model names for a provider from the metadata dict."""
+def _models_from_metadata(
+    data: Dict, slug: str, modes: Optional[Collection[str]] = None
+) -> List[str]:
+    """Return selectable model names for a provider from the metadata dict.
+
+    ``modes`` keeps only models with those metadata modes (e.g. ``("chat",)``).
+    """
     models = []
     for name, meta in data.items():
         if not isinstance(meta, dict):
+            continue
+        if modes and meta.get("mode", "chat") not in modes:
             continue
         provider = meta.get("litellm_provider") or ""
         if provider == slug:
@@ -128,9 +135,12 @@ def provider_display(entry: Dict) -> str:
     return label
 
 
-def get_models_for_provider(slug: str) -> List[str]:
-    """Return the selectable model names for a provider."""
-    models = _models_from_metadata(_load_metadata(), slug)
+def get_models_for_provider(slug: str, modes: Optional[Collection[str]] = None) -> List[str]:
+    """Return the selectable model names for a provider.
+
+    ``modes`` filters the bundled metadata by mode; a live fetch is not filtered.
+    """
+    models = _models_from_metadata(_load_metadata(), slug, modes)
     if models:
         return sorted(set(models))
 

@@ -345,6 +345,8 @@ class TextualInputOutput(InputOutput):
             update_last_text: Whether to update last_spinner_text
             coder_uuid: Optional uuid string to include in the message
         """
+        if not self.spinner_active:
+            return
         coder_uuid = kwargs.get("coder_uuid", None)
         # Call parent to maintain state
         super().start_spinner(text, update_last_text)
@@ -377,6 +379,8 @@ class TextualInputOutput(InputOutput):
             text: New spinner text
             coder_uuid: Optional uuid string to include in the message
         """
+        if not self.spinner_active:
+            return
         coder_uuid = kwargs.get("coder_uuid", None)
         # Call parent
         super().update_spinner(text)
@@ -399,6 +403,8 @@ class TextualInputOutput(InputOutput):
             text: New spinner suffix text
             coder_uuid: Optional uuid string to include in the message
         """
+        if not self.spinner_active:
+            return
         coder_uuid = kwargs.get("coder_uuid", None)
         # Call parent
         super().update_spinner_suffix(text)
@@ -419,6 +425,8 @@ class TextualInputOutput(InputOutput):
         coder_uuid = kwargs.get("coder_uuid", None)
         # Call parent
         super().stop_spinner()
+        if not self.spinner_active:
+            return
 
         # Send to TUI
         self.output_queue.put({"type": "spinner", "action": "stop", "coder_uuid": coder_uuid})
@@ -491,6 +499,11 @@ class TextualInputOutput(InputOutput):
             if hasattr(self, "file_watcher") and self.file_watcher:
                 if not self.file_watcher.is_running:
                     self.file_watcher.start()
+
+                # Handle files the catch-up scan found before waiting for input
+                if self.file_watcher.changed_files:
+                    cmd = self.file_watcher.process_changes()
+                    return cmd
 
                 # Check if we were interrupted by a file change
                 if self.interrupted:

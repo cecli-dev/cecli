@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
 
 class DummyIO:
@@ -54,7 +54,7 @@ class TestLoadMcpTool:
     async def test_no_mcp_servers_found(self, coder):
         """Test when no MCP servers are configured."""
         coder.mcp_manager.servers = []
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test"])
         assert result.to_dict()["result"][0]["content"] == "No MCP servers found, nothing to load."
 
     @pytest.mark.asyncio
@@ -62,7 +62,7 @@ class TestLoadMcpTool:
         """Test when requested server doesn't exist."""
         coder.mcp_manager.servers = [mock_server]
         coder.mcp_manager.get_server.return_value = None
-        result = await ResourceManagerTool.execute(coder, load_mcp=["nonexistent"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["nonexistent"])
         assert "MCP server nonexistent does not exist." in str(result)
 
     @pytest.mark.asyncio
@@ -74,7 +74,7 @@ class TestLoadMcpTool:
         coder.mcp_manager.get_server.return_value = mock_server
         # Must return tuple (did_connect, interrupted)
         coder.coroutines.interruptible.return_value = (True, False)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
         assert "Server already loaded: test-server" in str(result)
 
     @pytest.mark.asyncio
@@ -83,7 +83,7 @@ class TestLoadMcpTool:
         mock_server.config = {"enabled": False}
         coder.mcp_manager.servers = [mock_server]
         coder.mcp_manager.get_server.return_value = mock_server
-        await ResourceManagerTool.execute(coder, load_mcp=["*"])
+        await ManageResourcesTool.execute(coder, load_mcp=["*"])
 
     @pytest.mark.asyncio
     async def test_successful_load(self, coder, mock_server):
@@ -92,7 +92,7 @@ class TestLoadMcpTool:
         coder.mcp_manager.connected_servers = {}
         coder.mcp_manager.get_server.return_value = mock_server
         coder.coroutines.interruptible.return_value = (True, False)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
         assert "Loaded server: test-server" in str(result)
 
     @pytest.mark.asyncio
@@ -102,7 +102,7 @@ class TestLoadMcpTool:
         coder.mcp_manager.connected_servers = {}
         coder.mcp_manager.get_server.return_value = mock_server
         coder.coroutines.interruptible.return_value = (False, True)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
         assert "Interrupted: test-server" in str(result)
 
     @pytest.mark.asyncio
@@ -112,7 +112,7 @@ class TestLoadMcpTool:
         coder.mcp_manager.connected_servers = {}
         coder.mcp_manager.get_server.return_value = mock_server
         coder.coroutines.interruptible.return_value = (False, False)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
         assert "Unable to load server: test-server" in str(result)
 
     @pytest.mark.asyncio
@@ -130,7 +130,7 @@ class TestLoadMcpTool:
             (s for s in [server1, server2] if s.name == name), None
         )
         coder.coroutines.interruptible.return_value = (True, False)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["*"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["*"])
         assert "Loaded server: server1" in str(result)
         assert "Loaded server: server2" in str(result)
 
@@ -160,7 +160,7 @@ class TestLoadMcpTool:
                 return (False, False)
 
         coder.coroutines.interruptible.side_effect = mock_interruptible_func
-        result = await ResourceManagerTool.execute(coder, load_mcp=["server1", "server2"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["server1", "server2"])
         assert "Loaded server: server1" in str(result)
         assert "Unable to load server: server2" in str(result)
 
@@ -173,7 +173,7 @@ class TestLoadMcpTool:
         coder.mcp_manager.connected_servers = {"test-server": mock_server}
         coder.mcp_manager.get_server.return_value = mock_server
 
-        result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
 
         # Should only report server already loaded once
         assert str(result).count("Server already loaded: test-server") == 1
@@ -210,7 +210,7 @@ class TestLoadMcpTool:
 
         coder.mcp_manager.connect_server = AsyncMock(side_effect=mock_connect_server)
         coder.coroutines.interruptible = AsyncMock(side_effect=mock_interruptible)
-        result = await ResourceManagerTool.execute(coder, load_mcp=["*"])
+        result = await ManageResourcesTool.execute(coder, load_mcp=["*"])
 
         # Should only attempt to load server2 (server1 should be skipped)
         # Wildcard expansion skips already-connected servers, so server1 is not reported

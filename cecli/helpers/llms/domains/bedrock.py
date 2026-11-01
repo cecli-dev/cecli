@@ -194,7 +194,7 @@ def bedrock_endpoint(resolved: Dict[str, Any]) -> str:
         )
 
     route = resolved["route"]
-    return f"https://bedrock-runtime.{region}.amazonaws.com/model/{route}/converse"
+    return f"{resolved['api_base']}/model/{route}/converse"
 
 
 def _signed_headers(

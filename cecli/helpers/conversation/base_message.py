@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import xxhash
 
+from cecli.helpers.key_detection import redact_api_keys
+
 
 @dataclass
 class BaseMessage:
@@ -34,7 +36,11 @@ class BaseMessage:
     message_id: Optional[str] = field(default=None)
 
     def __post_init__(self):
-        """Generate message ID after initialization."""
+        """Generate message ID after initialization.
+
+        ``message_dict`` has already been through the redaction choke point in
+        ``__setattr__``, so the id hashes the redacted content.
+        """
         if self.message_id is None:
             self.message_id = self.generate_id()
 
@@ -43,6 +49,19 @@ class BaseMessage:
             raise ValueError("Message dict must contain 'role' key")
         if "content" not in self.message_dict and not self.message_dict.get("tool_calls"):
             raise ValueError("Message dict must contain 'content' key or 'tool_calls'")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Enforce the secret boundary on every write of the message content.
+
+        Assigning ``message_dict`` is the only way content enters a message,
+        both at construction and when the conversation manager force-updates an
+        existing one, so registered api keys are stripped here and never reach
+        the stored dict (or anything that later reads it: logs, sessions).
+        """
+        if name == "message_dict":
+            value = redact_api_keys(value)
+
+        super().__setattr__(name, value)
 
     def _transform_message(self, tool_calls):
         """Helper method to transform tool_calls, calling to_dict() on objects if needed."""
@@ -101,7 +120,8 @@ class BaseMessage:
         Returns message_dict for LLM consumption.
 
         Returns:
-            The original message dictionary with tool_calls properly serialized
+            The message dictionary with tool_calls serialized and any
+            registered api keys replaced by <redacted>
         """
         # Return a copy to avoid modifying the original
         result = dict(self.message_dict)
@@ -110,7 +130,8 @@ class BaseMessage:
         if "tool_calls" in result and result["tool_calls"]:
             result["tool_calls"] = self._transform_message(result["tool_calls"])
 
-        return result
+        # Second pass for keys registered after this message was created
+        return redact_api_keys(result)
 
     def is_promoted(self) -> bool:
         """
@@ -147,7 +168,7 @@ class BaseMessage:
     def __repr__(self) -> str:
         """String representation for debugging."""
         role = self.message_dict.get("role", "unknown")
-        content_preview = str(self.message_dict.get("content", ""))[:50]
+        content_preview = redact_api_keys(str(self.message_dict.get("content", "")))[:50]
         return (
             f"BaseMessage(id={self.message_id[:8]}..., "
             f"tag={self.tag}, priority={self.priority}, timestamp={self.timestamp}, "

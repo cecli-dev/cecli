@@ -110,6 +110,58 @@ def dequeue_prompt(coder) -> dict | None:
         return coder.prompt_queue.pop(0)
 
 
+def dequeue_for_processing(coder) -> dict | None:
+    """Remove and activate the next queued prompt for processing.
+
+    Clearing ``_processing_queue`` while holding the queue lock avoids the
+    race where a prompt is enqueued just after the drain sees an empty queue
+    but before it releases the processing flag.
+    """
+    with _get_lock(coder):
+        if not coder.prompt_queue:
+            coder._active_queue_prompt = None
+            coder._processing_queue = False
+            return None
+        item = coder.prompt_queue.pop(0)
+        coder._active_queue_prompt = item
+        return item
+
+
+def get_active_prompt(coder) -> dict | None:
+    """Return the prompt currently being processed, if any."""
+    with _get_lock(coder):
+        return getattr(coder, "_active_queue_prompt", None)
+
+
+def clear_active_prompt(coder) -> dict | None:
+    """Clear and return the prompt currently being processed, if any."""
+    with _get_lock(coder):
+        item = getattr(coder, "_active_queue_prompt", None)
+        coder._active_queue_prompt = None
+        return item
+
+
+def requeue_active_prompt(coder) -> dict | None:
+    """Return the in-flight prompt to the front of the queue.
+
+    The original item is restored unchanged so its id and timestamp match the
+    prompt the user originally queued.
+    """
+    with _get_lock(coder):
+        item = getattr(coder, "_active_queue_prompt", None)
+        if item is None:
+            return None
+        coder.prompt_queue.insert(0, item)
+        coder._active_queue_prompt = None
+        return item
+
+
+def finish_processing(coder) -> None:
+    """Mark the queue drain as finished."""
+    with _get_lock(coder):
+        coder._processing_queue = False
+
+
 def get_queue_length(coder) -> int:
     """Return the current number of items in the coder's queue."""
     return len(coder.prompt_queue)
@@ -149,6 +201,36 @@ def clear_queue(coder) -> list:
         items = list(coder.prompt_queue)
         coder.prompt_queue.clear()
     return items
+
+
+def nested_command_completions(coder, text: str) -> list:
+    """Completions for a nested slash-command inside queued prompt text (CLI-33).
+
+    While the inner command is still being typed (no space yet), suggest
+    matching command names from the registry (e.g. "/sess" -> "/sessions").
+    Once the inner command is complete, delegate to the original command's
+    ``get_completions`` so ``/queue /add <tab>`` behaves exactly like ``/add <tab>``.
+    """
+    if not text or not text.startswith("/"):
+        return []
+
+    from cecli.commands.utils.registry import CommandRegistry
+
+    first_space = text.find(" ")
+    if first_space == -1:
+        prefix = text[1:].lower()
+        return sorted(
+            f"/{cmd}"
+            for cmd in CommandRegistry.list_commands(include_aliases=True)
+            if cmd.startswith(prefix)
+        )
+
+    inner_cmd = text[:first_space]
+    inner_args = text[first_space + 1 :]
+    try:
+        return list(coder.commands.get_completions(inner_cmd, inner_args, coder=coder))
+    except Exception:
+        return []
 
 
 def _get_lock(coder) -> threading.Lock:

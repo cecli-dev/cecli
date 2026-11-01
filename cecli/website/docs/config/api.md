@@ -32,7 +32,7 @@ cecli --server-config '{"host": "127.0.0.1", "port": 23254}'
 You can also set it via your config file:
 
 ```yaml
-# ~/.cecli/config.yml
+# ~/.cecli/conf.yml
 server-config:
   port: 23254
   host: "127.0.0.1"

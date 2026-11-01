@@ -104,6 +104,11 @@ MODEL_ALIASES = {
     "optimus": "openrouter/openrouter/optimus-alpha",
 }
 
+# Provider implied by bare (unprefixed) model names, used when neither the
+# name prefix nor the metadata record yields a provider.
+_MODEL_NAME_DEFAULT_PROVIDER = {name.lower(): "openai" for name in OPENAI_MODELS}
+_MODEL_NAME_DEFAULT_PROVIDER.update({name.lower(): "anthropic" for name in ANTHROPIC_MODELS})
+
 
 @dataclass
 class ModelSettings:
@@ -133,6 +138,8 @@ class ModelSettings:
     retries: Optional[dict] = None
     retry_backoff_factor: float = 1.5
     retry_on_unavailable: bool = True
+    retry_on_forbidden: bool = False
+    retry_on_unauthorized: bool = False
     retry_timeout: float = 30
     request_timeout: int = request_timeout
     debug: bool = False
@@ -495,6 +502,7 @@ class Model(ModelSettings):
         override_kwargs = kwargs.get("override_kwargs", None)
         retries = kwargs.get("retries", nested.getter(from_model, "retries", None))
         debug = kwargs.get("debug", nested.getter(from_model, "debug", False))
+        role = kwargs.pop("role", None) or nested.getter(from_model, "role", "model")
 
         if kwargs.get("sub_models", True):
             agent_model = kwargs.get("agent_model", nested.getter(from_model, "agent_model", None))
@@ -517,6 +525,13 @@ class Model(ModelSettings):
         self.override_kwargs = override_kwargs or {}
         self._default_reasoning_effort = None
         self._default_thinking_budget = None
+        self.role = role
+        self.fallback_state = {
+            "chain": None,
+            "active": 0,
+            "benched_until": {},
+            "key_tried": {},
+        }
         self.copy_paste_mode = False
         self.copy_paste_transport = "api"
         if provided_model.startswith(COPY_PASTE_PREFIX):
@@ -564,9 +579,15 @@ class Model(ModelSettings):
         self.configure_model_settings(model)
         self._apply_provider_defaults()
         self._apply_reasoning_defaults()
+        # Keep a `retries:` block from model settings unless an explicit value
+        # was passed (main.py passes retries=None when --retries is unset).
+        # Assigned before sub-models so their chains resolve the effective config.
+        if retries is not None:
+            self.retries = retries
+
         self.get_weak_model(weak_model)
         self.get_agent_model(agent_model)
-        self.retries = retries
+
         self.debug = debug
 
         if editor_model is False:
@@ -893,7 +914,8 @@ class Model(ModelSettings):
         if self.weak_model_name == self.name:
             self.weak_model = self
             return
-        self.weak_model = Model(self.weak_model_name, from_model=self, sub_model=False)
+        self.weak_model = Model(self.weak_model_name, from_model=self, sub_model=False, role="weak")
+
         return self.weak_model
 
     def get_agent_model(self, provided_model):
@@ -917,7 +939,10 @@ class Model(ModelSettings):
         if self.agent_model_name == self.name:
             self.agent_model = self
             return
-        self.agent_model = Model(self.agent_model_name, from_model=self, sub_model=False)
+        self.agent_model = Model(
+            self.agent_model_name, from_model=self, sub_model=False, role="agent"
+        )
+
         return self.agent_model
 
     def get_editor_model(self, provided_model, editor_edit_format):
@@ -935,7 +960,9 @@ class Model(ModelSettings):
         if not self.editor_model_name or self.editor_model_name == self.name:
             self.editor_model = self
         else:
-            self.editor_model = Model(self.editor_model_name, from_model=self, sub_model=False)
+            self.editor_model = Model(
+                self.editor_model_name, from_model=self, sub_model=False, role="editor"
+            )
         if not self.editor_edit_format:
             self.editor_edit_format = self.editor_model.edit_format
             if self.editor_edit_format in ("diff", "whole", "diff-fenced"):
@@ -1452,21 +1479,33 @@ class Model(ModelSettings):
         litellm_ex = LiteLLMExceptions()
         retry_delay = 0.125
 
-        if self.retries:
-            retry_config = dict()
-            try:
-                retry_config = json.loads(self.retries)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                retry_config = dict()
-                pass
+        retry_config = parse_retry_config(self.retries)
+        self.retry_on_unavailable = retry_config["retry_on_unavailable"]
+        self.retry_on_forbidden = retry_config["retry_on_forbidden"]
+        self.retry_on_unauthorized = retry_config["retry_on_unauthorized"]
+        self.retry_backoff_factor = retry_config["retry_backoff_factor"]
+        self.retry_timeout = retry_config["retry_timeout"]
 
-            self.retry_on_unavailable = bool(
-                nested.getter(retry_config, "retry-on-unavailable", True)
-            )
-            self.retry_backoff_factor = float(
-                nested.getter(retry_config, "retry-backoff-factor", 1.5)
-            )
-            self.retry_timeout = float(nested.getter(retry_config, "retry-timeout", 30))
+        if override_kwargs:
+            kwargs = deep_merge(kwargs, override_kwargs)
+
+        kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
+
+        if self._get_fallback_candidates()[0]:
+            # Fresh walk each request; benched models are skipped by name, so a
+            # primary inside its bench window yields to the first eligible
+            # fallback while an expired bench restores the primary.
+            self.fallback_state["active"] = 0
+
+            if self._is_benched(self.name):
+                self._try_activate_fallback(
+                    None, kwargs, stream, bench_for=0, reason="primary benched"
+                )
+
+        attempt_count = 0
+
+        if self.debug:
+            kwargs["logger_fn"] = self._log_request
 
         while True:
             try:
@@ -1476,13 +1515,7 @@ class Model(ModelSettings):
                     if random.random() < 0.25:
                         await asyncio.sleep(random.uniform(min_wait, max_wait))
 
-                if override_kwargs:
-                    kwargs = deep_merge(kwargs, override_kwargs)
-
-                kwargs = deep_merge(kwargs, {"allowed_openai_params": ["tools", "tool_choice"]})
-
-                if self.debug:
-                    kwargs["logger_fn"] = self._log_request
+                attempt_count += 1
 
                 completion_coro = litellm.acompletion(**kwargs)
                 res, interrupted = await coroutines.interruptible(completion_coro, interrupt_event)
@@ -1493,10 +1526,8 @@ class Model(ModelSettings):
             except litellm.ContextWindowExceededError as err:
                 raise err
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
-                should_retry = ex_info.retry
-                if ex_info.name == "ServiceUnavailableError":
-                    should_retry = should_retry or self.retry_on_unavailable
+                should_retry, ex_info = parse_model_error(retry_config, err)
+                exhausted = not should_retry
 
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
@@ -1506,6 +1537,7 @@ class Model(ModelSettings):
                     retry_delay *= self.retry_backoff_factor
 
                 if retry_delay > self.retry_timeout:
+                    exhausted = True
                     should_retry = False
 
                 # Check for non-retryable RateLimitError within ServiceUnavailableError
@@ -1514,10 +1546,45 @@ class Model(ModelSettings):
                     and "RateLimitError" in str(err)
                     and 'status_code: 429, message: "Resource has been exhausted' in str(err)
                 ):
+                    exhausted = True
                     should_retry = False
 
+                if self._should_rotate_key(err, ex_info, kwargs):
+                    continue
+
+                is_rate_limit = (
+                    ex_info.name
+                    in (
+                        "RateLimitError",
+                        "RouterRateLimitError",
+                    )
+                    or getattr(err, "status_code", None) == 429
+                )
+
+                bench_for = None
+
+                if is_rate_limit and custom_retry_delay is not None:
+                    if self._bench_policy_allows_fallback(custom_retry_delay, retry_config):
+                        bench_for = custom_retry_delay
+                    else:
+                        # Short declared reset window: wait it out on this model.
+                        exhausted = False
+
+                if exhausted or bench_for is not None:
+                    # A model switch never beats the model's first retry; key
+                    # rotation (same model) is exempt and runs above regardless.
+                    if attempt_count < 2 and self._get_fallback_candidates()[0]:
+                        should_retry = True
+                        retry_delay = min(retry_delay, 1.0)
+                    elif self._try_activate_fallback(
+                        err, kwargs, stream, bench_for=bench_for, reason="retries exhausted"
+                    ):
+                        attempt_count = 0
+                        retry_delay = 0.25
+                        continue
+
                 if not should_retry:
-                    print(f"API Error: {str(err)}")
+                    print(f"API Error: {str(err) or repr(err)}")
                     if ex_info.description:
                         print(ex_info.description)
                     if stream:
@@ -1526,7 +1593,7 @@ class Model(ModelSettings):
                         return hash_object, self.model_error_response()
 
                 print(f"Retrying in {retry_delay:.1f} seconds...")
-                print(f"API Error: {str(err)}")
+                print(f"API Error: {str(err) or repr(err)}")
                 if interrupt_event:
                     _res, interrupted = await coroutines.interruptible(
                         asyncio.sleep(retry_delay), interrupt_event
@@ -1556,6 +1623,10 @@ class Model(ModelSettings):
         retry_delay = 0.125
         temperature = None
         tools = None
+
+        retry_config = parse_retry_config(self.retries)
+        retry_backoff_factor = retry_config["retry_backoff_factor"]
+        retry_timeout = retry_config["retry_timeout"]
 
         if self.verbose:
             dump(messages)
@@ -1602,19 +1673,19 @@ class Model(ModelSettings):
 
                 return remove_reasoning_content(res, self.reasoning_tag), response
             except litellm_ex.exceptions_tuple() as err:
-                ex_info = litellm_ex.get_ex_info(err)
+                should_retry, ex_info = parse_model_error(retry_config, err)
                 print(str(err))
                 if ex_info.description:
                     print(ex_info.description)
-                should_retry = ex_info.retry
+
                 custom_retry_delay = self._extract_retry_delay(err)
                 if custom_retry_delay is not None:
                     retry_delay = custom_retry_delay
                     should_retry = True
                 elif should_retry:
-                    retry_delay *= 2
+                    retry_delay *= retry_backoff_factor
 
-                if retry_delay > RETRY_TIMEOUT:
+                if retry_delay > retry_timeout:
                     should_retry = False
 
                 if not should_retry:
@@ -1774,6 +1845,233 @@ class Model(ModelSettings):
             )
             f.write(",\n")
 
+    def _get_fallback_candidates(self):
+        """Return (instantiated chain, active index) for this model, lazily."""
+        if self.fallback_state["chain"] is None:
+            chain = []
+
+            for name in self._fallback_chain_names():
+                try:
+                    candidate = Model(name, from_model=self, sub_model=False)
+                except Exception as err:
+                    if self.io:
+                        self.io.tool_warning(f"Invalid fallback model '{name}': {err}")
+                    continue
+                chain.append(candidate)
+
+            self.fallback_state["chain"] = chain
+
+        return self.fallback_state["chain"], self.fallback_state["active"]
+
+    def _fallback_chain_names(self):
+        """Model names to try after this one, resolved from config and aliases."""
+        fallbacks = parse_retry_config(self.retries).get("fallbacks") or {}
+        models = fallbacks.get("models") or {}
+        names = models.get(self.role) or models.get("model") or []
+
+        chain = []
+
+        for name in names:
+            if not isinstance(name, str):
+                continue
+            resolved = MODEL_ALIASES.get(name, name)
+            if resolved != self.name and resolved not in chain:
+                chain.append(resolved)
+
+        return chain
+
+    def _try_activate_fallback(self, err, kwargs, stream, bench_for=None, reason=None):
+        """Switch the request to the next unbenched fallback model.
+
+        Benches the current model, re-derives the model-specific request kwargs
+        from the candidate's own configuration and tells the user. Returns True
+        when a new model was activated. Cost accounting follows automatically
+        because responses echo the swapped model name.
+        """
+        if self.copy_paste_mode:
+            return False
+
+        chain, active = self._get_fallback_candidates()
+
+        if active >= len(chain):
+            return False
+
+        now = time.monotonic()
+        current = kwargs.get("model") or self.name
+
+        if bench_for is None:
+            bench_for = self.retry_timeout
+
+        if bench_for:
+            self.fallback_state["benched_until"][current] = now + bench_for
+
+        while active < len(chain) and self._is_benched(chain[active].name, now):
+            active += 1
+
+        if active >= len(chain):
+            self.fallback_state["active"] = active
+            return False
+
+        candidate = chain[active]
+        self._apply_fallback_kwargs(kwargs, candidate, stream)
+        self.fallback_state["active"] = active + 1
+        self.fallback_state["key_tried"] = {}
+
+        detail = reason or "retryable error"
+        message = f"Model fallback activated: {current} -> {candidate.name} ({detail})"
+
+        if self.io:
+            self.io.tool_warning(message)
+        else:
+            print(message)
+
+        return True
+
+    def _apply_fallback_kwargs(self, kwargs, candidate, stream):
+        """Point an in-flight request's kwargs at a fallback candidate.
+
+        Swaps the model-specific entries (name, provider routing, parameters,
+        stream support) while leaving the request-level ones (messages, tools,
+        cache key, overrides already merged) untouched. Any primary-specific
+        provider params not re-supplied by the candidate are dropped so they
+        never leak across a provider switch.
+        """
+        candidate_kwargs = dict(candidate.extra_params or {})
+
+        for key in (
+            "base_url",
+            "api_base",
+            "custom_llm_provider",
+            "extra_headers",
+            "api_key",
+            "extra_body",
+            "num_ctx",
+        ):
+            if key not in candidate_kwargs:
+                kwargs.pop(key, None)
+
+        candidate_kwargs["model"] = candidate.name
+        candidate_kwargs["stream"] = stream and candidate.streaming
+
+        if candidate_kwargs["stream"]:
+            candidate_kwargs["stream_options"] = {"include_usage": True}
+        else:
+            candidate_kwargs.pop("stream_options", None)
+
+        if candidate.use_temperature is False:
+            kwargs.pop("temperature", None)
+
+        if candidate.is_ollama():
+            candidate_kwargs.setdefault("keep_alive", -1)
+
+        kwargs.update({key: value for key, value in candidate_kwargs.items() if value is not None})
+
+        if not candidate.request_timeout:
+            kwargs.pop("timeout", None)
+        else:
+            kwargs["timeout"] = candidate.request_timeout
+
+        effort = self.get_reasoning_effort()
+
+        if effort is not None and "reasoning_effort" in (candidate.accepts_settings or []):
+            candidate.set_reasoning_effort(effort)
+            kwargs["extra_body"] = candidate.extra_params.get("extra_body", {})
+
+        budget = self.get_raw_thinking_tokens()
+
+        if budget is not None and "thinking_tokens" in (candidate.accepts_settings or []):
+            candidate.set_thinking_tokens(budget)
+            kwargs["extra_body"] = candidate.extra_params.get("extra_body", {})
+
+    def _is_benched(self, name, now=None):
+        until = self.fallback_state["benched_until"].get(name)
+
+        if until is None:
+            return False
+
+        if (now or time.monotonic()) < until:
+            return True
+
+        self.fallback_state["benched_until"].pop(name, None)
+
+        return False
+
+    def _bench_policy_allows_fallback(self, delay, retry_config):
+        """Whether a declared reset window justifies switching instead of waiting."""
+        threshold = retry_config.get("min_switch_reset_seconds") or 0
+
+        return threshold <= 0 or delay > threshold
+
+    def _should_rotate_key(self, err, ex_info, kwargs):
+        """Rotate to the next configured credential for the provider, if any."""
+        is_auth = ex_info.name in ("AuthenticationError", "PermissionDeniedError")
+        is_429 = getattr(err, "status_code", None) == 429 or ex_info.name in (
+            "RateLimitError",
+            "RouterRateLimitError",
+        )
+
+        if not (is_auth or is_429):
+            return False
+
+        fallbacks = parse_retry_config(self.retries).get("fallbacks") or {}
+        provider = self._provider_for_model(kwargs.get("model") or self.name)
+        pool = (fallbacks.get("keys") or {}).get(provider) or []
+
+        if provider in ("github_copilot", "bedrock", "bedrock_mantle", "ollama"):
+            # Providers with dedicated auth flows ignore a caller-supplied key.
+            return False
+
+        if not pool:
+            return False
+
+        env_names = [name for name in pool if isinstance(name, str)]
+        tried = self.fallback_state["key_tried"].setdefault(provider, set())
+
+        if not tried:
+            # The provider default (first set env var) is the key in play now.
+            for name in env_names:
+                if os.environ.get(name):
+                    tried.add(name)
+                    break
+
+        for name in env_names:
+            if name in tried:
+                continue
+
+            value = os.environ.get(name)
+            if value:
+                kwargs["api_key"] = value
+                tried.add(name)
+
+                if self.io:
+                    self.io.tool_warning(f"Rotating credential for '{provider}' to {name}")
+
+                return True
+
+        return False
+
+    def _provider_for_model(self, model_name):
+        """Return the config provider for an arbitrary model name.
+
+        Mirrors ``_configured_provider`` (configured prefix wins) but works for
+        any name, so key pools resolve against the model actually in play even
+        after a fallback has swapped kwargs to a different provider.
+        """
+        prefix = model_name.split("/", 1)[0].lower() if "/" in model_name else ""
+
+        if prefix and model_info_manager.provider_manager.supports_provider(prefix):
+            return prefix
+
+        info = model_info_manager.get_model_info(model_name) or {}
+        provider = (info.get("litellm_provider") or "").lower()
+
+        if provider:
+            return provider
+
+        # Aliases (``gpt-4o``) carry no provider in metadata; the built-in
+        # name maps mirror what fast_validate_environment keys on.
+        return _MODEL_NAME_DEFAULT_PROVIDER.get(model_name.lower(), prefix)
+
     def _configured_provider(self) -> str:
         """Return the provider whose config should apply to this model.
 
@@ -1790,6 +2088,133 @@ class Model(ModelSettings):
             return prefix
 
         return provider
+
+
+def parse_retry_config(retries_input):
+    """
+    Parse and normalize retry configuration from a JSON string or dict.
+    Returns a unified dict with defaults:
+      retry_timeout: 30
+      retry_backoff_factor: 1.5
+      retry_on_unavailable: True
+      retry_on_forbidden: False
+      retry_on_empty: False
+      retry_on_unauthorized: False
+      min_switch_reset_seconds: 0
+      fallbacks: {models: {...}, keys: {...}} or None
+    """
+    config = dict()
+
+    if isinstance(retries_input, str):
+        try:
+            config = json.loads(retries_input)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            config = dict()
+    elif isinstance(retries_input, dict):
+        config = retries_input.copy()
+
+    # Helper to get either hyphenated or underscored key
+    def _get(key, default):
+        val = config.get(key)
+        if val is not None:
+            return val
+        val = config.get(key.replace("_", "-"))
+        if val is not None:
+            return val
+        return default
+
+    return {
+        "retry_timeout": float(_get("retry_timeout", 30)),
+        "retry_backoff_factor": float(_get("retry_backoff_factor", 1.5)),
+        "retry_on_unavailable": bool(_get("retry_on_unavailable", True)),
+        "retry_on_forbidden": bool(_get("retry_on_forbidden", False)),
+        "retry_on_unauthorized": bool(_get("retry_on_unauthorized", False)),
+        "retry_on_empty": bool(_get("retry_on_empty", False)),
+        "min_switch_reset_seconds": float(_get("min_switch_reset_seconds", 0)),
+        "fallbacks": _parse_fallbacks(_get("fallbacks", None)),
+    }
+
+
+def _parse_fallbacks(raw):
+    """Validate the ``fallbacks`` block of a retries config.
+
+    Accepts shorthand (a bare list, treated as the main chain) or the full
+    ``{models: {model|main|agent|weak|editor: [...]}, keys: {provider: [...]}}``
+    form. Entries of the wrong shape are dropped, not fatal.
+    """
+    if not raw:
+        return None
+
+    if isinstance(raw, (list, tuple)):
+        raw = {"models": {"model": list(raw)}}
+
+    if not isinstance(raw, dict):
+        return None
+
+    parsed = {"models": {}, "keys": {}}
+
+    model_sources = raw.get("models", raw.get("model"))
+
+    if isinstance(model_sources, (list, tuple)):
+        model_sources = {"model": list(model_sources)}
+
+    if isinstance(model_sources, dict):
+        for role, names in model_sources.items():
+            if role in ("main",):
+                role = "model"
+            if isinstance(names, str):
+                names = [names]
+            if isinstance(names, (list, tuple)):
+                parsed["models"][role] = [name for name in names if isinstance(name, str)]
+
+    key_sources = raw.get("keys")
+
+    if isinstance(key_sources, dict):
+        for provider, env_names in key_sources.items():
+            if isinstance(env_names, str):
+                env_names = [env_names]
+            if isinstance(env_names, (list, tuple)):
+                available = [name for name in env_names if isinstance(name, str)]
+                if available:
+                    parsed["keys"][str(provider).lower()] = available
+
+    return parsed if parsed["models"] or parsed["keys"] else None
+
+
+def parse_model_error(retry_config, error):
+    """
+    Determine whether a model error should be retried and return its metadata.
+
+    ``retry_config`` is the dict produced by :func:`parse_retry_config`; ``error``
+    is a litellm exception. Returns a ``(should_retry, ex_info)`` tuple so callers
+    can reuse the parsed exception info for messaging.
+
+    Some providers (e.g. vertex_ai_beta) carry the status on ``code`` or omit
+    ``status_code`` entirely, so auth failures are matched on the exception name
+    first, then on the status/code fields.
+    """
+    from cecli.exceptions import LiteLLMExceptions
+
+    ex_info = LiteLLMExceptions().get_ex_info(error)
+
+    should_retry = ex_info.retry
+    if ex_info.name == "ServiceUnavailableError":
+        should_retry = should_retry or retry_config["retry_on_unavailable"]
+
+    if ex_info.name == "PermissionDeniedError":
+        should_retry = should_retry or retry_config["retry_on_forbidden"]
+
+    status_code = getattr(error, "status_code", None)
+    code = getattr(error, "code", None)
+    is_auth_error = (
+        ex_info.name in ("AuthenticationError", "PermissionDeniedError")
+        or status_code in (401, 403, "401", "403")
+        or str(code) in ("401", "403")
+    )
+    if is_auth_error:
+        should_retry = should_retry or retry_config["retry_on_unauthorized"]
+
+    return should_retry, ex_info
 
 
 def register_models(model_settings_fnames):
@@ -1883,11 +2308,16 @@ async def sanity_check_model(io, model):
     await check_for_dependencies(io, model.name)
     if not (model.info.get("max_input_tokens") or model.info.get("max_tokens")):
         show = True
-        io.tool_warning(
-            f"Warning for {model}: Unknown context window size and costs, using sane defaults."
-        )
         possible_matches = fuzzy_match_models(model.name)
-        if possible_matches:
+        # A known model can still lack token limits and costs, so the usual
+        # "did you mean" suggestions would just be confusing.
+        model_name_lower = model.name.lower()
+        is_known_model = any(match.lower() == model_name_lower for match in possible_matches)
+        io.tool_warning(
+            f"Warning for {model}: The context window size and/or costs are unknown"
+            " for this model, using sane defaults."
+        )
+        if not is_known_model and possible_matches:
             io.tool_output("Did you mean one of these?")
             for match in possible_matches:
                 io.tool_output(f"- {match}")

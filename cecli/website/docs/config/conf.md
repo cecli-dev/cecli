@@ -14,6 +14,8 @@ Most of cecli's options can be set in an `.cecli.conf.yml` file. cecli will look
 
 If the files above exist, they will be loaded in that order. Files loaded last will take priority.
 
+Two additional `creator.yml` files are loaded after every `.cecli.conf.yml` file: the global `~/.cecli/creator.yml` and the project-local `<git_root>/.cecli/creator.yml`. They are written by [creator mode](creator.html) on your behalf, not by hand, and they have the highest config-file precedence. See the `creator.yml` section below.
+
 You can also specify the `--config <filename>` parameter, which will only load the one config file.
 
 > **Tip:**
@@ -25,12 +27,26 @@ Lists of values can be specified either as a bulleted list:
 
 ## Merge Precedence
 
-There are two types of YAML config files with different merge behaviors:
+Cecli reads three kinds of YAML config files, with different merge behaviors:
 
 | Config File | Merge Behavior | Array Fields |
 |-------------|----------------|--------------|
 | `.cecli/conf.yml` | Shallow merge (later values replace earlier) | All fields |
 | `.cecli.conf.yml` | Deep merge (and arrays are concatenated with deduplication) | Array fields only |
+| `creator.yml` | Deep merge, applied last (global first, then local) | Array fields only |
+
+### creator.yml files
+
+The creator sub-agent persists extensions and configuration into two machine-managed files:
+
+- `~/.cecli/creator.yml` — global extensions and settings.
+- `<git_root>/.cecli/creator.yml` — project-local extensions and settings; wins over the global file.
+
+Both files are deep-merged **last** among config files, so they have the highest config-file precedence. Command-line switches and environment variables still win. Do not hand-edit them directly: [creator mode](creator.html) writes the backing extension files, records the required entries, and reloads the affected extensions.
+
+Keys nested inside `agent-config` (for example `skills_paths`, `skills_includelist`, `tools_paths`, `tools_includelist`, `servers_includelist`, and `servers_excludelist`) merge like the same arrays in other config files: values are concatenated and deduplicated, with the project-local `creator.yml` entries last.
+
+A `creator.yml` may also contain a top-level `agents:` map with per-agent overrides and dynamic `creator:<name>` definitions. It is not a command-line option, and it is read **only** from the two `creator.yml` files (global first, project-local on top) when sub-agents spawn; an `agents:` key in `.cecli.conf.yml` or `.cecli/conf.yml` is ignored. `apply_to` scopes which agents' config references an entry, not the extension's physical location: shared backing files and top-level hook/server definitions can still be discovered or loaded by unfiltered agents. See [Creator Mode](creator.html) for the `agents:` shape and `apply_to` semantics.
 
 ### How deep merge works
 
@@ -84,6 +100,7 @@ The following fields are stored as JSON/YAML strings but are **internally deep-m
 - `mcp-servers` - MCP server definitions
 - `hooks` - Hook configurations
 - `model-providers` - Model provider configurations
+- `system-one` - System One decision endpoint configuration
 - `security-config` - Security settings
 - `retries` - Retry configuration
 - `custom` - Custom configurations
@@ -402,7 +419,7 @@ Below is a sample of the YAML config file, which you can also [download from Git
 #add-gitignore-files: false
 
 ## Specify the cecli ignore file (default: .cecli.ignore in git root)
-#cecliignore: .cecli.ignore
+#cecli-ignore: .cecli.ignore
 
 ## Only consider files in the current subtree of the git repository
 #subtree-only: false
