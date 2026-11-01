@@ -288,6 +288,22 @@ The server then:
 1. Echoes a `user_message` notification (see Server → Client Notifications above)
 2. Routes the text to the coder input queue for processing
 
+### Confirmation Answers
+
+Legacy flat messages are accepted alongside JSON-RPC requests:
+
+```json
+{"type": "user_input", "text": "your message", "coder_uuid": "<coder-uuid>"}
+{"type": "confirmation", "confirmed": true, "coder_uuid": "<coder-uuid>"}
+```
+
+`confirmed` is a boolean, or one of `"never"`, `"tweak"`, `"all"`, and
+`"skip"`. Omit `coder_uuid` to target the primary coder. The answer is queued
+for that coder and consumed by its next prompt or confirmation, so a driver can
+answer prompts in non-TUI mode without a terminal.
+
+**Cancel a session:**
+
 **Cancel a session:**
 
 ```json

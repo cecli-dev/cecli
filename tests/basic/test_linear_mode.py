@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from cecli.coders import Coder
-from cecli.helpers import command_queue, coroutines
+from cecli.helpers import command_queue, coroutines, queues
 from cecli.io import InputOutput
 from cecli.llm import litellm
 from cecli.mcp import McpServer
@@ -491,3 +491,20 @@ def test_linear_output_suppresses_dynamic_spinners(prompt_session):
         assert io.get_bottom_toolbar() is None
     finally:
         io.stop_spinner()
+
+
+async def test_queued_input_is_delivered_to_linear_prompt(tmp_path, gpt35_model, monkeypatch):
+    coder, _ = await make_linear_coder(tmp_path, gpt35_model, ["unused"], monkeypatch)
+    io = coder.io._target
+
+    async def blocking_get_input(*args, **kwargs):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(io, "get_input", blocking_get_input)
+    queues.push_coder_input(coder.uuid, {"text": "queued prompt", "coder_uuid": coder.uuid})
+    try:
+        result = await asyncio.wait_for(coder.get_input(), timeout=5)
+
+        assert result == ("queued prompt", coder.uuid)
+    finally:
+        queues.unregister_coder_queue(coder.uuid)

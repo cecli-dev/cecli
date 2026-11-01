@@ -63,15 +63,21 @@ your input comes from depends on the mode:
 
 - **TUI** (`tui: true`, the default): type into the chat input box.
 - **Non-TUI** (`--no-tui`, or `tui: false`): input is read from stdin and
-  re-prompted after every turn. Questions and confirmation prompts from the
-  agent are answered at the terminal prompt.
+  re-prompted after every turn. Queued programmatic input is delivered too,
+  even while the terminal prompt is open.
 - **Programmatic**: an external driver pushes `{"text": ...}` (and
-  `{"confirmed": ...}` for yes/no confirmations) onto the coder's input queue.
+  `{"confirmed": ...}` for confirmations) onto the coder's input queue.
   The [WebSocket/ACP server](config/api.html) and the AgentService wake path use
   this route.
 
-Both input paths consume the same per-coder queue, so a headless or
-server-driven session can answer prompts with no terminal attached.
+Both input paths consume the same per-coder queue. A queued payload is checked
+before the terminal prompt and every 100 ms while the prompt is open, so a
+driver can answer a prompt without a terminal. If no cancellable prompt session
+is available (a dumb terminal, or when prompt_toolkit could not start), the
+terminal read blocks and queued input is picked up at the next prompt instead.
+
+`{"confirmed": ...}` accepts `true`/`false`, or one of the special responses
+`"never"`, `"tweak"`, `"all"`, and `"skip"`.
 
 
 ## Python
