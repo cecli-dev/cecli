@@ -318,3 +318,43 @@ class TestIOProxyNonTuiQueue:
             target.confirm_ask.assert_not_called()
         finally:
             queues.unregister_coder_queue(coder_uuid)
+    @pytest.mark.asyncio
+    async def test_confirm_ask_auto_approves_unattended_coder(self):
+        """A ``skip_cli_confirmations`` coder auto-approves without touching the target.
+
+        Regression: unattended ``wf:``/``ws:`` workers used to forward the
+        confirmation to the shared Textual IO and block on the input wake from a
+        foreign event loop, freezing the interactive coder.
+        """
+        from cecli.helpers.io_proxy import IOProxy
+
+        target = MagicMock()
+        target.confirm_ask = AsyncMock(return_value=False)
+
+        coder = MagicMock()
+        coder.uuid = "test-uuid"
+        coder.skip_cli_confirmations = True
+
+        proxy = IOProxy(target, coder)
+        result = await proxy.confirm_ask("Run tools?")
+
+        assert result is True
+        target.confirm_ask.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirm_ask_forwards_for_interactive_coder(self):
+        """An interactive coder forwards ``confirm_ask`` with coder_uuid injected."""
+        from cecli.helpers.io_proxy import IOProxy
+
+        target = MagicMock()
+        target.confirm_ask = AsyncMock(return_value=True)
+
+        coder = MagicMock()
+        coder.uuid = "test-uuid"
+        coder.skip_cli_confirmations = False
+
+        proxy = IOProxy(target, coder)
+        result = await proxy.confirm_ask("Run tools?")
+
+        assert result is True
+        target.confirm_ask.assert_awaited_once_with("Run tools?", coder_uuid="test-uuid")

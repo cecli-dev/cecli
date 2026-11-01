@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
 
 class DummyIO:
@@ -70,7 +70,7 @@ async def test_remove_mcp_tool_success():
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
     # Execute
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["test-server"])
     # Assertions
     assert "Removed server: test-server" in str(result)
     coder.mcp_manager.disconnect_server.assert_awaited_once_with("test-server")
@@ -90,7 +90,7 @@ async def test_remove_mcp_tool_non_existent():
     # But the one we're looking for doesn't exist
     coder.mcp_manager.get_server.return_value = None
     # Execute
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["non-existent-server"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["non-existent-server"])
     # Assertions
     assert "MCP server non-existent-server does not exist." in str(result)
 
@@ -106,7 +106,7 @@ async def test_remove_mcp_tool_not_connected():
     coder.mcp_manager.servers = [server]
     coder.mcp_manager.get_server.return_value = server
     coder.mcp_manager.connected_servers = {}
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["test-server"])
     assert "Server test-server is not currently connected." in str(result)
 
 
@@ -139,7 +139,7 @@ async def test_remove_mcp_tool_wildcard():
     coder.coroutines = MagicMock()
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["*"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["*"])
     assert "Removed server: server1" in str(result)
     assert "Removed server: server2" in str(result)
 
@@ -166,7 +166,7 @@ async def test_remove_mcp_tool_interrupted():
 
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["test-server"])
     assert "Interrupted: test-server" in str(result)
 
 
@@ -192,7 +192,7 @@ async def test_remove_mcp_tool_failed():
 
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["test-server"])
     assert "Unable to remove server: test-server" in str(result)
 
 
@@ -203,7 +203,7 @@ async def test_remove_mcp_tool_no_servers_configured():
     coder.agent_config = {"include_context_blocks": {"servers"}, "exclude_context_blocks": set()}
     coder.mcp_manager = MagicMock()
     coder.mcp_manager.servers = []
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["test"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["test"])
     assert result.to_dict()["result"][0]["content"] == "No MCP servers are configured."
 
 
@@ -237,7 +237,7 @@ async def test_remove_mcp_tool_mixed_results():
 
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["server1", "server2"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["server1", "server2"])
     assert "Removed server: server1" in str(result)
     assert "Unable to remove server: server2" in str(result)
 
@@ -268,7 +268,7 @@ async def test_remove_mcp_tool_dictionary_iteration_fix():
 
     coder.coroutines.interruptible = mock_interruptible
     coder.interrupt_event = MagicMock()
-    result = await ResourceManagerTool.execute(coder, remove_mcp=["*"])
+    result = await ManageResourcesTool.execute(coder, remove_mcp=["*"])
     # Should successfully remove both servers using dictionary keys
     assert "Removed server: server1" in str(result)
     assert "Removed server: server2" in str(result)

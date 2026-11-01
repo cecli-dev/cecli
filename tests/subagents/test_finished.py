@@ -2,7 +2,8 @@
 Tests for cecli/tools/finished.py — Finished tool sub-agent integration.
 """
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -112,6 +113,42 @@ class TestFinishedTool:
 
         result = await Tool.execute(mock_coder, summary="completed successfully")
         assert "Summary: completed successfully" in str(result)
+
+    async def test_memorizer_is_registered_as_background_work(self):
+        """Yield summaries must use the tracked background-task helper."""
+        from cecli.helpers import coroutines
+        from cecli.helpers.agents.service import AgentService
+        from cecli.tools._yield import Tool
+
+        mock_coder = MagicMock(
+            uuid="test-uuid",
+            parent_uuid="",
+            files_edited_by_tools=set(),
+            auto_memory=True,
+            turn_count=5,
+        )
+        service = MagicMock()
+        service.get_children.return_value = []
+        service.get_parent.return_value = None
+        service.reap_all_finished_agents = AsyncMock()
+        service.get_agent_name.return_value = "primary"
+        started = asyncio.Event()
+
+        async def blocked_memorizer(*args, **kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        try:
+            with (
+                patch.object(AgentService, "get_instance", return_value=service),
+                patch("cecli.helpers.memory.utils.invoke_memorizer", blocked_memorizer),
+            ):
+                await Tool.execute(mock_coder, summary="remember this")
+                await asyncio.wait_for(started.wait(), timeout=1)
+
+            assert any(not task.done() for task in coroutines.background_tasks)
+        finally:
+            await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
 
     @pytest.mark.asyncio
     async def test_coder_is_none_returns_error(self):

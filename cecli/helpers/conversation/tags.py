@@ -7,7 +7,8 @@ class MessageTag(str, Enum):
     Enumeration of message tags matching current chunk types.
 
     Fixed set of valid tags matching current chunk types:
-    - SYSTEM, STATIC, EXAMPLES, REPO, READONLY_FILES, CHAT_FILES, EDIT_FILES, DIFFS, CUR, DONE, REMINDER
+    - SYSTEM, STATIC, EXAMPLES, REPO, READONLY_FILES, CHAT_FILES, EDIT_FILES,
+      DIFFS, CUR, DONE, REMINDER
     """
 
     SYSTEM = "system"

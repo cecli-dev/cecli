@@ -8,6 +8,7 @@ agent-config:
   tools_includelist:
     - searchfacts
     - replacefacts
+    - broadcast
     - yield
   tools_excludelist:
     - gitbranch

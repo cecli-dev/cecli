@@ -17,6 +17,34 @@ _has_llama_index = importlib.util.find_spec("llama_index") is not None
 
 
 class TestHelp:
+    def test_retrieve_does_not_request_ids_in_include(self, monkeypatch):
+        """Chroma returns ids implicitly and rejects them in include."""
+        import cecli.help as help_module
+
+        class FakeCollection:
+            kwargs = None
+
+            def count(self):
+                return 1
+
+            def query(self, **kwargs):
+                self.kwargs = kwargs
+                return {
+                    "ids": [["doc.md#0"]],
+                    "documents": [["body"]],
+                    "metadatas": [[{"url": "https://example.com/doc"}]],
+                    "distances": [[0.25]],
+                }
+
+        collection = FakeCollection()
+        monkeypatch.setattr(help_module, "get_index", lambda coder=None: collection)
+
+        docs = Help().retrieve("phrase query")
+
+        assert "ids" not in collection.kwargs["include"]
+        assert docs[0]["id"] == "doc.md#0"
+        assert docs[0]["document"] == "body"
+
     @staticmethod
     def retry_with_backoff(func, max_time=60, initial_delay=1, backoff_factor=2):
         """

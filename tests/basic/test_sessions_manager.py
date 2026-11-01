@@ -442,6 +442,132 @@ async def test_load_session_bundle_reloads_sub_agents(mock_coder, monkeypatch, t
     )
 
 
+@pytest.mark.asyncio
+async def test_load_bundle_restores_only_relevant_sub_agents(mock_coder, monkeypatch, tmp_path):
+    """Finished dependent and memorizer payloads are skipped; others are restored."""
+    root = _prepare_workspace(mock_coder, tmp_path)
+    bundle = root / ".cecli" / "sessions" / "team"
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "primary.json").write_text(
+        json.dumps({"version": 1, "session_name": "team"}), encoding="utf-8"
+    )
+
+    payloads = {
+        "done": {"agent_name": "worker", "independent": False, "status": "finished"},
+        "broke": {"agent_name": "worker", "independent": False, "status": "error"},
+        "busy": {"agent_name": "reviewer", "independent": False, "status": "running"},
+        "solo": {"agent_name": "tester", "independent": True, "status": "finished"},
+        "memo": {"agent_name": "memorizer", "independent": True, "status": "finished"},
+    }
+    for child, extra in payloads.items():
+        sub_dir = bundle / "s" / child
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        data = {"version": 1, "session_name": "team"}
+        data.update(extra)
+        (sub_dir / "agent.json").write_text(json.dumps(data), encoding="utf-8")
+
+    fake_service = MagicMock()
+    fake_service.spawn = AsyncMock(return_value=(MagicMock(), MagicMock()))
+    monkeypatch.setattr(
+        "cecli.helpers.agents.service.AgentService.get_instance",
+        classmethod(lambda cls, coder: fake_service),
+    )
+    monkeypatch.setattr(
+        "cecli.helpers.agents.service.AgentService.get_registry",
+        classmethod(lambda cls: {"worker": object(), "reviewer": object(), "tester": object()}),
+    )
+    monkeypatch.setattr(SessionManager, "_apply_session_data", AsyncMock(return_value=(True, None)))
+
+    manager = SessionManager(mock_coder, mock_coder.io)
+    assert await manager.load_session("team", switch=False) is True
+
+    spawned = {
+        call.args[0]: call.kwargs["independent"] for call in fake_service.spawn.await_args_list
+    }
+    assert spawned == {"reviewer": False, "tester": True}
+
+
+def test_should_restore_sub_agent_rules():
+    """Independent agents always restore; dependent ones only while in flight."""
+    from cecli.helpers.sessions import subagents
+
+    assert subagents.should_restore_sub_agent({"agent_name": "worker"}) is True
+    assert (
+        subagents.should_restore_sub_agent(
+            {"agent_name": "worker", "independent": True, "status": "finished"}
+        )
+        is True
+    )
+    assert (
+        subagents.should_restore_sub_agent(
+            {"agent_name": "worker", "independent": False, "status": "running"}
+        )
+        is True
+    )
+    assert (
+        subagents.should_restore_sub_agent(
+            {"agent_name": "worker", "independent": False, "status": "finished"}
+        )
+        is False
+    )
+    assert (
+        subagents.should_restore_sub_agent(
+            {"agent_name": "worker", "independent": False, "status": "error"}
+        )
+        is False
+    )
+    assert (
+        subagents.should_restore_sub_agent(
+            {"agent_name": "memorizer", "independent": True, "status": "running"}
+        )
+        is False
+    )
+    assert subagents.should_restore_sub_agent({"agent_name": None}) is False
+
+
+def test_sub_agent_state_reads_service(monkeypatch):
+    """The stored lifecycle flags are read back from the AgentService."""
+    from types import SimpleNamespace
+
+    from cecli.helpers.agents.service import AgentService, SubAgentStatus
+    from cecli.helpers.sessions import subagents
+
+    info = SimpleNamespace(independent=False, status=SubAgentStatus.RUNNING)
+    service = SimpleNamespace(sub_agents={"sub1": info})
+    monkeypatch.setattr(AgentService, "get_instance", classmethod(lambda cls, coder: service))
+
+    class _Coder:
+        uuid = "sub1"
+
+    assert subagents.sub_agent_state(_Coder()) == (False, "running")
+
+    class _Unknown:
+        uuid = "sub9"
+
+    assert subagents.sub_agent_state(_Unknown()) == (False, None)
+
+
+def test_build_payload_records_sub_agent_state(mock_coder, monkeypatch):
+    """build_payload stores independence and status for sub-agents."""
+    from types import SimpleNamespace
+
+    from cecli.helpers.agents.service import AgentService, SubAgentStatus
+    from cecli.helpers.sessions import payload as payload_module
+
+    mock_coder.uuid = "sub1"
+    info = SimpleNamespace(independent=True, status=SubAgentStatus.FINISHED)
+    service = SimpleNamespace(sub_agents={"sub1": info})
+    monkeypatch.setattr(AgentService, "get_instance", classmethod(lambda cls, coder: service))
+
+    data = payload_module.build_payload(mock_coder, mock_coder.io, "n", agent_name="worker")
+    assert data["independent"] is True
+    assert data["status"] == "finished"
+
+    primary = payload_module.build_payload(mock_coder, mock_coder.io, "n")
+    assert primary["independent"] is None
+    assert primary["status"] is None
+
+
 def test_list_sessions_discovers_bundle(mock_coder, tmp_path):
     """Folder-bundle sessions show up in listings with a sub-agent count."""
     root = _prepare_workspace(mock_coder, tmp_path)

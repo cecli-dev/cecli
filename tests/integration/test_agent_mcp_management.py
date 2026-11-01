@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from cecli.coders.agent_coder import AgentCoder
 from cecli.coders.sub_agent_coder import SubAgentCoder
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ async def test_agent_can_load_mcp_server(agent_coder, mock_mcp_manager):
     """Verify an agent can load an MCP server."""
     server_name = "test_server"
 
-    await ResourceManagerTool.execute(agent_coder, load_mcp=[server_name])
+    await ManageResourcesTool.execute(agent_coder, load_mcp=[server_name])
 
     mock_mcp_manager.connect_server.assert_called_once_with(server_name)
     assert server_name in mock_mcp_manager.connected_servers
@@ -116,7 +116,7 @@ async def test_agent_can_remove_mcp_server(agent_coder, mock_mcp_manager):
     server_name = "test_server"
     mock_mcp_manager.connected_servers[server_name] = "connected"
 
-    await ResourceManagerTool.execute(agent_coder, remove_mcp=[server_name])
+    await ManageResourcesTool.execute(agent_coder, remove_mcp=[server_name])
 
     mock_mcp_manager.disconnect_server.assert_called_once_with(server_name)
     assert server_name not in mock_mcp_manager.connected_servers
@@ -127,7 +127,7 @@ async def test_sub_agent_can_load_mcp_server(sub_agent_coder, mock_mcp_manager):
     """Verify a subagent can load an MCP server."""
     server_name = "sub_test_server"
 
-    await ResourceManagerTool.execute(sub_agent_coder, load_mcp=[server_name])
+    await ManageResourcesTool.execute(sub_agent_coder, load_mcp=[server_name])
 
     mock_mcp_manager.connect_server.assert_called_once_with(server_name)
     assert server_name in mock_mcp_manager.connected_servers
@@ -139,7 +139,7 @@ async def test_sub_agent_can_remove_mcp_server(sub_agent_coder, mock_mcp_manager
     server_name = "sub_test_server"
     mock_mcp_manager.connected_servers[server_name] = "connected"
 
-    await ResourceManagerTool.execute(sub_agent_coder, remove_mcp=[server_name])
+    await ManageResourcesTool.execute(sub_agent_coder, remove_mcp=[server_name])
 
     mock_mcp_manager.disconnect_server.assert_called_once_with(server_name)
     assert server_name not in mock_mcp_manager.connected_servers

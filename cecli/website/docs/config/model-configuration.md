@@ -50,7 +50,7 @@ When you specify a model with a suffix, CECLI splits it into the base model name
 
 ## Configuration File Example
 
-You can define these overrides in your `config.yml` file, a `.cecli.model.overrides.yml` file, or a custom file specified via `--model-overrides-file`.
+You can define these overrides in your `.cecli.conf.yml` file, a `.cecli.model.overrides.yml` file, or a custom file specified via `--model-overrides-file`.
 
 ```yaml
 model-overrides:

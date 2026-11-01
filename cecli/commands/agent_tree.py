@@ -2,6 +2,7 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.helpers.agents.service import AgentService, SubAgentInfo, SubAgentStatus
+from cecli.helpers.agents.tree import AgentTree
 
 
 class TreeNode:
@@ -30,17 +31,15 @@ class AgentTreeCommand(BaseCommand):
             return
 
         # Collect all agents: primary coder + sub-agents from sub_agents dict
-        all_infos: List[SubAgentInfo] = []
-
-        # Primary agent as a synthetic SubAgentInfo
         primary_coder = agent_service.coder
+        primary_uuid = str(primary_coder.uuid)
         primary_info = SubAgentInfo(
             name="primary",
             coder=primary_coder,
             parent_uuid=str(primary_coder.parent_uuid or ""),
             status=SubAgentStatus.RUNNING,
         )
-        all_infos.append(primary_info)
+        all_infos: List[SubAgentInfo] = [primary_info]
 
         # Sub-agents from the service's sub_agents dict
         for info in agent_service.sub_agents.values():
@@ -51,26 +50,38 @@ class AgentTreeCommand(BaseCommand):
             io.tool_output("No active sub-agents found.")
             return
 
-        root_nodes = cls._build_tree(all_infos)
+        # The shared tree is process-wide, so structure the display from the
+        # primary's subtree only.
+        infos_by_uuid = {str(info.coder.uuid): info for info in all_infos}
+        subtree = AgentTree.get_subtree(primary_uuid)
+        if not subtree:
+            subtree = list(infos_by_uuid)
+
+        root_nodes = cls._build_tree(primary_uuid, infos_by_uuid, subtree)
         tree_output = cls._render_tree(root_nodes)
         io.tool_output(tree_output)
 
     @classmethod
-    def _build_tree(cls, all_agents: List[SubAgentInfo]) -> List[TreeNode]:
-        """Build the agent tree from a flat list of agents."""
-        nodes = {str(agent.coder.uuid): TreeNode(agent) for agent in all_agents}
-        root_nodes = []
+    def _build_tree(cls, root_uuid, infos, subtree_uuids) -> List[TreeNode]:
+        """Build the display tree from the shared :class:`AgentTree`."""
+        nodes = {uuid: TreeNode(infos[uuid]) for uuid in subtree_uuids if uuid in infos}
+        root = nodes.get(root_uuid)
+        if root is None:
+            return []
 
-        for agent in all_agents:
-            parent_uuid = str(agent.coder.parent_uuid)
-            if parent_uuid and parent_uuid in nodes:
-                parent_node = nodes[parent_uuid]
-                child_node = nodes[str(agent.coder.uuid)]
-                parent_node.add_child(child_node)
+        for uuid, node in nodes.items():
+            if uuid == root_uuid:
+                continue
+
+            parent = nodes.get(AgentTree.get_parent(uuid))
+            if parent is not None:
+                parent.add_child(node)
             else:
-                root_nodes.append(nodes[str(agent.coder.uuid)])
+                # Keep a node reachable even if its parent fell outside the
+                # session subtree (e.g. a spliced node left over).
+                root.add_child(node)
 
-        return root_nodes
+        return [root]
 
     @classmethod
     def _render_tree(cls, nodes: List[TreeNode]) -> str:

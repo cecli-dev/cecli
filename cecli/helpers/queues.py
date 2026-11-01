@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Global registry: coder_uuid → queue.Queue for sending input to that coder
 _per_coder_queues: dict[str, "queue.Queue"] = {}
@@ -18,6 +21,13 @@ _primary_coder_id: str | None = None
 # consumers to poll.
 _input_loop: asyncio.AbstractEventLoop | None = None
 _input_wake: asyncio.Event | None = None
+
+# Dedicated wake events for consumers parked on a loop *other* than the primary
+# input loop (for example a scheduler-dispatched workflow asking for input while
+# the scheduler ticks on the main/Textual loop). They get their own slot so a
+# foreign-loop consumer can never steal the primary binding and strand the
+# primary coder's input pump.
+_input_wakes: dict[asyncio.AbstractEventLoop, asyncio.Event] = {}
 
 
 def register_coder_queue(coder_uuid: str, q: "queue.Queue") -> None:
@@ -83,6 +93,9 @@ def set_input_loop(loop: asyncio.AbstractEventLoop) -> None:
     global _input_loop, _input_wake
     _input_loop = loop
     _input_wake = asyncio.Event()
+    # This loop now owns the primary slot, so drop any dedicated wake it may
+    # have registered while it was still a foreign consumer.
+    _input_wakes.pop(loop, None)
 
 
 def wake_input_waiters() -> None:
@@ -95,39 +108,73 @@ def wake_input_waiters() -> None:
     coder worker loop), the stale binding is dropped so the next
     wait_for_input() rebinds to the current loop instead of raising
     "Event loop is closed".
+
+    Every loop with a parked consumer is woken, not just the primary one:
+    a consumer on a foreign loop has its own event (see ``_input_wakes``) so
+    the primary binding is never stolen from it.
     """
     global _input_loop, _input_wake
 
     loop = _input_loop
-    if loop is None or _input_wake is None:
-        return
 
-    if loop.is_closed():
-        _input_loop = None
-        _input_wake = None
-        return
+    if loop is not None:
+        if _input_wake is None:
+            _input_loop = None
+        elif loop.is_closed():
+            _input_loop = None
+            _input_wake = None
+        else:
+            loop.call_soon_threadsafe(_input_wake.set)
 
-    loop.call_soon_threadsafe(_input_wake.set)
+    for other, wake in list(_input_wakes.items()):
+        if other.is_closed():
+            _input_wakes.pop(other, None)
+            continue
+
+        try:
+            other.call_soon_threadsafe(wake.set)
+        except RuntimeError:
+            # Loop stopped accepting callbacks between the check and the call.
+            _input_wakes.pop(other, None)
 
 
 async def wait_for_input() -> None:
     """Await the next input push without polling.
 
-    Must be called from the input loop (the coder worker loop). Consumers
-    sweep the payload queues first, then block here until wake_input_waiters()
-    fires. Initializes the wake state from the running loop on first use and
-    rebinds whenever the previous loop was closed or is no longer the
-    running loop (which happens across a hot reload).
+    Intended to be called from the input loop (the coder worker loop).
+    Consumers sweep the payload queues first, then block here until
+    wake_input_waiters() fires. Initializes the wake state from the running
+    loop on first use and rebinds whenever the previous loop was closed (which
+    happens across a hot reload).
+
+    A caller on a *different*, still-live loop no longer rebinds the primary
+    slot: it gets a dedicated wake event instead. Rebinding used to strand the
+    primary coder's input pump on the orphaned event, which froze the TUI
+    (prompts, slash commands and ``/exit`` all unresponsive; only Ctrl-Q
+    worked) whenever a scheduler-dispatched workflow needed input or a
+    confirmation and therefore ran on the main (Textual) loop.
     """
     loop = asyncio.get_running_loop()
 
-    if (
-        _input_loop is None
-        or _input_wake is None
-        or _input_loop.is_closed()
-        or _input_loop is not loop
-    ):
+    if _input_loop is None or _input_wake is None or _input_loop.is_closed():
         set_input_loop(loop)
 
-    _input_wake.clear()
-    await _input_wake.wait()
+    if _input_loop is loop:
+        _input_wake.clear()
+        await _input_wake.wait()
+        return
+
+    logger.warning(
+        "wait_for_input() called from a non-input loop (%r); using a dedicated"
+        " wake event instead of rebinding the primary input loop",
+        loop,
+    )
+
+    wake = _input_wakes.get(loop)
+
+    if wake is None:
+        wake = asyncio.Event()
+        _input_wakes[loop] = wake
+
+    wake.clear()
+    await wake.wait()

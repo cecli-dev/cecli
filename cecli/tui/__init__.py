@@ -58,6 +58,7 @@ def create_tui_io(args, editing_mode):
         notifications_command=args.notifications_command,
         notification_bell=args.notification_bell,
         verbose=args.verbose,
+        show_spinner=args.spinner,
     )
 
     return io, output_queue, input_queue

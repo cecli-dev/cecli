@@ -1,17 +1,14 @@
-# Ignore everything
-*
+# Ignore everything at the top level
+/*
 
-# But descend into directories
-!*/
-
-# Recursively allow files under subtree
-!/.github/**
-!/cecli/**
-!/benchmark/**
-!/docker/**
-!/requirements/**
-!/scripts/**
-!/tests/**
+# Then allow only specific directories; their contents are tracked
+!/.github
+!/cecli
+!/benchmark
+!/docker
+!/requirements
+!/scripts
+!/tests
 
 # Specific Files
 !/.dockerignore

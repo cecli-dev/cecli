@@ -106,10 +106,20 @@ async def chat_complete(
     headers: Dict[str, str],
     kwargs: Dict[str, Any],
 ) -> CompletionResponse:
-    env = _openai_env_override()
+    provider = resolved.get("_provider")
+
+    if provider is None or getattr(provider, "honors_openai_env_override", True):
+        env = _openai_env_override()
+    else:
+        env = None
+
     base = env[0] if env else resolved["api_base"]
-    url = f"{base}/chat/completions"
-    payload = chat_payload(resolved, messages, tools, False, kwargs)
+    url = provider.chat_url(resolved, base) if provider else f"{base}/chat/completions"
+    payload = (
+        provider.chat_payload(resolved, messages, tools, False, kwargs)
+        if provider
+        else chat_payload(resolved, messages, tools, False, kwargs)
+    )
     hdrs = {"Content-Type": "application/json", **headers}
     body: Optional[bytes] = None
     signer = resolved.get("_signer")
@@ -129,10 +139,13 @@ async def chat_complete(
     else:
         post_kwargs["json"] = payload
 
-    async with make_client(timeout=DEFAULT_TIMEOUT, verify=VERIFY_SSL) as client:
+    async with make_client(timeout=_request_timeout(kwargs), verify=VERIFY_SSL) as client:
         resp = await client.post(url, headers=hdrs, params=params, **post_kwargs)
         resp.raise_for_status()
         data = resp.json()
+
+    if provider:
+        return provider.parse_chat_response(data, resolved)
 
     return normalize_chat_response(data, resolved["model"])
 
@@ -145,10 +158,20 @@ async def chat_stream(
     headers: Dict[str, str],
     kwargs: Dict[str, Any],
 ) -> AsyncIterator[CompletionChunk]:
-    env = _openai_env_override()
+    provider = resolved.get("_provider")
+
+    if provider is None or getattr(provider, "honors_openai_env_override", True):
+        env = _openai_env_override()
+    else:
+        env = None
+
     base = env[0] if env else resolved["api_base"]
-    url = f"{base}/chat/completions"
-    payload = chat_payload(resolved, messages, tools, True, kwargs)
+    url = provider.chat_url(resolved, base) if provider else f"{base}/chat/completions"
+    payload = (
+        provider.chat_payload(resolved, messages, tools, True, kwargs)
+        if provider
+        else chat_payload(resolved, messages, tools, True, kwargs)
+    )
     hdrs = {"Content-Type": "application/json", **headers}
     body: Optional[bytes] = None
     signer = resolved.get("_signer")
@@ -168,13 +191,17 @@ async def chat_stream(
     else:
         stream_kwargs["json"] = payload
 
-    async with make_client(timeout=DEFAULT_TIMEOUT, verify=VERIFY_SSL) as client:
+    async with make_client(timeout=_request_timeout(kwargs), verify=VERIFY_SSL) as client:
         async with client.stream("POST", url, headers=hdrs, params=params, **stream_kwargs) as resp:
             resp.raise_for_status()
             last_finish_reason = None
 
-            async for json_obj in sse_json_lines(resp):
-                chunk = parse_chat_chunk(json_obj)
+            lines = provider.chat_stream_json(resp) if provider else sse_json_lines(resp)
+
+            async for json_obj in lines:
+                chunk = (
+                    provider.parse_chat_chunk(json_obj) if provider else parse_chat_chunk(json_obj)
+                )
 
                 if not chunk:
                     continue
@@ -414,6 +441,19 @@ def _openai_env_override() -> Optional[Tuple[str, Optional[str]]]:
         return None
 
     return (raw.strip().rstrip("/"), os.environ.get("OPENAI_API_KEY") or None)
+
+
+def _request_timeout(kwargs: Dict[str, Any]) -> float:
+    """Client timeout in seconds: the configured/request timeout, else the default.
+
+    The higher-level request kwargs carry ``timeout`` (issue #703); honoring it
+    here keeps long non-streaming responses from being cut off at
+    :data:`DEFAULT_TIMEOUT`.
+    """
+    try:
+        return float(kwargs.get("timeout") or DEFAULT_TIMEOUT)
+    except (TypeError, ValueError):
+        return DEFAULT_TIMEOUT
 
 
 __all__ = [

@@ -153,6 +153,19 @@ def test_bedrock_endpoint_requires_region():
         raise AssertionError("expected ValueError without a region")
 
 
+def test_bedrock_endpoint_built_from_resolved_api_base(monkeypatch):
+    # The Converse URL is assembled from resolved["api_base"] verbatim rather
+    # than a hardcoded public host, so a custom endpoint (VPC endpoint, proxy,
+    # LocalStack, ...) resolved onto api_base is honored.
+    monkeypatch.setenv("AWS_REGION_NAME", "us-east-1")
+    resolved = {
+        "route": "anthropic.claude-sonnet",
+        "api_base": "https://bedrock.internal.example.com",
+    }
+    url = bedrock_endpoint(resolved)
+    assert url == ("https://bedrock.internal.example.com/model/anthropic.claude-sonnet/converse")
+
+
 # ---------------------------------------------------------------------------
 # Chat-family wiring: signer hook + extra_query
 # ---------------------------------------------------------------------------

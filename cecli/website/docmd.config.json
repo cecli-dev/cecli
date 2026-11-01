@@ -69,6 +69,10 @@
           "path": "/config/custom-commands/"
         },
         {
+          "title": "Creator Mode",
+          "path": "/config/creator/"
+        },
+        {
           "title": "Custom System Prompts",
           "path": "/config/custom-system-prompts/"
         },
@@ -109,6 +113,10 @@
           "path": "/config/retries/"
         },
         {
+          "title": "Scheduler",
+          "path": "/config/scheduler/"
+        },
+        {
           "title": "Security Configuration",
           "path": "/config/security/"
         },
@@ -123,6 +131,10 @@
         {
           "title": "TUI",
           "path": "/config/tui/"
+        },
+        {
+          "title": "Workflows",
+          "path": "/config/workflows/"
         },
         {
           "title": "Workspaces",
