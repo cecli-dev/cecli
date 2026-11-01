@@ -534,3 +534,157 @@ def test_simple_send_with_retries_exceeds_retry_timeout():
         assert result == (None, None)
 
     asyncio.run(run_test())
+
+
+def test_retry_on_unauthorized_disabled_by_default():
+    async def run_test():
+        model = Model("openai/gpt-4o")
+        model.caches_by_default = False
+
+        auth_err = litellm.AuthenticationError(
+            message="401 Unauthorized",
+            model="openai/gpt-4o",
+            llm_provider="openai",
+        )
+        auth_err.status_code = 401
+
+        slept_delays = []
+
+        async def mock_acompletion(*args, **kwargs):
+            raise auth_err
+
+        async def mock_sleep(delay):
+            slept_delays.append(delay)
+
+        with (
+            patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+        ):
+            _hash, resp = await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+
+        # Default (retry_on_unauthorized=False): 401 fails immediately, no retry.
+        assert model.retry_on_unauthorized is False
+        assert len(slept_delays) == 0
+        assert "Model API Response Error" in resp.choices[0].message.content
+
+    asyncio.run(run_test())
+
+
+def test_retry_on_unauthorized_enabled_retries_401():
+    async def run_test():
+        model = Model("openai/gpt-4o", retries='{"retry-on-unauthorized": true}')
+        model.caches_by_default = False
+
+        auth_err = litellm.AuthenticationError(
+            message="401 Unauthorized",
+            model="openai/gpt-4o",
+            llm_provider="openai",
+        )
+        auth_err.status_code = 401
+
+        call_count = 0
+        slept_delays = []
+
+        async def mock_acompletion(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise auth_err
+            return MagicMock(choices=[MagicMock(message=MagicMock(content="ok"))])
+
+        async def mock_sleep(delay):
+            slept_delays.append(delay)
+
+        with (
+            patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+        ):
+            _hash, resp = await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+
+        # Enabled: the 401 is retried with the standard exponential backoff.
+        assert model.retry_on_unauthorized is True
+        assert call_count == 2
+        assert len(slept_delays) == 1
+        assert pytest.approx(slept_delays[0]) == 0.125 * 1.5
+        assert resp.choices[0].message.content == "ok"
+
+    asyncio.run(run_test())
+
+
+def test_retry_on_unauthorized_enabled_retries_403():
+    async def run_test():
+        model = Model("openai/gpt-4o", retries='{"retry-on-unauthorized": true}')
+        model.caches_by_default = False
+
+        forbidden_err = litellm.PermissionDeniedError(
+            message="403 Forbidden",
+            model="openai/gpt-4o",
+            llm_provider="openai",
+        )
+        forbidden_err.status_code = 403
+
+        call_count = 0
+        slept_delays = []
+
+        async def mock_acompletion(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise forbidden_err
+            return MagicMock(choices=[MagicMock(message=MagicMock(content="ok"))])
+
+        async def mock_sleep(delay):
+            slept_delays.append(delay)
+
+        with (
+            patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+        ):
+            _hash, resp = await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+
+        assert call_count == 2
+        assert len(slept_delays) == 1
+        assert resp.choices[0].message.content == "ok"
+
+    asyncio.run(run_test())
+
+
+def test_retry_on_unauthorized_config_parsing():
+    async def run_test():
+        async def mock_acompletion(*args, **kwargs):
+            return MagicMock(choices=[MagicMock(message=MagicMock(content="ok"))])
+
+        # JSON string form
+        model = Model("openai/gpt-4o", retries='{"retry-on-unauthorized": true}')
+        model.caches_by_default = False
+        with patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion):
+            await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+        assert model.retry_on_unauthorized is True
+
+        # Already-parsed dict form
+        model = Model("openai/gpt-4o", retries={"retry-on-unauthorized": True})
+        model.caches_by_default = False
+        with patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion):
+            await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+        assert model.retry_on_unauthorized is True
+
+        # Default when unset
+        model = Model("openai/gpt-4o")
+        model.caches_by_default = False
+        with patch("cecli.llm.litellm.acompletion", side_effect=mock_acompletion):
+            await model.send_completion(
+                messages=[{"role": "user", "content": "hi"}], functions=None, stream=False
+            )
+        assert model.retry_on_unauthorized is False
+
+    asyncio.run(run_test())

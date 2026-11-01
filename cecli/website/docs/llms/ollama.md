@@ -16,8 +16,8 @@ uv tool install cecli-dev
 Then configure your Ollama API endpoint (usually the default):
 
 ```bash
-export OLLAMA_API_BASE=http://127.0.0.1:11434 # Mac/Linux
-setx   OLLAMA_API_BASE http://127.0.0.1:11434 # Windows, restart shell after setx
+export OLLAMA_API_BASE=http://127.0.0.1:11434/v1 # Mac/Linux
+setx   OLLAMA_API_BASE http://127.0.0.1:11434/v1 # Windows, restart shell after setx
 ```
 
 Start working with cecli and Ollama on your codebase:
@@ -32,10 +32,9 @@ OLLAMA_CONTEXT_LENGTH=8192 ollama serve
 # In another terminal window, change directory into your codebase
 cd /to/your/project
 
-cecli --model ollama_chat/<model>
+cecli --model ollama/<model>
 ```
 
-> **Note:** Using `ollama_chat/` is recommended over `ollama/`.
 
 See the [model warnings](warnings.html) section for information on warnings which will occur when working with models that cecli is not familiar with.
 
@@ -54,10 +53,24 @@ setx   OLLAMA_API_KEY <api-key> # Windows, restart shell after setx
  
 By default, cecli sets Ollama's context window to be large enough for each request you send plus 8k tokens for the reply. This ensures data isn't silently discarded by Ollama.
 
-If you'd like you can configure a fixed sized context window instead with an [`.cecli.model.settings.yml` file](../config/adv-model-settings.html#advanced-model-settings-model-settings) like this:
+If you'd like a fixed sized context window, set `num_ctx` in the `api` block of your [model configuration](../config/model-configuration.html). cecli passes it to Ollama as a native runner option:
 
+```yaml
+model-overrides:
+  defaults:
+    ollama/qwen2.5-coder:32b-instruct-fp16:
+      api:
+        num_ctx: 65536
 ```
-- name: ollama/qwen2.5-coder:32b-instruct-fp16
-  extra_params:
-    num_ctx: 65536
+
+The same settings can be scoped to a suffix (for example `ollama/qwen2.5-coder:32b-instruct-fp16:extended`) so you can switch context sizes per invocation:
+
+```yaml
+model-overrides:
+  ollama/qwen2.5-coder:32b-instruct-fp16:
+    extended:
+      api:
+        num_ctx: 131072
 ```
+
+Then run cecli with `--model ollama/qwen2.5-coder:32b-instruct-fp16:extended` if you want the larger window.

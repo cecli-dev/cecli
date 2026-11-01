@@ -170,7 +170,10 @@ YAML_TO_JSON_ARG_KEYS = {
     "hooks": "hooks",
     "workspaces": "workspaces",
     "model_providers": "model-providers",
+    "system_one": "system-one",
     "server_config": "server-config",
+    "workflows": "workflows",
+    "scheduler": "scheduler",
 }
 
 
@@ -575,9 +578,27 @@ def custom_tracer(frame, event, arg):
 
 
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
+    # Keep git from launching a pager that waits for input nobody can provide.
+    os.environ["GIT_PAGER"] = "cat"
+
     from cecli.signals import ReloadProgramSignal
 
     attach_debug_thread_monitor(argv)
+
+    if "--acp" in (sys.argv[1:] if argv is None else argv):
+        # From here on stdout carries the protocol. The client's first
+        # session/new picks the project, so move there before any setup runs.
+        import atexit
+
+        from cecli.helpers.server.acp.agent import get_agent
+
+        acp_agent = get_agent()
+        cwd = acp_agent.bootstrap()
+        if cwd is None:
+            return 0
+        os.chdir(cwd)
+        # Answer anything still waiting (e.g. a failed startup) on the way out
+        atexit.register(acp_agent.shutdown)
 
     # Tracks the coder instance from a ReloadProgramSignal so the new
     # main_async() can pass it as from_coder to Coder.create(), preserving
@@ -642,9 +663,17 @@ async def main_async(
     from cecli.deprecated_args import handle_deprecated_model_args
     from cecli.format_settings import format_settings, scrub_sensitive_info
     from cecli.helpers import config_utils
+    from cecli.helpers.agents.overrides import refresh_agent_overrides
     from cecli.helpers.conversation import ConversationService, MessageTag
     from cecli.helpers.copypaste import ClipboardWatcher
     from cecli.helpers.file_searcher import handle_core_files
+    from cecli.helpers.key_detection import detect_api_keys, register_api_keys
+    from cecli.helpers.workspaces.config import (
+        find_active_workspace_name,
+        load_workspace_config,
+        resolve_workspace_config,
+        workspace_layout,
+    )
     from cecli.history import ChatSummary
     from cecli.hooks import HookService
     from cecli.io import InputOutput
@@ -674,22 +703,47 @@ async def main_async(
     # before our deep-merge code can run.
     all_config_paths = [
         str(Path.home() / ".cecli" / "conf.yml"),
+        str(Path.home() / ".cecli" / ".cecli.conf.yml"),
         str(Path.home() / ".cecli.conf.yml"),
         str(Path(".cecli.conf.yml")),
     ]
+    if os.environ.get("CECLI_CONFIG_FILE"):
+        cfg_env = os.environ.get("CECLI_CONFIG_FILE")
+        if cfg_env not in all_config_paths:
+            all_config_paths.append(cfg_env)
     if git_root:
-        all_config_paths.append(str(Path(git_root) / ".cecli.conf.yml"))
+        git_conf = str(Path(git_root) / ".cecli.conf.yml")
+
+        if git_conf not in all_config_paths:
+            all_config_paths.append(git_conf)
+
+    # ── creator.yml files: highest config-file precedence (still below CLI) ──
+    # Global ~/.cecli/creator.yml first, then the project-local
+    # <git_root or cwd>/.cecli/creator.yml on top (local wins).
+    if git_root:
+        creator_local = str(Path(git_root) / ".cecli" / "creator.yml")
+
+    else:
+        creator_local = str(Path(".cecli/creator.yml"))
+
+    creator_yml_files = [str(Path.home() / ".cecli" / "creator.yml"), creator_local]
+
+    for path in creator_yml_files:
+        if path not in all_config_paths:
+            all_config_paths.append(path)
 
     conf_yml_files = [
         p for p in all_config_paths if p.endswith("conf.yml") and not p.endswith(".cecli.conf.yml")
     ]
+
     cecli_conf_yml_files = [p for p in all_config_paths if p.endswith(".cecli.conf.yml")]
 
-    # ── Read and merge ALL config files as YAML upfront ─────────────────
+    # ── Read and merge ALL config files as YAML upfront ──────────────────
     # Decode all files as YAML, shallow-merge .cecli/conf.yml, then
-    # deep-merge .cecli.conf.yml on top for a fully resolved config dict.
+    # deep-merge .cecli.conf.yml and creator.yml on top for a fully
+    # resolved config dict.
     merged_config = config_utils.read_and_merge_all_configs(
-        all_config_paths, conf_yml_files, cecli_conf_yml_files
+        all_config_paths, conf_yml_files, cecli_conf_yml_files, creator_yml_files
     )
 
     # Write merged config to a temp YAML file so configargparse can
@@ -713,20 +767,37 @@ async def main_async(
     args, unknown = parser.parse_known_args(argv)
     os.unlink(_tmp_cfg)
 
-    if args.workspaces or args.workspace_name:
-        from cecli.helpers.workspaces.config import (
-            find_active_workspace_name,
-            load_workspace_config,
-            workspace_layout,
-        )
+    if args.acp:
+        from cecli.helpers.server.acp.agent import get_agent
+
+        if not get_agent().launched:
+            # Set by a config file or CECLI_ACP, too late: the client's first
+            # session/new has to pick the project before any config is read
+            print("Ignoring the acp setting: pass --acp on the command line", file=sys.stderr)
+            args.acp = False
+
+    if args.acp:
+        # The ACP client owns stdin/stdout: plain linear output, no TUI or prompts
+        args.tui = False
+        args.linear_output = True
+        args.fancy_input = False
+        args.pretty = False
+
+    if args.workspaces:
+        # Interpolate environment variables in the workspaces argument
+        args.workspaces = interpolate_env_vars(args.workspaces)
+
+    ws_config_arg = convert_yaml_to_json_string(args.workspaces) if args.workspaces else None
+
+    # Workspaces can also be defined by the local ``.cecli.workspaces.yml`` or
+    # global ``~/.cecli/workspaces.yml`` files, without any workspace flags.
+    workspace_conf = resolve_workspace_config(ws_config_arg)
+    workspace_configured = bool(args.workspaces or args.workspace_name or workspace_conf)
+
+    if workspace_configured:
         from cecli.helpers.workspaces.subagents import register_workspace_subagents
         from cecli.helpers.workspaces.workspace import WorkspaceManager
 
-        # Interpolate environment variables in the workspaces argument
-        if args.workspaces:
-            args.workspaces = interpolate_env_vars(args.workspaces)
-
-        ws_config_arg = convert_yaml_to_json_string(args.workspaces) if args.workspaces else None
         ws_name = args.workspace_name or find_active_workspace_name(ws_config_arg)
         if ws_name:
             config = load_workspace_config(ws_config_arg, name=ws_name)
@@ -796,7 +867,7 @@ async def main_async(
                 convert_yaml_to_json_string(getattr(args, arg_name), config_file_value),
             )
 
-    # Interpolate environment variables in all string arguments
+    # ── Interpolate environment variables in all string arguments ──
     for key, value in vars(args).items():
         if isinstance(value, str):
             setattr(args, key, interpolate_env_vars(value))
@@ -804,6 +875,20 @@ async def main_async(
             setattr(
                 args, key, [interpolate_env_vars(v) if isinstance(v, str) else v for v in value]
             )
+
+    # ── Workflows config plumbing (consumers wired in later phases) ──
+    # A malformed workflows file must never crash startup: fall back to [].
+    try:
+        from cecli.helpers.workflows import load_workflows
+
+        _workflows = load_workflows(
+            config_arg=args.workflows, merged_config=merged_config, git_root=git_root
+        )
+    except Exception as exc:
+        logging.warning("Failed to load workflows config: %s", exc)
+
+        _workflows = []
+    args._workflows = _workflows
 
     if args.debug:
         global log_file
@@ -844,8 +929,14 @@ async def main_async(
         args.yes_always = True
     editing_mode = "VI" if args.vim else "EMACS"
 
+    io_class = InputOutput
+    if args.acp:
+        from cecli.helpers.server.acp.agent.io import AcpInputOutput
+
+        io_class = AcpInputOutput
+
     def get_io(pretty):
-        return InputOutput(
+        return io_class(
             pretty,
             args.yes_always,
             args.input_history_file,
@@ -913,6 +1004,10 @@ async def main_async(
                 raise err
             io = get_io(False)
             io.tool_warning("Terminal does not support pretty output (UnicodeDecodeError)")
+    if args.acp:
+        from cecli.helpers.server.acp.agent import get_agent
+
+        get_agent().start()
     if args.set_env:
         for env_setting in args.set_env:
             try:
@@ -952,6 +1047,16 @@ async def main_async(
             "--openai-organization-id is deprecated, use --set-env OPENAI_ORGANIZATION=<value>"
         )
         os.environ["OPENAI_ORGANIZATION"] = args.openai_organization_id
+
+    # ── Secret registry ────────────────────────────────────────────────
+    # Everything the LLM is sent goes through BaseMessage.to_dict(), which
+    # blanks any string registered here. Both the merged config (including
+    # $VAR references it resolves against the environment) and the now fully
+    # populated environment are scanned at this point.
+    registered_secrets = register_api_keys(detect_api_keys(merged_config))
+
+    if args.verbose and registered_secrets:
+        io.tool_output(f"Registered {len(registered_secrets)} secret(s) for redaction")
     if args.verbose:
         for fname in loaded_dotenvs:
             io.tool_output(f"Loaded {fname}")
@@ -1047,6 +1152,17 @@ async def main_async(
         except json.JSONDecodeError as e:
             io.tool_error(f"Failed to parse --model-providers JSON: {e}")
 
+    if args.system_one:
+        from cecli.helpers import system_one
+
+        try:
+            system_one_config = json.loads(args.system_one)
+        except json.JSONDecodeError as e:
+            io.tool_error(f"Failed to parse --system-one JSON: {e}")
+        else:
+            if system_one.configure(system_one_config) and args.verbose:
+                io.tool_output(f"System One endpoint: {system_one.get_config().endpoint_url}")
+
     if args.list_models:
         models.print_matching_models(io, args.list_models)
         return await graceful_exit(None)
@@ -1078,6 +1194,7 @@ async def main_async(
         weak_model_obj = models.Model(
             args.weak_model,
             weak_model=False,
+            role="weak",
             verbose=args.verbose,
             io=io,
             retries=args.retries,
@@ -1089,6 +1206,7 @@ async def main_async(
         editor_model_obj = models.Model(
             args.editor_model,
             editor_model=False,
+            role="editor",
             verbose=args.verbose,
             io=io,
             retries=args.retries,
@@ -1100,6 +1218,7 @@ async def main_async(
         agent_model_obj = models.Model(
             args.agent_model,
             agent_model=False,
+            role="agent",
             verbose=args.verbose,
             io=io,
             retries=args.retries,
@@ -1114,6 +1233,8 @@ async def main_async(
         if await offer_openrouter_oauth(io):
             if os.environ.get("OPENROUTER_API_KEY"):
                 io.tool_output("OpenRouter successfully connected.")
+                # The oauth flow mints a key after the startup scan ran.
+                register_api_keys(detect_api_keys(merged_config))
             else:
                 io.tool_error(
                     "OpenRouter authentication seemed successful, but the key is still missing."
@@ -1178,6 +1299,16 @@ async def main_async(
     lint_cmds = parse_lint_cmds(args.lint_cmd, io)
     if lint_cmds is None:
         return await graceful_exit(None, 1)
+
+    # Create/attach the git repo before the coder is built. The coder resolves
+    # its repo, root, and repo_map at construction; if the repo is created
+    # afterwards the coder keeps repo=None for the whole session and
+    # repo-backed tools (Grep, git_*, ...) fail with "Not in a git repository."
+    if args.git and not (suppress_pre_init or workspace_configured):
+        git_root = await setup_git(git_root, pre_init_io)
+        if args.gitignore:
+            await check_gitignore(git_root, pre_init_io)
+
     repo = None
     if args.git:
         try:
@@ -1270,7 +1401,9 @@ async def main_async(
         coder = await Coder.create(
             from_coder=from_coder,
             main_model=main_model,
-            edit_format=args.edit_format,
+            # Agent mode is the startup default; an explicit flag/config/env value
+            # still wins, and reloads keep the session's current mode.
+            edit_format=args.edit_format or "agent",
             io=io,
             args=args,
             repo=repo,
@@ -1348,10 +1481,6 @@ async def main_async(
                     pre_init_io.tool_output()
                 except KeyboardInterrupt:
                     return await graceful_exit(coder, 1)
-        if args.git and not (suppress_pre_init or args.workspaces or args.workspace_name):
-            git_root = await setup_git(git_root, pre_init_io)
-            if args.gitignore:
-                await check_gitignore(git_root, pre_init_io)
     except UnknownEditFormat as err:
         pre_init_io.tool_error(str(err))
         await pre_init_io.offer_url(
@@ -1367,6 +1496,32 @@ async def main_async(
     # reference so disconnect_all() still runs and MCP client tasks don't
     # leak into asyncio.run() shutdown (which hangs with mcp 2.x stdio tasks).
     coder.mcp_manager = mcp_manager
+
+    # Workflows: register the ``wf:{name}`` sub-agents before any mode runs, so
+    # both scheduler dispatch and /workflows run can spawn them. Registration is
+    # pure registry state; nothing here touches the scheduler DB.
+    _workflows = getattr(args, "_workflows", None) or []
+
+    # Stash the raw workflow sources on the coder so ``/workflows reload`` can
+    # re-resolve the full precedence chain (main_async's locals are long gone).
+    coder.workflows_merged_config = merged_config
+    coder.workflows_config_arg = getattr(args, "workflows", None)
+
+    if _workflows:
+        from cecli.helpers.workflows import register_workflow_subagents
+
+        try:
+            register_workflow_subagents(_workflows)
+        except Exception:
+            logging.exception("workflow sub-agent registration failed")
+
+    # Creator ``agents:`` map: re-read it so the spawn-time override index is
+    # fresh, then register definition entries as dynamic ``creator:<name>``
+    # sub-agents. The map never flows through agent_config.
+    try:
+        refresh_agent_overrides(git_root)
+    except Exception:
+        logging.exception("creator agent registration failed")
 
     if return_coder:
         return coder
@@ -1481,6 +1636,26 @@ async def main_async(
         return await graceful_exit(coder)
     if args.exit:
         return await graceful_exit(coder)
+
+    # ── Workflow scheduler ────────────────────────────────────────────
+    # Only interactive/daemon sessions reach this point: the one-shot
+    # --message/--exit paths above return before the scheduler can tick.
+    # Auto mode turns it on iff at least one enabled scheduled workflow
+    # exists, so nothing ever touches the coordination DB otherwise.
+    _scheduler_cfg = _scheduler_config(args)
+    if _workflows and _scheduler_enabled(_scheduler_cfg, _workflows):
+        from cecli.helpers.scheduler import SchedulerService
+
+        coder.scheduler = SchedulerService(
+            coder,
+            _workflows,
+            io,
+            tick_seconds=_scheduler_cfg["tick_seconds"],
+            catch_up=_scheduler_cfg["catch_up"],
+            max_catchup=_scheduler_cfg["max_catchup"],
+        )
+        await coder.scheduler.start()
+
     if args.auto_load:
         if await pre_init_io.confirm_ask(
             "Do you want to load your previous session?",
@@ -1542,6 +1717,7 @@ async def main_async(
             # Clean up before full program reload (mirrors while True loop below)
             sys.settrace(None)
             await coder.auto_save_session(force=True)
+            await _stop_scheduler_quietly(coder)
             if coder.mcp_manager and coder.mcp_manager.is_connected:
                 await coder.mcp_manager.disconnect_all()
 
@@ -1606,9 +1782,66 @@ async def main_async(
             # Clean up before full program reload
             sys.settrace(None)
             await coder.auto_save_session(force=True)
+            await _stop_scheduler_quietly(coder)
             if coder.mcp_manager and coder.mcp_manager.is_connected:
                 await coder.mcp_manager.disconnect_all()
             raise
+
+
+def _scheduler_enabled(scheduler_cfg, workflows):
+    """Resolve whether the scheduler should run: explicit ``enabled`` > auto."""
+
+    if scheduler_cfg.get("enabled") is not None:
+        return bool(scheduler_cfg["enabled"])
+
+    return any(getattr(wf, "schedule", None) and getattr(wf, "enabled", True) for wf in workflows)
+
+
+def _scheduler_config(args):
+    """Resolve the ``scheduler`` config object, defaults layered underneath.
+
+    ``args.scheduler`` is a JSON string (the CLI ``--scheduler`` value deep-merged
+    over the config-file object) or ``None`` when unset, in which case the
+    documented defaults apply and ``enabled`` stays ``None`` (auto).
+    """
+
+    defaults = {
+        "enabled": None,
+        "tick_seconds": 60,
+        "catch_up": True,
+        "max_catchup": 1,
+    }
+
+    raw = getattr(args, "scheduler", None)
+
+    if not raw:
+        return dict(defaults)
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return dict(defaults)
+
+    if not isinstance(parsed, dict):
+        return dict(defaults)
+
+    return {**defaults, **parsed}
+
+
+async def _stop_scheduler_quietly(coder):
+    """Best-effort scheduler shutdown used by reload/exit paths."""
+
+    import logging
+
+    scheduler = getattr(coder, "scheduler", None)
+    stop = getattr(scheduler, "stop", None)
+    if scheduler is None or not callable(stop) or asyncio.iscoroutinefunction(stop) is not True:
+        return
+
+    try:
+        await stop()
+    except Exception:
+        logging.getLogger(__name__).debug("scheduler stop failed", exc_info=True)
 
 
 def is_first_run_of_new_version(io, verbose=False):
@@ -1773,6 +2006,21 @@ async def graceful_exit(coder=None, exit_code=0):
     if coder:
         if hasattr(coder, "_autosave_future"):
             await coder._autosave_future
+
+        from cecli.helpers import coroutines
+        from cecli.helpers.agents.service import AgentService
+
+        await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
+        agent_service = AgentService.get_instance(coder)
+        agent_tasks = [
+            info.generate_task
+            for info in agent_service.sub_agents.values()
+            if info.generate_task is not None
+        ]
+        await coroutines.cancel_and_abandon(agent_tasks)
+        agent_service.cleanup_all_for_parent()
+        await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
+        await _stop_scheduler_quietly(coder)
 
         if coder.mcp_manager and coder.mcp_manager.is_connected:
             await coder.mcp_manager.disconnect_all()

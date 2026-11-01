@@ -566,7 +566,7 @@ class _HelpfulBuiltins(dict):
     """Custom __builtins__ dict that provides helpful hints for missing functions."""
 
     _HINTS: dict[str, str] = {
-        "open": "Filesystem access is not available. Use the Command tool instead.",
+        "open": "Filesystem access is not available. Use the Shell tool instead.",
         "eval": "eval() is disabled for security.",
         "exec": "exec() is disabled for security.",
         "__import__": "Imports are disabled. Use only the primitives provided.",

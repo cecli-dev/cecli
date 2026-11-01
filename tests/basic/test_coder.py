@@ -15,7 +15,7 @@ from cecli.dump import dump  # noqa: F401
 from cecli.helpers.conversation import ConversationService
 from cecli.helpers.conversation.tags import MessageTag
 from cecli.io import InputOutput
-from cecli.mcp import McpServerManager
+from cecli.mcp import LocalServer, McpServerManager
 from cecli.models import Model
 from cecli.repo import GitRepo, GitRepoProxy
 from cecli.sendchat import sanity_check_messages
@@ -1691,11 +1691,31 @@ This command will print 'Hello, World!' to the console."""
 
             # Verify that confirm_ask was called
             io.confirm_ask.assert_called_once_with(
-                "Run tools?", group_response="Run MCP Tools", coder_uuid=ANY
+                "Approve tool calls?", group_response="Approve Tool Calls", coder_uuid=ANY
             )
 
             # Verify that no messages were added
             assert len(coder.cur_messages) == 0
+
+    async def test_tool_calls_need_confirmation_skips_local_read_tools(self):
+        """Read-only local tools run without approval; writes and external tools still ask."""
+        with GitTemporaryDirectory():
+            io = InputOutput(yes=False)
+            coder = await Coder.create(self.GPT35, "diff", io=io)
+            coder.write_tools = {"editfile"}
+
+            local_server = LocalServer({"name": "Local"})
+            external_server = MagicMock()
+
+            read_call = MagicMock()
+            read_call.function.name = "readfile"
+
+            write_call = MagicMock()
+            write_call.function.name = "editfile"
+
+            assert not coder._tool_calls_need_confirmation({local_server: [read_call]})
+            assert coder._tool_calls_need_confirmation({local_server: [write_call]})
+            assert coder._tool_calls_need_confirmation({external_server: [read_call]})
 
     @patch("cecli.coders.base_coder.Coder.call_mcp_tool_from_session", new_callable=AsyncMock)
     async def test_execute_tool_calls(self, mock_call_tool):

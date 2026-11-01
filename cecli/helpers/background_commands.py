@@ -218,23 +218,35 @@ class InputBuffer:
     def __init__(self):
         self.queue = deque()
         self.lock = threading.Lock()
+        self._data_ready = threading.Event()
 
     def append(self, text: str) -> None:
         """Add text to the input queue."""
         with self.lock:
             self.queue.append(text)
 
+        self._data_ready.set()
+
     def pop_all(self) -> str:
         """Get and clear all queued input."""
         with self.lock:
             result = "".join(self.queue)
             self.queue.clear()
+            self._data_ready.clear()
             return result
 
     def has_input(self) -> bool:
         """Check if there is queued input."""
         with self.lock:
             return len(self.queue) > 0
+
+    def wait_for_input(self, timeout: float | None = None) -> bool:
+        """Block until input arrives or *timeout* elapses."""
+        return self._data_ready.wait(timeout)
+
+    def wake(self) -> None:
+        """Wake a blocked writer so it can re-check its stop condition."""
+        self._data_ready.set()
 
 
 class BackgroundProcess:
@@ -384,23 +396,27 @@ class BackgroundProcess:
         def writer():
             try:
                 while not self._stop_event.is_set() and self.is_alive():
-                    if self.input_buffer.has_input():
-                        text = self.input_buffer.pop_all()
-                        if text:
-                            if self.master_fd is not None:
-                                os.write(self.master_fd, text.encode("latin-1"))
-                            else:
-                                try:
-                                    # Try to write to the binary buffer for lossless propagation
-                                    self.process.stdin.buffer.write(text.encode("latin-1"))
-                                    self.process.stdin.buffer.flush()
-                                except (AttributeError, ValueError):
-                                    # Fallback to text mode if buffer is not available
-                                    self.process.stdin.write(text)
-                                    self.process.stdin.flush()
-                    import time
+                    # Block until input arrives; the timeout is only a liveness
+                    # fallback for a process that exits on its own.
+                    if not self.input_buffer.wait_for_input(timeout=1.0):
+                        continue
 
-                    time.sleep(0.1)
+                    if self._stop_event.is_set():
+                        break
+
+                    text = self.input_buffer.pop_all()
+                    if text:
+                        if self.master_fd is not None:
+                            os.write(self.master_fd, text.encode("latin-1"))
+                        else:
+                            try:
+                                # Try to write to the binary buffer for lossless propagation
+                                self.process.stdin.buffer.write(text.encode("latin-1"))
+                                self.process.stdin.buffer.flush()
+                            except (AttributeError, ValueError):
+                                # Fallback to text mode if buffer is not available
+                                self.process.stdin.write(text)
+                                self.process.stdin.flush()
             except (BrokenPipeError, OSError):
                 pass
             except Exception as e:
@@ -464,6 +480,7 @@ class BackgroundProcess:
         try:
             # Signal threads to stop
             self._stop_event.set()
+            self.input_buffer.wake()
 
             # Try SIGTERM first
             self.process.terminate()
@@ -604,6 +621,9 @@ class BackgroundCommandManager:
                     close_fds=True,
                     text=True,
                     bufsize=1,
+                    # Detach from the TUI's controlling terminal so the child cannot
+                    # steal keystrokes or reset terminal modes that Textual relies on.
+                    start_new_session=True,
                     universal_newlines=True,
                 )
                 os.close(slave_fd)
@@ -805,6 +825,7 @@ class BackgroundCommandManager:
                 result[command_key] = {
                     "command": bg_process.command,
                     "running": bg_process.is_alive(),
+                    "persist": getattr(bg_process, "persist", False),
                     "buffer_size": bg_process.buffer.size(),
                     "pages": getattr(bg_process.buffer, "page_count", 0),
                     "total_chars": getattr(

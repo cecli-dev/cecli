@@ -51,7 +51,10 @@ class MainFooter(Static):
 
     def on_mount(self):
         """Start spinner animation interval."""
-        self._spinner_interval = self.set_interval(0.1, self._animate_spinner)
+        if self.app.animation_level != "none":
+            self._spinner_interval = self.set_interval(
+                0.1, self._animate_spinner, pause=not self.spinner_visible
+            )
 
     def _animate_spinner(self):
         """Animate the spinner character."""
@@ -97,7 +100,11 @@ class MainFooter(Static):
         left = Text()
 
         if self.spinner_visible:
-            spinner_char = self._spinner_chars[self._spinner_frame]
+            spinner_char = (
+                "•"
+                if self.app.animation_level == "none"
+                else self._spinner_chars[self._spinner_frame]
+            )
             left.append(f"{spinner_char} ")
             if self.agent_name:
                 left.append(f"({self.agent_name}) ")
@@ -186,6 +193,8 @@ class MainFooter(Static):
         self.spinner_text = text
         self.agent_name = agent_name
         self.spinner_visible = True
+        if self._spinner_interval is not None:
+            self._spinner_interval.resume()
         self.refresh()
 
     def stop_spinner(self):
@@ -209,6 +218,8 @@ class MainFooter(Static):
             pass
 
         self.spinner_visible = False
+        if self._spinner_interval is not None:
+            self._spinner_interval.pause()
         self.spinner_text = ""
         self.agent_name = ""
         self.refresh()

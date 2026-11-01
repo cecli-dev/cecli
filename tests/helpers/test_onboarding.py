@@ -62,6 +62,14 @@ def test_get_models_for_provider_openai():
     assert "openai/gpt-4o" in models
 
 
+def test_get_models_for_provider_filters_by_mode():
+    every_model = get_models_for_provider("gemini")
+    chat_models = get_models_for_provider("gemini", modes=("chat",))
+
+    assert chat_models
+    assert set(chat_models) < set(every_model)  # image generation models are left out
+
+
 def test_get_models_for_provider_anthropic_prefixed():
     models = get_models_for_provider("anthropic")
 
@@ -138,25 +146,26 @@ async def test_onboarding_app_skips_key_for_no_key_provider():
     _clear_api_keys()
     app = OnboardingApp(iter_providers())
 
-    async with app.run_test() as pilot:
-        await pilot.pause(0.2)
+    with patch("cecli.helpers.onboarding.app.get_models_for_provider", return_value=[]):
+        async with app.run_test() as pilot:
+            await pilot.pause(0.2)
 
-        for char in "bedrock":
-            await pilot.press(char)
+            for char in "bedrock":
+                await pilot.press(char)
+                await pilot.pause(0.05)
+            await pilot.press("tab")
             await pilot.pause(0.05)
-        await pilot.press("tab")
-        await pilot.pause(0.05)
-        await pilot.press("enter")
-        await pilot.pause(0.2)
+            await pilot.press("enter")
+            await pilot.pause(0.2)
 
-        assert app.provider and app.provider["slug"] == "bedrock"
+            assert app.provider and app.provider["slug"] == "bedrock"
 
-        for _ in range(80):
-            await pilot.pause(0.1)
-            if type(app.screen).__name__ in ("ModelScreen", "ModelManualScreen"):
-                break
-        assert type(app.screen).__name__ in ("ModelScreen", "ModelManualScreen")
-        assert app.api_keys == {}
+            for _ in range(80):
+                await pilot.pause(0.1)
+                if type(app.screen).__name__ in ("ModelScreen", "ModelManualScreen"):
+                    break
+            assert type(app.screen).__name__ == "ModelManualScreen"
+            assert app.api_keys == {}
 
 
 @pytest.mark.asyncio

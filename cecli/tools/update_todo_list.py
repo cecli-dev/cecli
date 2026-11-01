@@ -16,7 +16,10 @@ class Tool(BaseTool):
         "type": "function",
         "function": {
             "name": "UpdateTodoList",
-            "description": "Update the todo list with new items or modify existing ones.",
+            "description": (
+                "Maintain a todo list to plan and track multi-step work. Update it as"
+                " tasks complete and mark the current task."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -56,8 +56,10 @@ class OutputContainer(SelectableRichLog):
         self.can_focus = False
 
     def on_mount(self) -> None:
-        """Use the compact renderer for this widget's horizontal scrollbar."""
+        """Use the compact half-glyph renderer for this widget's scrollbars."""
+
         self.horizontal_scrollbar.renderer = ThinScrollBarRenderer
+        self.vertical_scrollbar.renderer = ThinScrollBarRenderer
 
     async def start_response(self):
         """Start a new LLM response section with streaming support."""
