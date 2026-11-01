@@ -80,7 +80,7 @@ def load_agent_overrides(primary_root: Optional[str] = None) -> Dict[str, Any]:
 def refresh_agent_overrides(primary_root: Optional[str] = None) -> Dict[str, Any]:
     """Re-read the ``creator.yml`` files and refresh the spawn-time index.
 
-    Both startup (``main_async``) and the Create tool use this single reader
+    Both startup (``main_async``) and the ManageExtensions tool use this single reader
     path: it re-reads the global and local ``creator.yml`` files, updates
     ``AgentService``'s override index, and re-registers/removes dynamic
     ``creator:<name>`` definitions. Call it after any mutation of a

@@ -270,7 +270,9 @@ class OnboardingApp(App):
         ):
             self.push_screen(ApiKeyScreen(provider, env_vars), self._on_api_keys)
         else:
-            present = {v: os.environ[v] for v in env_vars if os.environ.get(v)}
+            present = {}
+            if provider_needs_key(provider):
+                present = {v: os.environ[v] for v in env_vars if os.environ.get(v)}
             self._on_api_keys(present)
 
     def _on_api_keys(self, keys) -> None:

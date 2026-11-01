@@ -113,7 +113,7 @@ class HelpCommand(BaseCommand):
         from cecli.commands import Commands
 
         commands_instance = Commands(io, coder)
-        all_commands = commands_instance.get_commands()
+        all_commands = commands_instance.get_commands(include_aliases=False)
 
         pad = max(len(cmd) for cmd in all_commands)
         pad_format = "{cmd:" + str(pad) + "}"

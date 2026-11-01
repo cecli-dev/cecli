@@ -61,18 +61,54 @@ def get_coder_queue(coder_uuid: str) -> "queue.Queue | None":
 def push_coder_input(coder_uuid: str, message: str | dict[str, Any]) -> bool:
     """Push a user input message directly to a coder's input queue.
 
-    Accepts either a raw string (text input) or a dict (structured message
-    like confirmation responses). Wakes any coroutine blocked in
-    wait_for_input() so consumers react immediately instead of polling.
+    Accepts either a raw string (treated as a ``{"text": ...}`` payload) or
+    a dict (structured message like confirmation responses). Wakes any
+    coroutine blocked in wait_for_input() so consumers react immediately
+    instead of polling.
 
     Returns True if delivered, False if the coder is not registered.
     """
     q = _per_coder_queues.get(coder_uuid)
     if q is None:
         return False
+
+    if isinstance(message, str):
+        message = {"text": message}
+
     q.put(message)
     wake_input_waiters()
     return True
+
+
+def pop_coder_input(coder_uuid: str, key: str) -> dict[str, Any] | None:
+    """Pop and return the next queued payload for *coder_uuid* containing *key*.
+
+    Payloads meant for another reader — for example a confirmation while a
+    text prompt is waiting — are restored in their original order. Returns
+    None when no matching payload is waiting.
+    """
+    q = _per_coder_queues.get(coder_uuid)
+    if q is None:
+        return None
+
+    held = []
+    matched = None
+
+    for _ in range(q.qsize()):
+        try:
+            payload = q.get_nowait()
+        except queue.Empty:
+            break
+
+        if matched is None and isinstance(payload, dict) and key in payload:
+            matched = payload
+        else:
+            held.append(payload)
+
+    for payload in held:
+        q.put(payload)
+
+    return matched
 
 
 def get_primary_coder_id() -> str | None:

@@ -1,9 +1,9 @@
-"""Tests for Create.format_output rendering."""
+"""Tests for ManageExtensions.format_output rendering."""
 
 import json
 from types import SimpleNamespace
 
-from cecli.tools import create
+from cecli.tools import manage_extensions
 
 
 class DummyIO:
@@ -31,14 +31,14 @@ def make_tool_response(args):
         id="test-id",
         type="function",
         function=SimpleNamespace(
-            name="Create",
+            name="ManageExtensions",
             arguments=json.dumps(args),
         ),
     )
 
 
 def render(coder, args):
-    create.Tool.format_output(
+    manage_extensions.Tool.format_output(
         coder,
         mcp_server=SimpleNamespace(name="Local"),
         tool_response=make_tool_response(args),
@@ -96,10 +96,10 @@ def test_format_output_reports_invalid_arguments():
     tool_response = SimpleNamespace(
         id="test-id",
         type="function",
-        function=SimpleNamespace(name="Create", arguments="{not json"),
+        function=SimpleNamespace(name="ManageExtensions", arguments="{not json"),
     )
 
-    create.Tool.format_output(
+    manage_extensions.Tool.format_output(
         coder,
         mcp_server=SimpleNamespace(name="Local"),
         tool_response=tool_response,

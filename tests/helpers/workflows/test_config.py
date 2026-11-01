@@ -624,3 +624,36 @@ def test_resolve_returns_raw_precedence_order(isolated):
     assert entries[0][1] is None
     assert entries[0][2] == "inline --workflows value"
     assert entries[2][1] == str(isolated["wdir"] / "a_home.yml")
+
+
+# ── persist + metadata ────────────────────────────────────────────────────
+
+
+def test_persist_and_metadata_are_parsed(isolated):
+    _home_workflow(
+        isolated["wdir"],
+        "persist.yml",
+        "name: persistent\n"
+        "persist: true\n"
+        "metadata:\n"
+        "  model: meta-model\n"
+        "  agent-config:\n"
+        "    skills_init: [meta-skill]\n"
+        "tasks:\n"
+        "  - prompt: p\n",
+    )
+
+    wf = load_workflows()[0]
+
+    assert wf.persist is True
+    assert wf.metadata["model"] == "meta-model"
+    assert wf.metadata["agent_config"]["skills_init"] == ["meta-skill"]
+    assert wf.to_dict()["persist"] is True
+
+
+def test_persist_string_false_is_not_truthy():
+    wf = models.WorkflowConfig.from_dict(
+        {"name": "p", "persist": "false", "tasks": [{"prompt": "x"}]}
+    )
+
+    assert wf.persist is False

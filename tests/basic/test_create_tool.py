@@ -1,4 +1,4 @@
-"""Tests for the creator-scoped Create tool."""
+"""Tests for the creator-scoped ManageExtensions tool."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -7,8 +7,8 @@ import pytest
 import yaml
 
 from cecli.helpers.creator import utils as creator_utils
-from cecli.tools import create as create_module
-from cecli.tools.create import Tool
+from cecli.tools import manage_extensions
+from cecli.tools.manage_extensions import Tool
 from cecli.tools.utils.helpers import ToolError
 
 
@@ -124,7 +124,7 @@ async def test_add_skill_writes_file_and_path(coder, creator_paths, reloads):
 
 @pytest.mark.asyncio
 async def test_non_creator_coder_rejected(coder, creator_paths, reloads, monkeypatch):
-    monkeypatch.setattr(create_module, "is_creator_coder", lambda coder: False)
+    monkeypatch.setattr(manage_extensions, "is_creator_coder", lambda coder: False)
 
     with pytest.raises(ToolError):
         await Tool.execute(coder, action="add", type="config", name="x", config=1)
@@ -404,7 +404,7 @@ def registry(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def stub_override_refresh(monkeypatch):
-    """Keep Create's post-write override refresh out of the real config files."""
+    """Keep ManageExtensions' post-write override refresh out of the real config files."""
     from cecli.helpers.agents import overrides
 
     monkeypatch.setattr(overrides, "refresh_agent_overrides", Mock(return_value={}))

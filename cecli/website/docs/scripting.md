@@ -24,6 +24,12 @@ for FILE in *.py ; do
 done
 ```
 
+> **Note:** `--message` (`-m`) and `--message-file` (`-f`) are **one-shot**.
+> Cecli sends the message, lets the model act on it, then exits. There is no
+> follow-up prompt in this mode, so an instruction that ends by asking you a
+> question has nowhere to collect your answer. Pass `--yes` for fully
+> non-interactive runs, or use one of the multi-turn routes below.
+
 Use `cecli --help` to see all the [command line options](config/options.html), but these are useful for scripting:
 
 ```
@@ -49,6 +55,29 @@ Use `cecli --help` to see all the [command line options](config/options.html), b
 --commit              Commit all pending changes with a suitable commit message, then exit
                       [env var: CECLI_COMMIT]
 ```
+
+### Multi-turn input
+
+Run cecli without `--message` and it stays up for a back-and-forth session. Where
+your input comes from depends on the mode:
+
+- **TUI** (`tui: true`, the default): type into the chat input box.
+- **Non-TUI** (`--no-tui`, or `tui: false`): input is read from stdin and
+  re-prompted after every turn. Queued programmatic input is delivered too,
+  even while the terminal prompt is open.
+- **Programmatic**: an external driver pushes `{"text": ...}` (and
+  `{"confirmed": ...}` for confirmations) onto the coder's input queue.
+  The [WebSocket/ACP server](config/api.html) and the AgentService wake path use
+  this route.
+
+Both input paths consume the same per-coder queue. A queued payload is checked
+before the terminal prompt and every 100 ms while the prompt is open, so a
+driver can answer a prompt without a terminal. If no cancellable prompt session
+is available (a dumb terminal, or when prompt_toolkit could not start), the
+terminal read blocks and queued input is picked up at the next prompt instead.
+
+`{"confirmed": ...}` accepts `true`/`false`, or one of the special responses
+`"never"`, `"tweak"`, `"all"`, and `"skip"`.
 
 
 ## Python

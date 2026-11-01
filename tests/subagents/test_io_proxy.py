@@ -2,6 +2,8 @@
 Tests for cecli/helpers/io_proxy.py — IOProxy.
 """
 
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -226,3 +228,242 @@ class TestIOProxy:
 
         assert result is True
         target.confirm_ask.assert_awaited_once_with("Run tools?", coder_uuid="test-uuid")
+
+
+class _NonTuiIO:
+    """Minimal non-TUI InputOutput stand-in (no ``output_queue``)."""
+
+    def __init__(self, prompt_session=None):
+        self.prompt_session = prompt_session
+        self.never_prompts = set()
+        self.group_responses = {}
+        self.user_inputs = []
+        self.num_user_asks = 0
+        self.placeholder = None
+        self.started = asyncio.Event()
+        self.cleaned = False
+
+    async def get_input(self, *args, **kwargs):
+        self.started.set()
+        try:
+            await asyncio.sleep(30)
+        finally:
+            self.cleaned = True
+
+    async def confirm_ask(self, *args, **kwargs):
+        self.started.set()
+        try:
+            await asyncio.sleep(30)
+        finally:
+            self.cleaned = True
+
+    def user_input(self, inp, log_only=True):
+        self.user_inputs.append(inp)
+
+
+def _non_tui_proxy(coder_uuid, prompt_session=None):
+    from cecli.helpers.io_proxy import IOProxy
+
+    target = _NonTuiIO(prompt_session)
+    coder = MagicMock()
+    coder.uuid = coder_uuid
+    coder.skip_cli_confirmations = False
+    return IOProxy(target, coder), target
+
+
+class TestIOProxyNonTuiQueue:
+    """Non-TUI IOProxy must consume queue-pushed input and confirmations."""
+
+    @pytest.mark.asyncio
+    async def test_get_input_returns_queued_text(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-text"
+        proxy, target = _non_tui_proxy(coder_uuid)
+        try:
+            assert queues.push_coder_input(coder_uuid, {"text": "queued answer"})
+            result = await asyncio.wait_for(proxy.get_input(None, [], [], []), timeout=1)
+
+            assert result == ("queued answer", coder_uuid)
+            assert target.user_inputs == ["queued answer"]
+            assert not target.started.is_set()
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_get_input_falls_back_to_terminal(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "non-tui-terminal"
+        target = _NonTuiIO()
+        target.get_input = AsyncMock(return_value="terminal text")
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        proxy = IOProxy(target, coder)
+        try:
+            assert await proxy.get_input() == ("terminal text", None)
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_push_delivered_while_prompt_open(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-race"
+        proxy, target = _non_tui_proxy(coder_uuid, prompt_session=object())
+        task = asyncio.create_task(proxy.get_input(None, [], [], []))
+        try:
+            await asyncio.wait_for(target.started.wait(), timeout=1)
+            assert queues.push_coder_input(coder_uuid, {"text": "pushed answer"})
+
+            result = await asyncio.wait_for(task, timeout=1)
+            assert result == ("pushed answer", coder_uuid)
+            assert target.cleaned
+        finally:
+            task.cancel()
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_text_is_delivered_behind_a_queued_confirmation(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-order-confirm-first"
+        proxy, _ = _non_tui_proxy(coder_uuid, prompt_session=object())
+        try:
+            queues.push_coder_input(coder_uuid, {"confirmed": True})
+            queues.push_coder_input(coder_uuid, {"text": "answer"})
+
+            result = await asyncio.wait_for(proxy.get_input(None, [], [], []), timeout=1)
+
+            assert result == ("answer", coder_uuid)
+            assert queues.get_coder_queue(coder_uuid).qsize() == 1
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_confirmation_is_delivered_behind_queued_text(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-order-text-first"
+        proxy, _ = _non_tui_proxy(coder_uuid, prompt_session=object())
+        try:
+            queues.push_coder_input(coder_uuid, {"text": "answer"})
+            queues.push_coder_input(coder_uuid, {"confirmed": False})
+
+            assert await asyncio.wait_for(proxy.confirm_ask("Proceed?"), timeout=1) is False
+            assert queues.get_coder_queue(coder_uuid).qsize() == 1
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_get_input_leaves_confirmations_for_confirm_ask(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-leave-confirmation"
+        proxy, target = _non_tui_proxy(coder_uuid, prompt_session=object())
+        task = asyncio.create_task(proxy.get_input(None, [], [], []))
+        try:
+            await asyncio.wait_for(target.started.wait(), timeout=1)
+            queues.push_coder_input(coder_uuid, {"confirmed": True})
+            await asyncio.sleep(0.2)
+
+            assert not task.done()
+            assert queues.get_coder_queue(coder_uuid).qsize() == 1
+
+            queues.push_coder_input(coder_uuid, {"text": "answer"})
+            assert await asyncio.wait_for(task, timeout=1) == ("answer", coder_uuid)
+            assert await proxy.confirm_ask("Proceed?") is True
+        finally:
+            task.cancel()
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_confirm_ask_returns_queued_booleans(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-confirm-bools"
+        proxy, target = _non_tui_proxy(coder_uuid)
+        try:
+            queues.push_coder_input(coder_uuid, {"confirmed": True})
+            assert await proxy.confirm_ask("Proceed?") is True
+
+            queues.push_coder_input(coder_uuid, {"confirmed": False})
+            assert await proxy.confirm_ask("Proceed?") is False
+
+            queues.push_coder_input(coder_uuid, {"confirmed": "no"})
+            assert await proxy.confirm_ask("Proceed?") is False
+
+            assert target.num_user_asks == 3
+            assert not target.started.is_set()
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_confirm_ask_maps_special_responses(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-confirm-special"
+        proxy, target = _non_tui_proxy(coder_uuid)
+        group = SimpleNamespace(preference=None, show_group=True)
+        try:
+            queues.push_coder_input(coder_uuid, {"confirmed": "never"})
+            assert await proxy.confirm_ask("Proceed?", subject="file.py") is False
+            assert ("Proceed?", "file.py") in target.never_prompts
+
+            queues.push_coder_input(coder_uuid, {"confirmed": "tweak"})
+            assert await proxy.confirm_ask("Proceed?", allow_tweak=True) == "tweak"
+
+            queues.push_coder_input(coder_uuid, {"confirmed": "all"})
+            result = await proxy.confirm_ask("Proceed?", group=group, group_response="batch")
+            assert result is True
+            assert group.preference == "all"
+            assert target.group_responses["batch"] is True
+
+            queues.push_coder_input(coder_uuid, {"confirmed": "skip"})
+            result = await proxy.confirm_ask("Proceed?", group=group, group_response="batch")
+            assert result is False
+            assert group.preference == "skip"
+            assert target.group_responses["batch"] is False
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_unattended_coder_does_not_consume_queued_confirmation(self):
+        from cecli.helpers import queues
+        from cecli.helpers.io_proxy import IOProxy
+
+        coder_uuid = "non-tui-unattended"
+        target = _NonTuiIO()
+        coder = MagicMock()
+        coder.uuid = coder_uuid
+        coder.skip_cli_confirmations = True
+        proxy = IOProxy(target, coder)
+        try:
+            queues.push_coder_input(coder_uuid, {"confirmed": False})
+
+            assert await proxy.confirm_ask("Proceed?") is True
+            assert queues.get_coder_queue(coder_uuid).qsize() == 1
+            assert not target.started.is_set()
+        finally:
+            queues.unregister_coder_queue(coder_uuid)
+
+    @pytest.mark.asyncio
+    async def test_prompt_draft_is_stashed_when_queue_preempts(self):
+        from cecli.helpers import queues
+
+        coder_uuid = "non-tui-draft"
+        session = SimpleNamespace(
+            app=SimpleNamespace(current_buffer=SimpleNamespace(text="half typed"))
+        )
+        proxy, target = _non_tui_proxy(coder_uuid, prompt_session=session)
+        task = asyncio.create_task(proxy.get_input(None, [], [], []))
+        try:
+            await asyncio.wait_for(target.started.wait(), timeout=1)
+            queues.push_coder_input(coder_uuid, {"text": "queued"})
+
+            await asyncio.wait_for(task, timeout=1)
+            assert target.placeholder == "half typed"
+        finally:
+            task.cancel()
+            queues.unregister_coder_queue(coder_uuid)

@@ -17,6 +17,7 @@ from cecli.args import AGENT_CONFIG_LIST_FIELDS
 from cecli.change_tracker import ChangeTracker
 from cecli.helpers import nested, responses
 from cecli.helpers.agents.service import AgentService
+from cecli.helpers.agents.tree import AgentTree
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.similarity import (
@@ -62,7 +63,7 @@ class AgentCoder(Coder):
         self.tool_similarity_threshold = 0.95
         self.max_tool_vector_history = 20
         self.read_tools = {
-            "command",
+            "shell",
             "explorecode",
             "readfile",
             "grep",
@@ -70,7 +71,7 @@ class AgentCoder(Coder):
             "searchfacts",
         }
         self.write_tools = {
-            "command",
+            "shell",
             "editfile",
             "undochange",
             "replacefacts",
@@ -233,7 +234,7 @@ class AgentCoder(Coder):
             config,
             ["tools_excludelist", "tools_blacklist"],
             [
-                "create",
+                "manageextensions",
                 "gitbranch",
                 "gitdiff",
                 "gitlog",
@@ -782,7 +783,7 @@ class AgentCoder(Coder):
                 result += f" ({percentage:.1f}% of limit)"
                 if percentage > 80:
                     result += "\n\n⚠ **Context is getting full!**\n"
-                    result += "- Remove non-essential files, skills and tool servers via the `ResourceManager` tool.\n"
+                    result += "- Remove non-essential files, skills and tool servers via the `ManageResources` tool.\n"
                     result += "- Keep only essential files, skills, and MCP servers in context for best performance"
             result += "\n</context>"
             if not hasattr(self, "context_blocks_cache"):
@@ -821,7 +822,10 @@ class AgentCoder(Coder):
             primary_uuid = str(service.coder.uuid)
             self_name = service.get_agent_name(self) or "primary"
             result += f"- Agent: {self_name} ({self_uuid}) [self]\n"
-            result += f"- Primary agent: primary ({primary_uuid})\n"
+            # Workflow agents run in an isolated tree and must not see the
+            # primary agent (nor it them).
+            if AgentTree.is_visible(self_uuid, primary_uuid):
+                result += f"- Primary agent: primary ({primary_uuid})\n"
             if self.repo:
                 try:
                     rel_repo_dir = self.repo.get_rel_repo_dir()
@@ -1515,7 +1519,7 @@ class AgentCoder(Coder):
 
         Override parent's method to disable implicit file mention handling in agent mode.
         Files should only be added via explicit tool commands
-        (`ResourceManager`).
+        (`ManageResources`).
         """
         pass
 
@@ -1812,6 +1816,11 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             return None
         try:
             registry = AgentService.get_registry()
+            # Workflow agents live in isolated trees; the primary must not see
+            # them as delegatable sub-agent types.
+            registry = {
+                name: config for name, config in registry.items() if not name.startswith("wf:")
+            }
             if not registry:
                 return None
 
@@ -1842,9 +1851,11 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         independent sub-agents. The independent ones are those reachable via
         the ``Broadcast`` tool.
 
-        Finished/errored sub-agents are excluded. Returns None if there are no
-        active sub-agents, if enhanced context is disabled, or if the caller is
-        a sub-agent without nested delegation enabled.
+        Finished/errored sub-agents are excluded. Agents inside a workflow tree
+        see every active agent in that tree rather than only their own children.
+        Returns None if there are no active sub-agents, if enhanced context is
+        disabled, or if the caller is a sub-agent without nested delegation
+        enabled.
 
         The primary agent and calling agent's own identity are deliberately not
         included here — they live in ``get_environment_info()`` (a static block)
@@ -1868,34 +1879,50 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             from cecli.helpers.agents.service import SubAgentStatus
 
             originator_uuid = str(self.uuid)
+            visible_uuids = AgentTree.get_visible_uuids(originator_uuid)
+            workflow_root = AgentTree.get_workflow_root(originator_uuid)
 
-            # Dependent children are the coder's direct children.
-            children = service.get_children(self)
-            dependent_children = [
-                info
-                for info in children
-                if not info.independent
-                and not info.detached
-                and info.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
-            ]
-
-            # Independent agents aren't all direct children, so iterate over
-            # every active sub-agent reachable via the Broadcast tool and dedupe
-            # against the dependent children already captured above.
-            dependent_uuids = {info.coder.uuid for info in dependent_children}
-            independent_agents = []
-            seen = set()
-            for info in service.sub_agents.values():
-                if (
-                    info.independent
+            if workflow_root is not None:
+                # Inside a workflow tree, every active agent in that tree is
+                # visible: the workflow root, its children and their descendants.
+                dependent_children = [
+                    info
+                    for info in service.sub_agents.values()
+                    if str(info.coder.uuid) != originator_uuid
+                    and str(info.coder.uuid) in visible_uuids
                     and not info.detached
-                    and str(info.coder.uuid) != originator_uuid
-                    and info.status not in (SubAgentStatus.ERROR,)
-                    and info.coder.uuid not in dependent_uuids
-                    and info.coder.uuid not in seen
-                ):
-                    seen.add(info.coder.uuid)
-                    independent_agents.append(info)
+                    and info.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
+                ]
+                independent_agents = []
+            else:
+                # Outside a workflow tree, dependent agents are the coder's
+                # direct children; independent agents are the others reachable
+                # through Broadcast in the same visibility domain.
+                children = service.get_children(self)
+                dependent_children = [
+                    info
+                    for info in children
+                    if not info.independent
+                    and not info.detached
+                    and str(info.coder.uuid) in visible_uuids
+                    and info.status not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
+                ]
+
+                dependent_uuids = {info.coder.uuid for info in dependent_children}
+                independent_agents = []
+                seen = set()
+                for info in service.sub_agents.values():
+                    if (
+                        info.independent
+                        and not info.detached
+                        and str(info.coder.uuid) != originator_uuid
+                        and str(info.coder.uuid) in visible_uuids
+                        and info.status not in (SubAgentStatus.ERROR,)
+                        and info.coder.uuid not in dependent_uuids
+                        and info.coder.uuid not in seen
+                    ):
+                        seen.add(info.coder.uuid)
+                        independent_agents.append(info)
 
             if not dependent_children and not independent_agents:
                 return None
@@ -1937,7 +1964,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
         Emits a roster of active commands (keeping command keys in context)
         plus any new incremental output. Output that has been paged to disk is
-        advertised by command key and read on demand through ``ResourceManager``
+        advertised by command key and read on demand through ``ManageResources``
         paging.
         """
         command_info = BackgroundCommandManager.list_background_commands()
@@ -1970,7 +1997,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             output += f"\nNew output ({command_key}):\n{cmd_output}\n"
 
         if paged_keys:
-            output += "\nPaged output is available via `ResourceManager` (up to 3 pages):\n"
+            output += "\nPaged output is available via `ManageResources` (up to 3 pages):\n"
             for command_key in paged_keys:
                 output += f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
 

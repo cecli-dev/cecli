@@ -334,8 +334,8 @@ The endpoint comes from `--system-one` or the `system-one` key in `.cecli.conf.y
 You can manage hooks during an active session using the following slash commands:
 
 - `/hooks`: List all registered hooks and their status.
-- `/load-hook <name>`: Enable a specific hook.
-- `/remove-hook <name>`: Disable a specific hook.
+- `/hooks load <name>`: Enable a specific hook.
+- `/hooks remove <name>`: Disable a specific hook.
 
 ## Best Practices
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cecli.tools.resource_manager import Tool as ResourceManagerTool
+from cecli.tools.manage_resources import Tool as ManageResourcesTool
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ async def test_load_mcp_tool_success(mock_mcp_manager):
     coder.coroutines.interruptible.side_effect = mock_interruptible
     coder.interrupt_event = MagicMock()
     coder.registered_servers = {"included": set(), "excluded": set()}
-    result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
 
     assert "Loaded server: test-server" in str(result)
     mock_mcp_manager.connect_server.assert_awaited_once_with("test-server")
@@ -88,7 +88,7 @@ async def test_load_mcp_tool_non_existent(mock_mcp_manager):
     coder.mcp_manager = mock_mcp_manager
     coder.registered_servers = {"included": set(), "excluded": set()}
 
-    result = await ResourceManagerTool.execute(coder, load_mcp=["non-existent-server"])
+    result = await ManageResourcesTool.execute(coder, load_mcp=["non-existent-server"])
 
     assert "MCP server non-existent-server does not exist." in str(result)
     mock_mcp_manager.connect_server.assert_not_awaited()
@@ -105,7 +105,7 @@ async def test_load_mcp_tool_already_loaded(mock_mcp_manager):
     server = mock_mcp_manager.get_server("test-server")
     coder.mcp_manager.connected_servers = {"test-server": server}
 
-    result = await ResourceManagerTool.execute(coder, load_mcp=["test-server"])
+    result = await ManageResourcesTool.execute(coder, load_mcp=["test-server"])
 
     assert "Server already loaded: test-server" in str(result)
     mock_mcp_manager.connect_server.assert_not_awaited()
@@ -132,7 +132,7 @@ async def test_load_mcp_tool_wildcard_and_duplicate_fix(mock_mcp_manager):
     server1 = mock_mcp_manager.get_server("test-server")
     coder.mcp_manager.connected_servers = {"test-server": server1}
 
-    result = await ResourceManagerTool.execute(coder, load_mcp=["*"])
+    result = await ManageResourcesTool.execute(coder, load_mcp=["*"])
 
     # Check results
     # Wildcard expansion skips already-connected servers; no "already loaded" message is produced

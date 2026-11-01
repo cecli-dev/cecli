@@ -47,8 +47,8 @@ This loop continues automatically until the `Yield` tool is called, or the maxim
 Agent Mode uses a centralized local tool registry. The standard tools include:
 
 - **Discovery and inspection**: `ExploreCode`, `Grep`, and `ReadFile`
-- **Context and editing**: `ResourceManager`, `EditFile`, `UndoChange`, and `UpdateTodoList`
-- **Execution and orchestration**: `Command` and `Orchestrate`
+- **Context and editing**: `ManageResources`, `EditFile`, `UndoChange`, and `UpdateTodoList`
+- **Execution and orchestration**: `Shell` and `Orchestrate`
 - **Sub-agent coordination**: `Delegate` and `Yield`
 - **Optional memory tools**: `SearchFacts` and `ReplaceFacts`
 
@@ -93,7 +93,7 @@ Tool Call: Grep
 Arguments: {"searches": [{"pattern": "function_name", "directory": "."}]}
 ```
 
-`ExploreCode` uses a codebase index when available. `ReadFile` returns content with virtual identifiers for precise follow-up edits. Files discovered through agent tools can be added as read-only context by using `ResourceManager` to change context membership.
+`ExploreCode` uses a codebase index when available. `ReadFile` returns content with virtual identifiers for precise follow-up edits. Files discovered through agent tools can be added as read-only context by using `ManageResources` to change context membership.
 
 #### 2. Planning Phase
 
@@ -106,17 +106,17 @@ Arguments: {"content": "## Task: Add new feature\n- [ ] Analyze existing code\n-
 
 #### 3. Execution Phase
 
-Files are added to context and made editable with `ResourceManager`, then modifications are applied with `EditFile`:
+Files are added to context and made editable with `ManageResources`, then modifications are applied with `EditFile`:
 
 ```text
-Tool Call: ResourceManager
+Tool Call: ManageResources
 Arguments: {"add": ["main.py"]}
 
 Tool Call: EditFile
 Arguments: {"edits": [{"file_path": "main.py", "operation": "replace", "start_line": "——def old_function():", "end_line": "——    return old_value", "text": "def new_function():\n    return new_value"}]}
 ```
 
-`EditFile` accepts an `edits` array containing `replace`  or `delete` operations. Its line targets come from the latest `ReadFile` result. `ResourceManager` can add files as editable or read-only and remove them from context.
+`EditFile` accepts an `edits` array containing `replace`  or `delete` operations. Its line targets come from the latest `ReadFile` result. `ManageResources` can add files as editable or read-only and remove them from context.
 
 #### 4. Verification Phase
 
@@ -221,9 +221,9 @@ agent-config:
 
 #### Essential Tools
 
-Only `Yield` is protected as an essential registry tool. Other tools, including `ResourceManager` and `ReadFile`, can be restricted by includelist/excludelist settings.
+Only `Yield` is protected as an essential registry tool. Other tools, including `ManageResources` and `ReadFile`, can be restricted by includelist/excludelist settings.
 
-- `ResourceManager` - Add, drop, and make files editable in context
+- `ManageResources` - Add, drop, and make files editable in context
 - `ReadFile` - Read file contents with virtual content IDs
 - `Yield` - Complete the task and wait for active child agents
 
@@ -333,8 +333,8 @@ agent: true
 # Agent Mode configuration
 agent-config:
   # Tool configuration
-  tools_includelist: ["resourcemanager", "readfile", "yield"]
-  tools_excludelist: ["command"]
+  tools_includelist: ["manageresources", "readfile", "yield"]
+  tools_excludelist: ["shell"]
   tools_paths: ["./custom-tools", "~/my-tools"]
 
   # Server configuration

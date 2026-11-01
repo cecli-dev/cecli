@@ -14,8 +14,21 @@ Cecli provides session management commands that allow you to save, load, and man
 
 ## Session Commands
 
-### `/save-session <name>`
+### `/sessions save <name>`
 Save the current chat session to a named file in `.cecli/sessions/`.
+
+**Usage:**
+```
+/sessions save my-project-session
+```
+
+**What gets saved:**
+- Chat history (both done and current messages)
+- All files in the chat (editable, read-only, and read-only stubs)
+- Current model and edit format settings
+- Auto-commit, auto-lint, and auto-test settings
+- Todo list content from `.cecli/run/{date}/{agent id}/todo.txt`
+- Session metadata (timestamp, version)
 
 ### Auto-Save and Auto-Load
 Cecli can automatically save and load sessions using command line options:
@@ -36,27 +49,14 @@ auto-save: true
 auto-load: true
 ```
 
-When `--auto-save` is enabled, cecli will automatically save your session as 'auto-save' when you exit. When `--auto-load` is enabled, cecli will automatically load the 'auto-save' session on startup if it exists.
+`--auto-save` is enabled by default, so cecli will automatically save your session as 'auto-save' when you exit; use `--no-auto-save` to disable it. When `--auto-load` is enabled, cecli will automatically load the 'auto-save' session on startup if it exists.
 
-**Usage:**
-```
-/save-session my-project-session
-```
-
-**What gets saved:**
-- Chat history (both done and current messages)
-- All files in the chat (editable, read-only, and read-only stubs)
-- Current model and edit format settings
-- Auto-commit, auto-lint, and auto-test settings
-- Todo list content from `.cecli/run/{date}/{agent id}/todo.txt`
-- Session metadata (timestamp, version)
-
-### `/load-session <name>`
+### `/sessions load <name>`
 Load a previously saved session by name or file path.
 
 **Usage:**
 ```
-/load-session my-project-session
+/sessions load my-project-session
 ```
 
 **What gets loaded:**
@@ -65,12 +65,12 @@ Load a previously saved session by name or file path.
 - Preserves all settings and model configurations
 - Restores the todo list content saved in the session
 
-### `/list-sessions`
+### `/sessions list`
 List all available saved sessions in `.cecli/sessions/`.
 
 **Usage:**
 ```
-/list-sessions
+/sessions list
 ```
 
 **Shows:**
@@ -123,25 +123,25 @@ Sessions are stored as JSON files in the `.cecli/sessions/` directory within you
 # Start working on a project
 /add src/main.py src/utils.py
 # ... have a conversation ...
-/save-session my-project
+/sessions save my-project
 
 # Later, continue where you left off
-/load-session my-project
+/sessions load my-project
 ```
 
 ### Multiple Contexts
 ```
 # Work on frontend
 /add src/components/*.jsx src/styles/*.css
-/save-session frontend-work
+/sessions save frontend-work
 
 # Switch to backend
 /reset
 /add server/*.py database/*.sql
-/save-session backend-work
+/sessions save backend-work
 
 # Easily switch between contexts
-/load-session frontend-work
+/sessions load frontend-work
 ```
 
 ## Best Practices
@@ -172,10 +172,10 @@ Or use `--session-key-file` pointing at a file with the same urlsafe-base64 32-b
 ## Troubleshooting
 
 ### Session Not Found
-If `/load-session` reports "Session not found":
+If `/sessions load` reports "Session not found":
 - Check that the session file exists in `.cecli/sessions/`
 - Verify the session name matches exactly
-- Use `/list-sessions` to see available sessions
+- Use `/sessions list` to see available sessions
 
 ### Missing Files
 If files are reported as missing during loading:
@@ -202,10 +202,10 @@ If a session fails to load:
 # Start a new project session
 /add package.json src/main.js src/components/
 # ... work on the project ...
-/save-session react-project
+/sessions save react-project
 
 # Later, continue working
-/load-session react-project
+/sessions load react-project
 # All files and chat history are restored
 ```
 
@@ -213,16 +213,16 @@ If a session fails to load:
 ```
 # Include documentation from outside the project
 /read-only ~/docs/api-reference.md
-/save-session project-with-docs
+/sessions save project-with-docs
 ```
 
 ### Multiple Model Sessions
 ```
 # Save session with specific model
 /model gpt-5
-/save-session gpt5-session
+/sessions save gpt5-session
 
 # Try different model
 /model claude-sonnet-4.5
-/save-session claude-session
+/sessions save claude-session
 ```

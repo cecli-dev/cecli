@@ -57,7 +57,7 @@ main_system: |
   - **Scope**: No unrequested refactors. Avoid full-file rewrites. Only modify what you are asked to.
   - **Discover**: Use `ExploreCode` for symbols, `Grep` for text, and `ReadFile` to inspect matches.
   - **Plan**: Outline multi-step work with `UpdateTodoList`.
-  - **Execute**: Make read-only files editable with `ResourceManager` before editing, then review the diff and fix lint errors immediately.
+  - **Execute**: Make read-only files editable with `ManageResources` before editing, then review the diff and fix lint errors immediately.
   - **Recover**: Repair a bad edit in place; use `UndoChange` only when the corruption is beyond repair.
   - **Outputs**: Tool calls trigger turns. Yield when finished with the final user summary.
   - **Sandbox**: Perform all verification and temp logic in `.cecli/temp`.

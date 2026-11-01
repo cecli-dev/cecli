@@ -157,6 +157,12 @@ def validate_workflow_config(wf: WorkflowConfig, raw: Optional[Dict[str, Any]] =
     if norm.get("hooks") is not None and not isinstance(norm["hooks"], dict):
         warnings.append("'hooks' is not a mapping and was ignored")
 
+    if norm.get("metadata") is not None and not isinstance(norm["metadata"], dict):
+        warnings.append("'metadata' is not a mapping and was ignored")
+
+    if norm.get("persist") is not None and not isinstance(norm["persist"], bool):
+        warnings.append("'persist' is not a boolean")
+
     wf.lease_timeout = _positive_number(wf.lease_timeout, "lease_timeout", where, default=30.0)
     _check_schedule(wf.schedule, where)
 

@@ -466,10 +466,10 @@ def get_parser(default_config_files, git_root):
     group.add_argument(
         "--auto-save",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
             "Enable/disable automatic saving of sessions as --auto-save-session-name (default:"
-            " False)"
+            " True)"
         ),
     )
     group.add_argument(

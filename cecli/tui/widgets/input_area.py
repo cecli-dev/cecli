@@ -239,42 +239,20 @@ class InputArea(TextArea):
         if self.disabled:
             return
 
-        # Route hotkey bindings directly and stop TextArea from inserting a
-        # printable character (e.g. alt+shift+h would otherwise type an "h").
-        if self.app.is_key_for("voice", event.key):
-            event.stop()
-            event.prevent_default()
-            self.app.action_start_voice()
-            return
-
-        if self.app.is_key_for("paste", event.key):
-            event.stop()
-            event.prevent_default()
-            self.app.action_paste_clipboard()
-
-        if self.app.is_key_for("panels", event.key):
-            event.stop()
-            event.prevent_default()
-            self.app.action_toggle_floating_panels()
-            return
-
-        if self.app.is_key_for("history", event.key):
-            event.stop()
-            event.prevent_default()
-            self.app.action_history_search()
-            return
-
-        # Reserve any other alt+shift combination for hotkeys (no character input).
-        if event.key and "alt+shift" in event.key:
-            event.stop()
-            event.prevent_default()
-            return
         # Reset cycling if not a cycle command
         is_cycle = self.app.is_key_for("cycle_forward", event.key) or self.app.is_key_for(
             "cycle_backward", event.key
         )
         if not is_cycle:
             self._cycling = False
+
+        if event.key == "space" and self._blocks_extra_space():
+            event.stop()
+            event.prevent_default()
+            self._cycling = False
+            self._completion_prefix = self.text
+            self.post_message(self.CompletionRequested(self.text))
+            return
 
         if event.key == "space" and self.completion_active:
             self.completion_active = False
@@ -425,6 +403,20 @@ class InputArea(TextArea):
 
             if val.startswith("/") or "@" in val or possible_path or self.completion_active:
                 self.post_message(self.CompletionRequested(val))
+
+    def _blocks_extra_space(self) -> bool:
+        """Return True when another space would duplicate a command separator."""
+        text = self.text
+        if not text.endswith(" "):
+            return False
+
+        try:
+            commands = self.app.worker.coder.commands
+        except Exception:
+            return False
+
+        check_boundary = getattr(commands, "at_subcommand_boundary", None)
+        return bool(check_boundary and check_boundary(text))
 
     def _refresh_size(self) -> None:
         """Refresh size, clamping cursor to document bounds first.

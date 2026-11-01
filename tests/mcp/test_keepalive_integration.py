@@ -24,8 +24,9 @@ class TestKeepaliveWithMockServer:
         # Verify keepalive task is running
         assert inspector.is_keepalive_running(server)
 
-        # Wait for at least one keepalive interval (1 second)
-        await asyncio.sleep(1.2)
+        # Wait for the first keepalive ping, polling so a late ping on a
+        # loaded runner cannot trip the assertion.
+        await self._wait_for_requests(running_mock_server)
 
         # Verify mock server received requests
         assert running_mock_server.request_count >= 1
@@ -168,7 +169,17 @@ class TestKeepaliveWithMockServer:
 
         assert inspector.is_keepalive_running(server)
 
-        await asyncio.sleep(1.2)
+        await self._wait_for_requests(running_mock_server)
+
         assert running_mock_server.request_count >= 1
 
         await server.disconnect()
+
+    @staticmethod
+    async def _wait_for_requests(mock_server, timeout: float = 5.0) -> None:
+        """Poll until the mock server has received at least one request."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+
+        while mock_server.request_count < 1 and loop.time() < deadline:
+            await asyncio.sleep(0.05)

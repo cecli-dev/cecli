@@ -83,12 +83,12 @@ class TestPushCoderInput:
         queues._per_coder_queues.clear()
 
     def test_push_string_message(self):
-        """Pushing a string message delivers it to the correct queue."""
+        """Pushing a string message wraps it as a text payload."""
         q = queue.Queue()
         queues.register_coder_queue("coder-1", q)
         result = queues.push_coder_input("coder-1", "hello")
         assert result is True
-        assert q.get_nowait() == "hello"
+        assert q.get_nowait() == {"text": "hello"}
 
     def test_push_dict_message(self):
         """Pushing a dict message delivers it to the correct queue."""
@@ -110,8 +110,46 @@ class TestPushCoderInput:
         queues.register_coder_queue("coder-1", q)
         queues.push_coder_input("coder-1", "first")
         queues.push_coder_input("coder-1", "second")
-        assert q.get_nowait() == "first"
-        assert q.get_nowait() == "second"
+        assert q.get_nowait() == {"text": "first"}
+        assert q.get_nowait() == {"text": "second"}
+
+
+class TestPopCoderInput:
+    """Tests for pop_coder_input."""
+
+    def setup_method(self):
+        queues._per_coder_queues.clear()
+
+    def test_pop_returns_matching_payload(self):
+        """The next payload containing the key is returned and removed."""
+        queues.register_coder_queue("coder-1", queue.Queue())
+        queues.push_coder_input("coder-1", {"text": "first"})
+        queues.push_coder_input("coder-1", {"text": "second"})
+
+        assert queues.pop_coder_input("coder-1", "text") == {"text": "first"}
+        assert queues.pop_coder_input("coder-1", "text") == {"text": "second"}
+        assert queues.pop_coder_input("coder-1", "text") is None
+
+    def test_pop_skips_payloads_for_other_readers(self):
+        """Non-matching payloads stay queued in their original order."""
+        q = queue.Queue()
+        queues.register_coder_queue("coder-1", q)
+        queues.push_coder_input("coder-1", {"confirmed": True})
+        queues.push_coder_input("coder-1", {"text": "answer"})
+        queues.push_coder_input("coder-1", {"confirmed": False})
+
+        assert queues.pop_coder_input("coder-1", "text") == {"text": "answer"}
+        assert q.get_nowait() == {"confirmed": True}
+        assert q.get_nowait() == {"confirmed": False}
+
+    def test_pop_unknown_coder(self):
+        """An unregistered coder has no payloads to pop."""
+        assert queues.pop_coder_input("does-not-exist", "text") is None
+
+    def test_pop_empty_queue(self):
+        """An empty queue returns None."""
+        queues.register_coder_queue("coder-1", queue.Queue())
+        assert queues.pop_coder_input("coder-1", "text") is None
 
 
 class TestInputLoopLifecycle:
@@ -155,7 +193,7 @@ class TestInputLoopLifecycle:
         result = queues.push_coder_input("coder-1", "hello")
 
         assert result is True
-        assert q.get_nowait() == "hello"
+        assert q.get_nowait() == {"text": "hello"}
         assert queues._input_loop is None
         assert queues._input_wake is None
 

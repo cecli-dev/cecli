@@ -79,7 +79,7 @@ async def test_list_without_workflows(mock_coder, mock_io):
 async def test_run_starts_background_task(mock_io):
     coder = _coder_with(_wf("demo"))
     with (
-        patch("cecli.commands.workflows.asyncio.create_task") as mock_create,
+        patch("cecli.commands.workflow_helpers.run.asyncio.create_task") as mock_create,
         patch("cecli.helpers.workflows.runner.execute_workflow") as mock_exec,
     ):
         # the create_task stub closes the (already-recorded) coroutine so the
@@ -87,7 +87,7 @@ async def test_run_starts_background_task(mock_io):
         mock_create.side_effect = lambda coro: (coro.close(), MagicMock())[1]
         await WorkflowCommand.execute(mock_io, coder, "run demo")
     with (
-        patch("cecli.commands.workflows.asyncio.create_task") as mock_create,
+        patch("cecli.commands.workflow_helpers.run.asyncio.create_task") as mock_create,
         patch("cecli.helpers.workflows.runner.execute_workflow", new=MagicMock()) as mock_exec,
     ):
         await WorkflowCommand.execute(mock_io, coder, "run demo")
@@ -101,10 +101,10 @@ async def test_run_starts_background_task(mock_io):
 async def test_run_reports_completion_and_releases_task_ref(mock_io):
     """Reviewer MUST-FIX 2: the background run must survive (strong ref) and
     announce its summary in the conversation when done."""
-    from cecli.commands import workflows as wf_module
+    from cecli.commands.workflow_helpers import run as run_module
     from cecli.helpers.workflows.models import RunResult
 
-    wf_module._bg_runs.clear()
+    run_module._bg_runs.clear()
     coder = _coder_with(_wf("demo"))
     finished = RunResult(name="demo", status="ok", summary="all good")
 
@@ -121,15 +121,15 @@ async def test_run_reports_completion_and_releases_task_ref(mock_io):
     assert "started in the background" in out
     assert "finished: ok" in out
     assert "all good" in out
-    assert not wf_module._bg_runs  # reference released by the done-callback
+    assert not run_module._bg_runs  # reference released by the done-callback
 
 
 @pytest.mark.asyncio
 async def test_run_reports_error_status_via_tool_error(mock_io):
-    from cecli.commands import workflows as wf_module
+    from cecli.commands.workflow_helpers import run as run_module
     from cecli.helpers.workflows.models import RunResult
 
-    wf_module._bg_runs.clear()
+    run_module._bg_runs.clear()
     coder = _coder_with(_wf("demo"))
     bad = RunResult(name="demo", status="error", error_message="boom", summary="boom")
 
@@ -143,7 +143,7 @@ async def test_run_reports_error_status_via_tool_error(mock_io):
 
     err = "\n".join(str(c.args[0]) for c in mock_io.tool_error.call_args_list)
     assert "finished: error" in err
-    assert not wf_module._bg_runs
+    assert not run_module._bg_runs
 
 
 @pytest.mark.asyncio

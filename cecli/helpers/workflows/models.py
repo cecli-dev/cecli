@@ -58,6 +58,8 @@ class WorkflowConfig:
     hooks: Dict[str, Any] = field(default_factory=dict)
     skills: List[str] = field(default_factory=list)
     servers: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    persist: bool = False
     on_failure: str = "stop"
     catch_up: Optional[bool] = None  # None: use the scheduler default
     source_path: Optional[str] = None
@@ -80,6 +82,8 @@ class WorkflowConfig:
             "hooks": self.hooks,
             "skills": list(self.skills),
             "servers": list(self.servers),
+            "metadata": self.metadata,
+            "persist": self.persist,
             "on_failure": self.on_failure,
             "catch_up": self.catch_up,
             "tasks": [t.to_dict() for t in self.tasks],
@@ -155,6 +159,8 @@ class WorkflowConfig:
             hooks=hooks if isinstance(hooks, dict) else {},
             skills=[_interp(interpolate_env_vars, s) for s in data.get("skills") or []],
             servers=[_interp(interpolate_env_vars, s) for s in data.get("servers") or []],
+            metadata=(dict(data["metadata"]) if isinstance(data.get("metadata"), dict) else {}),
+            persist=_as_bool(data.get("persist")),
             on_failure=str(data.get("on_failure") or "stop"),
             catch_up=None if data.get("catch_up") is None else bool(data.get("catch_up")),
             source_path=str(source_path) if source_path else None,
@@ -199,6 +205,21 @@ class RunResult:
         return cls(
             name=name, status="error", source=source, error_message=str(exc), summary=str(exc)
         )
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    """Coerce a config value to a boolean without treating "false" as truthy."""
+
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+
+    return bool(value)
 
 
 def _interp(interpolate_env_vars, value: Any) -> Any:
