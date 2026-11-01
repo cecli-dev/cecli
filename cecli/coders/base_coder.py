@@ -4706,9 +4706,6 @@ class Coder(metaclass=UsageMeta):
             hit_rate = 0.0
         tokens_str = f"{format_tokens(prompt_tokens)} ◇ {hit_rate:.1f}%"
         tokens_report = f"{tokens_str} ↑ {format_tokens(completion_tokens)} ↓"
-        tokens_report = self.token_profiler.add_to_usage_report(
-            tokens_report, self.message_tokens_sent, self.message_tokens_received
-        )
 
         total_combined_tokens = (
             self.total_tokens_sent
@@ -4728,31 +4725,34 @@ class Coder(metaclass=UsageMeta):
             total_hit_rate = 0.0
 
         total_stats = f"{format_tokens(total_combined_tokens)} ◇ {total_hit_rate:.1f}% ↑↓"
-        if not active_model.info.get("input_cost_per_token"):
-            self.usage_report = tokens_report + " " + total_stats
-            return
+        cost_report = total_stats
 
-        try:
-            cost = litellm.completion_cost(completion_response=completion)
-        except Exception:
-            cost = 0
+        if active_model.info.get("input_cost_per_token"):
+            try:
+                cost = litellm.completion_cost(completion_response=completion)
+            except Exception:
+                cost = 0
 
-        if not cost:
-            cost = self.compute_costs_from_tokens(
-                prompt_tokens,
-                completion_tokens,
-                cache_write_tokens,
-                cache_hit_tokens,
-                model=active_model,
+            if not cost:
+                cost = self.compute_costs_from_tokens(
+                    prompt_tokens,
+                    completion_tokens,
+                    cache_write_tokens,
+                    cache_hit_tokens,
+                    model=active_model,
+                )
+
+            self.total_cost += cost
+            self.message_cost += cost
+            cost_report = (
+                f"${self.format_cost(self.message_cost)} • {total_stats}"
+                f" ${self.format_cost(self.total_cost)}"
             )
 
-        self.total_cost += cost
-        self.message_cost += cost
-        cost_report = (
-            f"${self.format_cost(self.message_cost)} • {total_stats}"
-            f" ${self.format_cost(self.total_cost)}"
-        )
         self.usage_report = tokens_report + " " + cost_report
+        self.usage_report = self.token_profiler.add_to_usage_report(
+            self.usage_report, self.message_tokens_sent, self.message_tokens_received
+        )
 
     def format_cost(self, value):
         if value == 0:
