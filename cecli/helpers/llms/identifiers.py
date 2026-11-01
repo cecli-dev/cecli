@@ -54,6 +54,13 @@ def is_openrouter(provider: Optional[str], route: str, record: Optional[Dict[str
     return provider == "openrouter" or record_provider == "openrouter"
 
 
+def is_ollama(provider: Optional[str], route: str, record: Optional[Dict[str, Any]]) -> bool:
+    """True when the model is served through an Ollama provider slug."""
+    provider = (provider or "").lower()
+    record_provider = ((record or {}).get("litellm_provider") or "").lower()
+    return provider in ("ollama", "ollama_chat") or record_provider in ("ollama", "ollama_chat")
+
+
 def is_claude_5_plus(provider: Optional[str], route: str, record: Optional[Dict[str, Any]]) -> bool:
     """True for Claude 5+ models, which use adaptive thinking + output_config.
 
@@ -88,6 +95,7 @@ __all__ = [
     "is_github_copilot",
     "is_meta",
     "is_openrouter",
+    "is_ollama",
     "is_claude_5_plus",
     "gpt_version",
 ]

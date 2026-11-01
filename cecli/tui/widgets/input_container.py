@@ -13,16 +13,37 @@ class InputContainer(Vertical):
         super().__init__(*args, **kwargs)
         self.coder_mode = coder_mode
         self.border_title = self.coder_mode
+        self._had_sub_agents = False
+        self._sub_agent_signature_cache = ()
 
     def on_mount(self):
         """Start periodic refresh of sub-agent pill display."""
         self.set_interval(1.0, self._refresh_sub_agents)
 
     def _refresh_sub_agents(self):
-        """Re-render the border title with current sub-agent status."""
+        """Re-render the border title only when sub-agent state changes."""
+        sub_agents = self._get_sub_agents()
+        signature = self._sub_agent_signature(sub_agents)
+
+        if not sub_agents:
+            if not self._had_sub_agents:
+                return
+
+            self._had_sub_agents = False
+            self._sub_agent_signature_cache = signature
+            self._render_border_title(self.coder_mode, sub_agents)
+            return
+
+        if signature == self._sub_agent_signature_cache and not any(
+            sa["generating"] for sa in sub_agents
+        ):
+            return
+
+        self._had_sub_agents = True
+        self._sub_agent_signature_cache = signature
         if self.app.animation_level != "none":
             self.show_squares = not self.show_squares
-        self.update_mode(self.coder_mode)
+        self._render_border_title(self.coder_mode, sub_agents)
 
     def update_mode(self, mode: str):
         """Update the chat mode display, with sub-agent pills in border title.
@@ -38,12 +59,9 @@ class InputContainer(Vertical):
         """
         self.coder_mode = mode
         sub_agents = self._get_sub_agents()
-        if sub_agents:
-            pills_text = self._format_sub_agent_pills(sub_agents, self.show_squares)
-            self.border_title = f"agent: {pills_text}"
-        else:
-            self.border_title = mode
-        self.refresh()
+        self._had_sub_agents = bool(sub_agents)
+        self._sub_agent_signature_cache = self._sub_agent_signature(sub_agents)
+        self._render_border_title(mode, sub_agents)
 
     def _get_sub_agents(self) -> list:
         """Query AgentService via self.app to build sub-agent pill data.
@@ -137,3 +155,26 @@ class InputContainer(Vertical):
         """Update the cost display in the border subtitle."""
         self.border_subtitle = cost_text
         self.refresh()
+
+    def on_resize(self):
+        """Keep the floating panels aligned with this container's height."""
+        try:
+            panels = self.app.query_one("#floating-panels")
+        except Exception:
+            return
+
+        panels._sync_height()
+
+    def _render_border_title(self, mode: str, sub_agents: list):
+        """Render *mode* plus sub-agent pills into the border title."""
+        if sub_agents:
+            pills_text = self._format_sub_agent_pills(sub_agents, self.show_squares)
+            self.border_title = f"agent: {pills_text}"
+        else:
+            self.border_title = mode
+        self.refresh()
+
+    @staticmethod
+    def _sub_agent_signature(sub_agents: list) -> tuple:
+        """Return a hashable snapshot of the sub-agent display state."""
+        return tuple((sa["name"], sa["uuid"], sa["active"], sa["generating"]) for sa in sub_agents)

@@ -81,7 +81,10 @@ tui-config:
     quit: "ctrl+q"
     next_agent: "alt+ctrl+right"
     prev_agent: "alt+ctrl+left"
-    main_agent: "alt+ctrl+up"
+    main_agent: "alt+ctrl+home"
+    panel_up: "alt+ctrl+up"
+    panel_down: "alt+ctrl+down"
+    panel_cycle: "alt+o"
 
 ```
 
@@ -110,7 +113,16 @@ The TUI provides customizable key bindings for all major actions. The default ke
 | Quit | `ctrl+q` | Exit the TUI |
 | Next Agent | `alt+ctrl+right` | Switch to the next agent (sub-agent or primary), wrapping around |
 | Previous Agent | `alt+ctrl+left` | Switch to the previous agent (sub-agent or primary), wrapping around |
-| Main Agent | `alt+ctrl+up` | Switch back to the main (primary) agent |
+| Main Agent | `alt+ctrl+home` | Switch back to the main (primary) agent |
+| Panels Up | `alt+ctrl+up` | Scroll the floating status panels up one line |
+| Panels Down | `alt+ctrl+down` | Scroll the floating status panels down one line |
+| Cycle Panels | `alt+o` | Open the next floating panel type, or close the current panel after the last type |
+
+#### Floating Panels
+
+Press `alt+o` or run `/open commands` to open the background command panel. It floats centered over the TUI, leaving the rest of the interface visible, and shows the output of active background shell commands. Tabs labelled with each command's background key switch between commands, the line below the tabs shows the full command, and `f` toggles tail-following the output. Press `escape` to close it.
+
+`alt+o` cycles through the available panel types. When the last panel type is open, pressing `alt+o` again closes it.
 
 #### Customizing Key Bindings
 

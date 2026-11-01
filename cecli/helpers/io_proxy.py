@@ -126,11 +126,33 @@ class IOProxy(Generic[T]):
             kwargs["coder_uuid"] = self._coder_uuid
         return self._target.assistant_output(message=message, pretty=pretty, **kwargs)
 
+    def tool_call_event(self, tool_call_id: str, status: str, **kwargs: Any) -> Any:
+        """Forward tool_call_event with coder_uuid injected."""
+        if "coder_uuid" not in kwargs:
+            kwargs["coder_uuid"] = self._coder_uuid
+        return self._target.tool_call_event(tool_call_id, status, **kwargs)
+
     def reset_streaming_response(self, **kwargs) -> Any:
         """Forward reset_streaming_response with coder_uuid injected."""
         if "coder_uuid" not in kwargs:
             kwargs["coder_uuid"] = self._coder_uuid
         return self._target.reset_streaming_response(**kwargs)
+
+    def ring_bell(self, **kwargs: Any) -> Any:
+        """Forward ring_bell with coder_uuid and is_workflow injected."""
+        if "coder_uuid" not in kwargs:
+            kwargs["coder_uuid"] = self._coder_uuid
+        if "is_workflow" not in kwargs:
+            kwargs["is_workflow"] = self._is_workflow_agent()
+        return self._target.ring_bell(**kwargs)
+
+    def notify_user_input_required(self, **kwargs: Any) -> Any:
+        """Forward notify_user_input_required with coder_uuid and is_workflow injected."""
+        if "coder_uuid" not in kwargs:
+            kwargs["coder_uuid"] = self._coder_uuid
+        if "is_workflow" not in kwargs:
+            kwargs["is_workflow"] = self._is_workflow_agent()
+        return self._target.notify_user_input_required(**kwargs)
 
     async def get_input(self, *args, **kwargs):
         """Get input for this specific coder via per-coder queue.
@@ -183,7 +205,28 @@ class IOProxy(Generic[T]):
 
     async def confirm_ask(self, *args, **kwargs):
         """Forward confirm_ask — per-coder queue iteration is handled by
-        TextualInputOutput which now iterates all per-coder queues."""
+        TextualInputOutput which now iterates all per-coder queues.
+
+        Coders configured with ``skip_cli_confirmations`` (unattended ``wf:``
+        workflow and ``ws:`` workspace workers) are auto-confirmed. They run
+        with nobody watching, and — more importantly — a blocking prompt has
+        to be awaited from whatever loop the coder happens to run on. A
+        scheduler-dispatched workflow runs on the main (Textual) loop, so
+        blocking there used to rebind ``queues``' global input-wake slot and
+        strand the primary coder's input pump.
+        """
+        coder_ref = getattr(self, "_coder", None)
+        coder = coder_ref() if coder_ref is not None else None
+
+        if coder is not None and getattr(coder, "skip_cli_confirmations", False):
+            question = args[0] if args else kwargs.get("question", "")
+            logger.debug(
+                "auto-confirming %r for unattended coder %s (skip_cli_confirmations)",
+                question,
+                self._coder_uuid,
+            )
+            return True
+
         if "coder_uuid" not in kwargs:
             kwargs["coder_uuid"] = self._coder_uuid
         return await self._target.confirm_ask(*args, **kwargs)
@@ -282,6 +325,20 @@ class IOProxy(Generic[T]):
         # Everything else → shared target
         else:
             setattr(self._target, name, value)
+
+    def _is_workflow_agent(self) -> bool:
+        """Return True if the proxied coder is a workflow (wf:*) sub-agent."""
+        _ref = getattr(self, "_coder", None)
+        coder = _ref() if _ref is not None else None
+        if coder is None:
+            return False
+        try:
+            from cecli.helpers.agents.service import AgentService
+
+            name = AgentService.get_agent_name(coder)
+            return name is not None and name.startswith("wf:")
+        except Exception:
+            return False
 
 
 # --- THE TYPE HINTING TRICK ---

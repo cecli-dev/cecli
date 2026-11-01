@@ -3,6 +3,7 @@ import json
 import re
 from collections import Counter
 
+from cecli.helpers.diff.diff_helpers import unified_diff_compacted
 from cecli.helpers.hashpos.hashpos import (  # noqa
     HASH_DELIMITER,
     UNIQUE_HASH_DELIMITER,
@@ -716,16 +717,14 @@ def get_hashline_content_diff(
     old_hashlines, old_content_to_lines, old_content_lines = _parse_content_for_diff(old_content)
     new_hashlines, new_content_to_lines, new_content_lines = _parse_content_for_diff(new_content)
 
-    # Generate content-only diff
-    content_diff = difflib.unified_diff(
+    # Generate content-only diff with change groups compacted to a stable position.
+    content_diff_lines = unified_diff_compacted(
         old_content_lines,
         new_content_lines,
         fromfile=fromfile,
         tofile=tofile,
-        lineterm="",
-        n=context_lines,
+        context_lines=context_lines,
     )
-    content_diff_lines = list(content_diff)
 
     # If there's no content change, return empty string
     if not content_diff_lines:

@@ -7,26 +7,41 @@ character, a single word, or a whole sentence). These tests cover:
 * what the detector can and cannot catch from LLM / small-language-model output,
 * the bounded-LRU behaviour of the sentence cache,
 * the ``show_send_output_stream`` integration that stops streaming early,
-* the ``send``-level handling that marks the turn as ``[SYSTEM CANCEL: OUTPUT LOOP DETECTED]``
-  and drops any pending tool calls so they are never executed.
+* the ``send``-level handling that marks the turn as ``[SYSTEM INTERJECTION: AVOID REPETITION]``
+  and drops any pending tool calls so they are never executed,
+* the adaptive per-level allowances that relax when a stream loops and bleed back
+  down on the streams that finish cleanly.
 """
 
 import hashlib
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 from cecli.coders.base_coder import Coder
-from cecli.helpers.loop_detect import LoopDetectedError, LoopDetector, is_sentence
+from cecli.helpers.loop_detect import (
+    DEFAULT_CONFIG,
+    LOOP_LEVELS,
+    LoopDetectedError,
+    LoopDetector,
+    LoopThresholdTracker,
+    is_sentence,
+)
 from cecli.helpers.threading import ThreadSafeEvent
 from cecli.llm import litellm
+
+
+def _detector(**config):
+    """Build a detector over a private tracker, so tests can pin single limits."""
+    return LoopDetector(LoopThresholdTracker(config=config))
 
 
 # --------------------------------------------------------------------------- #
 # LoopDetector unit tests
 # --------------------------------------------------------------------------- #
 def test_detects_char_loop():
-    detector = LoopDetector(char_limit=5)
+    detector = _detector(char_limit=5)
     with pytest.raises(LoopDetectedError) as exc:
         detector.push("aaaaaa")
 
@@ -34,12 +49,12 @@ def test_detects_char_loop():
 
 
 def test_char_loop_does_not_trigger_below_limit():
-    detector = LoopDetector(char_limit=5)
+    detector = _detector(char_limit=5)
     assert detector.push("aaaa") is None  # 4 < limit, no raise
 
 
 def test_detects_word_loop():
-    detector = LoopDetector(word_limit=3)
+    detector = _detector(word_limit=3)
     with pytest.raises(LoopDetectedError) as exc:
         detector.push("foo foo foo foo")
 
@@ -47,12 +62,12 @@ def test_detects_word_loop():
 
 
 def test_word_loop_does_not_trigger_below_limit():
-    detector = LoopDetector(word_limit=10)
+    detector = _detector(word_limit=10)
     assert detector.push("the the the the") is None  # 4 < 10
 
 
 def test_detects_sentence_loop():
-    detector = LoopDetector(sentence_limit=3)
+    detector = _detector(sentence_limit=3)
     sentence = "This is a repeated sentence. "
     with pytest.raises(LoopDetectedError) as exc:
         for _ in range(3):
@@ -62,7 +77,7 @@ def test_detects_sentence_loop():
 
 
 def test_sentence_loop_does_not_trigger_below_limit():
-    detector = LoopDetector(sentence_limit=3)
+    detector = _detector(sentence_limit=3)
     sentence = "This is a repeated sentence. "
     # Two occurrences are below the trigger of three.
     assert detector.push(sentence) is None
@@ -71,7 +86,7 @@ def test_sentence_loop_does_not_trigger_below_limit():
 
 def test_sentence_cache_is_bounded_lru():
     """Oldest sentences are evicted so a repeated-in-the-past sentence is fresh."""
-    detector = LoopDetector(sentence_limit=2, max_sentences=2)
+    detector = _detector(sentence_limit=2, max_sentences=2)
 
     detector.push("This is sentence number one.")
     detector.push("This is sentence number two.")
@@ -98,14 +113,14 @@ def test_small_model_repetitive_but_short_output_is_not_flagged():
 
 
 def test_custom_limits_respected():
-    detector = LoopDetector(char_limit=3, word_limit=2, sentence_limit=2)
+    detector = _detector(char_limit=3, word_limit=2, sentence_limit=2)
     with pytest.raises(LoopDetectedError):
         detector.push("aaaa")
     assert detector.char_count == 3
 
 
 def test_error_can_be_caught_as_exception():
-    detector = LoopDetector(char_limit=2)
+    detector = _detector(char_limit=2)
     try:
         detector.push("aaaa")
     except Exception as exc:  # noqa: BLE001 - deliberately broad
@@ -133,7 +148,7 @@ def test_is_sentence_rejects_fragments_and_code():
 
 def test_code_like_output_does_not_trigger_sentence_loop():
     """Lowercase code/prose fragments must not be counted as sentence loops."""
-    detector = LoopDetector(sentence_limit=5)
+    detector = _detector(sentence_limit=5)
     fragment = "some code like line that is long.\n"
 
     for _ in range(6):
@@ -234,6 +249,7 @@ def _make_coder():
     coder.token_profiler = _FakeTokenProfiler()
     coder._output_loop_detected = False
     coder._output_loop_message = ""
+    coder.repetition_penalties = LoopThresholdTracker()
     coder._has_empty_reflected = False
     coder.edit_format = "code"
     coder.max_compaction_retries = 3
@@ -336,18 +352,18 @@ def test_consolidate_chunks_applies_marker_and_clears_tool_calls():
     response, func_err, content_err = coder.consolidate_chunks()
 
     assert func_err is None
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in coder.partial_response_content
+    assert LoopDetector.INTERJECTION in coder.partial_response_content
     assert coder.partial_response_tool_calls == []
     assert coder.partial_response_function_call == dict()
 
     # The marker must also be written into the response message so it actually
     # reaches the assistant message / conversation (which is built via model_dump).
     msg = response.choices[0].message
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in (msg.content or "")
+    assert LoopDetector.INTERJECTION in (msg.content or "")
     assert msg.tool_calls == []
 
     dumped = response.model_dump()["choices"][0]["message"]
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in (dumped.get("content") or "")
+    assert LoopDetector.INTERJECTION in (dumped.get("content") or "")
 
 
 def test_consolidate_chunks_propagates_marker_onto_existing_content():
@@ -362,7 +378,7 @@ def test_consolidate_chunks_propagates_marker_onto_existing_content():
 
     assert func_err is None
     msg = response.choices[0].message
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in msg.content
+    assert LoopDetector.INTERJECTION in msg.content
     assert "The quick brown fox jumps over the lazy dog." in msg.content
 
 
@@ -373,7 +389,7 @@ def test_consolidate_chunks_leaves_normal_stream_untouched():
     response, func_err, content_err = coder.consolidate_chunks()
 
     assert func_err is None
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" not in coder.partial_response_content
+    assert LoopDetector.INTERJECTION not in coder.partial_response_content
     assert coder.partial_response_tool_calls == []
 
 
@@ -411,7 +427,7 @@ async def test_send_appends_marker_and_clears_tool_calls_on_content_loop():
         pass
 
     assert coder._output_loop_detected is True
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in coder.partial_response_content
+    assert LoopDetector.INTERJECTION in coder.partial_response_content
     assert coder.partial_response_tool_calls == []
 
 
@@ -425,6 +441,201 @@ async def test_send_appends_marker_and_clears_tool_calls_on_tool_loop():
         pass
 
     assert coder._output_loop_detected is True
-    assert "[SYSTEM CANCEL: OUTPUT LOOP DETECTED]" in coder.partial_response_content
+    assert LoopDetector.INTERJECTION in coder.partial_response_content
     assert coder.partial_response_tool_calls == []
     assert coder.partial_response_function_call == dict()
+
+
+# --------------------------------------------------------------------------- #
+# Adaptive repetition allowances
+# --------------------------------------------------------------------------- #
+def test_loop_relaxes_only_the_level_that_tripped():
+    tracker = LoopThresholdTracker()
+
+    tracker.record_loop("sentence")
+
+    assert tracker.factors == {"char": 1.0, "word": 1.0, "sentence": 2.0}
+    assert tracker.limit("sentence") == DEFAULT_CONFIG["sentence_limit"] * 2
+    assert tracker.limit("char") == DEFAULT_CONFIG["char_limit"]
+
+
+def test_levels_grow_multiplicatively_up_to_the_cap():
+    tracker = LoopThresholdTracker()
+
+    limits = []
+    for _ in range(4):
+        tracker.record_loop("word")
+        limits.append(tracker.limit("word"))
+
+    # 25 -> 50 -> 100 -> 200, then pinned by ``max``
+    assert limits == [50, 100, 200, 200]
+    assert tracker.max == DEFAULT_CONFIG["max"]
+
+
+def test_clean_turns_bleed_every_level_back_to_base():
+    tracker = LoopThresholdTracker()
+
+    tracker.record_loop("char")
+    tracker.record_loop("word")
+    tracker.record_loop("sentence")
+    tracker.record_loop("sentence")
+
+    assert tracker.factors == {"char": 2.0, "word": 2.0, "sentence": 4.0}
+
+    # The additive step is small next to the doubling, so a relaxed level slides
+    # back down over several clean streams rather than snapping to its limits.
+    tracker.record_clean_turn()
+    assert tracker.factors == {
+        "char": pytest.approx(1.6),
+        "word": pytest.approx(1.6),
+        "sentence": pytest.approx(3.6),
+    }
+
+    for _ in range(10):
+        tracker.record_clean_turn()
+
+    assert set(tracker.factors.values()) == {1.0}
+
+
+def test_describe_lists_only_relaxed_levels():
+    tracker = LoopThresholdTracker()
+
+    assert tracker.describe() == ""
+
+    tracker.record_loop("word")
+
+    assert tracker.describe() == "word 2x"
+
+
+def test_reset_restores_the_base_allowances():
+    tracker = LoopThresholdTracker()
+
+    tracker.record_loop("sentence")
+    tracker.reset()
+
+    assert tracker.factors == dict.fromkeys(LOOP_LEVELS, 1.0)
+
+
+def test_detector_limits_come_from_the_tracker_it_is_given():
+    tracker = LoopThresholdTracker(config={"char_limit": 10, "word_limit": 5, "sentence_limit": 2})
+    detector = LoopDetector(tracker)
+
+    assert (detector.char_limit, detector.word_limit, detector.sentence_limit) == (10, 5, 2)
+
+    tracker.record_loop("word")
+
+    assert (detector.char_limit, detector.word_limit, detector.sentence_limit) == (10, 10, 2)
+
+
+def test_detector_tolerates_more_repetition_after_a_relaxation():
+    tracker = LoopThresholdTracker(config={"char_limit": 5})
+
+    detector = LoopDetector(tracker)
+    with pytest.raises(LoopDetectedError) as exc:
+        detector.push("a" * 6)
+
+    assert exc.value.level == "char"
+
+    tracker.record_loop("char")
+
+    # A fresh detector (as each stream gets one) now allows the same repetition.
+    detector = LoopDetector(tracker)
+    assert detector.push("a" * 9) is None
+
+    with pytest.raises(LoopDetectedError):
+        detector.push("a")
+
+
+def test_disabled_tracker_pins_levels_to_their_limits():
+    tracker = LoopThresholdTracker(config={"enabled": False, "char_limit": 5})
+    detector = LoopDetector(tracker)
+
+    assert detector.char_limit == 5
+
+    tracker.record_loop("char")
+    tracker.record_clean_turn()
+
+    assert detector.char_limit == 5
+    assert set(tracker.factors.values()) == {1.0}
+
+
+def test_config_is_merged_and_coerced():
+    tracker = LoopThresholdTracker(config='{"max": 4, "increase": "nope", "decrease": null}')
+
+    assert tracker.max == 4.0
+    assert tracker.increase == DEFAULT_CONFIG["increase"]
+    assert tracker.decrease == DEFAULT_CONFIG["decrease"]
+    assert tracker.limits["char"] == DEFAULT_CONFIG["char_limit"]
+
+    assert LoopThresholdTracker(config={"min": 0}).min == 0.0
+    assert LoopThresholdTracker(config={"max": 0}).max == DEFAULT_CONFIG["max"]
+    assert LoopThresholdTracker(config="nonsense").limits["word"] == DEFAULT_CONFIG["word_limit"]
+
+
+async def test_looping_stream_relaxes_the_level_it_tripped():
+    coder = _make_coder()
+    coder.consolidate_chunks = lambda: (None, None, None)
+    repeats = "a" * 150
+
+    async for _ in coder.show_send_output_stream(_agen([_content_chunk(repeats)])):
+        pass
+
+    assert coder._output_loop_detected is True
+    assert coder.repetition_penalties.factors == {"char": 2.0, "word": 1.0, "sentence": 1.0}
+    assert any("Output loop detected" in w[0] for w in coder.io.warnings if w)
+    assert not any("relax" in w[0].lower() for w in coder.io.warnings if w)
+
+    coder._output_loop_detected = False
+    coder.partial_response_content = ""
+    coder.partial_response_chunks = []
+
+    # The same output slips under the doubled character limit, and the clean
+    # stream only bleeds the relaxation down a single additive step.
+    async for _ in coder.show_send_output_stream(_agen([_content_chunk(repeats)])):
+        pass
+
+    assert coder._output_loop_detected is False
+    assert coder.repetition_penalties.factors == {
+        "char": pytest.approx(1.6),
+        "word": 1.0,
+        "sentence": 1.0,
+    }
+
+
+async def test_adaptive_relaxation_can_be_disabled():
+    coder = _make_coder()
+    coder.repetition_penalties = LoopThresholdTracker(config={"enabled": False})
+    coder.consolidate_chunks = lambda: (None, None, None)
+
+    async for _ in coder.show_send_output_stream(_agen([_content_chunk("a" * 101)])):
+        pass
+
+    assert coder._output_loop_detected is True
+    assert set(coder.repetition_penalties.factors.values()) == {1.0}
+
+
+async def test_configured_limits_apply_to_streamed_output():
+    coder = _make_coder()
+    coder.repetition_penalties = LoopThresholdTracker(config={"char_limit": 5})
+    coder.consolidate_chunks = lambda: (None, None, None)
+
+    async for _ in coder.show_send_output_stream(_agen([_content_chunk("a" * 6)])):
+        pass
+
+    assert coder._output_loop_detected is True
+
+
+async def test_penalties_are_configured_from_the_custom_json():
+    from cecli.io import InputOutput
+    from cecli.models import Model
+
+    # Only ``custom`` is consulted, so a mock covers every other arg.
+    args = MagicMock()
+    args.custom = '{"repetition_penalties": {"char_limit": 5, "max": 2, "decrease": 0.5}}'
+
+    coder = await Coder.create(Model("gpt-3.5-turbo"), None, io=InputOutput(), args=args)
+
+    assert coder.repetition_penalties.limits["char"] == 5
+    assert coder.repetition_penalties.max == 2.0
+    assert coder.repetition_penalties.decrease == 0.5
+    assert coder.repetition_penalties.limits["word"] == DEFAULT_CONFIG["word_limit"]

@@ -110,7 +110,10 @@ def test_all_yaml_to_json_args_deep_merge_with_config_file():
         "hooks",
         "workspaces",
         "model_providers",
+        "system_one",
         "server_config",
+        "workflows",
+        "scheduler",
     }
     assert all("_" not in key for key in YAML_TO_JSON_ARG_KEYS.values())
 
@@ -131,3 +134,57 @@ def test_all_yaml_to_json_args_deep_merge_with_config_file():
         assert merged["command_timeout"] == 120  # CLI wins per-key
         assert merged["skills_paths"] == ["/tmp/skills"]  # file-only key preserved
         assert merged["nested"] == {"a": 1, "b": 9}  # nested deep-merged
+
+
+def test_workflows_file_list_survives_cli_override(tmp_path):
+    """Case 57: workflows in a config file is a LIST of mappings; the pipeline
+    must round-trip it to a JSON string and keep the file value available in
+    merged_config (per-name deep-merge with the CLI value is done by
+    load_workflows, which receives both).
+    """
+    conf = tmp_path / ".cecli.conf.yml"
+    conf.write_text(
+        "workflows:\n"
+        "  - name: nightly\n"
+        "    tasks:\n"
+        "      - prompt: sweep\n"
+        "  - name: file-only\n"
+        "    tasks:\n"
+        "      - prompt: report\n"
+    )
+    paths = [str(conf)]
+    merged_config = config_utils.read_and_merge_all_configs(paths, [], paths)
+
+    fd, tmp = tempfile.mkstemp(suffix=".yml", prefix="cecli_merged_")
+    os.close(fd)
+    with open(tmp, "w") as f:
+        yaml.dump(merged_config, f)
+    try:
+        parser = get_parser([tmp], None)
+        argv = ['--workflows=[{"name": "nightly", "tasks": [{"prompt": "cli sweep"}]}]']
+        args, _ = parser.parse_known_args(argv)
+    finally:
+        os.unlink(tmp)
+
+    config_key = YAML_TO_JSON_ARG_KEYS["workflows"]
+    file_value = merged_config.get(config_key)
+    args.workflows = convert_yaml_to_json_string(args.workflows, file_value)
+
+    # file value survives as a list of mappings for load_workflows(merged_config=...)
+    assert isinstance(file_value, list)
+    assert {wf["name"] for wf in file_value} == {"nightly", "file-only"}
+
+    # args.workflows is a JSON string that round-trips to a list of mappings
+    assert isinstance(args.workflows, str)
+    cli_list = json.loads(args.workflows)
+    assert isinstance(cli_list, list)
+    assert cli_list[0]["name"] == "nightly"  # CLI value wins per-name downstream
+
+
+def test_args_generators_mention_workflows():
+    """Case 58: the yaml/md/dotenv doc generators emit the workflows entry."""
+    from cecli.args import get_md_help, get_sample_dotenv, get_sample_yaml
+
+    assert "workflows" in get_sample_yaml().lower()
+    assert "--workflows" in get_md_help()
+    assert "CECLI_WORKFLOWS" in get_sample_dotenv()

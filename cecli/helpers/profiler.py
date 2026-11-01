@@ -77,7 +77,7 @@ class TokenProfiler:
 
     def get_report(self) -> Optional[str]:
         """
-        Get the formatted speed report (only if enabled).
+        Get the compact speed report (only if enabled).
 
         Returns:
             Formatted report string, or None if disabled or no data
@@ -91,33 +91,30 @@ class TokenProfiler:
         else:
             elapsed = time.time() - self._start_time
 
-        # Build the time report
-        report = f"\nLLM elapsed time: {elapsed:.2f} seconds"
+        parts = []
+        ttft = None
+        response_time = elapsed
 
-        # Add time to first token if available
         if self._first_token_time is not None:
             ttft = self._first_token_time - self._start_time
-            report += f" (TtFT: {ttft:.2f}s)"
+            response_time = max(0.0, elapsed - ttft)
+            parts.append(f"• {ttft:.2f}s")
 
-            # Add speed information if we have token data
-            if self._input_tokens > 0 and self._output_tokens > 0:
-                speed_parts = []
+        has_counts = self._input_tokens > 0 and self._output_tokens > 0
 
-                # Prompt processing speed (based on time to first token)
-                if ttft > 0:
-                    prompt_speed = self._input_tokens / ttft
-                    speed_parts.append(f"{prompt_speed:.0f} prompt tokens/sec")
+        # Prompt processing speed (based on time to first token)
+        if ttft is not None and has_counts and ttft > 0:
+            prompt_speed = self._input_tokens / ttft
+            parts.append(f"↑ {_format_rate(prompt_speed)}")
 
-                # Token generation speed (based on time after first token)
-                generation_time = elapsed - ttft
-                if generation_time > 0:
-                    generation_speed = self._output_tokens / generation_time
-                    speed_parts.append(f"{generation_speed:.0f} output tokens/sec")
+        parts.append(f"◇ {response_time:.2f}s")
 
-                if speed_parts:
-                    report += "\nSpeed: " + ", ".join(speed_parts)
+        # Token generation speed (based on response time by itself)
+        if ttft is not None and has_counts and response_time > 0:
+            generation_speed = self._output_tokens / response_time
+            parts.append(f"↓ {generation_speed:.0f}")
 
-        return report
+        return " ".join(parts)
 
     def get_elapsed(self) -> Optional[float]:
         """
@@ -157,6 +154,15 @@ class TokenProfiler:
 
         speed_report = self.get_report()
         if speed_report:
-            return usage_report + speed_report
+            return f"{usage_report} {speed_report}"
 
         return usage_report
+
+
+def _format_rate(value: float) -> str:
+    """Format a tokens/sec rate compactly, truncating the decimal (6857 -> '6.8k')."""
+    if value < 1000:
+        return f"{value:.0f}"
+    if value < 10000:
+        return f"{int(value / 100) / 10:.1f}k"
+    return f"{round(value / 1000)}k"

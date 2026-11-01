@@ -13,7 +13,7 @@ Cecli uses a **concise map of your whole git repository** that includes the most
 
 Cecli sends a **repo map** to the LLM along with each change request from the user. The repo map contains a list of the files in the repo, along with the key symbols which are defined in each file. It shows how each of these symbols are defined, by including the critical lines of code for each definition.
 
-Here's a part of the repo map of cecli's repo, for [base_coder.py](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py) and [commands.py](https://github.com/cecli-dev/cecli/blob/main/cecli/commands.py) :
+Here's a part of the repo map of cecli's repo, for [base_coder.py](https://github.com/cecli-dev/cecli/blob/main/cecli/coders/base_coder.py) and [core.py](https://github.com/cecli-dev/cecli/blob/main/cecli/commands/core.py) :
 
 ```
 cecli/coders/base_coder.py:
@@ -35,7 +35,7 @@ cecli/coders/base_coder.py:
 │    def run(self, with_message=None):
 ⋮...
 
-cecli/commands.py:
+cecli/commands/core.py:
 ⋮...
 │class Commands:
 │    voice = None

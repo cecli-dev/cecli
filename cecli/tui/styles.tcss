@@ -18,9 +18,33 @@
 Screen {
     background: $background;
     layout: vertical;
+    layers: base panels;
     padding: 0;
     margin: 0;
     border: none;    
+}
+
+/* Input row: input container plus the floating status panels */
+#input-row {
+    height: auto;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    align-vertical: top;
+}
+
+#input-column {
+    width: 1fr;
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
+#extensions-column {
+    width: 43;
+    height: auto;
+    margin: 0;
+    padding: 0;
 }
 
 /* Output area */
@@ -36,7 +60,8 @@ Screen {
 /* Input area - floating card style */
 #input-container {
     height: auto;
-    max-height: 33%;
+    width: 1fr;
+    max-height: 33vh;
     min-height: 0;
     padding: 0 0 0 1;
     margin: 0 1 0 1;
@@ -100,13 +125,22 @@ TextArea > .text-area--selection {
     display: none;
 }
 
-/* Key hints below input */
+/* Key hints sit inside the same column as their box */
 #key-hints {
     color: $secondary;
     height: 1;
-    width: 100%;
-    padding: 0 2 0 2;
-    margin: 0 0 1 0;    
+    width: 1fr;
+    padding: 0 1 0 1;
+    margin: 0 1 1 1;
+}
+
+#extensions-hint {
+    width: 1fr;
+    height: 1;
+    padding: 0 1 0 1;
+    margin: 0 1 1 0;
+    color: $secondary;
+    text-align: right;
 }
 
 #key-hints > .key-hints-left {
@@ -129,3 +163,81 @@ TextArea > .text-area--selection {
     padding: 0 1;
 }
 
+/* --------------------------------------------------------------------------
+ * Background commands panel (/open commands)
+ * -------------------------------------------------------------------------- */
+
+#background-commands-panel {
+    display: none;
+    position: absolute;
+    layer: panels;
+    width: 72%;
+    max-width: 115;
+    height: 65%;
+    border: round $accent 50%;
+    border-title-align: center;
+    border-title-color: $accent 50%;
+    border-title-style: bold;
+    padding: 0 1;
+    background: $background;
+}
+
+#bg-command-tabs {
+    width: 100%;
+    height: 2;
+    background: transparent;
+}
+
+#bg-command-tabs,
+#bg-command-tabs #tabs-scroll,
+#bg-command-tabs #tabs-list-bar,
+#bg-command-tabs #tabs-list {
+    scrollbar-size: 0 0;
+    scrollbar-visibility: hidden;
+    scrollbar-background: transparent;
+    scrollbar-color: transparent;
+    scrollbar-color-hover: transparent;
+    scrollbar-color-active: transparent;
+}
+
+#bg-command-tabs Underline > .underline--bar {
+    color: $accent;
+}
+
+#bg-command-tabs .bg-tab {
+    background: transparent;
+    color: $secondary;
+}
+
+#bg-command-tabs .bg-tab.-active {
+    background: $accent 30%;
+    color: $accent;
+    text-style: bold;
+}
+
+#bg-command-tabs .bg-tab:hover {
+    background: transparent;
+    color: $foreground;
+}
+
+#bg-command-line {
+    width: 100%;
+    height: 1;
+    color: $secondary;
+    background: transparent;
+    padding: 0 1;
+}
+
+#bg-command-empty {
+    width: 100%;
+    height: 1fr;
+    color: $secondary;
+    content-align: center middle;
+}
+
+#bg-command-output {
+    width: 100%;
+    height: 1fr;
+    background: $background;
+    scrollbar-size: 1 1;
+}

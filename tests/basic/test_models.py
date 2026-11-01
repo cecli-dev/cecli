@@ -140,6 +140,28 @@ class TestModels:
         await sanity_check_model(mock_io, model)
         mock_check_deps.assert_called_once_with(mock_io, "test-model")
 
+    @patch("cecli.models.check_for_dependencies")
+    async def test_sanity_check_model_known_model_without_context(self, mock_check_deps):
+        """A known model with unknown limits should not be suggested as its own typo."""
+        mock_io = MagicMock()
+        model = MagicMock()
+        model.name = "openrouter/~openai/gpt-luna-latest"
+        model.missing_keys = []
+        model.keys_in_environment = True
+        model.info = {}
+
+        matches = [model.name, "openrouter/~openai/gpt-luna"]
+
+        with patch("cecli.models.fuzzy_match_models", return_value=matches):
+            await sanity_check_model(mock_io, model)
+
+        warnings = [call.args[0] for call in mock_io.tool_warning.call_args_list]
+        assert any(
+            "context window size and/or costs are unknown" in message for message in warnings
+        )
+        mock_io.tool_output.assert_not_called()
+        mock_check_deps.assert_called_once_with(mock_io, "openrouter/~openai/gpt-luna-latest")
+
     def test_model_aliases(self):
         # Test common aliases
         model = Model("4")
@@ -606,6 +628,24 @@ class TestModels:
             cache_control_injection_points=ANY,
             allowed_openai_params=["tools", "tool_choice"],
         )
+
+    @patch("cecli.models.litellm.acompletion")
+    async def test_send_completion_retry_with_debug(self, mock_completion):
+        from cecli.io import InputOutput
+        from cecli.llm import litellm
+
+        io = InputOutput()
+        model = Model("gpt-4", io=io, debug=True)
+        model.extra_params = {}
+        mock_completion.side_effect = [
+            litellm.ServiceUnavailableError(
+                "Service unavailable", llm_provider="openai", model="gpt-4"
+            ),
+            MagicMock(),
+        ]
+        messages = [{"role": "user", "content": "Hello"}]
+        hash_obj, res = await model.send_completion(messages, functions=None, stream=False)
+        assert mock_completion.call_count == 2
 
     def test_model_override_kwargs(self):
         """Test that override kwargs are applied to model extra_params."""

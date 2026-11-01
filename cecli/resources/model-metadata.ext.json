@@ -1016,5 +1016,16 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true
+  },
+  "agnes/agnes-3.0-flash": {
+    "max_tokens": 65536,
+    "max_input_tokens": 512000,
+    "max_output_tokens": 65536,
+    "input_cost_per_token": 0,
+    "output_cost_per_token": 0,
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "source": "https://agnes-ai.com/en/docs/agnes-30-flash"
   }
 }
+

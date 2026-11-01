@@ -110,6 +110,7 @@ class Tool(BaseTool):
                     info.generate_task
                     for info in children
                     if not info.independent
+                    and not info.detached
                     and info.generate_task is not None
                     and not info.generate_task.done()
                 ]
@@ -152,7 +153,8 @@ class Tool(BaseTool):
                         # Retrieve exceptions from completed sub-agent tasks so they
                         # are not silently lost.
                         for t in done:
-                            if t is not interrupt_task:
+                            # A cancelled sub-agent has no exception, and asking raises
+                            if t is not interrupt_task and not t.cancelled():
                                 exc = t.exception()
                                 if exc:
                                     logger.warning("Sub-agent task raised an exception: %s", exc)
@@ -167,7 +169,9 @@ class Tool(BaseTool):
 
                     # Wait for non-independent child agents to reach a terminal status
                     children = agent_service.get_children(coder)
-                    non_independent_children = [info for info in children if not info.independent]
+                    non_independent_children = [
+                        info for info in children if not info.independent and not info.detached
+                    ]
 
                     if non_independent_children:
                         interrupt_event = coder.interrupt_event
@@ -182,6 +186,7 @@ class Tool(BaseTool):
                                 info
                                 for info in refreshed_children
                                 if not info.independent
+                                and not info.detached
                                 and info.status
                                 not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
                             ]
@@ -225,6 +230,22 @@ class Tool(BaseTool):
                 await service.reap_all_finished_agents(parent=service.get_parent(coder))
             except Exception:
                 logger.warning("Failed to reap finished sub-agents", exc_info=True)
+
+            # Creator agents may have changed extensions on disk; reload them so
+            # the new skills, hooks, workflows, tools, commands, and servers are
+            # available to the rest of the session immediately.
+            if coder.edit_format == "subagent":
+                try:
+                    agent_service = AgentService.get_instance(coder)
+                    if agent_service.get_agent_name(coder) == "creator":
+                        from cecli.helpers.creator.utils import (
+                            reload_creator_extensions,
+                        )
+
+                        for message in await reload_creator_extensions(coder):
+                            coder.io.tool_output(message, type="tool-result")
+                except Exception as e:
+                    logger.warning("Failed to reload creator extensions: %s", e)
 
             coder.agent_finished = True
 

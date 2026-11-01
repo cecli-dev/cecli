@@ -76,6 +76,18 @@ class TestDeepMergeArrays(unittest.TestCase):
         merged = deep_merge(dict1, dict2, deep_merge_arrays=True)
         self.assertEqual(merged, expected)
 
+    def test_deep_merge_with_unpicklable_objects(self):
+        import threading
+
+        lock = threading.RLock()
+        dict1 = {"lock": lock, "nested": {"key": "val", "lock": lock}}
+        dict2 = {"extra": 123}
+        merged = deep_merge(dict1, dict2)
+        self.assertIs(merged["lock"], lock)
+        self.assertEqual(merged["extra"], 123)
+        self.assertEqual(merged["nested"]["key"], "val")
+        self.assertIs(merged["nested"]["lock"], lock)
+
 
 class TestConfigHelpers(unittest.TestCase):
     def test_is_cecli_conf_file(self):

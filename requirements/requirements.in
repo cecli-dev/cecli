@@ -34,6 +34,10 @@ pypandoc>=1.15
 
 # storage/caching
 chromadb>=1.5.9
+# chromadb's default ONNX embedder needs these directly; keep them in the base
+# install so /help and creator docs work without the optional [help] extra.
+numpy>=1.26.4
+onnxruntime>=1.14.1
 diskcache>=5.6.3
 
 # general string parsing
@@ -42,6 +46,11 @@ jsonschema>=4.25.0
 PyYAML>=6.0.2
 tomli>=2.3.0; python_version <= "3.10"
 tomlkit>=0.14.0
+
+# scheduler cron expressions (workflows)
+croniter>=6.0.5
+# zoneinfo needs an IANA tz database and Windows ships none, so pull it from PyPI there
+tzdata>=2024.1; platform_system == "Windows"
 
 # search & replace in legacy modes
 diff-match-patch>=20241021

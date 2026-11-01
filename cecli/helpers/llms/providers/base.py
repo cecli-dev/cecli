@@ -24,6 +24,9 @@ class ProviderAdapter:
       normalize fields a stricter provider rejects (e.g. Mistral rejects
       ``reasoning_content`` / ``provider_specific_fields`` / ``function_call`` and
       a null tool-call ``index``).
+    - :meth:`chat_url` / :meth:`chat_payload` / :meth:`chat_stream_json` /
+      :meth:`parse_chat_response` / :meth:`parse_chat_chunk` - override the
+      shared chat-family wire (e.g. Ollama's native ``/api/chat``).
     - :meth:`normalize` - post-process a family-normalized response
       (e.g. meta encrypted-reasoning marker).
     """
@@ -35,6 +38,10 @@ class ProviderAdapter:
     #: messages (DeepSeek thinking mode). Strict providers that reject the field
     #: (Mistral) set this False so the chat payload's coercer skips them.
     echoes_reasoning_content: bool = True
+
+    #: Whether OPENAI_API_BASE/OPENAI_API_KEY may redirect this provider's chat
+    #: request (see domains/chat.py). Native wires (Ollama) opt out.
+    honors_openai_env_override: bool = True
 
     def resolve_api_base(self, resolved: Dict[str, Any]) -> str:
         """Return the api_base for a resolved config (default: as resolved)."""
@@ -72,6 +79,41 @@ class ProviderAdapter:
         null tool-call ``index``).
         """
         return messages
+
+    def chat_url(self, resolved: Dict[str, Any], base: str) -> str:
+        """Return the chat endpoint URL (default: OpenAI ``/chat/completions``)."""
+        return f"{base}/chat/completions"
+
+    def chat_payload(
+        self,
+        resolved: Dict[str, Any],
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        stream: bool,
+        kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build the chat request body (default: OpenAI-compatible payload)."""
+        from ..domains.chat import chat_payload
+
+        return chat_payload(resolved, messages, tools, stream, kwargs)
+
+    def chat_stream_json(self, resp: Any) -> Any:
+        """Yield parsed JSON objects from a chat stream (default: SSE lines)."""
+        from ..utils import sse_json_lines
+
+        return sse_json_lines(resp)
+
+    def parse_chat_response(self, data: Dict[str, Any], resolved: Dict[str, Any]) -> Any:
+        """Normalize a chat response (default: OpenAI-compatible parser)."""
+        from ..domains.chat import normalize_chat_response
+
+        return normalize_chat_response(data, resolved["model"])
+
+    def parse_chat_chunk(self, data: Dict[str, Any]) -> Any:
+        """Normalize one streamed chat chunk (default: OpenAI-compatible parser)."""
+        from ..domains.chat import parse_chat_chunk
+
+        return parse_chat_chunk(data)
 
     def normalize(
         self,

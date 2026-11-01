@@ -14,7 +14,7 @@ import pytest
 from cecli.coders import Coder
 from cecli.coders.agent_coder import AgentCoder
 from cecli.commands import SwitchCoderSignal
-from cecli.commands.load_mcp import LoadMcpCommand
+from cecli.commands.mcp import McpCommand
 from cecli.commands.utils.helpers import (
     is_server_globally_excluded,
     update_server_registration,
@@ -218,9 +218,9 @@ class TestLoadMcpCommandConversionLowercases:
         coder.coroutines = MagicMock()
         coder.coroutines.interruptible = _passthrough
 
-        with patch("cecli.commands.load_mcp.iter_all_coders", return_value=[coder]):
+        with patch("cecli.commands.mcp_helpers.load.iter_all_coders", return_value=[coder]):
             with pytest.raises(SwitchCoderSignal):
-                await LoadMcpCommand.execute(coder.io, coder, "GitHub")
+                await McpCommand.execute(coder.io, coder, "load GitHub")
 
         assert coder.registered_servers["included"] == {"github", "local"}
 

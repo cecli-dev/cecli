@@ -6,50 +6,20 @@ from pathlib import Path
 
 import oslex
 
+from cecli.helpers.file_exclusions import DEFAULT_EXCLUDE_DIRS as SHARED_EXCLUDE_DIRS
+from cecli.helpers.file_exclusions import GREP_EXTRA_EXCLUDE_DIRS
 from cecli.helpers.hashline import strip_hashline
 from cecli.run_cmd import run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
-from cecli.tools.utils.helpers import ToolError
+from cecli.tools.utils.helpers import ToolError, is_creator_coder
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
+from cecli.utils import safe_relpath
 
-# Default directories to exclude from search results across various languages
-DEFAULT_EXCLUDE_DIRS = [
-    ".git",
-    ".cecli",
-    ".venv",
-    "venv",
-    "env",
-    ".env",
-    "__pycache__",
-    "*.pyc",
-    "node_modules",
-    "bower_components",
-    ".next",
-    "dist",
-    "build",
-    "target",  # Rust / Java / Kotlin
-    "bin",
-    "obj",  # C# / .NET
-    ".gradle",  # Java/Kotlin
-    ".mvn",
-    "vendor",  # Go / PHP
-    ".bundle",
-    ".tox",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".eggs",
-    "eggs",
-    "lib",
-    "lib64",
-    ".dub",  # D
-    "dub.selections.json",
-    "Pods",  # CocoaPods
-    ".build",  # Swift
-    ".cargo",  # Rust
-]
+# Default directories to exclude from search results across various languages.
+# The canonical noise list is shared; grep additionally hides source-like dirs.
+DEFAULT_EXCLUDE_DIRS = [*sorted(SHARED_EXCLUDE_DIRS), *GREP_EXTRA_EXCLUDE_DIRS]
 
 
 # Default files to exclude from search results (e.g. past agent conversations).
@@ -79,9 +49,11 @@ def _should_use_regex(pattern, requested):
     return bool(requested) or "|" in pattern
 
 
-def _build_exclude_args(tool_name, cmd_args):
+def _build_exclude_args(tool_name, cmd_args, exclude_cecli=True):
     """Add exclusion arguments for common build/artifact dirs and history files."""
     for exclude_dir in DEFAULT_EXCLUDE_DIRS:
+        if exclude_dir == ".cecli" and not exclude_cecli:
+            continue
         if tool_name == "rg":
             cmd_args.extend(["-g", f"!{exclude_dir}"])
         elif tool_name == "ag":
@@ -252,7 +224,7 @@ def _extract_file_entries(abs_path, content):
     return entries
 
 
-def _build_powershell_exclude_regex(exclude_dirs=None, exclude_files=None):
+def _build_powershell_exclude_regex(exclude_dirs=None, exclude_files=None, exclude_cecli=True):
     """Build a PowerShell -notmatch regex that skips default build/artifact dirs.
 
     Also skips default history files (matched by basename suffix).
@@ -263,6 +235,8 @@ def _build_powershell_exclude_regex(exclude_dirs=None, exclude_files=None):
         exclude_files = DEFAULT_EXCLUDE_FILES
     fragments = []
     for entry in exclude_dirs:
+        if entry == ".cecli" and not exclude_cecli:
+            continue
         # Escape the literal text, then turn * globs into path-segment wildcards.
         frag = re.escape(entry).replace(r"\*", r"[^\\/]*")
         fragments.append(r"(?:\\|/)(?:" + frag + r")(?:\\|/|$)")
@@ -283,6 +257,7 @@ def _build_powershell_search_script(
     context_before,
     context_after,
     count_only,
+    exclude_cecli=True,
 ):
     """Build a PowerShell pipeline that mimics rg/ag/grep via Select-String."""
 
@@ -295,7 +270,7 @@ def _build_powershell_search_script(
     if file_pattern != "*":
         parts.extend(["-Filter", _ps_quote(file_pattern)])
 
-    exclude_regex = _build_powershell_exclude_regex()
+    exclude_regex = _build_powershell_exclude_regex(exclude_cecli=exclude_cecli)
     if exclude_regex:
         parts.extend(
             [
@@ -694,7 +669,12 @@ class Tool(BaseTool):
                 continue
 
             try:
-                search_dir_path = Path(repo.root) / directory
+                creator = is_creator_coder(coder)
+                expanded_directory = Path(directory).expanduser()
+                if creator and expanded_directory.is_absolute():
+                    search_dir_path = expanded_directory
+                else:
+                    search_dir_path = Path(repo.root) / expanded_directory
 
                 if tool_name == "powershell":
                     # PowerShell (Select-String) backend: build a pipeline script and
@@ -709,6 +689,7 @@ class Tool(BaseTool):
                             context_before=context_before,
                             context_after=context_after,
                             count_only=False,
+                            exclude_cecli=not creator,
                         ),
                         tool_path,
                     )
@@ -748,7 +729,7 @@ class Tool(BaseTool):
 
                     # Exclusions
                     exclude_args = []
-                    _build_exclude_args(tool_name, exclude_args)
+                    _build_exclude_args(tool_name, exclude_args, exclude_cecli=not creator)
 
                     # --- PASS1: Build count command (fast, no context) ---
                     count_cmd_parts = [tool_path]
@@ -824,7 +805,7 @@ class Tool(BaseTool):
                             if os.path.isabs(raw_path)
                             else os.path.normpath(os.path.join(repo.root, raw_path))
                         )
-                        rel_files.append((os.path.relpath(abs_path, repo.root), file_count))
+                        rel_files.append((safe_relpath(abs_path, repo.root), file_count))
                     rel_files.sort(key=lambda item: (-item[1], item[0]))
 
                     shown_files = rel_files[:MAX_FILES]
@@ -883,7 +864,7 @@ class Tool(BaseTool):
                                 pf["count_from_pass"] = counts[raw_path]
                             else:
                                 # Try with repo root prefix stripped
-                                rel = os.path.relpath(raw_path, repo.root)
+                                rel = safe_relpath(raw_path, repo.root)
                                 pf["count_from_pass"] = counts.get(rel, pf["match_count"])
                     else:
                         for pf in parsed_files:
@@ -897,7 +878,7 @@ class Tool(BaseTool):
 
                     rendered = []
                     for pf in parsed_files[:MAX_FILES]:
-                        rel_path = os.path.relpath(pf["path"], repo.root)
+                        rel_path = safe_relpath(pf["path"], repo.root)
                         count = pf.get("count_from_pass", 0)
                         total_matches += count
 
