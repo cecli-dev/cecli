@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cecli.helpers.skills import SkillsManager
+from cecli.helpers.skills import SkillsManager, _normalize_allowed_tools
 
 
 class TestSkills:
@@ -212,6 +212,83 @@ These are the main instructions.
         # Test that skill was NOT added to _loaded_skills (only load_skill() does that)
         assert "test-skill" not in manager._loaded_skills
         assert manager._loaded_skills == set()
+
+    def test_allowed_tools_scalar_is_split(self):
+        """A comma-separated allowed-tools scalar is normalized into a list."""
+        skill_dir = Path(self.temp_dir) / "scalar-tools"
+        skill_dir.mkdir()
+
+        (skill_dir / "SKILL.md").write_text("""---
+name: scalar-tools
+description: Skill with a scalar allowed-tools value
+allowed-tools: Bash(git commit -m "a, b"), Read, Bash(spark-ssh.sh:*)
+---
+
+# Scalar Tools
+""")
+
+        manager = SkillsManager([self.temp_dir])
+        metadata = manager._parse_skill_metadata(skill_dir / "SKILL.md")
+
+        assert metadata.allowed_tools == [
+            'Bash(git commit -m "a, b")',
+            "Read",
+            "Bash(spark-ssh.sh:*)",
+        ]
+
+        summary = manager.get_skill_summary("scalar-tools")
+        assert 'Allowed tools: Bash(git commit -m "a, b"), Read, Bash(spark-ssh.sh:*)' in summary
+
+    def test_allowed_tools_list_is_preserved(self):
+        """A YAML sequence for allowed-tools is preserved as a list."""
+        skill_dir = Path(self.temp_dir) / "list-tools"
+        skill_dir.mkdir()
+
+        (skill_dir / "SKILL.md").write_text("""---
+name: list-tools
+description: Skill with a list allowed-tools value
+allowed-tools:
+  - Read
+  - Bash(ls:*)
+---
+
+# List Tools
+""")
+
+        manager = SkillsManager([self.temp_dir])
+        metadata = manager._parse_skill_metadata(skill_dir / "SKILL.md")
+
+        assert metadata.allowed_tools == ["Read", "Bash(ls:*)"]
+
+    def test_allowed_tools_normalization_validates_types(self):
+        """Unsupported allowed-tools values raise and missing values become empty."""
+        assert _normalize_allowed_tools(None) == []
+        assert _normalize_allowed_tools("  ") == []
+        assert _normalize_allowed_tools(["Read", "  "]) == ["Read"]
+
+        with pytest.raises(ValueError):
+            _normalize_allowed_tools(42)
+
+        with pytest.raises(ValueError):
+            _normalize_allowed_tools(["Read", 42])
+
+    def test_skill_with_invalid_allowed_tools_is_skipped(self):
+        """A skill whose allowed-tools has an invalid type is not loaded."""
+        skill_dir = Path(self.temp_dir) / "bad-tools"
+        skill_dir.mkdir()
+
+        (skill_dir / "SKILL.md").write_text("""---
+name: bad-tools
+description: Skill with invalid allowed-tools
+allowed-tools: 42
+---
+
+# Bad Tools
+""")
+
+        manager = SkillsManager([self.temp_dir])
+
+        assert "bad-tools" not in [skill.name for skill in manager.find_skills(reload=True)]
 
     def test_skill_summary_loader(self, monkeypatch):
         """Test the skill_summary_loader function."""

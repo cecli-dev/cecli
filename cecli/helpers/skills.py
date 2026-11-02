@@ -347,7 +347,7 @@ class SkillsManager:
             description=description,
             path=skill_md_path.parent,
             license=frontmatter.get("license"),
-            allowed_tools=frontmatter.get("allowed-tools", []),
+            allowed_tools=_normalize_allowed_tools(frontmatter.get("allowed-tools")),
             metadata=frontmatter.get("metadata", {}),
         )
 
@@ -1092,3 +1092,58 @@ class SkillsManager:
             # We can't use io.tool_error here since we don't have access to io
             # The caller should handle the exception
             raise
+
+
+def _normalize_allowed_tools(value: Any) -> List[str]:
+    """Normalize an ``allowed-tools`` frontmatter value into a list of strings.
+
+    YAML permits ``allowed-tools`` to be either a sequence or a single scalar;
+    the latter is split on top-level commas so that constructs such as
+    ``Bash(git commit -m "a, b"), Read`` are not broken apart. Missing values
+    become an empty list. Raises ``ValueError`` for unsupported types.
+    """
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return _split_top_level_commas(value)
+
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(
+            "'allowed-tools' must be a string or a list of strings, " f"got {type(value).__name__}"
+        )
+
+    tools: List[str] = []
+
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"'allowed-tools' entries must be strings, got {type(item).__name__}")
+
+        tool = item.strip()
+        if tool:
+            tools.append(tool)
+
+    return tools
+
+
+def _split_top_level_commas(value: str) -> List[str]:
+    """Split ``value`` on commas that are not nested inside parentheses."""
+    parts: List[str] = []
+    current: List[str] = []
+    depth = 0
+
+    for char in value:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+
+        current.append(char)
+
+    parts.append("".join(current))
+
+    return [part.strip() for part in parts if part.strip()]
