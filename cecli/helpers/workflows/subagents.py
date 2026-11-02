@@ -16,8 +16,9 @@ the definitions back up without re-reading YAML.
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,19 @@ def register_workflow_subagents(workflow_configs) -> List[str]:
         if wf.root:
             metadata["root"] = str(Path(wf.root).expanduser().resolve())
 
+        if wf.worktree is not None:
+            worktree = wf.worktree if isinstance(wf.worktree, dict) else {}
+            metadata["worktree"] = dict(worktree)
+
+            source = _worktree_source(wf)
+            if source:
+                metadata["worktree_source"] = source
+            else:
+                logger.warning(
+                    "Workflow '%s' enables worktree but no source repository could be inferred",
+                    wf.name,
+                )
+
         metadata["agent-config"] = agent_config
         metadata["description"] = f"Workflow sub-agent for '{wf.name}'"
         # ``allow_nested_delegation`` is intentionally NOT forced here: the
@@ -176,3 +190,45 @@ def ensure_wf_agent_registered(name: str) -> Any:
 def get_workflow_configs() -> List[Any]:
     """Return the cached WorkflowConfigs from the most recent registrations."""
     return list(_workflow_configs_by_agent.values())
+
+
+def _worktree_source(wf: Any) -> Optional[str]:
+    """Resolve the worktree source repository for *wf*.
+
+    Prefer an explicit ``repo``; otherwise use the normalized ``root``; as a
+    last resort use the git top-level of the workflow definition file's
+    directory. Returns None when nothing can be inferred.
+    """
+
+    if wf.repo:
+        return str(wf.repo)
+
+    if wf.root:
+        return str(Path(wf.root).expanduser().resolve())
+
+    return _git_toplevel(wf.source_path)
+
+
+def _git_toplevel(source_path: Optional[str]) -> Optional[str]:
+    """Return the git top-level containing *source_path*, if any."""
+
+    if not source_path:
+        return None
+
+    directory = Path(source_path).expanduser().resolve().parent
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    return completed.stdout.strip() or None

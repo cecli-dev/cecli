@@ -158,10 +158,26 @@ async def cancel_and_abandon(tasks, grace=INTERRUPT_UNWIND_GRACE_SECONDS):
     if not pending_tasks:
         return
 
+    # Tasks can outlive their loop during shutdown. Cancelling one then calls
+    # loop.call_soon() on a closed loop and raises RuntimeError, so drop those
+    # instead of failing the whole shutdown sequence.
+    active_tasks = []
     for task in pending_tasks:
+        task_loop = task.get_loop() if hasattr(task, "get_loop") else None
+
+        if task_loop is not None and task_loop.is_closed():
+            background_tasks.discard(task)
+            continue
+
+        active_tasks.append(task)
+
+    if not active_tasks:
+        return
+
+    for task in active_tasks:
         task.cancel()
 
-    done, still_running = await asyncio.wait(set(pending_tasks), timeout=grace)
+    done, still_running = await asyncio.wait(set(active_tasks), timeout=grace)
     drain_task_results(done)
 
     for task in still_running:

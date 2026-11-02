@@ -34,6 +34,7 @@ def make_worker():
     worker.prompt_queue = []
     worker._queue_counter = 0
     worker._queue_lock = threading.Lock()
+    worker.worktree = None
     return worker
 
 
@@ -476,3 +477,26 @@ async def test_persist_reuses_existing_worker(coder):
     get_files.return_value.reset.assert_called_once()
     get_chunks.return_value.add_system_message.assert_called_once()
     assert service.reaped == []
+
+
+@pytest.mark.asyncio
+async def test_worktree_recorded_and_logged(coder):
+    worker = make_worker()
+    worker.received = []
+
+    class Record:
+        def to_dict(self):
+            return {"branch": "cecli/wf-demo-1234", "path": "/tmp/wt"}
+
+    worker.worktree = Record()
+    service = FakeService(worker, _drain)
+    wf = _wf(TaskConfig(prompt="x"))
+
+    result = await _execute(service, wf, coder)
+
+    assert result.worktree == {"branch": "cecli/wf-demo-1234", "path": "/tmp/wt"}
+
+    from cecli.helpers.workflows.logs import read_log_lines
+
+    finish = [e for e in read_log_lines(result.log_path) if e.get("event") == "finish"][-1]
+    assert finish["worktree"] == result.worktree

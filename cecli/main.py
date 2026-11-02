@@ -1515,6 +1515,15 @@ async def main_async(
         except Exception:
             logging.exception("workflow sub-agent registration failed")
 
+    # Sweep worktrees left behind by dead processes before the session starts.
+    # Best-effort: a worktree failure must never block startup.
+    try:
+        from cecli.helpers.worktrees import WorktreeManager
+
+        WorktreeManager.sweep_stale()
+    except Exception:
+        logging.warning("worktree sweep failed", exc_info=True)
+
     # Creator ``agents:`` map: re-read it so the spawn-time override index is
     # fresh, then register definition entries as dynamic ``creator:<name>``
     # sub-agents. The map never flows through agent_config.
@@ -2018,9 +2027,23 @@ async def graceful_exit(coder=None, exit_code=0):
             if info.generate_task is not None
         ]
         await coroutines.cancel_and_abandon(agent_tasks)
-        agent_service.cleanup_all_for_parent()
+        # Cancel background tasks again before the blocking worktree release:
+        # abandoned tasks can outlive their loop, and re-cancelling them after a
+        # long git operation can hit "Event loop is closed".
         await coroutines.cancel_and_abandon(list(coroutines.background_tasks))
+        agent_service.cleanup_all_for_parent()
         await _stop_scheduler_quietly(coder)
+
+        # Release every worktree owned by this process, including ones that were
+        # never attached to a tracked sub-agent. Best-effort on the way out.
+        try:
+            import logging
+
+            from cecli.helpers.worktrees import WorktreeManager
+
+            WorktreeManager.release_all(pid=os.getpid())
+        except Exception:
+            logging.warning("worktree release on exit failed", exc_info=True)
 
         if coder.mcp_manager and coder.mcp_manager.is_connected:
             await coder.mcp_manager.disconnect_all()

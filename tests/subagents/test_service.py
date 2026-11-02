@@ -5,6 +5,7 @@ Tests for cecli/helpers/agents/service.py — AgentService.
 import asyncio
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1279,3 +1280,239 @@ class TestStartGenerateTaskSwitch:
         service.switch_sub_agent_coder.assert_awaited_once()
         assert service.switch_sub_agent_coder.call_args.args[0] is info
         assert info.status == SubAgentStatus.FINISHED
+
+
+class TestWorktreeRoots:
+    """Working-directory and worktree resolution in _create_sub_agent_coder()."""
+
+    def _register(self, name, metadata):
+        from cecli.helpers.agents.config import SubAgentConfig
+
+        AgentService.register_subagent(
+            name, SubAgentConfig(name=name, prompt="", metadata=metadata)
+        )
+
+    async def _spawn(self, service, name, **kwargs):
+        mock_new_coder = MagicMock()
+        mock_new_coder.tui = None
+
+        with patch("cecli.coders.Coder") as MockCoder:
+            MockCoder.create = AsyncMock(return_value=mock_new_coder)
+            with patch("cecli.helpers.conversation.service.ConversationService") as MockConv:
+                MockConv.get_chunks.return_value = MagicMock()
+                coder, info = await service.spawn(name, parent=service.coder, **kwargs)
+
+        return MockCoder, mock_new_coder, coder, info
+
+    def _record(self, path):
+        return SimpleNamespace(path=str(path), to_dict=lambda: {"path": str(path)})
+
+    def test_resolve_root_resolves_relative_against_base(self, tmp_path):
+        base = tmp_path / "project"
+        child = base / "packages" / "api"
+        child.mkdir(parents=True)
+
+        assert AgentService._resolve_root("packages/api", str(base)) == str(child.resolve())
+
+    def test_resolve_root_rejects_missing_directory(self, tmp_path):
+        with pytest.raises(ValueError, match="not an existing directory"):
+            AgentService._resolve_root(str(tmp_path / "missing"))
+
+    @pytest.mark.asyncio
+    async def test_explicit_root_wins_over_worktree(self, service, tmp_path):
+        self._register("reviewer", {"worktree": {}})
+        explicit = tmp_path / "explicit"
+        explicit.mkdir()
+
+        with patch("cecli.helpers.worktrees.WorktreeManager.create") as create:
+            MockCoder, _, _, info = await self._spawn(service, "reviewer", root=str(explicit))
+
+        create.assert_not_called()
+        assert MockCoder.create.call_args[1]["root"] == str(explicit.resolve())
+        assert info.worktree is None
+
+    @pytest.mark.asyncio
+    async def test_non_workflow_agent_ignores_worktree_metadata(self, service, tmp_path):
+        service.coder.root = str(tmp_path)
+        source = tmp_path / "source"
+        source.mkdir()
+        self._register(
+            "reviewer",
+            {"worktree": {}, "worktree_source": str(source), "root": str(source)},
+        )
+
+        with patch("cecli.helpers.worktrees.WorktreeManager.create") as create:
+            _, _, _, info = await self._spawn(service, "reviewer")
+
+        create.assert_not_called()
+        assert info.worktree is None
+
+    @pytest.mark.asyncio
+    async def test_override_root_beats_resume_and_spec(self, service, tmp_path, monkeypatch):
+        override_root = tmp_path / "override"
+        override_root.mkdir()
+        monkeypatch.setattr(
+            AgentService, "_agent_overrides", {"reviewer": {"root": str(override_root)}}
+        )
+        self._register("reviewer", {"worktree": {}})
+
+        with (
+            patch("cecli.helpers.worktrees.WorktreeManager.create") as create,
+            patch("cecli.helpers.worktrees.WorktreeManager.recreate") as recreate,
+        ):
+            MockCoder, _, _, info = await self._spawn(
+                service,
+                "reviewer",
+                resume_worktree=self._record(tmp_path / "saved"),
+            )
+
+        create.assert_not_called()
+        recreate.assert_not_called()
+        assert MockCoder.create.call_args[1]["root"] == str(override_root.resolve())
+        assert info.worktree is None
+
+    @pytest.mark.asyncio
+    async def test_resume_worktree_recreates_and_attaches_record(self, service, tmp_path):
+        service.coder.root = str(tmp_path)
+        self._register("wf:demo", {"worktree": {}})
+        saved = {"uuid": "old", "path": str(tmp_path / "old-path")}
+        record = self._record(tmp_path / "restored")
+
+        with (
+            patch(
+                "cecli.helpers.worktrees.WorktreeManager.recreate", return_value=record
+            ) as recreate,
+            patch("cecli.helpers.worktrees.WorktreeManager.create") as create,
+        ):
+            MockCoder, new_coder, _, info = await self._spawn(
+                service, "wf:demo", resume_worktree=saved
+            )
+
+        create.assert_not_called()
+        recreate.assert_called_once()
+        assert recreate.call_args.args[0] == saved
+        assert recreate.call_args.kwargs["agent_name"] == "wf:demo"
+        assert MockCoder.create.call_args[1]["root"] == record.path
+        assert new_coder.worktree is record
+        assert info.worktree is record
+
+    @pytest.mark.asyncio
+    async def test_enabled_worktree_spec_is_a_dict(self, service, tmp_path):
+        """worktree: true normalises to {} and must still create a worktree."""
+        service.coder.root = str(tmp_path)
+        source = tmp_path / "source"
+        source.mkdir()
+        self._register("wf:demo", {"worktree": {}, "worktree_source": str(source)})
+        record = self._record(tmp_path / "created")
+
+        with patch("cecli.helpers.worktrees.WorktreeManager.create", return_value=record) as create:
+            MockCoder, _, _, info = await self._spawn(service, "wf:demo")
+
+        create.assert_called_once()
+        assert create.call_args.kwargs["source"] == str(source)
+        assert create.call_args.kwargs["base_ref"] is None
+        assert create.call_args.kwargs["base_root"] == str(tmp_path)
+        assert MockCoder.create.call_args[1]["root"] == record.path
+        assert info.worktree is record
+
+    @pytest.mark.asyncio
+    async def test_worktree_spec_passes_branch_and_parent_root(self, service, tmp_path):
+        service.coder.root = str(tmp_path)
+        self._register("wf:branch", {"worktree": {"branch": "feature"}})
+        record = self._record(tmp_path / "branch-worktree")
+
+        with patch("cecli.helpers.worktrees.WorktreeManager.create", return_value=record) as create:
+            await self._spawn(service, "wf:branch")
+
+        assert create.call_args.kwargs["base_ref"] == "feature"
+        assert create.call_args.kwargs["source"] == str(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_worktree_creation_failure_raises(self, service, tmp_path):
+        service.coder.root = str(tmp_path)
+        self._register("wf:fail", {"worktree": {}})
+
+        with patch(
+            "cecli.helpers.worktrees.WorktreeManager.create", side_effect=RuntimeError("boom")
+        ):
+            with pytest.raises(RuntimeError, match="Failed to create worktree"):
+                await self._spawn(service, "wf:fail")
+
+    @pytest.mark.asyncio
+    async def test_coder_creation_failure_releases_worktree(self, service, tmp_path):
+        service.coder.root = str(tmp_path)
+        self._register("wf:fail", {"worktree": {}})
+        record = self._record(tmp_path / "created")
+
+        with (
+            patch("cecli.helpers.worktrees.WorktreeManager.create", return_value=record),
+            patch("cecli.helpers.worktrees.WorktreeManager.release") as release,
+            patch("cecli.coders.Coder") as MockCoder,
+            patch("cecli.helpers.conversation.service.ConversationService"),
+        ):
+            MockCoder.create = AsyncMock(side_effect=RuntimeError("coder failed"))
+            with pytest.raises(RuntimeError, match="coder failed"):
+                await service.spawn("wf:fail", parent=service.coder)
+
+        release.assert_called_once_with(record)
+
+    def test_cleanup_releases_finished_worktree(self, service, tmp_path):
+        path = tmp_path / "finished"
+        record = self._record(path)
+        info = SubAgentInfo(name="reviewer", coder=MagicMock(), parent_uuid="parent-uuid")
+        info.coder.uuid = "sub-uuid"
+        info.worktree = record
+        service.sub_agents["agent"] = info
+        service._sub_agent_order.append("agent")
+        result = SimpleNamespace(to_dict=lambda: {"path": str(path), "branch": "cecli/x"})
+
+        with (
+            patch(
+                "cecli.helpers.worktrees.WorktreeManager.release", return_value=result
+            ) as release,
+            patch("cecli.repo.GitRepoProxy.evict") as evict,
+        ):
+            service._cleanup_sub_agent("agent")
+
+        release.assert_called_once_with(record)
+        evict.assert_called_once_with(str(path))
+        events = [
+            call
+            for call in service.coder.io.subagent_event.call_args_list
+            if call.args[1] == "worktree"
+        ]
+        assert events and events[0].kwargs["path"] == str(path)
+
+    def test_cleanup_leaves_running_worktree_to_release_all(self, service, tmp_path):
+        record = self._record(tmp_path / "running")
+        info = SubAgentInfo(name="reviewer", coder=MagicMock(), parent_uuid="parent-uuid")
+        info.coder.uuid = "sub-uuid"
+        info.worktree = record
+        info.generate_task = MagicMock()
+        info.generate_task.done.return_value = False
+        service.sub_agents["agent"] = info
+        service._sub_agent_order.append("agent")
+
+        with patch("cecli.helpers.worktrees.WorktreeManager.release") as release:
+            service._cleanup_sub_agent("agent")
+
+        release.assert_not_called()
+
+    def test_cleanup_survives_release_failure(self, service, tmp_path):
+        record = self._record(tmp_path / "broken")
+        info = SubAgentInfo(name="reviewer", coder=MagicMock(), parent_uuid="parent-uuid")
+        info.coder.uuid = "sub-uuid"
+        info.worktree = record
+        service.sub_agents["agent"] = info
+        service._sub_agent_order.append("agent")
+
+        with (
+            patch(
+                "cecli.helpers.worktrees.WorktreeManager.release",
+                side_effect=RuntimeError("release failed"),
+            ),
+            patch("cecli.repo.GitRepoProxy.evict"),
+        ):
+            service._cleanup_sub_agent("agent")
+
+        assert "agent" not in service.sub_agents

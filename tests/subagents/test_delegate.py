@@ -2,6 +2,8 @@
 Tests for cecli/tools/delegate.py — Delegate tool execution.
 """
 
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -193,3 +195,111 @@ class TestDelegateTool:
                 "reviewer", "blocking", parent=mock_coder, auto_reap=False
             )
             assert "agent completed" in str(result)
+
+    def test_schema_declares_working_dir(self):
+        """The delegation schema accepts an optional per-agent working directory."""
+        from cecli.tools.delegate import Tool
+
+        item = Tool.SCHEMA["function"]["parameters"]["properties"]["delegations"]["items"]
+        assert item["properties"]["working_dir"]["type"] == "string"
+
+    @pytest.mark.asyncio
+    async def test_working_dir_is_passed_to_spawn(self):
+        """working_dir is passed as root for async delegations."""
+        from cecli.tools.delegate import Tool
+
+        mock_coder = MagicMock()
+        mock_coder.uuid = "parent-uuid"
+
+        with patch("cecli.helpers.agents.service.AgentService") as MockService:
+            mock_instance = MagicMock()
+            mock_info = MagicMock()
+            mock_info.coder.uuid = "child-uuid"
+            mock_instance.spawn = AsyncMock(return_value=(MagicMock(), mock_info))
+            MockService.get_instance.return_value = mock_instance
+
+            await Tool.execute(
+                mock_coder,
+                delegations=[
+                    {
+                        "name": "reviewer",
+                        "prompt": "review",
+                        "working_dir": "packages/api",
+                    }
+                ],
+            )
+
+            mock_instance.spawn.assert_awaited_once_with(
+                "reviewer",
+                "review",
+                parent=mock_coder,
+                auto_reap=None,
+                root="packages/api",
+            )
+
+    @pytest.mark.asyncio
+    async def test_working_dir_is_passed_to_invoke(self):
+        """working_dir is passed as root for sync delegations."""
+        from cecli.tools.delegate import Tool
+
+        mock_coder = MagicMock()
+        mock_coder.uuid = "parent-uuid"
+
+        with patch("cecli.helpers.agents.service.AgentService") as MockService:
+            mock_instance = MagicMock()
+            mock_instance.invoke = AsyncMock(return_value="done")
+            MockService.get_instance.return_value = mock_instance
+
+            await Tool.execute(
+                mock_coder,
+                delegations=[
+                    {
+                        "name": "reviewer",
+                        "prompt": "review",
+                        "working_dir": "/tmp/project",
+                        "async": False,
+                    }
+                ],
+            )
+
+            mock_instance.invoke.assert_awaited_once_with(
+                "reviewer",
+                "review",
+                parent=mock_coder,
+                auto_reap=None,
+                root="/tmp/project",
+            )
+
+    def test_format_output_shows_working_dir(self):
+        """format_output displays an explicit delegation working_dir."""
+        from cecli.tools.delegate import Tool
+
+        coder = MagicMock()
+        coder.pretty = False
+        coder.verbose = False
+        tool_response = SimpleNamespace(
+            function=SimpleNamespace(
+                name="Delegate",
+                arguments=json.dumps(
+                    {
+                        "delegations": [
+                            {
+                                "name": "reviewer",
+                                "prompt": "review",
+                                "working_dir": "packages/api",
+                            }
+                        ]
+                    }
+                ),
+            )
+        )
+
+        with (
+            patch("cecli.tools.delegate.tool_header"),
+            patch("cecli.tools.delegate.tool_footer"),
+            patch("cecli.tools.delegate.color_markers", return_value=("", "")),
+        ):
+            Tool.format_output(coder, mcp_server=MagicMock(), tool_response=tool_response)
+
+        rendered = "\n".join(str(call.args[0]) for call in coder.io.tool_output.call_args_list)
+        assert "working_dir: packages/api" in rendered

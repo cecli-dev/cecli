@@ -183,3 +183,56 @@ def test_workflow_metadata_overrides_subagent_config():
     assert agent_config["servers_includelist"] == ["gitlab"]
     assert agent_config["skip_cli_confirmations"] is True
     assert agent_config["detached"] is True
+
+
+# ---------------------------------------------------------------- worktree --
+
+
+def test_worktree_metadata_uses_repo():
+    wf = _wf(repo="/repos/app", worktree={"branch": "main"})
+
+    register_workflow_subagents([wf])
+    cfg = AgentService.get_registry()["wf:check-pipeline"]
+
+    assert cfg.metadata["worktree"] == {"branch": "main"}
+    assert cfg.metadata["worktree_source"] == "/repos/app"
+
+
+def test_worktree_metadata_uses_normalized_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    wf = _wf(root="~/repo", worktree=True)
+
+    register_workflow_subagents([wf])
+    cfg = AgentService.get_registry()["wf:check-pipeline"]
+
+    assert cfg.metadata["worktree"] == {}
+    assert cfg.metadata["worktree_source"] == str(root.expanduser().resolve())
+
+
+def test_worktree_metadata_uses_source_path_git_root(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / "workflows" / "nightly.yml"
+    monkeypatch.setattr(wf_subagents, "_git_toplevel", lambda path: str(repo))
+
+    wf = _wf(name="nightly", source_path=str(source), worktree=True)
+
+    register_workflow_subagents([wf])
+    cfg = AgentService.get_registry()["wf:nightly"]
+
+    assert cfg.metadata["worktree"] == {}
+    assert cfg.metadata["worktree_source"] == str(repo)
+
+
+def test_no_worktree_metadata_when_disabled():
+    wf = _wf(root="/repos/app")
+
+    register_workflow_subagents([wf])
+    cfg = AgentService.get_registry()["wf:check-pipeline"]
+
+    assert "worktree" not in cfg.metadata
+    assert "worktree_source" not in cfg.metadata

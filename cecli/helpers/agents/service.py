@@ -87,6 +87,7 @@ class SubAgentInfo:
     independent: bool = False
     detached: bool = False
     cancel_requested: bool = False  # the current run was cancelled (see _was_cancelled)
+    worktree: Optional[Any] = None
 
 
 class AgentService:
@@ -535,6 +536,28 @@ class AgentService:
         if info is None:
             return
 
+        # Release a finished agent's worktree before tearing down its coder. A
+        # still-running task is left to WorktreeManager.release_all() on exit.
+        worktree = getattr(info, "worktree", None)
+        if worktree is not None and (info.generate_task is None or info.generate_task.done()):
+            record = worktree
+            result = self._release_worktree(
+                record, f"Failed to release worktree for sub-agent {agent_uuid}"
+            )
+            if result is not None:
+                _subagent_event(self.coder, info.coder.uuid, "worktree", **result.to_dict())
+
+            path = getattr(record, "path", None)
+            if path is None and isinstance(record, dict):
+                path = record.get("path")
+            if path:
+                try:
+                    from cecli.repo import GitRepoProxy
+
+                    GitRepoProxy.evict(str(path))
+                except Exception:
+                    logger.warning("Failed to evict worktree repo proxy", exc_info=True)
+
         # Destroy conversation resources for the sub-agent
         from cecli.helpers.conversation.service import ConversationService
 
@@ -590,6 +613,20 @@ class AgentService:
         AgentTree.unregister(info.coder.uuid)
         self.destroy_instance(info.coder.uuid)
 
+    @staticmethod
+    def _release_worktree(record: Any, failure_message: str) -> Any:
+        """Release *record*, logging *failure_message* if the release raises.
+
+        Returns the release result, or None when the release failed.
+        """
+        try:
+            from cecli.helpers.worktrees import WorktreeManager
+
+            return WorktreeManager.release(record)
+        except Exception:
+            logger.warning("%s", failure_message, exc_info=True)
+            return None
+
     def _check_max_sub_agents(self) -> None:
         """If we've hit max_sub_agents, reap the oldest finished one.
 
@@ -618,12 +655,31 @@ class AgentService:
                 "Wait for one to finish or use /reap-agent to free resources."
             )
 
+    @staticmethod
+    def _resolve_root(value: Any, base: Any = None) -> str:
+        """Resolve *value* to an absolute, existing directory.
+
+        Relative paths resolve against *base* (usually the parent coder's root).
+        """
+        from pathlib import Path
+
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            base_path = Path(base).expanduser() if isinstance(base, (str, Path)) else Path.cwd()
+            path = base_path / path
+        path = path.resolve()
+        if not path.is_dir():
+            raise ValueError(f"Sub-agent root is not an existing directory: {path}")
+        return str(path)
+
     async def _create_sub_agent_coder(
         self,
         name: str,
         parent: Any = None,
         auto_reap: Optional[bool] = None,
         independent: bool = False,
+        root: Any = None,
+        resume_worktree: Any = None,
     ) -> Tuple[Any, SubAgentInfo]:
         """Create a sub-agent coder, register it, and set up its container and prompt.
 
@@ -639,6 +695,10 @@ class AgentService:
             auto_reap: If True, agent may be automatically reaped when FINISHED.
                     If not set, defers to the sub-agent config's ``auto_reap``
                     value, then defaults to ``True``.
+            independent: If True, the sub-agent is detached from its parent.
+            root: Optional working directory for the sub-agent. Relative paths
+                    resolve against the parent coder's root.
+            resume_worktree: Optional saved worktree record to recreate and use.
 
         Returns:
             Tuple of ``(new_coder, info)``.
@@ -682,13 +742,21 @@ class AgentService:
 
         from cecli.coders import Coder
 
-        metadata = getattr(config, "metadata", {}).copy()
+        metadata = getattr(config, "metadata", None)
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
         agent_config = metadata.get("agent-config", {})
 
         # Optional per-sub-agent root override for multi-project workspaces.
         configured_root = metadata.get("root")
         if not configured_root and isinstance(agent_config, dict):
             configured_root = agent_config.get("root")
+
+        worktree_spec = (
+            metadata.get("worktree")
+            if name.startswith("wf:") and isinstance(metadata, dict)
+            else None
+        )
+        override_root = override.get("root") if override else None
 
         # Workspace/workflow sub-agents (ws:*, wf:*) inherit the parent/primary
         # coder's agent_config as their default; the agent's own metadata
@@ -711,7 +779,6 @@ class AgentService:
         # this merge so an allowlist override cannot hide the file/exec tools.
         if override:
             agent_config = apply_agent_override(agent_config, override.get("agent-config"))
-            configured_root = override.get("root") or configured_root
             if override.get("description") is not None:
                 metadata["description"] = override["description"]
             if "detached" in override:
@@ -725,6 +792,46 @@ class AgentService:
             if "local" not in servers:
                 servers.append("local")
             agent_config["servers_includelist"] = servers
+
+        if not name.startswith("wf:"):
+            resume_worktree = None
+
+        parent_root = getattr(parent_coder, "root", None) or None
+        worktree_record = None
+        resolved_root = None
+
+        if root is not None:
+            resolved_root = self._resolve_root(root, parent_root)
+        elif override_root:
+            resolved_root = str(override_root)
+        elif resume_worktree is not None:
+            from cecli.helpers.worktrees import WorktreeManager
+
+            worktree_record = await asyncio.to_thread(
+                WorktreeManager.recreate,
+                resume_worktree,
+                agent_name=name,
+                uuid=new_uuid,
+            )
+            resolved_root = worktree_record.path
+        elif worktree_spec is not None:
+            from cecli.helpers.worktrees import WorktreeManager
+
+            base_ref = worktree_spec.get("branch") if isinstance(worktree_spec, dict) else None
+            try:
+                worktree_record = await asyncio.to_thread(
+                    WorktreeManager.create,
+                    agent_name=name,
+                    uuid=new_uuid,
+                    source=metadata.get("worktree_source") or parent_root,
+                    base_ref=base_ref,
+                    base_root=parent_root,
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to create worktree for sub-agent '{name}': {e}") from e
+            resolved_root = worktree_record.path
+        elif configured_root:
+            resolved_root = str(configured_root)
 
         kwargs = dict(
             io=parent_coder.io,
@@ -751,8 +858,8 @@ class AgentService:
                 )
             )
 
-        if configured_root:
-            kwargs["root"] = configured_root
+        if resolved_root:
+            kwargs["root"] = resolved_root
 
         if agent_config:
             # Reset the per-instance tool/server filters so AgentCoder.post_init()
@@ -784,35 +891,57 @@ class AgentService:
                     agent_model=model_override,
                 )
 
-        new_coder = await Coder.create(**kwargs)
+        try:
+            new_coder = await Coder.create(**kwargs)
+        except BaseException:
+            if worktree_record is not None:
+                await asyncio.to_thread(
+                    self._release_worktree,
+                    worktree_record,
+                    "Failed to release worktree after coder creation failed",
+                )
+            raise
+
         new_coder.max_sub_agents = getattr(self.coder, "max_sub_agents", 30)
+        if worktree_record is not None:
+            new_coder.worktree = worktree_record
         # IOProxy wrapping is handled by base_coder.py's Coder.__init__
 
         # Re-acquire the lock to register — we must re-check max agents since
         # the lock was released and other spawns may have registered in between.
-        with self._get_lock(self._spawn_locks, parent_coder.uuid):
-            self._check_max_sub_agents()
+        try:
+            with self._get_lock(self._spawn_locks, parent_coder.uuid):
+                self._check_max_sub_agents()
 
-            # Register in global coder lookup and the visibility tree
-            self._uuid_coder_map[new_uuid] = weakref.ref(new_coder)
-            AgentTree.register(
-                str(new_coder.uuid),
-                parent_uuid=str(parent_coder.uuid),
-                name=name,
-            )
+                # Register in global coder lookup and the visibility tree
+                self._uuid_coder_map[new_uuid] = weakref.ref(new_coder)
+                AgentTree.register(
+                    str(new_coder.uuid),
+                    parent_uuid=str(parent_coder.uuid),
+                    name=name,
+                )
 
-            info = SubAgentInfo(
-                name=name,
-                coder=new_coder,
-                parent_uuid=parent_coder.uuid,
-                status=SubAgentStatus.CREATED,
-                auto_reap=auto_reap,
-                independent=independent,
-                detached=isinstance(agent_config, dict)
-                and bool(agent_config.get("detached", False)),
-            )
-            self.sub_agents[new_coder.uuid] = info
-            self._sub_agent_order.append(new_coder.uuid)
+                info = SubAgentInfo(
+                    name=name,
+                    coder=new_coder,
+                    parent_uuid=parent_coder.uuid,
+                    status=SubAgentStatus.CREATED,
+                    auto_reap=auto_reap,
+                    independent=independent,
+                    detached=isinstance(agent_config, dict)
+                    and bool(agent_config.get("detached", False)),
+                    worktree=worktree_record,
+                )
+                self.sub_agents[new_coder.uuid] = info
+                self._sub_agent_order.append(new_coder.uuid)
+        except BaseException:
+            if worktree_record is not None:
+                await asyncio.to_thread(
+                    self._release_worktree,
+                    worktree_record,
+                    "Failed to release worktree after registration failed",
+                )
+            raise
 
         # Notify TUI to create a container
         try:
@@ -821,16 +950,15 @@ class AgentService:
                 _tui_notify(tui, tui.create_sub_agent_container, new_uuid, name)
         except Exception:
             logger.warning("Failed to notify TUI to create sub-agent container", exc_info=True)
-
-        _subagent_event(
-            parent_coder,
-            new_coder.uuid,
-            "created",
+        created_event = dict(
             parent_uuid=str(parent_coder.uuid),
             name=name,
             description=metadata.get("description") if isinstance(metadata, dict) else None,
             root=str(getattr(new_coder, "root", "") or ""),
         )
+        if worktree_record is not None:
+            created_event["worktree"] = worktree_record.to_dict()
+        _subagent_event(parent_coder, new_coder.uuid, "created", **created_event)
 
         # Initialize system prompt from config
         system_prompt = override.get("prompt") or getattr(config, "prompt", "")
@@ -894,6 +1022,7 @@ class AgentService:
         kwargs["summarize_from_coder"] = False
 
         new_coder = await Coder.create(**kwargs)
+        new_coder.worktree = getattr(old_coder, "worktree", None)
         AgentTree.replace(old_coder.uuid, new_coder.uuid)
 
         new_coder.prompt_queue = list(old_coder.prompt_queue)
@@ -1138,6 +1267,8 @@ class AgentService:
         blocking: bool = True,
         parent: Any = None,
         auto_reap: Optional[bool] = None,
+        root: Any = None,
+        resume_worktree: Any = None,
     ) -> Optional[str]:
         """Invoke a sub-agent by name with the given prompt (blocking by default).
 
@@ -1147,9 +1278,15 @@ class AgentService:
             blocking: If True, waits for completion and returns summary.
             parent: Optional coder instance to use as the parent for nested
                    sub-agent hierarchies. Defaults to ``self.coder``.
+            root: Optional working directory for this invocation.
+            resume_worktree: Optional saved worktree record to recreate.
         """
         new_coder, info = await self._create_sub_agent_coder(
-            name, auto_reap=auto_reap, parent=parent
+            name,
+            auto_reap=auto_reap,
+            parent=parent,
+            root=root,
+            resume_worktree=resume_worktree,
         )
 
         if not blocking:
@@ -1182,6 +1319,8 @@ class AgentService:
         parent: Any = None,
         auto_reap: Optional[bool] = None,
         independent: bool = False,
+        root: Any = None,
+        resume_worktree: Any = None,
     ) -> Tuple[Any, SubAgentInfo]:
         """Spawn a sub-agent (non-blocking) that waits for user input.
 
@@ -1191,13 +1330,20 @@ class AgentService:
                     immediately with this prompt (fire-and-forget).
             parent: Optional coder instance to use as the parent for nested
                    sub-agent hierarchies. Defaults to ``self.coder``.
+            root: Optional working directory for the sub-agent.
+            resume_worktree: Optional saved worktree record to recreate.
 
         Returns:
             Tuple of ``(new_coder, info)`` so callers can further interact
             with the sub-agent (e.g. call ``start_generate_task`` later).
         """
         new_coder, info = await self._create_sub_agent_coder(
-            name, auto_reap=auto_reap, parent=parent, independent=independent
+            name,
+            auto_reap=auto_reap,
+            parent=parent,
+            independent=independent,
+            root=root,
+            resume_worktree=resume_worktree,
         )
         if prompt:
             sender = parent if parent is not None else self.coder
@@ -1264,6 +1410,7 @@ class AgentService:
                 "uuid": info.coder.uuid,
                 "status": info.status.value,
                 "summary": info.summary,
+                "worktree": info.worktree.to_dict() if info.worktree is not None else None,
             }
             for info in self.sub_agents.values()
         ]

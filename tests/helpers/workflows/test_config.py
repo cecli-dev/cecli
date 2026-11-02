@@ -657,3 +657,115 @@ def test_persist_string_false_is_not_truthy():
     )
 
     assert wf.persist is False
+
+
+# ── repo + worktree ────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (True, {}),
+        (None, None),
+        (False, None),
+        ({"branch": "main"}, {"branch": "main"}),
+    ],
+)
+def test_worktree_normalized(raw, expected):
+    wf = models.WorkflowConfig.from_dict(
+        {"name": "wt", "worktree": raw, "tasks": [{"prompt": "x"}]}
+    )
+
+    assert wf.worktree == expected
+
+
+def test_repo_and_worktree_round_trip(isolated):
+    _home_workflow(
+        isolated["wdir"],
+        "wt.yml",
+        "name: wt\n"
+        "repo: /repos/app\n"
+        "worktree:\n"
+        "  branch: main\n"
+        "tasks:\n"
+        "  - prompt: x\n",
+    )
+
+    wf = load_workflows()[0]
+
+    assert wf.repo == "/repos/app"
+    assert wf.worktree == {"branch": "main"}
+    assert wf.to_dict()["repo"] == "/repos/app"
+    assert wf.to_dict()["worktree"] == {"branch": "main"}
+
+
+def test_worktree_true_is_enabled_with_defaults(isolated):
+    _home_workflow(
+        isolated["wdir"],
+        "wt-true.yml",
+        "name: wt-true\nrepo: /repos/app\nworktree: true\ntasks:\n  - prompt: x\n",
+    )
+
+    wf = load_workflows()[0]
+
+    assert wf.worktree == {}
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, ["main"]])
+def test_worktree_wrong_type_raises(bad):
+    wf = models.WorkflowConfig(name="wt", tasks=[models.TaskConfig(prompt="p")], worktree=bad)
+
+    with pytest.raises(ValueError, match="'worktree' must be a boolean or a mapping"):
+        validate_workflow_config(wf, {"name": "wt", "worktree": bad, "tasks": ["p"]})
+
+
+def test_worktree_branch_must_be_string():
+    wf = models.WorkflowConfig(
+        name="wt", tasks=[models.TaskConfig(prompt="p")], worktree={"branch": 3}
+    )
+
+    with pytest.raises(ValueError, match="'worktree.branch' must be a string"):
+        validate_workflow_config(wf)
+
+
+def test_unknown_worktree_key_warns():
+    wf = models.WorkflowConfig(
+        name="wt",
+        tasks=[models.TaskConfig(prompt="p")],
+        worktree={"branch": "main", "remote": "origin"},
+    )
+
+    warnings = validate_workflow_config(wf)
+
+    assert any("unknown 'worktree' key(s) ignored" in w and "remote" in w for w in warnings)
+
+
+def test_repo_must_be_string():
+    wf = models.WorkflowConfig(name="wt", tasks=[models.TaskConfig(prompt="p")], repo=123)
+
+    with pytest.raises(ValueError, match="'repo' must be a string"):
+        validate_workflow_config(wf)
+
+
+def test_worktree_without_source_warns():
+    wf = models.WorkflowConfig(name="wt", tasks=[models.TaskConfig(prompt="p")], worktree={})
+
+    warnings = validate_workflow_config(wf)
+
+    assert any("no source repository could be inferred" in w for w in warnings)
+
+
+def test_worktree_true_is_normalized_programmatically():
+    wf = models.WorkflowConfig(name="wt", tasks=[models.TaskConfig(prompt="p")], worktree=True)
+
+    assert wf.worktree == {}
+    assert wf.to_dict()["worktree"] == {}
+
+
+def test_to_dict_omits_absent_repo_and_worktree():
+    wf = models.WorkflowConfig(name="wt", tasks=[models.TaskConfig(prompt="p")])
+
+    data = wf.to_dict()
+
+    assert "repo" not in data
+    assert "worktree" not in data

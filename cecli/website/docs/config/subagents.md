@@ -112,7 +112,28 @@ The primary agent can also delegate work using the `Delegate` tool. This enables
 4. Sub-agents work independently and return their summaries
 5. The primary agent synthesizes the results
 
+#### Delegation Working Directory
+
+Each entry in the `Delegate` tool's `delegations` array accepts an optional `working_dir` string. It sets the working directory (the sub-agent coder's root) for that delegation only.
+
+- Relative paths resolve against the dispatching agent's root.
+- Absolute paths are used as-is.
+- Omitting `working_dir` keeps the normal inheritance behavior: the sub-agent uses the parent agent's root, or the workflow/workspace/worktree root when applicable.
+
+```json
+{
+  "delegations": [
+    {
+      "name": "reviewer",
+      "prompt": "Review the API package",
+      "working_dir": "packages/api"
+    }
+  ]
+}
+```
+
 ### Spawning a Sub-Agent Without a Prompt
+
 
 Creates a sub-agent that waits for you to interact with it directly:
 
