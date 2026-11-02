@@ -1,0 +1,154 @@
+/* -------------------------------------------------------------- tool cards */
+
+.tool-card {
+  margin: 9px 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(17, 20, 45, 0.04);
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+}
+
+.tool-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: var(--accent-a);
+  background: #f3f1ff;
+}
+
+.tool-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tool-title-wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tool-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.3px;
+  font-weight: 550;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-locations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tool-loc {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.chip {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip[data-status="in_progress"] {
+  color: #5b4bd8;
+  border-color: #d9d3ff;
+  background: #f3f1ff;
+}
+
+.chip[data-status="completed"] {
+  color: #0b7a5c;
+  border-color: #cdeee2;
+  background: #eefaf5;
+}
+
+.chip[data-status="failed"] {
+  color: #b42c3c;
+  border-color: #f3d1d6;
+  background: #fdf1f3;
+}
+
+.tool-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tool-toggle:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.tool-toggle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.tool-toggle svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.18s ease;
+}
+
+.tool-card.is-open .tool-toggle svg {
+  transform: rotate(180deg);
+}
+
+.tool-body {
+  border-top: 1px solid var(--border);
+  background: #fafafa;
+}
+
+.tool-body pre {
+  max-height: 300px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+}
+
+.tool-body code {
+  color: #3a3b45;
+  font-family: var(--font-mono);
+  font-size: 11.8px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

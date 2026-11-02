@@ -1,0 +1,116 @@
+/* cecli desktop — clean chat design system */
+
+/* ---------------------------------------------------------------- tokens */
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text: #202124;
+  --text-dim: #4b4d57;
+  --text-muted: #8b8d98;
+
+  --surface: #ffffff;
+  --surface-muted: #f7f7f9;
+  --border: #e6e6ea;
+  --border-strong: #d7d7de;
+
+  --ccli-glass-bg: rgba(255, 255, 255, 0.82);
+  --ccli-glass-border: #e6e6ea;
+  --ccli-glass-border-strong: #d0d0d8;
+  --ccli-glass-blur: blur(22px) saturate(140%);
+  --shadow-panel: 0 10px 30px rgba(17, 20, 45, 0.05), 0 1px 2px rgba(17, 20, 45, 0.04);
+  --shadow-soft: 0 8px 24px rgba(17, 20, 45, 0.07);
+
+  --radius-xl: 26px;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+
+  --accent-a: #6f5bf0;
+  --accent-b: #8b7bff;
+  --accent-c: #10a37f;
+  --accent-gradient: linear-gradient(135deg, #8b7bff 0%, #6f5bf0 100%);
+  --positive: #0f9d76;
+  --danger: #d93a4a;
+  --warn: #b7791f;
+  --ok: #10a37f;
+}
+
+/* ------------------------------------------------------------------ reset */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(111, 91, 240, 0.6);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cfcfd7 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #d4d4dc;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------------------------------------------------------- daisy overrides */
+
+.badge.pill,
+.badge.chip,
+.badge.logs-count,
+.badge.plan-count {
+  height: auto;
+  line-height: 1.45;
+}
+
+.select.picker-select {
+  height: auto;
+}

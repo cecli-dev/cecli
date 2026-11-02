@@ -1,0 +1,103 @@
+/* ----------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 22px 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--accent-gradient);
+  box-shadow: 0 4px 12px -4px rgba(111, 91, 240, 0.6);
+}
+
+.brand-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.brand-name {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.workspace {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.workspace-path {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- statuses */
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #b9bbc2;
+}
+
+.connection-status[data-status="starting"] .status-dot,
+.connection-status[data-status="reconnecting"] .status-dot {
+  background: var(--warn);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.connection-status[data-status="ready"] .status-dot {
+  background: var(--ok);
+}
+
+.connection-status[data-status="busy"] .status-dot {
+  background: var(--accent-a);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.connection-status[data-status="exited"] .status-dot {
+  background: var(--danger);
+}
+
+.connection-status[data-status="exited"] {
+  color: var(--danger);
+}

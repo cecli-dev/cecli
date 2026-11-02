@@ -1,0 +1,91 @@
+/* --------------------------------------------------------------- plan card */
+
+.plan-card {
+  margin: 9px 0 14px;
+  overflow: hidden;
+  border: 1px solid #ddd8ff;
+  border-radius: 16px;
+  background: #fbfaff;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #ece8ff;
+  color: #5b4bd8;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.plan-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 14px 12px;
+  list-style: none;
+}
+
+.plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.plan-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  border: 1.5px solid #c9c9d2;
+  border-radius: 50%;
+}
+
+.plan-item[data-status="completed"] {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: #c9c9d2;
+}
+
+.plan-item[data-status="completed"] .plan-mark {
+  border-color: transparent;
+  background: var(--accent-c);
+}
+
+.plan-item[data-status="completed"] .plan-mark::after {
+  content: "\2713";
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.plan-item[data-status="in_progress"] .plan-mark {
+  border-color: #d9d3ff;
+  border-top-color: var(--accent-a);
+  animation: spin 0.9s linear infinite;
+}
+
+.plan-item[data-status="pending"] .plan-mark::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c9c9d2;
+}

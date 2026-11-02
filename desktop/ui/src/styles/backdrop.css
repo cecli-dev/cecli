@@ -1,0 +1,17 @@
+/* --------------------------------------------------------------- backdrop */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 42% at 50% 0%, rgba(124, 108, 255, 0.1) 0%, transparent 70%),
+    radial-gradient(46% 38% at 86% 12%, rgba(16, 163, 127, 0.05) 0%, transparent 72%),
+    #ffffff;
+}
+
+.orb,
+.grain {
+  display: none;
+}

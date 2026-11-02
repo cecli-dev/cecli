@@ -1,0 +1,32 @@
+/** Initial client state. The store is the single owner of session state. */
+export function create_initial_state() {
+  return {
+    status: 'starting',
+    busy: false,
+    busy_message: '',
+    connected: false,
+    had_connection: false,
+    disconnect_notified: false,
+    stopping: false,
+    workspace: '',
+    session_id: null,
+    config_options: [],
+    modes: {},
+    agent: { name: 'cecli', version: '' },
+    turn_state: 'idle',
+    usage: { used: 0, size: 0, cost: null },
+    auto_scroll: true,
+    last_prompt: '',
+    retry_available: false,
+    draft: '',
+    draft_revision: 0,
+    transcript: [],
+    permissions: [],
+    logs: [],
+    toasts: [],
+    turn_sequence: 0,
+    current_assistant_id: null,
+    new_chat_pending: false,
+    restart_pending: false,
+  };
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "cecli desktop",
+  "version": "0.1.0",
+  "identifier": "com.cecli.desktop",
+  "build": {
+    "beforeDevCommand": "npm run ui:build",
+    "beforeBuildCommand": "npm run ui:build",
+    "frontendDist": "../static"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Native desktop shell for the cecli web UI",
+    "longDescription": "cecli desktop wraps the local cecli bridge in a native window, serving the UI and SSE stream from a single loopback origin.",
+    "resources": [
+      "../server.py",
+      "../static/**/*"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ]
+  }
+}
