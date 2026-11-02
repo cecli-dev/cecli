@@ -833,10 +833,12 @@ class AgentCoder(Coder):
                     result += f"- Git repository: {rel_repo_dir} with {num_files:,} files\n"
                 except Exception:
                     result += "- Git repository: active but details unavailable\n"
-                if self.mcp_manager and self.mcp_manager.connected_servers:
-                    num_mcp_servers = len(self.mcp_manager.connected_servers)
-                    result += f"- Connected MCP servers: {num_mcp_servers}\n"
+            else:
                 result += "- Git repository: none\n"
+
+            if self.mcp_manager and self.mcp_manager.connected_servers:
+                num_mcp_servers = len(self.mcp_manager.connected_servers)
+                result += f"- Connected MCP servers: {num_mcp_servers}\n"
             result += "</context>"
             return result
         except Exception as e:
