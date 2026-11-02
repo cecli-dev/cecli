@@ -1073,9 +1073,11 @@ class AgentService:
     async def _inject_sub_agent_result(self, info: SubAgentInfo) -> None:
         """Inject the sub-agent's result (summary/error) into the parent's conversation.
 
-        Adds a user message with the result content and an assistant acknowledgment
-        so the parent coder (and therefore the LLM) sees what the sub-agent produced.
-        Uses unique hash keys so multiple sub-agent completions don't overwrite each other.
+        Adds a single user message containing a typed ``<context
+        name="sub_agent_result">`` block so the parent coder (and therefore the
+        LLM) sees what the sub-agent produced. No synthetic assistant reply is
+        fabricated on the model's behalf. Uses unique hash keys so multiple
+        sub-agent completions don't overwrite each other.
         """
         from cecli.helpers.conversation.service import ConversationService
         from cecli.helpers.conversation.tags import MessageTag
@@ -1096,49 +1098,32 @@ class AgentService:
             return
 
         if info.status == SubAgentStatus.ERROR:
-            user_content = (
-                f"The **{info.name}** agent (`{coder_uuid}`) encountered an error:\n"
-                f"{info.error}"
-            )
-            assistant_content = (
-                f"The {info.name} agent `{coder_uuid}` failed with the error above. "
-                f"You may want to review or retry the delegation."
-            )
+            header = f"The **{info.name}** agent (`{coder_uuid}`) encountered an error:"
+            body = str(info.error)
         elif info.status == SubAgentStatus.FINISHED:
-            is_interrupted = info.summary == DEFAULT_SUMMARY_INTERRUPTED
-            summary_text = info.summary or DEFAULT_SUMMARY_COMPLETED
-            if is_interrupted:
-                user_content = (
-                    f"The **{info.name}** agent (`{coder_uuid}`) was interrupted:\n"
-                    f"{summary_text}"
-                )
-                assistant_content = (
-                    f"The {info.name} agent `{coder_uuid}` was interrupted before completing its task. "
-                    f"You may want to review or retry the delegation."
-                )
+            if info.summary == DEFAULT_SUMMARY_INTERRUPTED:
+                header = f"The **{info.name}** agent (`{coder_uuid}`) was interrupted:"
             else:
-                user_content = (
-                    f"The **{info.name}** agent (`{coder_uuid}`) completed with the following summary:\n"
-                    f"{summary_text}"
+                header = (
+                    f"The **{info.name}** agent (`{coder_uuid}`) completed with the following"
+                    " summary:"
                 )
-                assistant_content = (
-                    f"Thank you for sharing the summary for {info.name} agent `{coder_uuid}`. "
-                    f"The agent has finished its task."
-                )
+            body = info.summary or DEFAULT_SUMMARY_COMPLETED
         else:
             return
+
+        user_content = (
+            '<context name="sub_agent_result" from="agent">\n'
+            f"{header}\n"
+            f"{body}\n"
+            "</context>"
+        )
 
         with self._get_lock(self._conversation_locks, info.parent_uuid):
             ConversationService.get_manager(parent_coder).add_message(
                 message_dict={"role": "user", "content": user_content},
                 tag=MessageTag.CUR,
                 hash_key=("sub_agent_result", "user", coder_uuid, str(time.monotonic_ns())),
-                force=True,
-            )
-            ConversationService.get_manager(parent_coder).add_message(
-                message_dict={"role": "assistant", "content": assistant_content},
-                tag=MessageTag.CUR,
-                hash_key=("sub_agent_result", "assistant", coder_uuid, str(time.monotonic_ns())),
                 force=True,
             )
 

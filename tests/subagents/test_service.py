@@ -732,7 +732,13 @@ class TestDetachedAgents:
         ) as get_manager:
             await service._inject_sub_agent_result(info)
 
-        assert get_manager.return_value.add_message.call_count == 2
+        add_message = get_manager.return_value.add_message
+        assert add_message.call_count == 1
+
+        message_dict = add_message.call_args.kwargs["message_dict"]
+        assert message_dict["role"] == "user"
+        assert '<context name="sub_agent_result" from="agent">' in message_dict["content"]
+        assert "all done" in message_dict["content"]
 
     @pytest.mark.asyncio
     async def test_wait_skips_detached_children(self, service):
