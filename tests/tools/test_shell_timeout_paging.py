@@ -56,8 +56,10 @@ async def elapsed_command(monkeypatch, tmp_path):
     monkeypatch.setattr(manager, "_generate_command_key", Mock(return_value=target))
     start = Mock(return_value=target)
     stop = Mock()
+    mark = Mock(return_value=True)
     monkeypatch.setattr(manager, "start_background_command", start)
     monkeypatch.setattr(manager, "stop_background_command", stop)
+    monkeypatch.setattr(manager, "mark_continued_in_background", mark)
     pending_tasks = []
 
     async def pending_wait(*args, **kwargs):
@@ -85,6 +87,7 @@ async def elapsed_command(monkeypatch, tmp_path):
         assert not coder.interrupt_event.is_set()
         popen.assert_called_once()
         start.assert_called_once()
+        mark.assert_called_once_with(target)
         assert start.call_args.kwargs["existing_process"] is process
         assert start.call_args.kwargs["existing_buffer"] is state["buffer"]
         assert start.call_args.kwargs["persist"] is True

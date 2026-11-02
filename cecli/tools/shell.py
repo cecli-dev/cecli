@@ -519,6 +519,7 @@ class Tool(BaseTool):
                     return response
 
             # Timeout elapsed, process continues in background
+            BackgroundCommandManager.mark_continued_in_background(command_key)
             coder.io.tool_output(
                 f"\u23f1\ufe0f Command exceeded {timeout}s timeout, continuing in background...",
                 type="tool-result",

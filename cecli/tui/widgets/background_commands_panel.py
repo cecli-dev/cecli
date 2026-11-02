@@ -18,6 +18,9 @@ class BackgroundCommandsPanel(Vertical):
     the selected command's output is re-rendered only when its stream offset
     changes. Reading output is non-destructive so the agent keeps its own
     incremental view of the same buffer.
+
+    Commands that exceed their timeout and keep running appear here once the
+    timeout fires, so the user can watch them continue.
     """
 
     REFRESH_INTERVAL = 0.5
@@ -112,14 +115,16 @@ class BackgroundCommandsPanel(Vertical):
         return self.parent is None or self.parent.display
 
     def _active_commands(self) -> Dict[str, dict]:
-        """Return only running commands started in the background."""
+        """Return running commands, including timeouts that continued in the background."""
         commands = {}
 
         for command_key, info in BackgroundCommandManager.list_background_commands().items():
             if not info.get("running"):
                 continue
 
-            if info.get("persist"):
+            # Commands started with background=True are always listed; timeout-managed
+            # commands only once their timeout elapsed and they kept running.
+            if info.get("persist") and not info.get("continued_in_background"):
                 continue
 
             commands[command_key] = info
@@ -127,22 +132,30 @@ class BackgroundCommandsPanel(Vertical):
         return commands
 
     def _sync_tabs(self, commands: Dict[str, dict]) -> None:
-        """Rebuild the tab bar when the set of active commands changes."""
+        """Add and remove tabs so they match the active command set.
+
+        Tabs must be updated incrementally: ``Tabs.clear`` removes its children
+        asynchronously, so clearing and immediately re-adding the same IDs
+        races with the pending removal and raises ``DuplicateIds``.
+        """
         tabs = self.query_one("#bg-command-tabs", Tabs)
+        previous_keys = list(self._keys)
         self._keys = list(commands)
 
         with self.prevent(Tabs.TabActivated):
-            tabs.clear()
+            for command_key in previous_keys:
+                if command_key not in commands:
+                    tabs.remove_tab(command_key)
 
             for command_key in commands:
-                tabs.add_tab(Tab(command_key, id=command_key, classes="bg-tab"))
+                if command_key not in previous_keys:
+                    tabs.add_tab(Tab(command_key, id=command_key, classes="bg-tab"))
 
-            if self._active_key in commands:
-                tabs.active = self._active_key
-            else:
+            if self._active_key not in commands:
                 self._active_key = next(iter(commands), None)
-                if self._active_key is not None:
-                    tabs.active = self._active_key
+
+            if self._active_key is not None:
+                tabs.active = self._active_key
 
     def _select_tab(self, command_key: str) -> None:
         """Mark a tab active without relying on a user click."""
@@ -163,6 +176,10 @@ class BackgroundCommandsPanel(Vertical):
         """Show the selected command, truncated to the panel width."""
         command = " ".join((info.get("command") or "").split())
         text = f"command: {command}" if command else "command: (none)"
+
+        if info.get("continued_in_background"):
+            text += " (timed out, still running)"
+
         width = max(20, self.size.width - 6)
 
         if len(text) > width:
