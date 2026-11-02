@@ -813,6 +813,48 @@ class TestTuiNotify:
 
         assert tui.via_thread == [("u2",)]
 
+    def test_stopped_app_drops_notification(self):
+        """Notifications must not touch the DOM of an already stopped app."""
+        from cecli.helpers.agents.service import _tui_notify
+
+        hits = []
+
+        class StoppedTui:
+            is_running = False
+
+            def call_from_thread(self, callback, *args):
+                raise RuntimeError("App is not running")
+
+            def container(self, *args):
+                hits.append(args)
+
+        tui = StoppedTui()
+        _tui_notify(tui, tui.container, "u3")
+
+        assert hits == []
+
+    def test_app_stopping_mid_call_drops_notification(self):
+        """A RuntimeError from an app that stops mid-call is not retried inline."""
+        from cecli.helpers.agents.service import _tui_notify
+
+        hits = []
+
+        class StoppingTui:
+            def __init__(self):
+                self.is_running = True
+
+            def call_from_thread(self, callback, *args):
+                self.is_running = False
+                raise RuntimeError("App is not running")
+
+            def container(self, *args):
+                hits.append(args)
+
+        tui = StoppingTui()
+        _tui_notify(tui, tui.container, "u4")
+
+        assert hits == []
+
 
 # ================================================================== #
 # Foreground tracking

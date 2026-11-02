@@ -1406,11 +1406,24 @@ def _tui_notify(tui, callback, *args):
     thread. Scheduler-dispatched workflow runs now execute on the coder's own
     loop (the TUI worker-thread loop — see ``SchedulerService._on_coder_loop``),
     so notifications originate from the worker thread and ``call_from_thread``
-    applies; when we are already on the app thread (or the TUI is unavailable),
-    fall back to calling directly.
+    applies; when we are already on the app thread, the callback runs directly.
+
+    Notifications that arrive after the app has stopped are dropped: its DOM is
+    already torn down by then, so running the callback would fail on its widget
+    lookups. This happens on shutdown, when ``graceful_exit()`` cleans up
+    sub-agents after the TUI has exited.
     """
+
+    if getattr(tui, "is_running", None) is False:
+        return
 
     try:
         tui.call_from_thread(callback, *args)
     except RuntimeError:
+        # A stale app object stays reachable through the coder's weakref after
+        # the TUI exits; its DOM is gone, so drop the notification instead of
+        # calling the callback. Otherwise this is the same-thread error and the
+        # callback must run here.
+        if getattr(tui, "is_running", None) is False:
+            return
         callback(*args)
