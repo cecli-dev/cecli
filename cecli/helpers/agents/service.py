@@ -826,6 +826,7 @@ class AgentService:
                     source=metadata.get("worktree_source") or parent_root,
                     base_ref=base_ref,
                     base_root=parent_root,
+                    reuse_existing=True,
                 )
             except Exception as e:
                 raise RuntimeError(f"Failed to create worktree for sub-agent '{name}': {e}") from e

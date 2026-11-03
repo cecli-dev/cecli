@@ -17,7 +17,7 @@ Every worktree gets a generated branch named `cecli/<agent>-<uuid>`. Agent names
 
 ## Lifecycle
 
-1. **Create** — a worktree is created from the source repository on the generated branch. Remote sources are cached as bare repositories first.
+1. **Create** — a worktree is created from the source repository on the generated branch. An existing checkout for the same agent and repository is reused (ownership is refreshed) instead of creating a duplicate, so repeated or concurrent workflow runs share one checkout. Remote sources are cached as bare repositories first.
 2. **Run** — the agent works inside the worktree; its `root` points at the checkout.
 3. **Release** — on cleanup, a dirty worktree is committed with the subject `Unfinished Dirty Worktree from agent <uuid>` so uncommitted work survives. Branches with unmerged commits are kept; empty or already-merged branches are deleted.
 4. **Remove** — the worktree checkout under `~/.cecli/worktrees/` is removed after the commit/release step. Kept branches remain in the source repository.
@@ -34,7 +34,7 @@ A workflow or delegated agent restored from a saved session keeps its worktree r
 ~/.cecli/worktrees/
   _sources/<repo-slug>-<sha8>/       # cached bare clones for remote sources
   <repo-slug>/
-    <agent-slug>-<uuid>/             # one linked worktree checkout per run
+    <agent-slug>-<uuid>/             # one linked worktree checkout per agent
 ```
 
 Local `repo:` paths are used in place as the source repository; the checkout itself still lives under the worktrees base directory. Removing a checkout or the whole base directory is safe once a run has finished: commits are on the kept branch, and empty branches are disposable.

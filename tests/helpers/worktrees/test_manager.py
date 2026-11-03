@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -125,13 +126,48 @@ def test_branch_and_path_naming_are_sanitized(tmp_path):
 def test_two_creates_produce_distinct_paths_and_branches(tmp_path):
     repo = _init_repo(tmp_path / "repo")
 
-    first = _create(repo, uuid="aaaa1111")
-    second = _create(repo, uuid="bbbb2222")
+    first = _create(repo, uuid="aaaa1111", reuse_existing=False)
+    second = _create(repo, uuid="bbbb2222", reuse_existing=False)
 
     assert first.path != second.path
     assert first.branch != second.branch
     assert Path(first.path).is_dir()
     assert Path(second.path).is_dir()
+
+
+def test_create_reuses_existing_worktree_for_same_agent(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+
+    first = _create(repo, uuid="aaaa1111")
+    second = _create(repo, uuid="bbbb2222")
+
+    assert first.uuid == second.uuid
+    assert first.path == second.path
+    assert first.branch == second.branch
+    assert len(list((tmp_path / "worktrees" / "repo").iterdir())) == 1
+
+
+def test_create_same_uuid_does_not_create_suffixed_copies(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+
+    first = _create(repo, uuid="abcd1234", reuse_existing=False)
+    second = _create(repo, uuid="abcd1234", reuse_existing=False)
+
+    assert first.path == second.path
+    names = sorted(item.name for item in (tmp_path / "worktrees" / "repo").iterdir())
+    assert names == ["wf-nightly-tidy-abcd1234"]
+
+
+def test_concurrent_creates_reuse_a_single_worktree(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+    uuids = [f"aaaa{index:04d}" for index in range(8)]
+
+    with ThreadPoolExecutor(max_workers=len(uuids)) as pool:
+        records = list(pool.map(lambda value: _create(repo, uuid=value), uuids))
+
+    assert {record.path for record in records} == {records[0].path}
+    assert {record.uuid for record in records} == {records[0].uuid}
+    assert len(list((tmp_path / "worktrees" / "repo").iterdir())) == 1
 
 
 def test_clean_release_deletes_branch(tmp_path):
@@ -314,6 +350,19 @@ def test_recreate_with_new_uuid_attaches_saved_branch(tmp_path):
     assert WorktreeManager.get("new99999") == recreated
 
 
+def test_recreate_reuses_another_checkout_for_same_agent(tmp_path):
+    repo = _init_repo(tmp_path / "repo")
+    missing = _create(repo, uuid="aaaa1111", reuse_existing=False)
+    _git(repo, "worktree", "remove", "--force", missing.path)
+    live = _create(repo, uuid="bbbb2222", reuse_existing=False)
+
+    recreated = WorktreeManager.recreate(missing, uuid="cccc3333")
+
+    assert recreated.path == live.path
+    assert recreated.uuid == live.uuid
+    assert WorktreeManager.get(missing.uuid) is None
+
+
 def test_release_keeps_saved_branch_when_agent_switched_branches(tmp_path):
     repo = _init_repo(tmp_path / "repo")
     record = _create(repo)
@@ -352,8 +401,8 @@ def test_get_unknown_uuid_returns_none():
 
 def test_release_all_releases_matching_pid(tmp_path):
     repo = _init_repo(tmp_path / "repo")
-    first = _create(repo, uuid="aaaa1111")
-    second = _create(repo, uuid="bbbb2222")
+    first = _create(repo, uuid="aaaa1111", reuse_existing=False)
+    second = _create(repo, uuid="bbbb2222", reuse_existing=False)
 
     results = WorktreeManager.release_all()
 
@@ -431,8 +480,8 @@ def test_create_from_file_url_remote(tmp_path, isolated_base):
     repo = _init_repo(tmp_path / "repo")
     source = repo.as_uri()
 
-    first = _create(repo, uuid="aaaa1111", source=source)
-    second = _create(repo, uuid="bbbb2222", source=source)
+    first = _create(repo, uuid="aaaa1111", source=source, reuse_existing=False)
+    second = _create(repo, uuid="bbbb2222", source=source, reuse_existing=False)
 
     assert first.repo == second.repo
     assert Path(first.repo).is_dir()

@@ -119,6 +119,7 @@ class WorktreeManager:
         source: str | Path,
         base_ref: str | None = None,
         base_root: str | Path | None = None,
+        reuse_existing: bool = True,
     ) -> WorktreeRecord:
         """Create a new worktree for *agent_name* and return its record.
 
@@ -126,31 +127,45 @@ class WorktreeManager:
         cloned into a shared bare cache and fetched on reuse.  The default base
         branch is resolved from ``origin/HEAD``, ``main``, ``master``, or the
         current ``HEAD`` in that order.
+
+        By default an already-recorded checkout for the same agent and
+        repository is adopted (its owner is refreshed) instead of creating a
+        duplicate; workflows never run the same pair concurrently.  Pass
+        ``reuse_existing=False`` only when deliberately creating a second
+        independent checkout for the same agent.
         """
         base = cls._base()
         repo = cls._prepare_source(source, base_root=base_root)
-        base_ref_name, base_sha = cls._resolve_base(repo, base_ref)
-        branch = paths.branch_name(agent_name, uuid)
-        path = paths.worktree_path(base, repo, agent_name, uuid)
-        path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Reuse and creation are serialized per repository so concurrent runs of
+        # the same workflow cannot each create their own checkout.
         with cls._repo_lock(base, repo):
+            if reuse_existing:
+                existing = cls._find_reusable(repo, agent_name)
+
+                if existing is not None:
+                    return cls._adopt(existing)
+
+            base_ref_name, base_sha = cls._resolve_base(repo, base_ref)
+            branch = paths.branch_name(agent_name, uuid)
+            path = paths.worktree_path(base, repo, agent_name, uuid)
+            path.parent.mkdir(parents=True, exist_ok=True)
             branch, path = cls._add_worktree(repo, branch, path, base_ref_name, base_sha)
 
-        record = WorktreeRecord(
-            source=str(source),
-            repo=str(Path(repo).resolve()),
-            path=str(path.resolve()),
-            branch=branch,
-            base_ref=base_ref_name,
-            base_sha=base_sha,
-            agent=str(agent_name),
-            uuid=str(uuid),
-            pid=os.getpid(),
-            host=socket.gethostname(),
-            created_at=_now(),
-        )
-        cls._save_record(record)
+            record = WorktreeRecord(
+                source=str(source),
+                repo=str(Path(repo).resolve()),
+                path=str(path.resolve()),
+                branch=branch,
+                base_ref=base_ref_name,
+                base_sha=base_sha,
+                agent=str(agent_name),
+                uuid=str(uuid),
+                pid=os.getpid(),
+                host=socket.gethostname(),
+                created_at=_now(),
+            )
+            cls._save_record(record)
 
         return record
 
@@ -195,6 +210,16 @@ class WorktreeManager:
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
             with cls._repo_lock(base, repo):
+                reusable = cls._find_reusable(repo, new_agent) if path is None else None
+
+                if reusable is not None:
+                    adopted = cls._adopt(reusable)
+
+                    if original.uuid != adopted.uuid:
+                        cls._discard_record(original.uuid)
+
+                    return adopted
+
                 if branch_exists(branch, repo):
                     try:
                         run_git("worktree", "add", str(target_path), branch, cwd=repo)
@@ -493,36 +518,47 @@ class WorktreeManager:
         base_sha: str,
     ) -> tuple[str, Path]:
         start = base_ref if rev_parse(base_ref, cwd=repo, check=False) else base_sha
+
+        if path.exists():
+            existing = cls._existing_branch(repo, path, branch)
+
+            if existing is not None:
+                return existing, path
+
+            raise WorktreeError(f"worktree path already exists: {path}")
+
         last_error: WorktreeError | None = None
 
         for attempt in range(cls.MAX_NAME_ATTEMPTS):
             candidate_branch = branch if attempt == 0 else f"{branch}-{attempt + 1}"
-            candidate_path = path if attempt == 0 else Path(f"{path}-{attempt + 1}")
-
-            if candidate_path.exists():
-                last_error = WorktreeError(f"worktree path already exists: {candidate_path}")
-                continue
-
-            candidate_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
                 if branch_exists(candidate_branch, repo):
-                    run_git("worktree", "add", str(candidate_path), candidate_branch, cwd=repo)
+                    run_git("worktree", "add", str(path), candidate_branch, cwd=repo)
                 else:
                     run_git(
                         "worktree",
                         "add",
                         "-b",
                         candidate_branch,
-                        str(candidate_path),
+                        str(path),
                         start,
                         cwd=repo,
                     )
             except WorktreeError as exc:
                 last_error = exc
+
+                if path.exists():
+                    existing = cls._existing_branch(repo, path, candidate_branch)
+
+                    if existing is not None:
+                        return existing, path
+
+                    break
+
                 continue
 
-            return candidate_branch, candidate_path
+            return candidate_branch, path
 
         raise WorktreeError(
             f"could not create worktree for branch {branch!r} in {repo}: {last_error}"
@@ -753,6 +789,51 @@ class WorktreeManager:
 
         with _file_lock(paths.lock_path(base, f"repo-{digest}")):
             yield
+
+    @classmethod
+    def _find_reusable(cls, repo: str | Path, agent_name: str) -> WorktreeRecord | None:
+        """Return a recorded checkout for *agent_name* in *repo*, if usable."""
+        resolved_repo = str(Path(repo).resolve())
+
+        for record in sorted(cls._records(), key=lambda item: item.created_at, reverse=True):
+            if record.agent != agent_name:
+                continue
+
+            if str(Path(record.repo).resolve()) != resolved_repo:
+                continue
+
+            if cls._is_worktree(Path(record.path), Path(repo)):
+                return record
+
+        return None
+
+    @classmethod
+    def _adopt(cls, record: WorktreeRecord) -> WorktreeRecord:
+        """Refresh *record* ownership and persist it."""
+        adopted = WorktreeRecord(
+            source=record.source,
+            repo=record.repo,
+            path=record.path,
+            branch=record.branch,
+            base_ref=record.base_ref,
+            base_sha=record.base_sha,
+            agent=record.agent,
+            uuid=record.uuid,
+            pid=os.getpid(),
+            host=socket.gethostname(),
+            created_at=record.created_at,
+        )
+        cls._save_record(adopted)
+
+        return adopted
+
+    @classmethod
+    def _existing_branch(cls, repo: str | Path, path: Path, fallback: str) -> str | None:
+        """Return the branch checked out at an existing managed worktree."""
+        if not cls._is_worktree(path, Path(repo)):
+            return None
+
+        return current_branch(path) or fallback
 
 
 @contextmanager
