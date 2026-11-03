@@ -8,7 +8,7 @@ from cecli.coders import Coder
 from cecli.helpers.file_system import FileSystemService
 from cecli.io import InputOutput
 from cecli.repo import GitRepoProxy
-from cecli.utils import GitTemporaryDirectory
+from cecli.utils import ChdirTemporaryDirectory, GitTemporaryDirectory
 
 
 @pytest.fixture(autouse=True)
@@ -155,6 +155,23 @@ class TestCoderIntegration:
 
 class TestRootOverride:
     """Validates the sub-agent root override and primary_root retention."""
+
+    async def test_root_falls_back_to_cwd_outside_git(self, gpt35_model):
+        with ChdirTemporaryDirectory() as root:
+            io = InputOutput(pretty=False, yes=True)
+            coder = await Coder.create(gpt35_model, None, io)
+
+            assert os.path.normpath(coder.root) == os.path.normpath(root)
+            assert os.path.normpath(coder.primary_root) == os.path.normpath(root)
+
+    async def test_sub_agent_root_falls_back_to_primary_root_outside_git(self, gpt35_model):
+        with ChdirTemporaryDirectory():
+            io = InputOutput(pretty=False, yes=True)
+            parent = await Coder.create(gpt35_model, None, io)
+            child = await Coder.create(from_coder=parent, io=io)
+
+            assert os.path.normpath(child.root) == os.path.normpath(parent.root)
+            assert os.path.normpath(child.primary_root) == os.path.normpath(parent.root)
 
     async def test_root_kwarg_overrides_working_dir(self, gpt35_model):
         with GitTemporaryDirectory() as root_a:

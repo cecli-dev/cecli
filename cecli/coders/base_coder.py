@@ -744,6 +744,15 @@ class Coder(metaclass=UsageMeta):
         if root is not None:
             self.root = os.path.normpath(os.path.abspath(root))
 
+        # Outside a git repo with no files in context there is nothing to derive
+        # a root from. Fall back to the primary workspace (sub-agents) or the
+        # process working directory so tools that pass root as their subprocess
+        # cwd never receive an empty path.
+        if not self.root:
+            self.root = utils.safe_abs_path(
+                primary_root or getattr(self, "primary_root", None) or os.getcwd()
+            )
+
         # A sub-agent may operate on a different base path than its parent. In
         # that case its repo must be scoped to *this* root (per-base-path),
         # rather than inheriting the parent's repo, so the coder's repo/fs match
