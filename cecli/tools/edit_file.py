@@ -9,7 +9,11 @@ from cecli.helpers.hashline import (
     strip_hashline,
 )
 from cecli.helpers.hashpos.hashpos import HashPos
-from cecli.helpers.hashpos.transformations import resolve_at_l, strip_hashline_prefix
+from cecli.helpers.hashpos.transformations import (
+    extract_hint,
+    resolve_at_l,
+    strip_hashline_prefix,
+)
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
     ToolError,
@@ -56,13 +60,16 @@ class Tool(BaseTool):
                 "  - 'replace' — swap the targeted range with new text"
                 "  - 'delete' — remove the targeted range"
                 ""
-                "Start and end markers are inclusive: both referenced lines are modified or removed. "
-                f"Reference unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') by their exact text, and "
-                f"duplicate lines by their hashed prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}'); use "
+                "Ranges are inclusive. Be mindful of the specified boundaries. "
+                f"Reference unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') with their exact text, and "
+                f"duplicate lines with their hashed prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}'); use "
                 "'@000' for empty files. Identifiers track content, so edits can re-prefix identical lines "
                 "elsewhere — re-read the file after editing for fresh identifiers. Multiple edits to one "
                 "file are applied bottom-to-top automatically; overlapping or contained ranges are merged "
-                "or rejected automatically."
+                "or rejected automatically. "
+                "Line references also accept ReadFile hint suffixes: append ' @L<num>' to pick the "
+                "nearest matching line, or use '@A{{regex}}' / '@B{{regex}}' to pick the match after / "
+                "before the regex hit."
             ),
             "parameters": {
                 "type": "object",
@@ -245,21 +252,25 @@ class Tool(BaseTool):
                                 edit_start_line = "@000"
                                 edit_end_line = "@000"
 
-                            # Resolve @L{num} notation directly to content ID
-                            edit_start_line = cls._resolve_at_l_num(
-                                edit_start_line, hp, source_lines, file_path_key
+                            # Resolve line hints (@L/@A/@B) and content references
+                            edit_start_line, start_hint_line = cls._resolve_line_hint(
+                                edit_start_line,
+                                hp,
+                                source_lines,
+                                file_path_key,
                             )
-                            edit_end_line = cls._resolve_at_l_num(
-                                edit_end_line, hp, source_lines, file_path_key
+                            edit_end_line, _ = cls._resolve_line_hint(
+                                edit_end_line,
+                                hp,
+                                source_lines,
+                                file_path_key,
                             )
-
-                            # Strip virtual prefixes from ReadFile output lines
-                            edit_start_line = cls._strip_readfile_prefix(edit_start_line)
-                            edit_end_line = cls._strip_readfile_prefix(edit_end_line)
 
                             # Resolve remaining non-hashline content values to content IDs
                             edit_start_line, edit_end_line = resolve_content_to_hashline_ids(
-                                original_content, edit_start_line, edit_end_line
+                                original_content,
+                                edit_start_line,
+                                edit_end_line,
                             )
 
                             # ---------------------------------------------------------
@@ -590,17 +601,23 @@ class Tool(BaseTool):
                                     if original_content and original_content.strip()
                                     else []
                                 )
-                                start_line = cls._resolve_at_l_num(
-                                    start_line, hp, source_lines, file_path_key
+                                start_line, start_hint_line = cls._resolve_line_hint(
+                                    start_line,
+                                    hp,
+                                    source_lines,
+                                    file_path_key,
                                 )
-                                end_line = cls._resolve_at_l_num(
-                                    end_line, hp, source_lines, file_path_key
+                                end_line, _ = cls._resolve_line_hint(
+                                    end_line,
+                                    hp,
+                                    source_lines,
+                                    file_path_key,
                                 )
-                                start_line = cls._strip_readfile_prefix(start_line)
-                                end_line = cls._strip_readfile_prefix(end_line)
 
                                 start_line, end_line = resolve_content_to_hashline_ids(
-                                    original_content, start_line, end_line
+                                    original_content,
+                                    start_line,
+                                    end_line,
                                 )
                                 diff_output = get_hashline_diff(
                                     original_content=strip_hashline(original_content),
@@ -649,6 +666,66 @@ class Tool(BaseTool):
         """Strip the virtual prefix from a ReadFile output line reference."""
 
         return strip_hashline_prefix(value)
+
+    @classmethod
+    def _resolve_line_hint(cls, line_spec, hp, source_lines, file_path):
+        """Resolve a hint suffix on a line spec to a content ID when possible.
+
+        Supports ``@L<num>``, ``@A{{regex}}``, and ``@B{{regex}}`` suffixes.
+        Returns ``(resolved_spec, hint_line)``. ``hint_line`` is retained only
+        when the hint could not be resolved locally, so the caller can fall
+        back to proximity resolution.
+        """
+
+        if not isinstance(line_spec, str):
+            return line_spec, None
+
+        line_spec = cls._strip_readfile_prefix(line_spec)
+        stripped, hint_line, hint_type = extract_hint(line_spec, source_lines)
+
+        if hint_type is None or hint_line is None:
+            return stripped, None
+
+        if not stripped.strip() or (hint_type == "L" and stripped.strip() == line_spec.strip()):
+            return cls._resolve_at_l_num(f"@L{hint_line + 1}", hp, source_lines, file_path), None
+
+        indices = cls._find_line_indices(stripped, source_lines)
+
+        if hint_type == "A":
+            candidates = [i for i in indices if i > hint_line]
+            target = min(candidates) if candidates else None
+        elif hint_type == "B":
+            candidates = [i for i in indices if i < hint_line]
+            target = max(candidates) if candidates else None
+        else:
+            target = min(indices, key=lambda i: abs(i - hint_line)) if indices else None
+
+        if target is None:
+            return stripped, hint_line if hint_type == "L" else None
+
+        line_text = source_lines[target]
+        occurrence = 1 + sum(1 for line in source_lines[:target] if line == line_text)
+
+        return hp.get_wrapped_id(hp.generate_public_id(line_text, target, occurrence)), None
+
+    @staticmethod
+    def _find_line_indices(value, lines):
+        """Return indices of lines that exactly match *value* or its first line."""
+
+        value_lines = value.splitlines()
+
+        if len(value_lines) > 1:
+            matches = []
+
+            for i in range(len(lines) - len(value_lines) + 1):
+                if all(lines[i + j] == value_lines[j] for j in range(len(value_lines))):
+                    matches.append(i)
+
+            return matches
+
+        first_line = value_lines[0] if value_lines else value
+
+        return [i for i, line in enumerate(lines) if line == first_line]
 
     @classmethod
     def _categorize_edit_error(cls, error_msg: str) -> str:
