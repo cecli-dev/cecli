@@ -64,9 +64,9 @@
   },
   "github_copilot/claude-fable-5": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -78,9 +78,37 @@
   },
   "github_copilot/claude-fable-5.1": {
     "litellm_provider": "github_copilot",
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_vision": true
+  },
+  "github_copilot/claude-haiku-4.5": {
+    "litellm_provider": "github_copilot",
     "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_output_tokens": 32000,
+    "max_tokens": 32000,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_vision": true
+  },
+  "github_copilot/claude-haiku-5.5": {
+    "litellm_provider": "github_copilot",
+    "max_input_tokens": 100000,
+    "max_output_tokens": 100000,
+    "max_tokens": 100000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -92,9 +120,9 @@
   },
   "github_copilot/claude-opus-4.7": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -106,9 +134,9 @@
   },
   "github_copilot/claude-opus-4.8": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -120,9 +148,9 @@
   },
   "github_copilot/claude-opus-4.8-fast": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -134,9 +162,23 @@
   },
   "github_copilot/claude-opus-5": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_vision": true
+  },
+  "github_copilot/claude-opus-5.5": {
+    "litellm_provider": "github_copilot",
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -148,9 +190,9 @@
   },
   "github_copilot/claude-sonnet-4.6": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -162,9 +204,23 @@
   },
   "github_copilot/claude-sonnet-5": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 16000,
-    "max_tokens": 16000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_vision": true
+  },
+  "github_copilot/claude-sonnet-5.5": {
+    "litellm_provider": "github_copilot",
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -198,7 +254,7 @@
   },
   "github_copilot/gemini-3.7-flash": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
+    "max_input_tokens": 200000,
     "max_output_tokens": 64000,
     "max_tokens": 64000,
     "mode": "chat",
@@ -209,9 +265,20 @@
   },
   "github_copilot/gemini-3.8-flash": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 65536,
+    "max_tokens": 65536,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_vision": true
+  },
+  "github_copilot/gemini-4-argon": {
+    "litellm_provider": "github_copilot",
+    "max_input_tokens": 200000,
+    "max_output_tokens": 65536,
+    "max_tokens": 65536,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supports_function_calling": true,
@@ -220,9 +287,9 @@
   },
   "github_copilot/gpt-5.3-codex": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -236,9 +303,9 @@
   },
   "github_copilot/gpt-5.4": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -252,9 +319,9 @@
   },
   "github_copilot/gpt-5.4-mini": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -267,9 +334,9 @@
   },
   "github_copilot/gpt-5.4-nano": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -282,9 +349,9 @@
   },
   "github_copilot/gpt-5.5": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -298,9 +365,9 @@
   },
   "github_copilot/gpt-5.6-luna": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -314,9 +381,9 @@
   },
   "github_copilot/gpt-5.6-sol": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -330,9 +397,9 @@
   },
   "github_copilot/gpt-5.6-terra": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -346,9 +413,9 @@
   },
   "github_copilot/gpt-6-astra": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -362,9 +429,9 @@
   },
   "github_copilot/grok-4.5": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -376,9 +443,9 @@
   },
   "github_copilot/gpt-6-luna": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -392,9 +459,9 @@
   },
   "github_copilot/gpt-6-sol": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -405,12 +472,26 @@
     "supports_parallel_function_calling": true,
     "supports_response_schema": true,
     "supports_vision": true
-  },  
+  },
   "github_copilot/grok-4.6": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "mode": "chat",
+    "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_parallel_function_calling": true,
+    "supports_response_schema": true
+  },
+  "github_copilot/grok-4.7": {
+    "litellm_provider": "github_copilot",
+    "max_input_tokens": 200000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -422,9 +503,9 @@
   },
   "github_copilot/kimi-k2.7-code": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 262144,
+    "max_output_tokens": 131072,
+    "max_tokens": 131072,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -436,9 +517,9 @@
   },
   "github_copilot/kimi-k3": {
     "litellm_provider": "github_copilot",
-    "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_input_tokens": 917504,
+    "max_output_tokens": 131072,
+    "max_tokens": 131072,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -451,8 +532,8 @@
   "github_copilot/mai-code-1.1-flash": {
     "litellm_provider": "github_copilot",
     "max_input_tokens": 128000,
-    "max_output_tokens": 64000,
-    "max_tokens": 64000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
     "mode": "chat",
     "source": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
     "supported_endpoints": [
@@ -1028,4 +1109,3 @@
     "source": "https://agnes-ai.com/en/docs/agnes-30-flash"
   }
 }
-
