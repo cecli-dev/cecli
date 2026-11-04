@@ -558,21 +558,12 @@ You may need to explore the below primitives to understand how to use the sandbo
 | `Agent.get_tool(name)` | Get a tool proxy (case-insensitive; `Local--` / `{{Server Name}}--` prefixes ok) |
 | `Agent.get_tool_schema(name)` | Return a copy of the full function-calling JSON schema |
 | `Agent.get_tool_signature(name)` | Return a readable Python-style signature; optional params without defaults appear as `= ...` |
-| `await tool.call(**params)` | Run a tool; returns `{"result": [...], "errors": [...], "details": [...]}`, items with shape `{"content", "_"}` |
+| `await tool.call(**params)` | Run a tool; `params` match the tool's JSON schema. Returns `{"result", "errors", "details"}` |
 | `Agent.peek(result)` / `Agent.get_value(result, path, default?)` | Inspect / extract values from tool results. path is dot-separated string |
-| `Agent.resolve_regions(path, specs)` / `Agent.edit_region(path, edits)` | Resolve text boundaries once, then apply edits |
 | `gather(**tasks)` | Run tasks concurrently; results expose `.key` and `["key"]` |
 | `state` / `shared_state` | Persistent dicts that survive between Orchestrate calls; `state.get(k)` falls back to `shared_state`. Use these for anything you need to reuse in a later call |
 | `print(...)` / `reset(local_vars=True, state=False)` | Emit output / clear namespaces |
 | `typeof(x)`, `isinstance(x, t)`, `hasattr(x, n)`, `repr(x)`, `vars(obj)` | Type inspection and debugging |
-
-### Region editing
-
-- `resolve_regions(path, specs)`: 
-  `specs` = `[{"name", "start", "end", "start_line_hint"?, "end_line_hint"?}]`; `start`/`end` are line text, `@L{num}`, or a content ID. 
-  Returns `regions` with `.get(name)` -> `{"start", "end", "start_line", "end_line"}` plus `.get_start(name)` / `.get_end(name)`.
-- `edit_region(path, edits)`: 
-  `edits` = `[{"region": regions.get(name), "text", "operation" ("replace"|"delete", default "replace")}]`.
 
 ### Modules
 
@@ -583,7 +574,7 @@ Pre-imported, read-only: `re`, `math`, `itertools`, `collections`, `datetime`, `
 - Keyword args only; `gather()` takes named tasks
 - Do not touch private (`_`) attributes or `__builtins__`
 - Always `await` tool calls
-- Inspect tool results with `Agent.peek()` / `Agent.get_value()`; edit files via `Agent.resolve_regions()` + `Agent.edit_region()` or `EditFile` directly
+- Inspect tool results with `Agent.peek()` / `Agent.get_value()`
 </context>"""
 
     # Task 6: Append sandbox configuration overrides when non-empty

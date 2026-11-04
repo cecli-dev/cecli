@@ -3,8 +3,7 @@ HashPos transformation utilities.
 
 Centralizes all operations related to searching, processing line hints,
 contextual markers, and extracting content from HashPos-encoded files.
-Previously scattered across read_file.py, edit_file.py, hashline.py,
-and region_resolver.py.
+Previously scattered across read_file.py, edit_file.py, and hashline.py.
 """
 
 from __future__ import annotations
