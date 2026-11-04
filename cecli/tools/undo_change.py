@@ -36,6 +36,8 @@ class Tool(BaseTool):
 
         Returns a result message.
         """
+        from cecli.helpers.conversation import ConversationService
+
         # Note: Undo does not have a dry_run parameter as it's inherently about reverting a previous action.
         coder.edit_allowed = False
         response = ToolResponse(cls.NORM_NAME)
@@ -72,6 +74,8 @@ class Tool(BaseTool):
                 abs_path = coder.abs_root_path(file_path)
                 # Write the original content back to the file
                 coder.io.write_text(abs_path, change_info["original"])
+                if getattr(coder, "uuid", None):
+                    ConversationService.get_chunks(coder).notify_file_edited(abs_path)
                 coder.coder_edited_files.add(
                     file_path
                 )  # Track that the file was modified by the undo

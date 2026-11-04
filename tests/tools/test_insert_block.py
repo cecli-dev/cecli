@@ -259,3 +259,105 @@ def test_line_number_beyond_file_length_appends_no_trailing_newline(coder_with_f
     # Insert respects the original trailing newline: no trailing newline in the result
     assert content == "first line\nsecond line\nappended line"
     coder.io.tool_error.assert_not_called()
+
+
+def test_insert_before_target(coder_with_file):
+    coder, file_path = coder_with_file
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "before line",
+                "start_line": "second line",
+                "position": "before",
+            }
+        ],
+    )
+
+    assert "Applied" in result.to_dict()["result"][0]["content"]
+    assert file_path.read_text() == "first line\nbefore line\nsecond line\n"
+
+
+def test_insert_after_target_explicit(coder_with_file):
+    coder, file_path = coder_with_file
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "after line",
+                "start_line": "second line",
+                "position": "after",
+            }
+        ],
+    )
+
+    assert "Applied" in result.to_dict()["result"][0]["content"]
+    assert file_path.read_text() == "first line\nsecond line\nafter line\n"
+
+
+def test_insert_invalid_position_fails(coder_with_file):
+    coder, file_path = coder_with_file
+    original = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "bad",
+                "start_line": "second line",
+                "position": "middle",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"]
+    assert "position" in result["errors"][0]
+    assert file_path.read_text() == original
+
+
+def test_insert_before_top_marker_prepends(coder_with_file):
+    coder, file_path = coder_with_file
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "header",
+                "start_line": "@000",
+                "position": "before",
+            }
+        ],
+    )
+
+    assert "Applied" in result.to_dict()["result"][0]["content"]
+    assert file_path.read_text() == "header\nfirst line\nsecond line\n"
+
+
+def test_insert_after_eof_marker_appends(coder_with_file):
+    coder, file_path = coder_with_file
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "insert",
+                "text": "footer",
+                "start_line": "000@",
+                "position": "after",
+            }
+        ],
+    )
+
+    assert "Applied" in result.to_dict()["result"][0]["content"]
+    assert file_path.read_text() == "first line\nsecond line\nfooter\n"

@@ -86,17 +86,50 @@ class HashPos:
             if line.strip():
                 self.line_counts[line] = self.line_counts.get(line, 0) + 1
 
+        self._line_anchors = []
+        self._line_local_occurrences = []
+        last_anchor = 0
+        segment_counts = {}
+
+        for line in self.lines:
+            self._line_anchors.append(last_anchor)
+
+            if not line.strip():
+                self._line_local_occurrences.append(0)
+                continue
+
+            occurrence = segment_counts.get(line, 0) + 1
+            segment_counts[line] = occurrence
+            self._line_local_occurrences.append(occurrence)
+
+            if self.line_counts.get(line, 0) == 1:
+                last_anchor = self._get_anchor_hash(line)
+                segment_counts = {}
+
     def _get_line_hash(self, text: str) -> int:
         return xxhash.xxh3_64_intdigest(text.encode("utf-8")) & 0xFFFFF
 
+    def _get_anchor_hash(self, text: str) -> int:
+        return self._get_line_hash(text) & 0x3FFF
+
     def generate_public_id(self, text: str, line_idx: int, occurrence: int) -> str:
+        """Encode content hash + local anchor hash + local occurrence.
+
+        The anchor is the hash of the closest preceding unique line (or 0 for
+        the file prefix); occurrence counts equal lines of the same content
+        since that anchor. This keeps IDs stable when unrelated content shifts
+        line numbers.
+        """
         line_hash = self._get_line_hash(text)
 
-        # Explicit modulo for bounds wrapping
-        idx_bits = line_idx % 16384
-        occ_bits = occurrence % 64
+        if 0 <= line_idx < len(self.lines) and self.lines[line_idx] == text:
+            anchor_bits = self._line_anchors[line_idx]
+            occ_bits = self._line_local_occurrences[line_idx]
+        else:
+            anchor_bits = 0
+            occ_bits = occurrence
 
-        packed = (line_hash << 20) | (idx_bits << 6) | occ_bits
+        packed = (line_hash << 20) | ((anchor_bits & 0x3FFF) << 6) | (occ_bits & 0x3F)
 
         res = ""
         for i in range(3, -1, -1):
@@ -109,14 +142,13 @@ class HashPos:
             packed |= self.B1024.index(char) << (10 * (3 - i))
 
         occ_bits = packed & 0x3F
-        idx_bits = (packed >> 6) & 0x3FFF
+        anchor_bits = (packed >> 6) & 0x3FFF
         line_hash = (packed >> 20) & 0xFFFFF
 
-        return line_hash, idx_bits, occ_bits
+        return line_hash, anchor_bits, occ_bits
 
     def format_content(self, start_line: int = 1) -> str:
         formatted_lines = []
-        seen = {}
 
         for i, line in enumerate(self.lines):
             if not line.strip():
@@ -129,8 +161,7 @@ class HashPos:
                 # Flush directly against code using the unique token
                 formatted_lines.append(f"{UNIQUE_HASH_DELIMITER}{line}")
             else:
-                occ = seen.get(line, 0) + 1
-                seen[line] = occ
+                occ = self._line_local_occurrences[i]
                 prefix = self.generate_public_id(line, i, occ)
                 # Wrap the generated Base1024 hash in tildes
                 formatted_lines.append(f"{self.get_wrapped_id(prefix)}{line}")
@@ -148,38 +179,36 @@ class HashPos:
         if len(clean_id) != 4:
             raise ValueError(f"Invalid public ID string for unpacking: {public_id}")
 
-        target_line_hash, target_idx, target_occ = self.unpack_public_id(clean_id)
+        target_line_hash, target_anchor, target_occurrence = self.unpack_public_id(clean_id)
 
-        matches = []
-        for i, line in enumerate(self.lines):
-            if self._get_line_hash(line) == target_line_hash:
-                matches.append((i, line))
+        matches = [
+            i for i, line in enumerate(self.lines) if self._get_line_hash(line) == target_line_hash
+        ]
 
         if not matches:
             return []
 
         if len(matches) == 1:
-            return [matches[0][0]]
+            return matches
 
-        current_seen = {}
+        exact_matches = [
+            i
+            for i in matches
+            if self._line_anchors[i] == target_anchor
+            and (self._line_local_occurrences[i] & 0x3F) == target_occurrence
+        ]
+
+        if exact_matches:
+            return sorted(exact_matches)
+
         scored_matches = []
+        for i in matches:
+            anchor_penalty = 0 if self._line_anchors[i] == target_anchor else 1
+            occurrence_distance = abs((self._line_local_occurrences[i] & 0x3F) - target_occurrence)
+            scored_matches.append((anchor_penalty, occurrence_distance, i))
 
-        for i, line in matches:
-            current_seen[line] = current_seen.get(line, 0) + 1
-            current_occ = current_seen[line]
-
-            # Apply identical modulo to current spatial data before comparing
-            current_idx_mod = i % 16384
-            current_occ_mod = current_occ % 64
-
-            # Cartesian distance squared
-            distance_sq = ((current_idx_mod - target_idx) ** 2) + (
-                (current_occ_mod - target_occ) ** 2
-            )
-            scored_matches.append((distance_sq, i))
-
-        scored_matches.sort(key=lambda x: x[0])
-        return [m[1] for m in scored_matches]
+        scored_matches.sort()
+        return [m[2] for m in scored_matches]
 
     def resolve_range(self, start_id: str, end_id: str) -> tuple[int, int]:
         starts = self.resolve_to_lines(start_id)

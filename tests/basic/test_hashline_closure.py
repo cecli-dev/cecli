@@ -733,3 +733,33 @@ def test_merge_single_op_returns_as_is():
     result = _merge_replace_operations(ops)
     assert len(result) == 1
     assert result[0]["op"]["text"] == "text"
+
+
+def test_closure_safeguard_accepts_batch_valid_combination():
+    """Individually invalid edits should survive when the batch is valid."""
+    source = "if True:\n    if False:\n        x = 1\n"
+    ops = [
+        _make_closure_op("replace", "    x = 1", 2, 2, index=0),
+        _make_closure_op("delete", "", 1, 1, index=1),
+    ]
+
+    result, rejected = _apply_closure_safeguard(source, ops, file_path="test.py")
+
+    assert len(result) == 2
+    assert rejected == []
+
+
+def test_fix_boundaries_does_not_cross_sibling_op():
+    """Boundary expansion must stop before another operation's range."""
+    source = ["dup", "old1", "dup", "X", "Y"]
+    ops = [
+        _make_op("replace", "dup\nnew", 2, 2, index=0),
+        _make_op("replace", "KEPT", 1, 1, index=1),
+    ]
+
+    result = _fix_duplicate_content_boundaries(source, ops)
+
+    assert result[0]["start_idx"] == 2
+    assert result[0]["end_idx"] == 2
+    assert result[1]["start_idx"] == 1
+    assert result[1]["end_idx"] == 1

@@ -75,6 +75,19 @@ def resolve_paths(coder, file_path):
         raise ToolError(f"Error resolving path '{file_path}': {e}")
 
 
+def read_text_preserving_newlines(coder, abs_path):
+    """Read a file while retaining its detected CRLF line endings."""
+    content = coder.io.read_text(abs_path)
+    if content is None:
+        return None
+
+    detect_newline = getattr(coder.io, "_detect_newline", None)
+    if detect_newline and detect_newline(abs_path) == "\r\n":
+        content = content.replace("\r\n", "\n").replace("\n", "\r\n")
+
+    return content
+
+
 def validate_file_for_edit(coder, file_path):
     """
     Validates if a file exists, is in context, and is editable.
@@ -101,7 +114,7 @@ def validate_file_for_edit(coder, file_path):
         #    )
 
     # Reread content immediately before potential modification
-    content = coder.io.read_text(abs_path)
+    content = read_text_preserving_newlines(coder, abs_path)
     if content is None:
         # This indicates an issue reading a file we know exists and is in context
         coder.io.tool_error(

@@ -182,3 +182,29 @@ def test_empty_file_includes_edit_hint(tmp_path):
     assert "EditFile" in str(result)
     assert "readfile again" in str(result).lower()
     coder.io.tool_error.assert_not_called()
+
+
+def test_read_after_edit_resends_changed_range(coder_with_file):
+    """ReadFile must not claim cached context is current after the file is edited."""
+    from cecli.helpers.conversation import ConversationService
+
+    coder, file_path = coder_with_file
+    params = [
+        {
+            "file_path": "example.txt",
+            "range_start": "alpha",
+            "range_end": "gamma",
+            "padding": 0,
+        }
+    ]
+
+    first = str(read_file.Tool.execute(coder, read=params))
+    assert "Retrieved context" in first
+
+    file_path.write_text("alpha\nBETA\ngamma\n")
+    ConversationService.get_chunks(coder).notify_file_edited(str(file_path))
+
+    second = str(read_file.Tool.execute(coder, read=params))
+
+    assert "still valid from previous read" not in second
+    assert "BETA" in second

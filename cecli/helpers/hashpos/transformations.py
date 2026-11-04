@@ -155,6 +155,9 @@ def resolve_at_l(
     ):
         return line_spec
 
+    if line_spec == "@L0":
+        return "@000"
+
     line_num = int(line_spec[2:]) - 1
 
     if line_num < 0 or line_num >= len(lines):
@@ -183,8 +186,8 @@ def extract_hint(
     Supports three hint types:
 
     * ``@L<num>``     — direct line number (always resolvable).
-    * ``@A{{{{regex}}}}`` — keep only matches **after** the first regex hit.
-    * ``@B{{{{regex}}}}`` — keep only matches **before** the last regex hit.
+    * ``@A{regex}`` / ``@A{{regex}}`` — keep only matches **after** the first regex hit.
+    * ``@B{regex}`` / ``@B{{regex}}`` — keep only matches **before** the last regex hit.
 
     Returns a ``(stripped_pattern, hint_value, hint_type)`` tuple:
 
@@ -199,8 +202,8 @@ def extract_hint(
         stripped = pattern[: m.start()]
         return (stripped if stripped else pattern), int(m.group(1)) - 1, "L"
 
-    # @A{{regex}} hint — first regex match, filter to lines AFTER
-    m = re.search(r"(?:^|[ \t]+)@A\{\{(.+?)\}\}[ \t]*$", pattern)
+    # @A{regex} or @A{{regex}} hint — first regex match, filter to lines AFTER
+    m = re.search(r"(?:^|[ \t]+)@A\{\{?(.+?)\}\}?[ \t]*$", pattern)
 
     if m:
         stripped = pattern[: m.start()]
@@ -217,8 +220,8 @@ def extract_hint(
 
         return stripped, None, None
 
-    # @B{{regex}} hint — last regex match, filter to lines BEFORE
-    m = re.search(r"(?:^|[ \t]+)@B\{\{(.+?)\}\}[ \t]*$", pattern)
+    # @B{regex} or @B{{regex}} hint — last regex match, filter to lines BEFORE
+    m = re.search(r"(?:^|[ \t]+)@B\{\{?(.+?)\}\}?[ \t]*$", pattern)
 
     if m:
         stripped = pattern[: m.start()]
