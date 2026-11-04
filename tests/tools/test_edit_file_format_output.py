@@ -592,3 +592,42 @@ def test_execute_invalidates_cached_read_ranges(coder_with_file):
         assert abs_path not in files._file_context_versions
     finally:
         ConversationService.destroy_instances(coder.uuid)
+
+
+def test_format_output_colors_inserted_text_green(coder_with_file):
+    """Inserted text is additive, so preview it green like added diff lines."""
+    coder, _ = coder_with_file
+    coder.agent_config["diff_colors"] = True
+    edits = [
+        {
+            "file_path": "example.txt",
+            "operation": "insert",
+            "text": "    print('inserted')",
+            "start_line": "@L1",
+            "position": "after",
+        }
+    ]
+
+    output = preview_output(coder, edits)
+
+    assert "\033[32m+    print('inserted')\x1b[0m" in output
+
+
+def test_format_output_leaves_inserted_text_plain_without_diff_colors(coder_with_file):
+    """Inserted text stays uncolored when diff colors are disabled."""
+    coder, _ = coder_with_file
+    coder.agent_config["diff_colors"] = False
+    edits = [
+        {
+            "file_path": "example.txt",
+            "operation": "insert",
+            "text": "    print('inserted')",
+            "start_line": "@L1",
+            "position": "after",
+        }
+    ]
+
+    output = preview_output(coder, edits)
+
+    assert "+    print('inserted')" in output
+    assert "\033[32m" not in output

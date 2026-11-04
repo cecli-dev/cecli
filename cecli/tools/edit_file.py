@@ -683,8 +683,12 @@ class Tool(BaseTool):
                         coder.io.tool_output("")
 
                 elif operation == "insert":
-                    # Show inserted text
+                    # Inserted text is additive, so render it like added diff lines.
                     if text:
+                        lines = [f"+{line}" for line in text.splitlines()]
+                        if coder.agent_config.get("diff_colors", True):
+                            lines = [f"\033[32m{line}\x1b[0m" for line in lines]
+                        text = "\n".join(lines)
                         coder.io.tool_output(text)
                         coder.io.tool_output("")
 
