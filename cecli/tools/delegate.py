@@ -49,6 +49,13 @@ class Tool(BaseTool):
                                         " If false, wait for the result."
                                     ),
                                 },
+                                "working_dir": {
+                                    "type": "string",
+                                    "description": (
+                                        "Optional working directory for this delegation. "
+                                        "Relative paths resolve against the dispatching agent's root."
+                                    ),
+                                },
                                 "persist": {
                                     "type": "boolean",
                                     "default": False,
@@ -76,7 +83,8 @@ class Tool(BaseTool):
 
         if not delegations or not isinstance(delegations, list):
             response.append_error(
-                "'delegations' parameter must be a non-empty array of {name, prompt, async, persist} objects."
+                "'delegations' parameter must be a non-empty array of "
+                "{name, prompt, async, working_dir, persist} objects."
             )
             return response
 
@@ -106,33 +114,39 @@ class Tool(BaseTool):
 
         # Separate async (fire-and-forget) and sync (blocking) delegations
         async_delegations = [
-            (d["name"], d["prompt"], d.get("persist", False))
+            (d["name"], d["prompt"], d.get("persist", False), d.get("working_dir"))
             for d in delegations
             if d.get("async", True)
         ]
         sync_delegations = [
-            (d["name"], d["prompt"], d.get("persist", False))
+            (d["name"], d["prompt"], d.get("persist", False), d.get("working_dir"))
             for d in delegations
             if not d.get("async", True)
         ]
 
-        async def _spawn_one(name: str, prompt: str, persist: bool) -> tuple:
+        async def _spawn_one(name: str, prompt: str, persist: bool, working_dir=None) -> tuple:
             """Spawn a single sub-agent (fire-and-forget). Returns (name, uuid_or_error, error)."""
             auto_reap = None if not persist else False
             try:
+                spawn_kwargs = {}
+                if working_dir:
+                    spawn_kwargs["root"] = working_dir
                 new_coder, info = await agent_service.spawn(
-                    name, prompt, parent=coder, auto_reap=auto_reap
+                    name, prompt, parent=coder, auto_reap=auto_reap, **spawn_kwargs
                 )
                 return name, info.coder.uuid, None
             except Exception as e:
                 return name, None, f"failed: {e}"
 
-        async def _invoke_one(name: str, prompt: str, persist: bool) -> tuple:
+        async def _invoke_one(name: str, prompt: str, persist: bool, working_dir=None) -> tuple:
             """Invoke a single sub-agent (blocking). Returns (name, summary_or_error, error)."""
             auto_reap = None if not persist else False
             try:
+                invoke_kwargs = {}
+                if working_dir:
+                    invoke_kwargs["root"] = working_dir
                 summary = await agent_service.invoke(
-                    name, prompt, parent=coder, auto_reap=auto_reap
+                    name, prompt, parent=coder, auto_reap=auto_reap, **invoke_kwargs
                 )
                 return name, summary or "(no summary)", None
             except Exception as e:
@@ -141,13 +155,19 @@ class Tool(BaseTool):
         # Process async delegations (fire-and-forget spawn)
         async_results = []
         if async_delegations:
-            tasks = [_spawn_one(n, p, persist) for n, p, persist in async_delegations]
+            tasks = [
+                _spawn_one(n, p, persist, working_dir)
+                for n, p, persist, working_dir in async_delegations
+            ]
             async_results = list(await asyncio.gather(*tasks))
 
         # Process sync delegations (blocking invoke)
         sync_results = []
         if sync_delegations:
-            tasks = [_invoke_one(n, p, persist) for n, p, persist in sync_delegations]
+            tasks = [
+                _invoke_one(n, p, persist, working_dir)
+                for n, p, persist, working_dir in sync_delegations
+            ]
             sync_results = list(await asyncio.gather(*tasks))
 
         # Build response
@@ -213,10 +233,13 @@ class Tool(BaseTool):
                 prompt = d.get("prompt", "")
                 is_async = d.get("async", True)
                 is_persist = d.get("persist", False)
+                working_dir = d.get("working_dir")
                 coder.io.tool_output(f"{color_start}delegation_{i + 1}:{color_end}")
                 coder.io.tool_output(f"agent: {name}")
                 coder.io.tool_output(f"mode: {'async' if is_async else 'sync'}")
                 coder.io.tool_output(f"persist: {'true' if is_persist else 'false'}")
+                if working_dir:
+                    coder.io.tool_output(f"working_dir: {working_dir}")
                 coder.io.tool_output(f"task: {prompt}")
                 if i < len(delegations) - 1:
                     coder.io.tool_output("")

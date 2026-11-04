@@ -777,6 +777,13 @@ class InputOutput:
         if self.line_endings == "preserve":
             newline = self._detect_newline(filename) or self.newline
 
+        # Content that already carries CRLF must not be translated again,
+        # which would double the carriage returns on Windows.
+        # ``None`` is the platform default, which is CRLF on Windows, so it
+        # must be handled alongside an explicit CRLF target.
+        if newline in (None, "\r\n") and "\r\n" in content:
+            newline = ""
+
         delay = initial_delay
         for attempt in range(max_retries):
             try:

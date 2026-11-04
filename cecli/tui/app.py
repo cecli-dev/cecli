@@ -16,6 +16,7 @@ from rich.style import Style
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.theme import Theme
 from textual.widgets import Static
 
@@ -1679,7 +1680,10 @@ class TUI(App):
             # reset foreground_uuid by the time we run here.
             agent_service = AgentService.get_instance(self.worker.coder)
             agent_service.foreground_uuid = None
-            primary = self.query_one("#output", OutputContainer)
+            try:
+                primary = self.query_one("#output", OutputContainer)
+            except NoMatches:
+                return
             primary.display = True
             self._refresh_footer()
 
@@ -1757,7 +1761,12 @@ class TUI(App):
         Delegates to the InputContainer itself, which queries AgentService
         via self.app to build the pill indicators.
         """
-        input_container = self.query_one("#input-container", InputContainer)
+        try:
+            input_container = self.query_one("#input-container", InputContainer)
+        except NoMatches:
+            # The DOM is already torn down when a notification arrives during
+            # shutdown; there is nothing left to sync.
+            return
         coder = self.worker.coder
         mode = getattr(coder, "edit_format", "code") or "code"
         input_container.update_mode(mode)

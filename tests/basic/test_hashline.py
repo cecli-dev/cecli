@@ -2,6 +2,7 @@ import pytest
 
 from cecli.helpers.hashline import (
     ContentHashError,
+    _detect_overlapping_ranges,
     apply_hashline_operations,
     get_hashline_diff,
     hashline,
@@ -9,6 +10,7 @@ from cecli.helpers.hashline import (
     resolve_content_to_hashline_ids,
     strip_hashline,
 )
+from cecli.helpers.hashpos.hashpos import HashPos
 
 
 def test_hashline_basic():
@@ -359,3 +361,289 @@ def test_empty_insert_is_a_noop():
     assert new_content == original_content
     assert successful == []
     assert failed[0]["failure_type"] == "no_change"
+
+
+def test_append_at_eof_with_000_markers():
+    """Using 000@ for both boundaries appends without replacing the last line."""
+    original_content = "first\nsecond\n"
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": "000@",
+                "end_line_hash": "000@",
+                "operation": "replace",
+                "text": "appended",
+            }
+        ],
+    )
+
+    assert new_content == "first\nsecond\nappended\n"
+    assert successful == [0]
+    assert failed == []
+
+
+def test_multiline_anchor_is_rejected():
+    """Anchors must be single-line; multiline values fail clearly."""
+    original_content = "alpha\nbeta\ngamma\n"
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": "alpha\nbeta",
+                "end_line_hash": "alpha\nbeta",
+                "operation": "replace",
+                "text": "changed",
+            }
+        ],
+    )
+
+    assert new_content == original_content
+    assert successful == []
+    assert "single-line" in failed[0]["error"]
+
+
+def test_partial_line_anchor_error_is_explicit():
+    """A substring anchor must explain that the complete line is required."""
+    original_content = "def main():\n    pass\n"
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": "def main",
+                "end_line_hash": "def main",
+                "operation": "replace",
+                "text": "changed",
+            }
+        ],
+    )
+
+    assert new_content == original_content
+    assert successful == []
+    assert "only partially matches" in failed[0]["error"]
+    assert "complete line" in failed[0]["error"]
+
+
+def test_ambiguous_anchor_reports_line_numbers():
+    """Ambiguity errors should identify candidate lines and suggest @L."""
+    original_content = "target\nmiddle\ntarget\n"
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": "target",
+                "end_line_hash": "target",
+                "operation": "replace",
+                "text": "changed",
+            }
+        ],
+    )
+
+    assert new_content == original_content
+    assert successful == []
+    assert "lines 1, 3" in failed[0]["error"]
+    assert "@L<n>" in failed[0]["error"]
+
+
+def test_stale_id_error_suggests_reread():
+    """Stale IDs should tell the caller to re-read rather than echo hashes."""
+    original_content = "first\nsecond\nthird\n"
+    stale_id, _ = resolve_content_to_hashline_ids(original_content, "second", "second")
+
+    new_content, successful, failed = apply_hashline_operations(
+        "changed\nother\nthird\n",
+        [
+            {
+                "start_line_hash": stale_id,
+                "end_line_hash": stale_id,
+                "operation": "replace",
+                "text": "X",
+            }
+        ],
+    )
+
+    assert successful == []
+    assert "re-read" in failed[0]["error"]
+    assert "IDs" in failed[0]["error"]
+
+
+def test_crlf_line_endings_are_preserved():
+    """A CRLF file should stay CRLF after an edit."""
+    original_content = "first\r\nsecond\r\n"
+    second_id, _ = resolve_content_to_hashline_ids(original_content, "second", "second")
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": second_id,
+                "end_line_hash": second_id,
+                "operation": "replace",
+                "text": "SECOND",
+            }
+        ],
+    )
+
+    assert new_content == "first\r\nSECOND\r\n"
+    assert successful == [0]
+    assert failed == []
+
+
+def test_stale_content_id_error_recommends_reread():
+    """Stale IDs should tell the caller to re-read instead of echoing hashes."""
+    original_content = "first\nsecond\nthird\n"
+    stale_id, _ = resolve_content_to_hashline_ids(original_content, "second", "second")
+    modified_content = "changed\nother\nthird\n"
+
+    new_content, successful, failed = apply_hashline_operations(
+        modified_content,
+        [
+            {
+                "start_line_hash": stale_id,
+                "end_line_hash": stale_id,
+                "operation": "replace",
+                "text": "changed again",
+            }
+        ],
+    )
+
+    assert new_content == modified_content
+    assert successful == []
+    assert "may have changed" in failed[0]["error"]
+    assert "re-read" in failed[0]["error"]
+
+
+def test_insert_preserves_crlf_line_endings():
+    """Inserting into a CRLF file must keep CRLF line endings."""
+    original_content = "first\r\nsecond\r\n"
+    second_id, _ = resolve_content_to_hashline_ids(original_content, "second", "second")
+
+    new_content, successful, failed = apply_hashline_operations(
+        original_content,
+        [
+            {
+                "start_line_hash": second_id,
+                "end_line_hash": second_id,
+                "operation": "insert",
+                "text": "middle",
+                "position": "before",
+            }
+        ],
+    )
+
+    assert new_content == "first\r\nmiddle\r\nsecond\r\n"
+    assert successful == [0]
+    assert failed == []
+
+
+def test_insert_around_empty_line_preserves_target_line():
+    """Inserting before/after a blank line must keep that blank line."""
+    original_content = "a\n\nb\n"
+    empty_id, _ = resolve_content_to_hashline_ids(original_content, "", "")
+
+    def run(position):
+        new_content, successful, failed = apply_hashline_operations(
+            original_content,
+            [
+                {
+                    "start_line_hash": empty_id,
+                    "end_line_hash": empty_id,
+                    "operation": "insert",
+                    "text": "X",
+                    "position": position,
+                }
+            ],
+        )
+        assert successful == [0]
+        assert failed == []
+        return new_content
+
+    assert run("before") == "a\nX\n\nb\n"
+    assert run("after") == "a\n\nX\nb\n"
+
+
+def test_overlap_error_reports_one_based_line_numbers():
+    """Overlap diagnostics must use file line numbers, not zero-based indices."""
+    resolved_ops = [
+        {
+            "index": 0,
+            "start_idx": 4,
+            "end_idx": 6,
+            "op": {"operation": "replace"},
+        },
+        {
+            "index": 1,
+            "start_idx": 5,
+            "end_idx": 7,
+            "op": {"operation": "replace"},
+        },
+    ]
+
+    failed, indices = _detect_overlapping_ranges(resolved_ops)
+
+    assert indices == {0, 1}
+    assert "lines 5-7" in failed[0]["error"]
+    assert "lines 6-8" in failed[0]["error"]
+
+
+def test_public_ids_use_local_anchor_and_occurrence():
+    """Duplicate lines get distinct IDs from local anchors and local occurrences."""
+    content = "anchor_a\ndup\ndup\nanchor_b\ndup\n"
+    hp = HashPos(content)
+
+    first = hp.generate_public_id("dup", 1, 1)
+    second = hp.generate_public_id("dup", 2, 2)
+    third = hp.generate_public_id("dup", 4, 1)
+
+    assert len({first, second, third}) == 3
+    _, first_anchor, first_occurrence = hp.unpack_public_id(first)
+    _, second_anchor, second_occurrence = hp.unpack_public_id(second)
+    _, third_anchor, third_occurrence = hp.unpack_public_id(third)
+
+    assert first_anchor == second_anchor
+    assert first_anchor != third_anchor
+    assert first_occurrence == 1
+    assert second_occurrence == 2
+    assert third_occurrence == 1
+
+    for idx, public_id in ((1, first), (2, second), (4, third)):
+        assert hp.resolve_to_lines(hp.get_wrapped_id(public_id)) == [idx]
+
+
+def test_public_ids_are_stable_when_unrelated_lines_shift():
+    """Inserting lines before the local anchor must not change duplicate IDs."""
+    original = "top\ndup\nend\nmid\ndup\n"
+    edited = "new_a\nnew_b\n" + original
+
+    original_hp = HashPos(original)
+    edited_hp = HashPos(edited)
+
+    original_ids = [
+        original_hp.generate_public_id(line, idx, 1)
+        for idx, line in enumerate(original_hp.lines)
+        if line == "dup"
+    ]
+    edited_ids = [
+        edited_hp.generate_public_id(line, idx, 1)
+        for idx, line in enumerate(edited_hp.lines)
+        if line == "dup"
+    ]
+
+    assert original_ids == edited_ids
+    assert edited_hp.resolve_to_lines(edited_hp.get_wrapped_id(edited_ids[0])) == [3]
+    assert edited_hp.resolve_to_lines(edited_hp.get_wrapped_id(edited_ids[1])) == [6]
+
+
+def test_public_ids_change_only_when_local_anchor_changes():
+    """A new unique line before a duplicate changes that local ID segment."""
+    original_hp = HashPos("anchor\ndup\n")
+    edited_hp = HashPos("anchor\nnew_unique\ndup\n")
+
+    original_id = original_hp.generate_public_id("dup", 1, 1)
+    edited_id = edited_hp.generate_public_id("dup", 2, 1)
+
+    assert original_id != edited_id

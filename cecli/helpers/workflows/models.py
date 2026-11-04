@@ -55,6 +55,8 @@ class WorkflowConfig:
     lease_timeout: float = 30.0  # minutes
     model: Optional[str] = None
     root: Optional[str] = None
+    repo: Optional[str] = None
+    worktree: Optional[Dict[str, Any]] = None
     hooks: Dict[str, Any] = field(default_factory=dict)
     skills: List[str] = field(default_factory=list)
     servers: List[str] = field(default_factory=list)
@@ -64,13 +66,22 @@ class WorkflowConfig:
     catch_up: Optional[bool] = None  # None: use the scheduler default
     source_path: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        """Normalize the worktree field for programmatic construction."""
+        if self.worktree is True:
+            self.worktree = {}
+        elif self.worktree is False:
+            self.worktree = None
+        elif isinstance(self.worktree, dict):
+            self.worktree = dict(self.worktree)
+
     @property
     def agent_name(self) -> str:
         return f"wf:{self.name}"
 
     def to_dict(self) -> Dict[str, Any]:
         """Canonical dict form used for hashing and ``/workflows show``."""
-        return {
+        data = {
             "name": self.name,
             "description": self.description,
             "schedule": self.schedule,
@@ -88,6 +99,14 @@ class WorkflowConfig:
             "catch_up": self.catch_up,
             "tasks": [t.to_dict() for t in self.tasks],
         }
+
+        if self.repo is not None:
+            data["repo"] = self.repo
+
+        if self.worktree is not None:
+            data["worktree"] = self.worktree
+
+        return data
 
     def definition_hash(self) -> str:
         """sha256 of the normalized definition (key-order independent)."""
@@ -136,6 +155,10 @@ class WorkflowConfig:
             )
 
         hooks = data.get("hooks") or {}
+        worktree = _normalize_worktree(data.get("worktree"))
+        if isinstance(worktree, dict) and isinstance(worktree.get("branch"), str):
+            worktree["branch"] = interpolate_env_vars(worktree["branch"])
+
         return cls(
             name=str(data.get("name") or ""),
             tasks=tasks,
@@ -156,6 +179,12 @@ class WorkflowConfig:
                 if data.get("root") is not None
                 else None
             ),
+            repo=(
+                _interp(interpolate_env_vars, data["repo"])
+                if data.get("repo") is not None
+                else None
+            ),
+            worktree=worktree,
             hooks=hooks if isinstance(hooks, dict) else {},
             skills=[_interp(interpolate_env_vars, s) for s in data.get("skills") or []],
             servers=[_interp(interpolate_env_vars, s) for s in data.get("servers") or []],
@@ -199,12 +228,48 @@ class RunResult:
     tasks: List[TaskResult] = field(default_factory=list)
     run_id: Optional[int] = None
     log_path: Optional[str] = None
+    worktree: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize the run outcome, including the worker's worktree record."""
+        return {
+            "name": self.name,
+            "status": self.status,
+            "source": self.source,
+            "summary": self.summary,
+            "error_message": self.error_message,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "run_id": self.run_id,
+            "log_path": self.log_path,
+            "worktree": self.worktree,
+        }
 
     @classmethod
     def error(cls, exc: BaseException, name: str = "", source: str = "scheduler") -> "RunResult":
         return cls(
             name=name, status="error", source=source, error_message=str(exc), summary=str(exc)
         )
+
+
+def _normalize_worktree(value: Any) -> Any:
+    """Normalize the ``worktree`` field: true -> {}, false/None -> None, mapping -> dict.
+
+    Other values are left untouched so validation can reject them with a useful
+    error.
+    """
+
+    if value is None or value is False:
+        return None
+
+    if value is True:
+        return {}
+
+    if isinstance(value, dict):
+        return dict(value)
+
+    return value
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:

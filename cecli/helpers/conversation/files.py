@@ -263,9 +263,10 @@ class ConversationFiles:
             context_lines=3,
         )
 
-        # If there's a diff, update the last snapshot with current content
+        # If there's a diff, update the snapshot and invalidate cached read ranges.
         if diff_text.strip():
             self._file_contents_snapshot[abs_fname] = current_content
+            self.invalidate_file_context(abs_fname)
 
         return diff_text if diff_text.strip() else None
 
@@ -511,6 +512,19 @@ class ConversationFiles:
                 return (merged_start, merged_end)
 
         return (start_line, end_line)  # fallback
+
+    def invalidate_file_context(self, file_path: str) -> None:
+        """Discard cached ReadFile ranges after a file edit.
+
+        Cached ranges are numeric line intervals. An edit can change the lines
+        inside a range or shift every later range, so the whole per-file range
+        cache is discarded instead of trying to remap offsets.
+        """
+        abs_fname = os.path.abspath(file_path)
+        self._numbered_contexts.pop(abs_fname, None)
+        self._last_merged_ranges.pop(abs_fname, None)
+        self._emitted_contexts.pop(abs_fname, None)
+        self._file_context_versions.pop(abs_fname, None)
 
     def push_range(self, file_path: str, ranges: List[Tuple[int, int]]) -> None:
         """

@@ -32,9 +32,18 @@ COMMANDS = {
         "total_chars": 10,
     },
     "bg_3_4444": {
+        "command": "timeout-tool",
+        "running": True,
+        "persist": True,
+        "continued_in_background": True,
+        "buffer_size": 10,
+        "total_chars": 10,
+    },
+    "bg_4_5555": {
         "command": "foreground-tool",
         "running": True,
         "persist": True,
+        "continued_in_background": False,
         "buffer_size": 10,
         "total_chars": 10,
     },
@@ -43,6 +52,7 @@ COMMANDS = {
 OUTPUTS = {
     "bg_0_1111": "ready in 231 ms\nlistening on 5173",
     "bg_1_2222": "14 passed\n2 skipped",
+    "bg_3_4444": "still compiling",
 }
 
 
@@ -93,7 +103,7 @@ async def _run_panel_checks():
             panel.refresh_data()
             await pilot.pause()
 
-            assert _tab_ids(panel) == ["bg_0_1111", "bg_1_2222"]
+            assert _tab_ids(panel) == ["bg_0_1111", "bg_1_2222", "bg_3_4444"]
 
             tabs = panel.query_one("#bg-command-tabs", Tabs)
             log = panel.query_one("#bg-command-output", RichLog)
@@ -103,7 +113,7 @@ async def _run_panel_checks():
             command_line = panel.query_one("#bg-command-line", Static)
             assert "npm run dev" in str(command_line.render())
 
-            assert panel.border_title == "background commands (2)"
+            assert panel.border_title == "background commands (3)"
             assert panel._active_key == "bg_0_1111"
             assert "listening on 5173" in _log_text(panel)
 
@@ -125,6 +135,14 @@ async def _run_panel_checks():
             panel.refresh_data()
             await pilot.pause()
             assert "listening on 5173" in _log_text(panel)
+
+            tabs.active = "bg_3_4444"
+            await pilot.pause()
+
+            assert panel._active_key == "bg_3_4444"
+            assert "timeout-tool" in str(command_line.render())
+            assert "timed out, still running" in str(command_line.render())
+            assert "still compiling" in _log_text(panel)
 
 
 def test_background_commands_panel_tabs_output_and_follow():
@@ -299,3 +317,43 @@ def test_open_command_without_tui():
     asyncio.run(OpenCommand.execute(io, coder, "commands"))
 
     assert messages == ["/open commands is only available in the TUI."]
+
+
+def test_background_commands_panel_adds_tabs_incrementally():
+    """A command appearing after the initial render must not duplicate tab IDs."""
+    app = _PanelApp()
+    commands = {"bg_0_1111": COMMANDS["bg_0_1111"]}
+
+    with (
+        patch.object(
+            BackgroundCommandManager,
+            "list_background_commands",
+            side_effect=lambda: dict(commands),
+        ),
+        patch.object(
+            BackgroundCommandManager,
+            "get_command_output",
+            side_effect=lambda key: OUTPUTS.get(key, ""),
+        ),
+        patch.object(
+            BackgroundCommandManager,
+            "get_new_command_output",
+            side_effect=AssertionError("panel must not consume agent output"),
+        ),
+    ):
+
+        async def run():
+            async with app.run_test(size=(120, 40)) as pilot:
+                panel = app.query_one("#background-commands-panel", BackgroundCommandsPanel)
+                panel.refresh_data()
+                await pilot.pause()
+
+                assert _tab_ids(panel) == ["bg_0_1111"]
+
+                commands["bg_3_4444"] = COMMANDS["bg_3_4444"]
+                panel.refresh_data()
+                await pilot.pause()
+
+                assert _tab_ids(panel) == ["bg_0_1111", "bg_3_4444"]
+
+        asyncio.run(run())

@@ -76,11 +76,8 @@ class TestModels:
         assert model.info["max_input_tokens"] == 16385
         model = Model("gpt-4")
         assert model.info["max_input_tokens"] == 8 * 1024
-        model = Model("gpt-4-32k")
-        # gpt-4-32k might not have model info in litellm, use .get() to avoid KeyError
-        max_tokens = model.info.get("max_input_tokens")
-        if max_tokens is not None:
-            assert max_tokens == 32 * 1024
+        model = Model("gpt-6-luna")
+        assert model.info["max_input_tokens"] == 922000
         model = Model("gpt-4-0613")
         assert model.info["max_input_tokens"] == 8 * 1024
 

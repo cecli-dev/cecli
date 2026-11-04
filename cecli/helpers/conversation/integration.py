@@ -772,6 +772,15 @@ class ConversationChunks:
                 hash_key=("file_context_user", file_path, content_hash),
             )
 
+    def notify_file_edited(self, file_path: str) -> None:
+        """Invalidate cached ReadFile ranges for a file changed by a tool."""
+
+        coder = self.get_coder()
+        if not coder:
+            return
+
+        ConversationService.get_files(coder).invalidate_file_context(file_path)
+
     def reset(self) -> None:
         """
         Reset the entire conversation system to initial state.

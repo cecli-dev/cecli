@@ -183,12 +183,23 @@ def find_hashline_range(
     start_hash, _, _ = parse_hashline(start_line_hash)
     end_hash, _, _ = parse_hashline(end_line_hash)
 
+    # Handle an empty range at EOF ("000@" ... "000@"): append content.
+    if start_hash == "000@" and end_hash == "000@":
+        return len(hashed_lines), len(hashed_lines) - 1
+
+    # "000@" is only valid as a start marker when paired with another "000@".
+    if start_hash == "000@":
+        raise ContentHashError(
+            "Start marker '000@' (EOF) is only valid with end marker '000@' "
+            "to append at the end of the file"
+        )
+
     # Handle special marker "@000" (top of file)
     if start_hash == "@000":
         found_start = 0
         # If end is also "@000", it's an empty range at the start
         if end_hash == "@000":
-            return 0, 0
+            return 0, -1
         # If end is "000@", it's the entire file
         if end_hash == "000@":
             if not hashed_lines:
@@ -1208,6 +1219,24 @@ def _merge_replace_operations(resolved_ops):
             and current["op"]["operation"] == "replace"
             and prev["op"].get("text") is not None
             and current["op"].get("text") is not None
+            and not (
+                prev["op"].get("start_line_hash") == "000@"
+                and prev["op"].get("end_line_hash") == "000@"
+            )
+            and not (
+                prev["op"].get("start_line_hash") == "@000"
+                and prev["op"].get("end_line_hash") == "@000"
+            )
+            and not (
+                current["op"].get("start_line_hash") == "000@"
+                and current["op"].get("end_line_hash") == "000@"
+            )
+            and not (
+                current["op"].get("start_line_hash") == "@000"
+                and current["op"].get("end_line_hash") == "@000"
+            )
+            and prev["op"].get("original_operation") != "insert"
+            and current["op"].get("original_operation") != "insert"
         ):
             # Check if they are contiguous or overlapping
             # Contiguous: prev.end_idx == current.start_idx OR prev.end_idx + 1 == current.start_idx
@@ -1355,7 +1384,10 @@ def _deduplicate_ranges(resolved_ops):
     ops_by_key = {}
 
     for op in resolved_ops:
-        key = (op["start_idx"], op["op"]["operation"])
+        key = (
+            op["start_idx"],
+            op["op"].get("original_operation", op["op"]["operation"]),
+        )
         ops_by_key.setdefault(key, []).append(op)
 
     for ops in ops_by_key.values():
@@ -1508,7 +1540,8 @@ def _merged_contained_ranges(resolved_ops):
                 if (
                     op_a["start_idx"] == op_b["start_idx"]
                     and op_a["end_idx"] == op_b["end_idx"]
-                    and op_a["op"]["operation"] != op_b["op"]["operation"]
+                    and op_a["op"].get("original_operation", op_a["op"]["operation"])
+                    != op_b["op"].get("original_operation", op_b["op"]["operation"])
                 ):
                     # Keep both operations if they have different types
                     continue
@@ -1538,7 +1571,7 @@ def sort_ranges(op):
     start_idx = op["start_idx"]
     # Operation type priority: insert (0), replace (1), delete (2)
     # Lower priority number means applied first
-    op_type = op["op"]["operation"]
+    op_type = op["op"].get("original_operation", op["op"]["operation"])
     if op_type == "insert":
         priority = 0
     elif op_type == "replace":
@@ -1577,10 +1610,26 @@ def _would_create_duplicate_content(source_lines, candidate_start, candidate_end
 def _fix_duplicate_content_boundaries(source_lines, resolved_ops):
     """
     Expand edit boundaries when replacement content duplicates adjacent lines.
+    Expansions never cross another operation's resolved range.
     """
+
+    def _overlaps_other(start, end, current):
+        for other in resolved_ops:
+            if other is current:
+                continue
+            if start <= other["end_idx"] and end >= other["start_idx"]:
+                return True
+        return False
+
     for resolved in resolved_ops:
         op = resolved["op"]
         if op["operation"] not in {"replace", "insert", "delete"}:
+            continue
+        if op.get("original_operation") == "insert":
+            continue
+        if (op.get("start_line_hash") == "000@" and op.get("end_line_hash") == "000@") or (
+            op.get("start_line_hash") == "@000" and op.get("end_line_hash") == "@000"
+        ):
             continue
         repl_text = op.get("text", "") or ""
         repl_lines = repl_text.splitlines()
@@ -1591,7 +1640,7 @@ def _fix_duplicate_content_boundaries(source_lines, resolved_ops):
         end_idx = resolved["end_idx"]
 
         # Expand start backward if first replacement line duplicates line before
-        while start_idx > 0:
+        while start_idx > 0 and not _overlaps_other(start_idx - 1, end_idx, resolved):
             line_before = source_lines[start_idx - 1].strip()
             first_repl = repl_lines[0].strip()
             if line_before and line_before == first_repl:
@@ -1600,7 +1649,9 @@ def _fix_duplicate_content_boundaries(source_lines, resolved_ops):
                 break
 
         # Expand end forward if last replacement line duplicates line after
-        while end_idx < len(source_lines) - 1:
+        while end_idx < len(source_lines) - 1 and not _overlaps_other(
+            start_idx, end_idx + 1, resolved
+        ):
             line_after = source_lines[end_idx + 1].strip()
             last_repl = repl_lines[-1].strip()
             if line_after and line_after == last_repl:
@@ -1668,6 +1719,23 @@ def _apply_closure_safeguard(
             errors += count_ast_errors(child)
         return errors
 
+    def apply_resolved_operations(lines: list, ops: list) -> bytes:
+        """Apply resolved operations to a line list for whole-batch AST checks."""
+        result = list(lines)
+
+        for candidate in sorted(ops, key=lambda item: (-item["start_idx"], item["index"])):
+            candidate_op = candidate["op"]
+            candidate_start = candidate["start_idx"]
+            candidate_end = candidate["end_idx"]
+            replacement = (candidate_op.get("text") or "").splitlines()
+
+            if candidate_op["operation"] == "insert":
+                result[candidate_start + 1 : candidate_start + 1] = replacement
+            else:
+                result[candidate_start : candidate_end + 1] = replacement
+
+        return "\n".join(result).encode("utf-8")
+
     def _detect_indent_unit(source_lines: list) -> int:
         """Detect the common indentation unit from non-empty source lines."""
         indents = []
@@ -1709,6 +1777,12 @@ def _apply_closure_safeguard(
 
         return False
 
+    def _replacement_duplicate_count(lines: list, replacement_lines: list) -> int:
+        """Count extra occurrences of replacement-text lines in the file."""
+        counts = Counter(line.strip() for line in lines if line.strip())
+        keys = {line.strip() for line in replacement_lines if line.strip()}
+        return sum(max(0, counts[key] - 1) for key in keys)
+
     # Establish the baseline syntax health of the original file
     base_tree = parser.parse(source_bytes)
     baseline_error_count = count_ast_errors(base_tree.root_node)
@@ -1742,6 +1816,7 @@ def _apply_closure_safeguard(
         repl_lines = replacement_text.splitlines()
 
         llm_end = min(llm_end, len(source_lines) - 1)
+        baseline_replacement_duplicates = _replacement_duplicate_count(source_lines, repl_lines)
 
         offsets = [0, 1, -1, 2, -2]
         all_candidates = []
@@ -1767,11 +1842,6 @@ def _apply_closure_safeguard(
                 if overlaps:
                     continue
 
-                if _would_create_duplicate_content(
-                    source_lines, candidate_start, candidate_end, repl_lines
-                ):
-                    continue
-
                 test_source_bytes = apply_edit(
                     source_lines,
                     candidate_start,
@@ -1783,6 +1853,12 @@ def _apply_closure_safeguard(
                 edited_tree = parser.parse(test_source_bytes)
                 ast_error_count = count_ast_errors(edited_tree.root_node)
 
+                test_lines = test_source_bytes.decode("utf-8").splitlines()
+                duplicate_delta = (
+                    _replacement_duplicate_count(test_lines, repl_lines)
+                    - baseline_replacement_duplicates
+                )
+
                 is_partial = (start_shift == 0) ^ (end_shift == 0)
                 is_downward = start_shift <= 0
                 is_both = start_shift == end_shift
@@ -1792,7 +1868,6 @@ def _apply_closure_safeguard(
 
                 # Check for indentation jumps in the resulting edit
                 if is_normally_indented:
-                    test_lines = test_source_bytes.decode("utf-8").splitlines()
                     has_indent_jump = _has_indent_jump(test_lines, indent_unit)
                 else:
                     has_indent_jump = False
@@ -1804,6 +1879,7 @@ def _apply_closure_safeguard(
                         "ast_error_count": ast_error_count,
                         "start_line_match": start_line_match,
                         "end_line_match": end_line_match,
+                        "duplicate_delta": duplicate_delta,
                         "cumulative_movement": cumulative_movement,
                         "has_indent_jump": has_indent_jump,
                         "is_partial": is_partial,
@@ -1813,15 +1889,19 @@ def _apply_closure_safeguard(
                 )
 
         if all_candidates:
-            # 1. AST Health is the absolute highest priority.
-            # 2. Cumulative movement acts as the tie-breaker for equally valid ASTs.
+            # 1. AST health is the highest priority.
+            # 2. Preserve exact boundary-line matches.
+            # 3. Minimize total duplication of replacement-text lines.
+            # 4. Prefer the smallest cumulative movement.
+            # 5. Use indentation heuristics only to break remaining ties.
             all_candidates.sort(
                 key=lambda r: (
                     r["ast_error_count"],  # Ascending: fewer syntax errors wins
                     not r["start_line_match"],  # Descending: True first
                     not r["end_line_match"],  # Descending: True first
-                    r.get("has_indent_jump", False),  # Ascending: False (no jump) first
+                    r["duplicate_delta"],  # Ascending: fewer replacement-line duplicates
                     r["cumulative_movement"],  # Ascending: smaller is better
+                    r.get("has_indent_jump", False),  # Ascending: False (no jump) first
                     not r["is_partial"],  # Booleans: False comes before True
                     not r["is_downward"],  # Booleans: False comes before True
                     r["is_both"],  # Booleans: False comes before True
@@ -1833,7 +1913,6 @@ def _apply_closure_safeguard(
             # EVICTION GATE: If the absolute best boundary still introduces NEW
             # syntax errors compared to the original file, discard the edit entirely.
             if best["ast_error_count"] > baseline_error_count:
-
                 rejected_ops.append(
                     {
                         "index": resolved["index"],
@@ -1843,6 +1922,11 @@ def _apply_closure_safeguard(
                             f"{len(all_candidates)} candidate boundary adjustments could resolve it"
                         ),
                         "operation": op,
+                        "resolved": {
+                            **resolved,
+                            "start_idx": best["start_idx"],
+                            "end_idx": best["end_idx"],
+                        },
                     }
                 )
                 continue
@@ -1851,6 +1935,21 @@ def _apply_closure_safeguard(
             resolved["end_idx"] = best["end_idx"]
 
         safe_resolved_ops.append(resolved)
+
+    # An operation can be individually invalid but valid in combination with
+    # sibling operations (e.g., a structural refactor split across edits).
+    # Accept the batch when the combined result is no worse than the source.
+    if rejected_ops and len(resolved_ops) > 1:
+        batch_ops = safe_resolved_ops + [
+            rejected["resolved"] for rejected in rejected_ops if "resolved" in rejected
+        ]
+        combined_tree = parser.parse(apply_resolved_operations(source_lines, batch_ops))
+        if count_ast_errors(combined_tree.root_node) <= baseline_error_count:
+            safe_resolved_ops = batch_ops
+            rejected_ops = []
+
+    for rejected in rejected_ops:
+        rejected.pop("resolved", None)
 
     return safe_resolved_ops, rejected_ops
 
@@ -1916,30 +2015,70 @@ def _raise_clear_hash_error(hp, op, key):
             "Use a hashed ID prefix (e.g., `—XXXX—`) to target the line."
         )
 
-    # Count how many lines contain this value as a substring
-    matching_count = 0
-    for line in hp.lines:
-        if value_stripped in line:
-            matching_count += 1
+    if "\n" in value_stripped or "\r" in value_stripped:
+        raise ContentHashError(
+            "Line anchors must be single-line; multi-line text is only supported "
+            "in the replacement text."
+        )
 
-    if matching_count > 1:
+    if re.search(r"(?:^|[ \t])@[CPN][0-9]*[ \t]*$", value_stripped):
         raise ContentHashError(
-            f"Line '{value_stripped}' appears {matching_count} times in the file. "
-            "Use the hashed ID prefix (e.g., `—XXXX—`) to disambiguate "
-            "which occurrence to target."
+            "ReadFile-only range markers ('@C<n>', '@P<n>', '@N<n>') are not "
+            "supported by EditFile; use a content ID or '@L<n>' line reference."
         )
-    elif matching_count == 1:
+
+    if re.search(r"(?:^|[ \t])@[AB][ \t]*$", value_stripped):
         raise ContentHashError(
-            f"Line '{value_stripped}' was found once in the file but could not be "
-            "resolved as a unique content ID. Use the hashed ID prefix (e.g., `—XXXX—`) "
-            "to target it precisely."
+            "Bare '@A'/'@B' hints are not supported; include anchor text before "
+            "the hint, e.g. 'my line @A{regex}'."
         )
-    else:
+
+    substring_indices = [i for i, line in enumerate(hp.lines) if value_stripped in line]
+    exact_indices = [i for i, line in enumerate(hp.lines) if line.strip() == value_stripped]
+
+    def _format_line_numbers(indices):
+        shown = ", ".join(str(i + 1) for i in indices[:10])
+        if len(indices) > 10:
+            return f"{shown} (+{len(indices) - 10} more)"
+        return shown
+
+    if not substring_indices:
         raise ContentHashError(
             f"Line '{value_stripped}' was not found in the file. "
             "Use the exact line content or a hashed ID prefix (e.g., `—XXXX—`) "
             "to target the desired line."
         )
+
+    if len(exact_indices) > 1:
+        raise ContentHashError(
+            f"Line '{value_stripped}' appears {len(exact_indices)} times "
+            f"(lines {_format_line_numbers(exact_indices)}). "
+            "Add a line hint (e.g., 'text @L<n>') or use the hashed ID prefix "
+            "(e.g., `—XXXX—`) to choose one occurrence."
+        )
+
+    if len(exact_indices) == 1:
+        raise ContentHashError(
+            f"Line '{value_stripped}' exactly matches line {exact_indices[0] + 1} "
+            "but could not be resolved to a unique content ID. Use its hashed ID "
+            "prefix (e.g., `—XXXX—`) to target it precisely."
+        )
+
+    if len(substring_indices) == 1:
+        matched_line = hp.lines[substring_indices[0]].strip()
+        raise ContentHashError(
+            f"Line '{value_stripped}' only partially matches line "
+            f"{substring_indices[0] + 1} ('{matched_line}'). "
+            "Anchors must match the complete line. "
+            "Use the full line text or the hashed ID prefix (e.g., `—XXXX—`)."
+        )
+
+    raise ContentHashError(
+        f"Line '{value_stripped}' partially matches {len(substring_indices)} lines "
+        f"(lines {_format_line_numbers(substring_indices)}). "
+        "Anchors must match one complete line; use the full line text or the "
+        "hashed ID prefix (e.g., `—XXXX—`) to disambiguate."
+    )
 
 
 def _detect_overlapping_ranges(resolved_ops):
@@ -1988,8 +2127,8 @@ def _detect_overlapping_ranges(resolved_ops):
                 op_b = b["op"]
                 error_msg = (
                     f"Operation {a['index'] + 1} ({op_a['operation']}, lines "
-                    f"{a_start}-{a_end}) overlaps with operation {b['index'] + 1} "
-                    f"({op_b['operation']}, lines {b_start}-{b_end}). "
+                    f"{a_start + 1}-{a_end + 1}) overlaps with operation {b['index'] + 1} "
+                    f"({op_b['operation']}, lines {b_start + 1}-{b_end + 1}). "
                     "Edits with overlapping ranges are not supported. "
                     "Combine them into a single edit or use non-overlapping ranges."
                 )
@@ -2067,12 +2206,72 @@ def apply_hashline_operations(
     hashed_content = hp.format_content()
     hashed_lines = hashed_content.splitlines(keepends=True)
 
+    def _rewrite_insert_as_replace(op):
+        """Rewrite insert to replace so it follows the same remediation chain."""
+        text = op.get("text") or ""
+        start_hash = op["start_line_hash"]
+        position = (op.get("position") or "after").lower()
+
+        if position not in ("before", "after"):
+            raise ContentHashError(f"Invalid insert position '{position}'; use 'before' or 'after'")
+
+        if start_hash in ("@000", "000@"):
+            return {
+                **op,
+                "end_line_hash": start_hash,
+                "operation": "replace",
+                "original_operation": "insert",
+            }
+
+        fragment, line_num_str, _ = parse_hashline(start_hash)
+        target_idx = find_hashline_by_exact_match(hashed_lines, fragment, line_num_str)
+        if target_idx is None:
+            raise ContentHashError(f"Start line hash fragment '{fragment}' not found in file")
+
+        target_line = strip_hashline(hashed_lines[target_idx])
+
+        if position == "before":
+            replacement = text if text.endswith("\n") else text + "\n"
+            replacement += target_line
+        else:
+            replacement = target_line
+            if not replacement.endswith("\n"):
+                replacement += "\n"
+            replacement += text
+
+        return {
+            **op,
+            "end_line_hash": start_hash,
+            "operation": "replace",
+            "text": replacement,
+            "original_operation": "insert",
+        }
+
     # Resolve all operations to indices first
     resolved_ops = []
     # Loop to convert hashline references to line indices
     for i, op in enumerate(normalized_operations):
         try:
             if op["operation"] == "insert":
+                if op.get("text"):
+                    rewritten_op = _rewrite_insert_as_replace(op)
+                    found_start, found_end = find_hashline_range(
+                        hashed_lines,
+                        rewritten_op["start_line_hash"],
+                        rewritten_op["end_line_hash"],
+                        allow_exact_match=True,
+                        replacement_text=rewritten_op.get("text"),
+                    )
+                    resolved_ops.append(
+                        {
+                            "index": i,
+                            "start_idx": found_start,
+                            "end_idx": found_end,
+                            "op": rewritten_op,
+                        }
+                    )
+                    continue
+
                 start_hash_fragment, start_line_num_str, start_line_num = parse_hashline(
                     op["start_line_hash"]
                 )
@@ -2139,7 +2338,9 @@ def apply_hashline_operations(
                     )
                 except Exception as e:
                     raise ContentHashError(
-                        f"Could not resolve hash range {start_hash}...{end_hash}: {str(e)}"
+                        f"Could not resolve hash range {start_hash}...{end_hash}: {e}. "
+                        "The file may have changed since these IDs were read; re-read "
+                        "it and use the fresh IDs or '@L<n>' anchors."
                     )
 
         except Exception as e:
@@ -2221,10 +2422,14 @@ def apply_hashline_operations(
                     else:
                         hashed_lines.append(text)
             elif op["operation"] == "delete":
-                del hashed_lines[start_idx : end_idx + 1]
+                if start_idx > end_idx:
+                    changed = False
+                else:
+                    del hashed_lines[start_idx : end_idx + 1]
             elif op["operation"] == "replace":
-                # If operation ends with "000@", ensure end_idx is at actual end of file
-                if op.get("end_line_hash") == "000@":
+                # If operation ends with "000@", ensure end_idx is at actual end of file.
+                # A "000@" start is an empty append range, so leave it alone.
+                if op.get("end_line_hash") == "000@" and op.get("start_line_hash") != "000@":
                     end_idx = len(hashed_lines) - 1
 
                 text = op["text"]
@@ -2270,6 +2475,16 @@ def apply_hashline_operations(
                     preserve_trailing_empty = (
                         next_idx < len(hashed_lines) and hashed_lines[next_idx].strip() == ""
                     )
+
+                    # Appending after the last line needs a separator when the
+                    # source text did not end with a newline.
+                    if (
+                        start_idx > end_idx
+                        and start_idx >= len(hashed_lines)
+                        and hashed_lines
+                        and not hashed_lines[-1].endswith("\n")
+                    ):
+                        hashed_lines[-1] += "\n"
 
                     hashed_lines[start_idx : end_idx + 1] = replacement_lines
 
@@ -2323,6 +2538,14 @@ def apply_hashline_operations(
     elif not original_content.endswith("\n") and result.endswith("\n"):
         # Original doesn't end with newline but result does - remove it
         result = result[:-1]
+
+    # Restore CRLF when the source used it consistently.
+    if (
+        original_content
+        and "\r\n" in original_content
+        and original_content.count("\r\n") == original_content.count("\n")
+    ):
+        result = result.replace("\r\n", "\n").replace("\n", "\r\n")
 
     return result, successful_ops, failed_ops
 

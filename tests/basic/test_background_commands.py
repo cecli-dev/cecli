@@ -402,3 +402,24 @@ def test_get_background_command_output_stops_finished_commands(monkeypatch):
 
     assert "finished" in output
     assert stopped == ["bg_3_0001"]
+
+
+def test_mark_continued_in_background_flags_registered_command(monkeypatch):
+    """Timeout-managed commands are flagged so the panel can list them."""
+    process = types.SimpleNamespace(continued_in_background=False)
+    monkeypatch.setattr(BackgroundCommandManager, "_background_commands", {"bg_1_1234": process})
+
+    assert BackgroundCommandManager.mark_continued_in_background("bg_1_1234") is True
+    assert process.continued_in_background is True
+    assert BackgroundCommandManager.mark_continued_in_background("bg_9_9999") is False
+
+
+def test_mark_continued_in_background_flags_command(monkeypatch):
+    """A timeout-managed command can be flagged as continuing in the background."""
+    process = types.SimpleNamespace(continued_in_background=False)
+    monkeypatch.setattr(BackgroundCommandManager, "_background_commands", {"bg_1_1234": process})
+
+    assert BackgroundCommandManager.mark_continued_in_background("bg_1_1234") is True
+    assert process.continued_in_background is True
+
+    assert BackgroundCommandManager.mark_continued_in_background("bg_9_9999") is False

@@ -41,6 +41,7 @@ def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None
         "session_name": session_name,
         "agent_name": agent_name,
         "agent_root": str(coder.root) if agent_name and agent_name.startswith("ws:") else None,
+        "worktree": _worktree_data(coder),
         "independent": independent,
         "status": status,
         "model": coder.main_model.name,
@@ -259,6 +260,20 @@ def _agent_config_data(coder) -> Optional[Dict]:
         "tools_includelist": coder.agent_config.get("tools_includelist", []),
         "tools_excludelist": coder.agent_config.get("tools_excludelist", []),
     }
+
+
+def _worktree_data(coder) -> Optional[Dict]:
+    """Return a JSON-serializable worktree dict, or ``None`` when absent."""
+    record = getattr(coder, "worktree", None)
+    if record is None or not hasattr(record, "to_dict"):
+        return None
+
+    try:
+        data = record.to_dict()
+    except Exception:
+        return None
+
+    return data if isinstance(data, dict) else None
 
 
 def _restore_files(coder, io, target: set, rel_fnames: list) -> None:

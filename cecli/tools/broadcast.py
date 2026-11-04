@@ -20,7 +20,8 @@ class Tool(BaseTool):
         "function": {
             "name": "Broadcast",
             "description": (
-                "Broadcast a message to one or more sub-agent instances. Sends the message to the "
+                "Broadcast a message to one or more sub-agent instances."
+                "This tool is useful for collaboration and coordination. Sends the message to the "
                 "specified target sub-agents, or to every active sub-agent when empty/omitted. "
                 "The message is queued into the target's context if it is actively generating, "
                 "and delivered immediately if the target is idle, waking them."

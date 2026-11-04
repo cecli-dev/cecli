@@ -112,6 +112,11 @@ async def execute_workflow(
         result.error_message = str(exc) or exc.__class__.__name__
     finally:
         if worker is not None:
+            record = getattr(worker, "worktree", None)
+            if record is not None:
+                to_dict = getattr(record, "to_dict", None)
+                result.worktree = to_dict() if callable(to_dict) else record
+
             _save_session(worker, coder, wf, result)
             if not wf.persist:
                 _reap_worker(service, worker)

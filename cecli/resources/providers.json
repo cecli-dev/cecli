@@ -348,6 +348,15 @@
     "display_name": "opencode-zen",
     "session_header": "x-opencode-session"
   },
+  "openrouter": {
+    "api_base": "https://openrouter.ai/api/v1",
+    "api_key_env": [
+      "OPENROUTER_API_KEY"
+    ],
+    "display_name": "openrouter",
+    "models_url": "https://openrouter.ai/api/v1/models",
+    "requires_api_key": false
+  },
   "ovhcloud": {
     "api_base": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
     "api_key_env": [

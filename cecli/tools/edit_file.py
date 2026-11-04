@@ -1,3 +1,5 @@
+import re
+
 from cecli.helpers import nested
 from cecli.helpers.hashline import (
     HASH_DELIMITER,
@@ -9,11 +11,16 @@ from cecli.helpers.hashline import (
     strip_hashline,
 )
 from cecli.helpers.hashpos.hashpos import HashPos
-from cecli.helpers.hashpos.transformations import resolve_at_l, strip_hashline_prefix
+from cecli.helpers.hashpos.transformations import (
+    extract_hint,
+    resolve_at_l,
+    strip_hashline_prefix,
+)
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import (
     ToolError,
     apply_change,
+    read_text_preserving_newlines,
     validate_file_for_edit,
 )
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -36,6 +43,10 @@ USER_EDIT_CATEGORIES = {
 }
 
 
+READFILE_ONLY_HINT_RE = re.compile(r"(?:^|[ \t])@[CPN][0-9]*[ \t]*$")
+BARE_AB_HINT_RE = re.compile(r"(?:^|[ \t])@[AB][ \t]*$")
+
+
 class Tool(BaseTool):
     NORM_NAME = "editfile"
     RESULT_TYPE = "list"
@@ -49,20 +60,27 @@ class Tool(BaseTool):
         "function": {
             "name": "EditFile",
             "description": (
-                "Modify text in one or more files by targeting lines with their virtual identifiers "
-                "(as returned by ReadFile). You can batch multiple operations across files in one call."
-                ""
-                "Operations:"
-                "  - 'replace' — swap the targeted range with new text"
-                "  - 'delete' — remove the targeted range"
-                ""
-                "Start and end markers are inclusive: both referenced lines are modified or removed. "
-                f"Reference unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') by their exact text, and "
-                f"duplicate lines by their hashed prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}'); use "
-                "'@000' for empty files. Identifiers track content, so edits can re-prefix identical lines "
-                "elsewhere — re-read the file after editing for fresh identifiers. Multiple edits to one "
-                "file are applied bottom-to-top automatically; overlapping or contained ranges are merged "
-                "or rejected automatically."
+                "Edit lines in one or more files by targeting lines with their virtual identifiers "
+                "(as returned by ReadFile); batch across files in one call. "
+                "'replace' swaps the range, 'delete' removes it, "
+                "'insert' adds text before/after the target line.\n"
+                "\n"
+                "start_line and end_line are inclusive; each is one single-line anchor:\n"
+                f"- unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') by exact text, "
+                "or duplicate lines by their hashed prefix "
+                f"'{HASH_DELIMITER}WecX{HASH_DELIMITER}' (text after it ignored)\n"
+                "- '@L<n>' (1-based; '@L0' = top)\n"
+                "- 'text @L<n>', 'text @A{{regex}}' (anchor text required; after regex hit), "
+                "or 'text @B{{regex}}' (before it); bare '@A'/'@B' is rejected\n"
+                "- '@C<n>', '@P<n>', and '@N<n>' are ReadFile-only range markers; "
+                "EditFile rejects them (use '@L<n>' or a content ID instead)\n"
+                "\n"
+                "Ambiguous text fails. '@000' = empty/top; '000@' = EOF. "
+                "Use '@000' for both start_line and end_line to prepend. "
+                "Use '000@' for both start_line and end_line to append at end of file. "
+                "end_line resolves nearest start_line. "
+                "Edits apply bottom-to-top; overlaps merge or reject. "
+                "Re-read before reusing IDs (they encode position)."
             ),
             "parameters": {
                 "type": "object",
@@ -84,36 +102,39 @@ class Tool(BaseTool):
                                 },
                                 "operation": {
                                     "type": "string",
-                                    "enum": ["replace", "delete"],
+                                    "enum": ["replace", "delete", "insert"],
                                     "description": (
-                                        "The kind of edit: 'replace' swaps the targeted range with new text, "
-                                        "'delete' removes it entirely."
+                                        "'replace' swaps the range with text; 'delete' removes it; "
+                                        "'insert' adds text before/after the target line."
                                     ),
                                 },
                                 "text": {
                                     "type": "string",
                                     "description": (
-                                        "The replacement text for 'replace'. "
-                                        "For 'delete' leave this as an empty string (\"\"). "
-                                        "Supplied as-is; do not include identifier prefixes."
+                                        "Replacement/insertion text (non-empty); \"\" for 'delete'. "
+                                        "Prefixes are stripped."
+                                    ),
+                                },
+                                "position": {
+                                    "type": "string",
+                                    "enum": ["before", "after"],
+                                    "description": (
+                                        "For 'insert': place text before or after the target line. "
+                                        "Defaults to 'after'."
                                     ),
                                 },
                                 "start_line": {
                                     "type": "string",
                                     "description": (
-                                        "The first line of the edit (inclusive): "
-                                        "its exact text if unique, its hashed prefix "
-                                        f"(e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}') if duplicated, "
-                                        "or '@000' for empty files."
+                                        "First line (inclusive). See anchor forms above; "
+                                        "'@000'/'@L0' = empty/top."
                                     ),
                                 },
                                 "end_line": {
                                     "type": "string",
                                     "description": (
-                                        "The last line of the edit (inclusive): "
-                                        "its exact text if unique, its hashed "
-                                        f"prefix (e.g., '{HASH_DELIMITER}WecX{HASH_DELIMITER}') if duplicated, "
-                                        "or '000@' for the end of the file."
+                                        "Last line (inclusive). Same forms; '000@' = EOF. "
+                                        "Optional for 'insert'."
                                     ),
                                 },
                             },
@@ -122,7 +143,6 @@ class Tool(BaseTool):
                                 "operation",
                                 "text",
                                 "start_line",
-                                "end_line",
                             ],
                         },
                     },
@@ -225,7 +245,7 @@ class Tool(BaseTool):
                             if operation not in VALID_OPERATIONS:
                                 raise ToolError(
                                     f"Edit {edit_index + 1}: Invalid operation '{operation}'. "
-                                    "Must be 'replace' or 'delete'"
+                                    "Must be 'replace', 'delete', or 'insert'"
                                 )
 
                             edit_file_raw = edit.get("text")
@@ -236,6 +256,19 @@ class Tool(BaseTool):
                                 edit, ["end_line", "range_end", "line_end", "end"]
                             )
 
+                            for anchor_name, anchor_value in (
+                                ("start_line", edit_start_line),
+                                ("end_line", edit_end_line),
+                            ):
+                                if isinstance(anchor_value, str) and (
+                                    "\n" in anchor_value or "\r" in anchor_value
+                                ):
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: '{anchor_name}' must be a "
+                                        "single-line anchor; multi-line text is only supported "
+                                        "in 'text'. Use a content ID or '@L<n>' to target one line."
+                                    )
+
                             # ---------------------------------------------------------
                             # DEFENSIVE FALLBACKS
                             # ---------------------------------------------------------
@@ -245,21 +278,25 @@ class Tool(BaseTool):
                                 edit_start_line = "@000"
                                 edit_end_line = "@000"
 
-                            # Resolve @L{num} notation directly to content ID
-                            edit_start_line = cls._resolve_at_l_num(
-                                edit_start_line, hp, source_lines, file_path_key
+                            # Resolve line hints (@L/@A/@B) and content references
+                            edit_start_line, start_hint_line = cls._resolve_line_hint(
+                                edit_start_line,
+                                hp,
+                                source_lines,
+                                file_path_key,
                             )
-                            edit_end_line = cls._resolve_at_l_num(
-                                edit_end_line, hp, source_lines, file_path_key
+                            edit_end_line, _ = cls._resolve_line_hint(
+                                edit_end_line,
+                                hp,
+                                source_lines,
+                                file_path_key,
                             )
 
-                            # Strip virtual prefixes from ReadFile output lines
-                            edit_start_line = cls._strip_readfile_prefix(edit_start_line)
-                            edit_end_line = cls._strip_readfile_prefix(edit_end_line)
-
-                            # Resolve remaining non-hashline content values to content IDs
                             edit_start_line, edit_end_line = resolve_content_to_hashline_ids(
-                                original_content, edit_start_line, edit_end_line
+                                original_content,
+                                edit_start_line,
+                                edit_end_line,
+                                start_hint_line=start_hint_line,
                             )
 
                             # ---------------------------------------------------------
@@ -299,6 +336,18 @@ class Tool(BaseTool):
                                         f"Edit {edit_index + 1}: 'start_line' parameter is required"
                                         " for 'insert' operation"
                                     )
+
+                                position = nested.getter(edit, ["position"])
+                                if position is None:
+                                    position = "after"
+                                if isinstance(position, str):
+                                    position = position.lower()
+                                if position not in ("before", "after"):
+                                    raise ToolError(
+                                        f"Edit {edit_index + 1}: 'position' must be "
+                                        "'before' or 'after'"
+                                    )
+
                                 # For insert, end_line defaults to start_line
                                 edit_end_line = edit_end_line or edit_start_line
 
@@ -310,6 +359,8 @@ class Tool(BaseTool):
                             }
                             if edit_file is not None:
                                 op_dict["text"] = edit_file
+                            if operation == "insert":
+                                op_dict["position"] = position
 
                             operations.append(op_dict)
 
@@ -320,6 +371,9 @@ class Tool(BaseTool):
                                 "end_line": edit_end_line,
                                 "text": edit_file,
                             }
+                            if operation == "insert":
+                                metadata["position"] = position
+
                             file_metadata.append(metadata)
 
                         except Exception as e:
@@ -419,6 +473,8 @@ class Tool(BaseTool):
                     )
 
                     coder.files_edited_by_tools.add(rel_path)
+                    if getattr(coder, "uuid", None):
+                        ConversationService.get_chunks(coder).notify_file_edited(abs_path)
 
                     all_results.append(
                         {
@@ -578,7 +634,7 @@ class Tool(BaseTool):
                     if file_path_key and start_line and end_line:
                         try:
                             abs_path = coder.abs_root_path(file_path_key)
-                            original_content = coder.io.read_text(abs_path)
+                            original_content = read_text_preserving_newlines(coder, abs_path)
 
                             if original_content is not None:
                                 # Mirror execute()'s preprocessing so the preview
@@ -590,17 +646,23 @@ class Tool(BaseTool):
                                     if original_content and original_content.strip()
                                     else []
                                 )
-                                start_line = cls._resolve_at_l_num(
-                                    start_line, hp, source_lines, file_path_key
+                                start_line, start_hint_line = cls._resolve_line_hint(
+                                    start_line,
+                                    hp,
+                                    source_lines,
+                                    file_path_key,
                                 )
-                                end_line = cls._resolve_at_l_num(
-                                    end_line, hp, source_lines, file_path_key
+                                end_line, _ = cls._resolve_line_hint(
+                                    end_line,
+                                    hp,
+                                    source_lines,
+                                    file_path_key,
                                 )
-                                start_line = cls._strip_readfile_prefix(start_line)
-                                end_line = cls._strip_readfile_prefix(end_line)
-
                                 start_line, end_line = resolve_content_to_hashline_ids(
-                                    original_content, start_line, end_line
+                                    original_content,
+                                    start_line,
+                                    end_line,
+                                    start_hint_line=start_hint_line,
                                 )
                                 diff_output = get_hashline_diff(
                                     original_content=strip_hashline(original_content),
@@ -621,8 +683,12 @@ class Tool(BaseTool):
                         coder.io.tool_output("")
 
                 elif operation == "insert":
-                    # Show inserted text
+                    # Inserted text is additive, so render it like added diff lines.
                     if text:
+                        lines = [f"+{line}" for line in text.splitlines()]
+                        if coder.agent_config.get("diff_colors", True):
+                            lines = [f"\033[32m{line}\x1b[0m" for line in lines]
+                        text = "\n".join(lines)
                         coder.io.tool_output(text)
                         coder.io.tool_output("")
 
@@ -649,6 +715,91 @@ class Tool(BaseTool):
         """Strip the virtual prefix from a ReadFile output line reference."""
 
         return strip_hashline_prefix(value)
+
+    @classmethod
+    def _resolve_line_hint(cls, line_spec, hp, source_lines, file_path):
+        """Resolve a hint suffix on a line spec to a content ID when possible.
+
+        Supports ``@L<num>``, ``@A{regex}``/``@A{{regex}}``, and
+        ``@B{regex}``/``@B{{regex}}`` suffixes.
+        Returns ``(resolved_spec, hint_line)``. ``hint_line`` is retained only
+        when the hint could not be resolved locally, so the caller can fall
+        back to proximity resolution.
+        """
+
+        if not isinstance(line_spec, str):
+            return line_spec, None
+
+        line_spec = cls._strip_readfile_prefix(line_spec)
+
+        if READFILE_ONLY_HINT_RE.search(line_spec):
+            raise ToolError(
+                "ReadFile-only range markers ('@C<n>', '@P<n>', '@N<n>') are not "
+                "supported by EditFile; use a content ID or '@L<n>' line reference."
+            )
+
+        if BARE_AB_HINT_RE.search(line_spec):
+            raise ToolError(
+                "Bare '@A'/'@B' hints are not supported; include anchor text before "
+                "the hint, e.g. 'my line @A{regex}'."
+            )
+
+        stripped, hint_line, hint_type = extract_hint(line_spec, source_lines)
+
+        if hint_type is None or hint_line is None:
+            return stripped, None
+
+        if hint_type in ("A", "B") and not stripped.strip():
+            raise ToolError(
+                "Bare '@" + hint_type + "' hints are not supported; include anchor text "
+                "before the hint (e.g., 'my line @" + hint_type + "{regex}' or "
+                "'my line @" + hint_type + "{{regex}}')."
+            )
+
+        if not stripped.strip() or (hint_type == "L" and stripped.strip() == line_spec.strip()):
+            return cls._resolve_at_l_num(f"@L{hint_line + 1}", hp, source_lines, file_path), None
+
+        indices = cls._find_line_indices(stripped, source_lines)
+
+        if hint_type == "A":
+            candidates = [i for i in indices if i > hint_line]
+            target = min(candidates) if candidates else None
+        elif hint_type == "B":
+            candidates = [i for i in indices if i < hint_line]
+            target = max(candidates) if candidates else None
+        else:
+            target = min(indices, key=lambda i: abs(i - hint_line)) if indices else None
+
+        if target is None:
+            return stripped, hint_line if hint_type == "L" else None
+
+        line_text = source_lines[target]
+        occurrence = 1 + sum(1 for line in source_lines[:target] if line == line_text)
+
+        return hp.get_wrapped_id(hp.generate_public_id(line_text, target, occurrence)), None
+
+    @staticmethod
+    def _find_line_indices(value, lines):
+        """Return indices of lines matching *value* or its first line.
+
+        Single-line values are matched after trimming indentation.
+        """
+
+        value_lines = value.splitlines()
+
+        if len(value_lines) > 1:
+            matches = []
+
+            for i in range(len(lines) - len(value_lines) + 1):
+                if all(lines[i + j] == value_lines[j] for j in range(len(value_lines))):
+                    matches.append(i)
+
+            return matches
+
+        first_line = value_lines[0] if value_lines else value
+        first_line_stripped = first_line.strip()
+
+        return [i for i, line in enumerate(lines) if line.strip() == first_line_stripped]
 
     @classmethod
     def _categorize_edit_error(cls, error_msg: str) -> str:

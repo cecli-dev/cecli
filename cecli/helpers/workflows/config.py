@@ -163,6 +163,29 @@ def validate_workflow_config(wf: WorkflowConfig, raw: Optional[Dict[str, Any]] =
     if norm.get("persist") is not None and not isinstance(norm["persist"], bool):
         warnings.append("'persist' is not a boolean")
 
+    if wf.repo is not None and not isinstance(wf.repo, str):
+        raise ValueError(f"{where}: 'repo' must be a string")
+
+    if wf.worktree is not None:
+        if not isinstance(wf.worktree, dict):
+            raise ValueError(f"{where}: 'worktree' must be a boolean or a mapping")
+
+        unknown = sorted(set(wf.worktree) - {"branch"})
+        if unknown:
+            warnings.append(f"unknown 'worktree' key(s) ignored: {', '.join(unknown)}")
+
+        branch = wf.worktree.get("branch")
+        if branch is not None and not isinstance(branch, str):
+            raise ValueError(f"{where}: 'worktree.branch' must be a string")
+
+        from .subagents import _worktree_source
+
+        if _worktree_source(wf) is None:
+            warnings.append(
+                "'worktree' is enabled but no source repository could be inferred; "
+                "the dispatching agent's root will be used"
+            )
+
     wf.lease_timeout = _positive_number(wf.lease_timeout, "lease_timeout", where, default=30.0)
     _check_schedule(wf.schedule, where)
 

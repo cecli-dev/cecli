@@ -287,7 +287,7 @@ Tools are loaded automatically when the registry is built and will be available 
 
 #### Sub-agent Behavior
 
-`Delegate` accepts one or more delegation objects. Each delegation includes a registered sub-agent `name`, a `prompt`, and optional `async` and `persist` flags. Asynchronous delegations run in the background; synchronous delegations wait for the sub-agent result. The system uses `Yield` to wait for outstanding child tasks when finishing the parent task.
+`Delegate` accepts one or more delegation objects. Each delegation includes a registered sub-agent `name`, a `prompt`, and optional `working_dir`, `async` and `persist` properties. `working_dir` sets that delegation's working directory and resolves relative paths against the dispatching agent's root. Asynchronous delegations run in the background; synchronous delegations wait for the sub-agent result. The system uses `Yield` to wait for outstanding child tasks when finishing the parent task.
 
 Sub-agent results are reported back to the parent conversation as summaries or errors. Sub-agents use `auto_reap: true` by default, so completed agents can be removed automatically after their work and descendants finish. Independent agents may be cleaned up shortly after completion, while the service also reaps completed agents when the configured limit requires space. Set `max_sub_agents` to `-1` to remove the limit on simultaneous sub agents.
 

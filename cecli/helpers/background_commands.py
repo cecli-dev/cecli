@@ -283,6 +283,7 @@ class BackgroundProcess:
         self.start_time = time.time()
         self.end_time = None
         self.persist = persist
+        self.continued_in_background = False
         self.input_buffer = input_buffer or InputBuffer()
         self.writer_thread = None
         self._stop_event = threading.Event()
@@ -672,6 +673,20 @@ class BackgroundCommandManager:
             raise RuntimeError(f"Failed to start background command: {str(e)}")
 
     @classmethod
+    def mark_continued_in_background(cls, command_key: str) -> bool:
+        """Flag a timeout-managed command as continuing after its timeout."""
+
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+
+            if not bg_process:
+                return False
+
+            bg_process.continued_in_background = True
+
+            return True
+
+    @classmethod
     def is_command_running(cls, command_key: str) -> bool:
         """
         Check if a background command is running.
@@ -826,6 +841,9 @@ class BackgroundCommandManager:
                     "command": bg_process.command,
                     "running": bg_process.is_alive(),
                     "persist": getattr(bg_process, "persist", False),
+                    "continued_in_background": getattr(
+                        bg_process, "continued_in_background", False
+                    ),
                     "buffer_size": bg_process.buffer.size(),
                     "pages": getattr(bg_process.buffer, "page_count", 0),
                     "total_chars": getattr(

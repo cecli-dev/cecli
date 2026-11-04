@@ -33,8 +33,19 @@ class DummyIO:
     def read_text(self, path):
         return Path(path).read_text()
 
+    def _detect_newline(self, path):
+        data = Path(path).read_bytes()
+        if b"\r\n" in data:
+            return "\r\n"
+        if b"\n" in data:
+            return "\n"
+        return None
+
     def write_text(self, path, content):
-        Path(path).write_text(content)
+        # Mirror the real IO: an already-CRLF payload must not be translated
+        # again, which would double carriage returns on Windows.
+        newline = "" if "\r\n" in content else None
+        Path(path).write_text(content, newline=newline)
 
 
 class DummyChangeTracker:
@@ -267,3 +278,356 @@ def test_format_output_unwraps_double_wrapped_arguments(coder_with_file):
 
     result = edit_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
+
+
+def test_description_documents_brace_hint_syntax():
+    """The description must document the canonical double-brace hint syntax."""
+    description = edit_file.Tool.SCHEMA["function"]["description"]
+
+    assert "@A{{regex}}" in description
+    assert "@B{{regex}}" in description
+    assert "@A{regex}" not in description
+    assert "virtual identifiers" in description
+    assert "——" in description
+    assert "ReadFile-only" in description
+    assert "@C<n>" in description
+    assert "@P<n>" in description
+    assert "@N<n>" in description
+    assert "bare '@A'/'@B' is rejected" in description
+    assert "EditFile rejects them" in description
+    assert "indentation may be trimmed" not in description
+
+
+def test_execute_rejects_multiline_anchor(coder_with_file):
+    """EditFile must reject multiline start_line/end_line values."""
+    coder, file_path = coder_with_file
+    original_content = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "def foo():\n    print('hello')",
+                "end_line": "def foo():\n    print('hello')",
+                "text": "changed",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"]
+    assert "single-line anchor" in result["errors"][0]
+    assert file_path.read_text() == original_content
+
+
+def test_execute_appends_with_000_markers(coder_with_file):
+    """EditFile supports 000@ for both boundaries as an EOF append."""
+    coder, file_path = coder_with_file
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "000@",
+                "end_line": "000@",
+                "text": "appended",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    assert file_path.read_text().endswith("    return foo()\nappended\n")
+
+
+def test_execute_hint_disambiguates_trimmed_duplicate(coder_with_file):
+    """A trimmed anchor plus @L must resolve duplicate lines correctly."""
+    coder, file_path = coder_with_file
+    file_path.write_text(
+        "def alpha():\n" "    return total\n" "\n" "\n" "def beta():\n" "    return total\n"
+    )
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "return total @L6",
+                "end_line": "return total @L6",
+                "text": "    return 99",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    lines = file_path.read_text().splitlines()
+    assert lines[1] == "    return total"
+    assert lines[5] == "    return 99"
+
+
+@pytest.mark.parametrize(
+    "hint",
+    ["return total @B{def beta}", "return total @B{{def beta}}"],
+)
+def test_execute_at_b_disambiguates_trimmed_duplicate(coder_with_file, hint):
+    """A trimmed anchor plus @B must pick the occurrence before the regex hit."""
+    coder, file_path = coder_with_file
+    file_path.write_text(
+        "def alpha():\n"
+        "    return total\n"
+        "\n"
+        "\n"
+        "def beta():\n"
+        "    return total\n"
+        "\n"
+        "\n"
+        "def gamma():\n"
+        "    return total\n"
+    )
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": hint,
+                "end_line": hint,
+                "text": "    return 1",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    lines = file_path.read_text().splitlines()
+    assert lines[1] == "    return 1"
+    assert lines[5] == "    return total"
+    assert lines[9] == "    return total"
+
+
+@pytest.mark.parametrize(
+    "hint",
+    ["return total @A{def beta}", "return total @A{{def beta}}"],
+)
+def test_execute_at_a_accepts_single_or_double_braces(coder_with_file, hint):
+    """@A must pick the occurrence after the regex hit with either brace style."""
+    coder, file_path = coder_with_file
+    file_path.write_text(
+        "def alpha():\n" "    return total\n" "\n" "\n" "def beta():\n" "    return total\n"
+    )
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": hint,
+                "end_line": hint,
+                "text": "    return 1",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    lines = file_path.read_text().splitlines()
+    assert lines[1] == "    return total"
+    assert lines[5] == "    return 1"
+
+
+@pytest.mark.parametrize(
+    "hint",
+    ["@A{{def describe}}", "@B{{def describe}}", "@A", "@B"],
+)
+def test_execute_rejects_bare_at_hints(coder_with_file, hint):
+    """Bare @A/@B hints must be rejected instead of resolving to the hit line."""
+    coder, file_path = coder_with_file
+    file_path.write_text("def describe(self):\n    return 1\n")
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": hint,
+                "end_line": hint,
+                "text": "REPLACED",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"]
+    assert "Bare '@" in result["errors"][0]
+    assert file_path.read_text() == "def describe(self):\n    return 1\n"
+
+
+@pytest.mark.parametrize("hint", ["@C1", "@P1", "@N1", "some text @C1"])
+def test_execute_rejects_readfile_only_markers(coder_with_file, hint):
+    """@C/@P/@N markers must fail with an EditFile-specific message."""
+    coder, file_path = coder_with_file
+    original_content = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": hint,
+                "end_line": hint,
+                "text": "REPLACED",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"]
+    assert "ReadFile-only" in result["errors"][0]
+    assert "not supported by EditFile" in result["errors"][0]
+    assert file_path.read_text() == original_content
+
+
+def test_execute_prepends_with_at_000_markers(coder_with_file):
+    """Using @000 for both boundaries inserts at the top of the file."""
+    coder, file_path = coder_with_file
+    original = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "@000",
+                "end_line": "@000",
+                "text": "header",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    assert file_path.read_text() == "header\n" + original
+
+
+def test_execute_allows_at_l0_prepend(coder_with_file):
+    """@L0 is treated as the top-of-file marker."""
+    coder, file_path = coder_with_file
+    original = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "@L0",
+                "end_line": "@L0",
+                "text": "header",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    assert file_path.read_text() == "header\n" + original
+
+
+def test_execute_preserves_crlf_line_endings(coder_with_file):
+    """Editing a CRLF file must keep CRLF line endings."""
+    coder, file_path = coder_with_file
+    file_path.write_bytes(b"first\r\nsecond\r\n")
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[
+            {
+                "file_path": "example.txt",
+                "operation": "replace",
+                "start_line": "second",
+                "end_line": "second",
+                "text": "SECOND",
+            }
+        ],
+    ).to_dict()
+
+    assert result["errors"] == []
+    assert file_path.read_bytes() == b"first\r\nSECOND\r\n"
+
+
+def test_execute_invalidates_cached_read_ranges(coder_with_file):
+    """A successful edit must clear ReadFile's cached ranges for the file."""
+    import uuid
+
+    from cecli.helpers.conversation import ConversationService
+
+    coder, file_path = coder_with_file
+    coder.uuid = str(uuid.uuid4())
+    abs_path = str(file_path.resolve())
+    files = ConversationService.get_files(coder)
+    files._numbered_contexts[abs_path] = [(1, 1)]
+    files._last_merged_ranges[abs_path] = [(1, 1)]
+    files._emitted_contexts[abs_path] = [(1, 1)]
+    files._file_context_versions[abs_path] = 1
+
+    try:
+        result = edit_file.Tool.execute(
+            coder,
+            edits=[
+                {
+                    "file_path": "example.txt",
+                    "operation": "replace",
+                    "start_line": "@L2",
+                    "end_line": "@L2",
+                    "text": "    print('edited')",
+                }
+            ],
+        ).to_dict()
+
+        assert result["errors"] == []
+        assert abs_path not in files._numbered_contexts
+        assert abs_path not in files._last_merged_ranges
+        assert abs_path not in files._emitted_contexts
+        assert abs_path not in files._file_context_versions
+    finally:
+        ConversationService.destroy_instances(coder.uuid)
+
+
+def test_format_output_colors_inserted_text_green(coder_with_file):
+    """Inserted text is additive, so preview it green like added diff lines."""
+    coder, _ = coder_with_file
+    coder.agent_config["diff_colors"] = True
+    edits = [
+        {
+            "file_path": "example.txt",
+            "operation": "insert",
+            "text": "    print('inserted')",
+            "start_line": "@L1",
+            "position": "after",
+        }
+    ]
+
+    output = preview_output(coder, edits)
+
+    assert "\033[32m+    print('inserted')\x1b[0m" in output
+
+
+def test_format_output_leaves_inserted_text_plain_without_diff_colors(coder_with_file):
+    """Inserted text stays uncolored when diff colors are disabled."""
+    coder, _ = coder_with_file
+    coder.agent_config["diff_colors"] = False
+    edits = [
+        {
+            "file_path": "example.txt",
+            "operation": "insert",
+            "text": "    print('inserted')",
+            "start_line": "@L1",
+            "position": "after",
+        }
+    ]
+
+    output = preview_output(coder, edits)
+
+    assert "+    print('inserted')" in output
+    assert "\033[32m" not in output

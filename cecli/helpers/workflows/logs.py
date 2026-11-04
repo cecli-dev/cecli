@@ -86,6 +86,7 @@ def finish_log(handle: Optional[LogHandle], result) -> None:
                 "summary": getattr(result, "summary", ""),
                 "error_message": getattr(result, "error_message", ""),
                 "run_id": getattr(result, "run_id", None),
+                "worktree": getattr(result, "worktree", None),
             },
         )
     except Exception:

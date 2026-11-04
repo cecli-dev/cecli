@@ -269,10 +269,12 @@ class SessionManager:
             return
 
         independent = bool(sub_data.get("independent", True))
+        spawn_kwargs = {"auto_reap": False, "independent": independent}
+        resume_worktree = sub_data.get("worktree")
+        if resume_worktree is not None:
+            spawn_kwargs["resume_worktree"] = resume_worktree
 
-        new_coder, _info = await service.spawn(
-            name, parent=self.coder, auto_reap=False, independent=independent
-        )
+        new_coder, _info = await service.spawn(name, parent=self.coder, **spawn_kwargs)
 
         sub_manager = SessionManager(new_coder, self.io)
         applied, _edit_format = await sub_manager._apply_session_data(

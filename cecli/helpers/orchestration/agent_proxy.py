@@ -389,77 +389,6 @@ class AgentProxy:
             raise ValueError(f"Could not resolve content ID for '{line_content}' in {file_path}")
         return result
 
-    def resolve_regions(
-        self,
-        file_path: str,
-        regions: list[dict[str, str]],
-        exact: bool = True,
-    ):
-        """
-        Store named region patterns for lazy content-ID resolution.
-
-        Content IDs are resolved *on access* via `.get_start(name)` /
-        `.get_end(name)`, so they are always fresh — even after
-        intervening edits shift hashline positions.
-
-        Args:
-            file_path: Path to the file containing the target regions.
-            regions: List of region spec dicts with "name", "start", "end" keys.
-            exact: When True (default), use exact line matching (no stripping).
-                   When False, use substring matching with stripped content.
-
-        Returns an :class:`AgentRegion` instance.
-        """
-
-        from cecli.helpers.orchestration.region_resolver import AgentRegion
-
-        return AgentRegion(file_path, self._coder, regions, exact=exact)
-
-    async def edit_region(
-        self,
-        file_path: str,
-        edits: list[dict[str, object]],
-        change_id: str | None = None,
-    ):
-        """
-        Thin wrapper around `EditFile` that accepts `{"start": content_id, "end": content_id}` region dicts.
-
-        Use with `Agent.resolve_regions()` and `regions.get(name)`:
-
-            regions = Agent.resolve_regions("foo.py", [
-                {"name": "my_func", "start": "def my_func", "end": "return result"},
-            ])
-            await Agent.edit_region(
-                file_path="foo.py",
-                edits=[
-                    {"region": regions.get("my_func"), "text": "def my_func():\\n    return 42"},
-                ],
-            )
-        """
-
-        edit_tool = self.get_tool("EditFile")
-
-        edit_objects: list[dict[str, object]] = []
-        for edit in edits:
-            region = edit["region"]
-
-            edit_objects.append(
-                {
-                    "file_path": file_path,
-                    "operation": edit.get("operation", "replace"),
-                    "start_line": region["start"],
-                    "end_line": region["end"],
-                    "text": edit["text"],
-                }
-            )
-
-        # self._validate_edit_regions(edits, edit_objects)
-
-        return await edit_tool.call(
-            edits=edit_objects,
-            change_id=change_id,
-        )
-
     async def sleep(self, seconds: float) -> None:
         """Safe sleep - pauses execution (0-120 seconds max).
 
@@ -504,57 +433,6 @@ class AgentProxy:
             if not k.startswith("__") and k not in ("__builtins__", "NEWLINE")
         )
         return builtins + globals_list
-
-    @staticmethod
-    def _validate_edit_regions(
-        edits: list[dict[str, object]],
-        edit_objects: list[dict[str, object]],
-    ) -> None:
-        """Reject batches where any two edit regions overlap or are adjacent.
-
-        Adjacent edits (within 8 lines of each other) corrupt content IDs
-        because the first edit regenerates IDs in the surrounding ~8-line
-        window, making the second edit's target IDs stale.
-        """
-        _ADJACENCY_THRESHOLD = 8  # lines of ID-regeneration buffer
-
-        if len(edits) <= 1:
-            return
-
-        # Collect (start_line, end_line, idx) for each edit
-        indexed: list[tuple[int, int, int]] = []
-        for i, (edit, eo) in enumerate(zip(edits, edit_objects)):
-            region = edit["region"]
-            sl = region.get("start_line")
-            el = region.get("end_line")
-            if sl is None or el is None:
-                # No line numbers available — skip validation (best-effort)
-                return
-            indexed.append((int(sl), int(el), i))
-
-        # Sort by start_line
-        indexed.sort(key=lambda x: x[0])
-
-        for j in range(len(indexed) - 1):
-            sl_a, el_a, idx_a = indexed[j]
-            sl_b, el_b, idx_b = indexed[j + 1]
-
-            if sl_b <= el_a:
-                raise ValueError(
-                    f"Overlapping edit regions detected: "
-                    f"edit {idx_a + 1} (lines {sl_a}-{el_a}) overlaps with "
-                    f"edit {idx_b + 1} (lines {sl_b}-{el_b}). "
-                    f"Split edits into separate calls."
-                )
-            if sl_b <= el_a + _ADJACENCY_THRESHOLD:
-                raise ValueError(
-                    f"Adjacent edit regions detected: "
-                    f"edit {idx_a + 1} (lines {sl_a}-{el_a}) is within "
-                    f"{_ADJACENCY_THRESHOLD} lines of edit {idx_b + 1} (lines {sl_b}-{el_b}). "
-                    f"Content IDs within ~8 lines of an edit are regenerated, "
-                    f"so adjacent edits corrupt each other's targets. "
-                    f"Split edits into separate calls."
-                )
 
 
 # ---------------------------------------------------------------------------

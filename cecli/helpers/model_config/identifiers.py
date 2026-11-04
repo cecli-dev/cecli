@@ -79,6 +79,11 @@ def is_mistral(provider, route, record):
     return "mistral" in _haystack(provider, route, record)
 
 
+def is_qwen(provider, route, record):
+    """True when the model is a Qwen-series model (Alibaba)."""
+    return "qwen" in _haystack(provider, route, record)
+
+
 def gpt_version(route):
     """Return the leading ``gpt-`` model version, or 0 when not a gpt model.
 

@@ -263,10 +263,56 @@ async def test_compaction_bails_out_when_fixed_context_dominates():
     coder.gpt_prompts = MagicMock()
     coder._rate_limit_sleep = AsyncMock()
 
-    # done/cur/diff/file_context are empty, so the entire context is the fixed
-    # context (chat files, repo map, prompts). Summarizing cannot shrink it.
+    # A little compactable history plus a large fixed context (files in the
+    # chat, repo map, prompts). Summarizing cannot shrink the fixed part.
     coder.summarizer = MagicMock()
-    coder.summarizer.count_tokens.side_effect = [0, 0, 0, 0, 6000]
+    coder.summarizer.count_tokens.side_effect = [1000, 0, 0, 0, 6000]
+    coder.summarizer.summarize_all_as_text = AsyncMock(return_value="Summary Text")
+
+    mock_conv_manager = MagicMock()
+    mock_conv_manager.get_messages_dict.return_value = []
+
+    obs = MagicMock()
+    obs.check_and_trigger = AsyncMock()
+
+    with (
+        patch(
+            "cecli.coders.base_coder.ConversationService.get_manager",
+            return_value=mock_conv_manager,
+        ),
+        patch(
+            "cecli.coders.base_coder.ObservationService.get_instance",
+            return_value=obs,
+        ),
+    ):
+        await Coder.compact_context_if_needed(coder)
+
+    # Compaction must not summarize anything...
+    coder.summarizer.summarize_all_as_text.assert_not_called()
+    # ...and must tell the user why, with a remedy.
+    coder.io.tool_warning.assert_called_once()
+    coder.io.tool_output.assert_any_call("- Use /drop to remove unneeded files from the chat")
+
+
+@pytest.mark.asyncio
+async def test_compaction_force_runs_when_fixed_context_dominates():
+    """force=True must bypass the fixed-context bail-out and compact anyway."""
+    from cecli.coders.base_coder import Coder
+
+    coder = MagicMock(spec=Coder)
+    coder.uuid = "test-coder-force-fixed-context"
+    coder.enable_context_compaction = True
+    coder.context_compaction_max_tokens = 1000
+    coder.context_compaction_summary_tokens = 100
+    coder.io = MagicMock()
+    coder.gpt_prompts = MagicMock()
+    coder._rate_limit_sleep = AsyncMock()
+    coder.auto_memory = False
+    coder.edit_format = "whole"
+
+    # Fixed context dominates, but there is still compactable history to summarize.
+    coder.summarizer = MagicMock()
+    coder.summarizer.count_tokens.side_effect = [1000, 0, 0, 0, 6000, 500]
     coder.summarizer.summarize_all_as_text = AsyncMock(return_value="Summary Text")
 
     mock_conv_manager = MagicMock()
@@ -287,8 +333,7 @@ async def test_compaction_bails_out_when_fixed_context_dominates():
     ):
         await Coder.compact_context_if_needed(coder, force=True)
 
-    # Compaction must not summarize anything...
-    coder.summarizer.summarize_all_as_text.assert_not_called()
-    # ...and must tell the user why, with a remedy.
-    coder.io.tool_warning.assert_called_once()
-    coder.io.tool_output.assert_any_call("- Use /drop to remove unneeded files from the chat")
+    # The bail-out warning must not fire; compaction proceeds and summarizes.
+    coder.io.tool_warning.assert_not_called()
+    coder.summarizer.summarize_all_as_text.assert_called_once()
+    coder.io.tool_output.assert_any_call("Forcing compaction of chat history...")

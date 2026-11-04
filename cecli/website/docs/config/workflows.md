@@ -40,6 +40,8 @@ enabled: true                  # optional (default: true)
 lease_timeout: 30              # optional minutes (default: 30)
 model: <model-name>            # optional model override for the worker
 root: ~/repos/my-project       # optional working directory
+repo: /repos/app               # optional worktree source (local path or remote URL)
+worktree: true                 # optional isolated git worktree; or {branch: main}
 hooks:                         # optional, same schema as Hooks
   start: [{ name: audit, command: "echo start >> ~/.cecli/workflows/audit.log" }]
 skills: [gitlab-ci]            # optional -> preloaded as skills_init
@@ -61,6 +63,8 @@ tasks:
 
 Keys are `snake_case` or `hyphen-case`; both accepted. `${ENV_VAR}` / `$VAR` inside any string is interpolated from the environment (after `.env` files load).
 
+Validation notes: `repo` must be a string. `worktree` must be a boolean or a mapping; a mapping currently supports only `branch`, which must be a string (unknown keys warn and are ignored). When `worktree` is enabled, the source repository is inferred from `repo`, then `root`, then the git top-level containing the workflow file; if none can be found a warning is logged and the dispatching agent's root is used at run time.
+
 Field meanings:
 
 | field | default | meaning |
@@ -74,6 +78,8 @@ Field meanings:
 | `lease_timeout` | 30 | Minutes a scheduler instance holds the job lock before peers may steal an abandoned run |
 | `model` | inherited | Model (or sentinel) for the worker sub-agent |
 | `root` | session root | Working directory the worker operates in |
+| `repo` | — | Source repository for the optional worktree: a local path or remote URL. When the worktree is enabled, the run's root becomes the generated worktree checkout |
+| `worktree` | disabled | Set `true` to run the worker in an isolated git worktree, or `{branch: <ref>}` to choose the base ref to start from. See [Worktrees](worktrees.html) |
 | `hooks` | {} | Per-workflow hooks (start/end/pre_tool/…); run on the worker |
 | `skills` | [] | Skills loaded into the worker's context at start |
 | `servers` | [] | MCP servers made available to the worker |
@@ -102,6 +108,12 @@ Run-time placeholders are expanded in task prompts in addition to load-time env 
 
 Because a run is a sub-agent, it doesn't block the main conversation — watch it with `/agent-tree` or the TUI sub-agent pane. Every run also appends a JSON-lines audit log to `~/.cecli/workflows/runs/<YYYY-MM-DD>/<name>.<id>.jsonl`: a `start` line (with the definition hash), one `task` line per task, and a `finish` line. Before the worker is reaped, its full session is archived to `~/.cecli/workflows/outputs/<workflow>/<run>/session.json` using the standard session format (encrypted when session encryption is enabled) — so every run, including replayed or tool-less replies, is completely reviewable on disk without ever touching the parent's context.
 
+## Isolated worktrees
+
+Set `worktree: true` to give the run its own git worktree instead of operating directly in `root`. The worker starts on a generated branch `cecli/<agent>-<uuid>` (for example `cecli/wf-nightly-tidy-<uuid>`) based on `branch` (the starting base ref) or the source repository's default branch. `repo` selects the source repository; if it is omitted, `root` (or the workflow file's git root) is used. The agent's actual root is the generated worktree checkout.
+
+When the run finishes, a dirty worktree is committed with the subject `Unfinished Dirty Worktree from agent <uuid>` before the worktree is released. Branches with unmerged commits are kept for review; empty or already-merged branches are deleted. The worktree checkout under `~/.cecli/worktrees/` is removed after the commit/release step. See [Worktrees](worktrees.html) for the full lifecycle and on-disk layout.
+
 ## Commands
 
 ```
@@ -124,6 +136,9 @@ Because a run is a sub-agent, it doesn't block the main conversation — watch i
 name: nightly-tidy
 schedule: "0 3 * * *"
 timezone: America/New_York
+repo: /repos/app
+worktree:
+  branch: main
 skills: [code-review]
 tasks:
   - prompt: "Run the linter over the repo and fix obvious issues."

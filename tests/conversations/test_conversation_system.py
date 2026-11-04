@@ -290,6 +290,23 @@ class TestConversationFiles:
             # Clean up
             os.unlink(temp_file)
 
+    def test_notify_file_edited_clears_cached_ranges(self, tmp_path):
+        """An edit must invalidate ReadFile's cached line ranges for the file."""
+        import os
+
+        abs_fname = os.path.abspath(tmp_path / "example.txt")
+        self.files._numbered_contexts[abs_fname] = [(1, 5)]
+        self.files._last_merged_ranges[abs_fname] = [(1, 5)]
+        self.files._emitted_contexts[abs_fname] = [(1, 5)]
+        self.files._file_context_versions[abs_fname] = 1
+
+        self.chunks.notify_file_edited(abs_fname)
+
+        assert abs_fname not in self.files._numbered_contexts
+        assert abs_fname not in self.files._last_merged_ranges
+        assert abs_fname not in self.files._emitted_contexts
+        assert abs_fname not in self.files._file_context_versions
+
     def test_has_file_changed(self, mocker):
         """Test file change detection."""
         import os
