@@ -20,6 +20,7 @@ from .identifiers import (
     is_glm,
     is_kimi,
     is_mistral,
+    is_qwen,
 )
 from .registry import get_default
 from .utils import supports_reasoning
@@ -62,6 +63,7 @@ def derive_api_config(
             is_glm(provider, route, record)
             or is_kimi(provider, route, record)
             or is_mistral(provider, route, record)
+            or is_qwen(provider, route, record)
         ):
             default_effort = _DEFAULT_HIGH_REASONING_EFFORT
 
