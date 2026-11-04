@@ -359,6 +359,7 @@ async def test_reflow_pins_to_end_when_width_and_height_shrink_together():
         for i in range(40):
             log.write(f"{i:02d}-line")
         await pilot.pause()
+        await pilot.pause()
         assert log.is_vertical_scroll_end
 
         log.styles.width = 20
