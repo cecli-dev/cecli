@@ -42,7 +42,10 @@ class DummyIO:
         return None
 
     def write_text(self, path, content):
-        Path(path).write_text(content)
+        # Mirror the real IO: an already-CRLF payload must not be translated
+        # again, which would double carriage returns on Windows.
+        newline = "" if "\r\n" in content else None
+        Path(path).write_text(content, newline=newline)
 
 
 class DummyChangeTracker:

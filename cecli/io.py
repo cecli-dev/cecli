@@ -779,7 +779,9 @@ class InputOutput:
 
         # Content that already carries CRLF must not be translated again,
         # which would double the carriage returns on Windows.
-        if newline == "\r\n" and "\r\n" in content:
+        # ``None`` is the platform default, which is CRLF on Windows, so it
+        # must be handled alongside an explicit CRLF target.
+        if newline in (None, "\r\n") and "\r\n" in content:
             newline = ""
 
         delay = initial_delay
