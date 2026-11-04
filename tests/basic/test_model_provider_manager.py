@@ -553,3 +553,150 @@ def test_models_url_without_placeholder_unchanged(monkeypatch, tmp_path):
     manager._fetch_provider_models("demo")
 
     assert captured["url"] == "https://example.com/v1/models"
+
+
+def test_nested_openrouter_payload_superset_extraction(monkeypatch, tmp_path):
+    """Nested OpenRouter fields are mapped through the declarative path sets."""
+    payload = {
+        "data": [
+            {
+                "id": "z-ai/glm-5.3-flash",
+                "context_length": 1048576,
+                "top_provider": {
+                    "context_length": 1048576,
+                    "max_completion_tokens": 131072,
+                },
+                "pricing": {"prompt": "0.0000000269", "completion": "0.0000000996"},
+                "supported_parameters": ["tools", "reasoning"],
+            }
+        ]
+    }
+
+    config = {
+        "openrouter": {
+            "api_base": "https://openrouter.ai/api/v1",
+            "models_url": "https://openrouter.ai/api/v1/models",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setattr(manager, "_fetch_provider_models", lambda provider: payload)
+
+    assert manager.refresh_provider_cache("openrouter") is True
+    info = manager.get_model_info("openrouter/z-ai/glm-5.3-flash")
+
+    assert info["max_input_tokens"] == 1048576
+    assert info["max_output_tokens"] == 131072
+    assert info["input_cost_per_token"] == 0.0000000269
+    assert info["output_cost_per_token"] == 0.0000000996
+    assert info["litellm_provider"] == "openrouter"
+
+
+def test_nested_payload_alternate_list_path_and_id(monkeypatch, tmp_path):
+    """Wrapped lists and alternate id keys resolve via the superset paths."""
+    payload = {
+        "result": {
+            "data": [
+                {
+                    "model": "vendor/model",
+                    "limits": {"context_length": 5000},
+                    "cost": {"input": "2", "output": "4"},
+                }
+            ]
+        }
+    }
+
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "requires_api_key": False,
+            "model_list_paths": ["result.data"],
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setattr(manager, "_fetch_provider_models", lambda provider: payload)
+
+    assert manager.refresh_provider_cache("demo") is True
+    info = manager.get_model_info("demo/vendor/model")
+
+    assert info["max_input_tokens"] == 5000
+    assert info["input_cost_per_token"] == 2.0 / manager.DEFAULT_TOKEN_PRICE_RATIO
+    assert info["output_cost_per_token"] == 4.0 / manager.DEFAULT_TOKEN_PRICE_RATIO
+
+
+def test_openrouter_nested_payload_extraction(monkeypatch, tmp_path):
+    """OpenRouter's nested limits/pricing are normalized through getter paths."""
+    payload = {
+        "data": [
+            {
+                "id": "z-ai/glm-5.3-flash",
+                "context_length": 1048576,
+                "top_provider": {
+                    "context_length": 1048576,
+                    "max_completion_tokens": 131072,
+                },
+                "pricing": {
+                    "prompt": "0.0000000269",
+                    "completion": "0.0000000996",
+                    "input_cache_read": "0.0000000269",
+                    "input_cache_write": "0.0000000335",
+                },
+            }
+        ]
+    }
+    config = {
+        "openrouter": {
+            "api_base": "https://openrouter.ai/api/v1",
+            "models_url": "https://openrouter.ai/api/v1/models",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setattr(manager, "_fetch_provider_models", lambda provider: payload)
+
+    assert manager.refresh_provider_cache("openrouter") is True
+
+    info = manager.get_model_info("openrouter/z-ai/glm-5.3-flash")
+
+    assert info["max_input_tokens"] == 1048576
+    assert info["max_output_tokens"] == 131072
+    assert abs(info["input_cost_per_token"] - 0.0000000269) < 1e-15
+    assert abs(info["output_cost_per_token"] - 0.0000000996) < 1e-15
+    assert abs(info["cache_read_input_token_cost"] - 0.0000000269) < 1e-15
+    assert abs(info["cache_creation_input_token_cost"] - 0.0000000335) < 1e-15
+
+
+def test_wrapped_model_list_and_alternate_field_paths(monkeypatch, tmp_path):
+    """Wrapped list envelopes, ``model`` ids, and ``limit.*`` fields resolve."""
+    payload = {
+        "result": {
+            "data": [
+                {
+                    "model": "vendor/foo",
+                    "limit": {"context": 32000, "output": 8000},
+                    "pricing": {"prompt": "1.5", "completion": "3.0"},
+                }
+            ]
+        }
+    }
+    config = {
+        "demo": {
+            "api_base": "https://example.com/v1",
+            "requires_api_key": False,
+        }
+    }
+
+    manager = _make_manager(tmp_path, config)
+    monkeypatch.setattr(manager, "_fetch_provider_models", lambda provider: payload)
+
+    assert manager.refresh_provider_cache("demo") is True
+
+    info = manager.get_model_info("demo/vendor/foo")
+
+    assert info["max_input_tokens"] == 32000
+    assert info["max_output_tokens"] == 8000
+    assert info["input_cost_per_token"] == 1.5 / manager.DEFAULT_TOKEN_PRICE_RATIO
+    assert info["output_cost_per_token"] == 3.0 / manager.DEFAULT_TOKEN_PRICE_RATIO

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import importlib.resources as importlib_resources
 import json
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -26,16 +25,10 @@ from .api import derive_api_config
 from .formatters.reasoning import format_reasoning
 from .formatters.thinking import format_thinking
 from .llm import derive_llm_config
+from .model_routers import candidate_keys, closest_route_match
 from .utils import get_entry_from_raw, top_level_keys
 
 RESOURCE_FILE = "model-metadata.json"
-
-#: Suffix segments dropped when looking for a nearby model family.
-#: ``gpt-5.6-luna`` -> ``gpt-5.6`` -> ``gpt-5`` -> ``gpt``
-#: ``claude-sonnet-4-5`` -> ``claude-sonnet-4`` -> ``claude-sonnet`` -> ``claude``
-#: ``[^.-]`` (no dots, no hyphens) ensures exactly one trailing ``-X`` / ``.X``
-#: segment is dropped per pass instead of collapsing the whole remainder.
-_TRAILING_SEGMENT_RE = re.compile(r"[-.][^.-]+$")
 
 #: Lazily loaded raw text of the bundled metadata file (never json.loads-ed).
 _BUNDLED_RAW_CACHE: Optional[str] = None
@@ -260,37 +253,13 @@ def _find_record(sources, model_name, provider, route):
     if not sources:
         return None
 
-    for key in _candidate_keys(model_name, route, provider):
+    for key in candidate_keys(model_name, route, provider):
         record = _lookup_entry(sources, key)
 
         if record:
             return record
 
-    return _closest_provider_match(sources, provider, route)
-
-
-def _candidate_keys(model_name, route, provider):
-    """Ordered lookup keys: full name, same-provider families, route, bare families.
-
-    Same-provider family candidates come before the bare route so a provider
-    prefix is never silently dropped for a bare (possibly different-provider)
-    record, e.g. ``github_copilot/gpt-5.6-luna`` should resolve to the
-    ``github_copilot/gpt-5`` family rather than the bare ``gpt-5.6-luna``
-    (openai) record.
-    """
-    keys = [model_name]
-    shortened = _shorten_route(route) if provider and route else []
-
-    if provider and route:
-        keys.extend(f"{provider}/{candidate}" for candidate in shortened)
-
-    if route and route != model_name:
-        keys.append(route)
-
-    if provider and route:
-        keys.extend(shortened)
-
-    return keys
+    return _closest_provider_match(sources, provider, route) or closest_route_match(sources, route)
 
 
 def _lookup_entry(sources, key):
@@ -309,23 +278,6 @@ def _lookup_entry(sources, key):
                 return record
 
     return None
-
-
-def _shorten_route(route):
-    """Yield progressively shorter routes, e.g. ``gpt-5.6-luna`` -> ``gpt-5``."""
-    candidates = []
-    current = route
-
-    while current:
-        shortened = _TRAILING_SEGMENT_RE.sub("", current)
-
-        if not shortened or shortened == current:
-            break
-
-        candidates.append(shortened)
-        current = shortened
-
-    return candidates
 
 
 def _closest_provider_match(sources, provider, route):

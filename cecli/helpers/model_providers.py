@@ -22,8 +22,152 @@ from typing import Dict, Optional
 import requests
 
 from cecli.helpers.file_searcher import handle_core_files
+from cecli.helpers.nested import getter
 
 RESOURCE_FILE = "providers.json"
+
+#: Candidate paths (dot notation for ``nested.getter``) that may hold the model
+#: list in a provider response. Tried in order; the first list wins.
+MODEL_LIST_PATHS = (
+    "data",
+    "models",
+    "result.data",
+    "result",
+    "model_list",
+    "items",
+    "available_models",
+    "response.data",
+    "data.models",
+    "results",
+)
+
+#: Candidate paths for a provider's model identifier, in preference order.
+MODEL_ID_PATHS = (
+    "id",
+    "model_id",
+    "model",
+    "canonical_id",
+    "slug",
+    "name",
+    "model_spec.name",
+    "metadata.display_name",
+    "display_name",
+    "title",
+    "canonical_slug",
+)
+
+#: Canonical field -> ordered extraction paths.
+#:
+#: Provider model lists disagree on both key names and nesting (OpenAI
+#: ``data[].context_length``, OpenRouter ``data[].top_provider.context_length``,
+#: Fireworks ``models[].name``, ...). Declaring the superset of paths here keeps
+#: parsing generic; providers.json entries can override any field through
+#: ``model_field_paths`` without touching code.
+MODEL_FIELD_PATHS = {
+    "max_input_tokens": (
+        "max_input_tokens",
+        "input_token_limit",
+        "max_context_tokens",
+        "context_length",
+        "context_window.context_length",
+        "max_context_length",
+        "max_model_len",
+        "context_size",
+        "limit.context",
+        "model_spec.availableContextTokens",
+        "top_provider.context_length",
+        "top_provider_context_length",
+        "metadata.context_length",
+        "limits.context_length",
+        "limits.max_input_tokens",
+        "context_window",
+        "max_tokens",
+    ),
+    "max_output_tokens": (
+        "max_output_tokens",
+        "max_completion_tokens",
+        "max_output_length",
+        "max_completion_length",
+        "top_provider.max_completion_tokens",
+        "top_provider_max_completion_tokens",
+        "limit.output",
+        "context_window.max_output_tokens",
+        "model_spec.maxCompletionTokens",
+        "max_tokens",
+        "metadata.max_tokens",
+        "context_length",
+        "context_window",
+        "top_provider.context_length",
+        "limits.max_output_tokens",
+    ),
+    "max_tokens": (
+        "max_tokens",
+        "max_input_tokens",
+        "input_token_limit",
+        "context_length",
+        "context_window.context_length",
+        "max_context_length",
+        "max_model_len",
+        "context_size",
+        "limit.context",
+        "model_spec.availableContextTokens",
+        "top_provider.context_length",
+        "top_provider_context_length",
+        "limits.context_length",
+    ),
+    "input_cost_per_token": (
+        "input_cost_per_token",
+        "prompt_cost_per_token",
+        "pricing.prompt",
+        "pricing.input",
+        "pricing.prompt.price_per_m_decimal",
+        "input_token_price_per_m",
+        "price.input.usd",
+        "cost.text.input.price",
+        "model_spec.pricing.input.usd",
+        "metadata.pricing.input_tokens",
+        "pricing.input_tokens",
+        "cost.input",
+        "cost.prompt",
+        "pricing.prompt_tokens",
+    ),
+    "output_cost_per_token": (
+        "output_cost_per_token",
+        "completion_cost_per_token",
+        "pricing.completion",
+        "pricing.output",
+        "pricing.completion.price_per_m_decimal",
+        "output_token_price_per_m",
+        "price.output.usd",
+        "cost.text.output.price",
+        "model_spec.pricing.output.usd",
+        "metadata.pricing.output_tokens",
+        "pricing.output_tokens",
+        "cost.output",
+        "cost.completion",
+        "pricing.completion_tokens",
+    ),
+    "cache_read_input_token_cost": (
+        "cache_read_input_token_cost",
+        "input_cost_per_token_cache_hit",
+        "pricing.input_cache_read",
+        "pricing.cache_read",
+        "pricing.input_cache_read.price_per_m_decimal",
+        "cache_read_cost_per_token",
+        "metadata.pricing.cache_read",
+    ),
+    "cache_creation_input_token_cost": (
+        "cache_creation_input_token_cost",
+        "pricing.input_cache_write",
+        "pricing.cache_write",
+        "pricing.input_cache_write.price_per_m_decimal",
+        "cache_write_cost_per_token",
+        "metadata.pricing.cache_write",
+    ),
+}
+
+#: Provider model-type values that mean "chat model".
+CHAT_MODE_VALUES = frozenset({"chat", "completion", "completions", "language", "text", "responses"})
 
 
 def _first_env_value(names):
@@ -234,43 +378,26 @@ class ModelProviderManager:
         return next((item for item in content["data"] if item.get("id") in candidates), None)
 
     def _record_to_info(self, record: Dict, provider: str) -> Dict:
-        context_len = _first_value(
-            record,
-            "max_input_tokens",
-            "max_tokens",
-            "max_output_tokens",
-            "context_length",
-            "context_window",
-            "top_provider_context_length",
-            "top_provider",
-        )
-        if isinstance(context_len, dict):
-            context_len = context_len.get("context_length") or context_len.get("max_tokens")
-        pricing = record.get("pricing", {}) if isinstance(record.get("pricing"), dict) else {}
-        input_cost = _cost_per_token(
-            _first_value(pricing, "prompt", "input", "prompt_tokens")
-            or _first_value(record, "input_cost_per_token", "prompt_cost_per_token")
-        )
+        field_paths = self._model_field_paths(provider)
+        context_len = _first_path_value(record, field_paths["max_input_tokens"])
+        if context_len is None:
+            top_provider = getter(record, "top_provider")
+            if isinstance(top_provider, dict):
+                context_len = _first_path_value(
+                    top_provider, ("context_length", "max_tokens", "max_completion_tokens")
+                )
+        input_cost = _cost_per_token(_first_path_value(record, field_paths["input_cost_per_token"]))
         output_cost = _cost_per_token(
-            _first_value(pricing, "completion", "output", "completion_tokens")
-            or _first_value(record, "output_cost_per_token", "completion_cost_per_token")
+            _first_path_value(record, field_paths["output_cost_per_token"])
         )
-        max_tokens = _first_value(
-            record,
-            "max_tokens",
-            "max_input_tokens",
-            "context_length",
-            "context_window",
-            "top_provider_context_length",
+        cache_read_cost = _cost_per_token(
+            _first_path_value(record, field_paths["cache_read_input_token_cost"])
         )
-        max_output_tokens = _first_value(
-            record,
-            "max_output_tokens",
-            "max_tokens",
-            "context_length",
-            "context_window",
-            "top_provider_context_length",
+        cache_creation_cost = _cost_per_token(
+            _first_path_value(record, field_paths["cache_creation_input_token_cost"])
         )
+        max_tokens = _first_path_value(record, field_paths["max_tokens"])
+        max_output_tokens = _first_path_value(record, field_paths["max_output_tokens"])
         if max_tokens is None:
             max_tokens = context_len
         if max_output_tokens is None:
@@ -290,8 +417,12 @@ class ModelProviderManager:
             "input_cost_per_token": _normalize_cost(input_cost),
             "output_cost_per_token": _normalize_cost(output_cost),
             "litellm_provider": provider,
-            "mode": record.get("mode", "chat"),
+            "mode": _normalize_mode(getter(record, ("mode", "type", "model_type"), "chat")),
         }
+        if cache_read_cost is not None:
+            info["cache_read_input_token_cost"] = _normalize_cost(cache_read_cost)
+        if cache_creation_cost is not None:
+            info["cache_creation_input_token_cost"] = _normalize_cost(cache_creation_cost)
         return {k: v for k, v in info.items() if v is not None}
 
     def _get_cache_file(self, provider: str) -> Path:
@@ -299,38 +430,58 @@ class ModelProviderManager:
         return self.cache_dir / fname
 
     def _normalize_models_payload(self, provider: str, payload: Dict) -> Dict:
-        """Normalize provider payloads into an OpenAI-style `{data: [{id: ...}]}`."""
-        if not isinstance(payload, dict):
+        """Normalize provider payloads into an OpenAI-style `{data: [{id: ...}]}`.
+
+        The list location and per-entry field names differ per provider. Both
+        are resolved through the declarative path sets above (``nested.getter``),
+        with optional ``model_list_paths`` / ``model_field_paths`` overrides in
+        the provider's ``providers.json`` entry.
+        """
+        items = payload if isinstance(payload, list) else None
+
+        if items is None and isinstance(payload, dict):
+            for path in self._model_list_paths(provider):
+                candidate = getter(payload, path)
+                if isinstance(candidate, list):
+                    items = candidate
+                    break
+                if isinstance(candidate, dict):
+                    items = []
+                    for model_key, value in candidate.items():
+                        if not isinstance(value, dict):
+                            continue
+                        record = dict(value)
+                        record.setdefault("id", model_key)
+                        items.append(record)
+                    break
+
+        if items is None:
             return {}
-        if "data" in payload and isinstance(payload.get("data"), list):
-            return payload
-        # Fireworks returns `{models: [...], nextPageToken: ..., totalSize: ...}`
-        models = payload.get("models")
-        if isinstance(models, list):
-            normalized = []
-            for item in models:
-                if not isinstance(item, dict):
-                    continue
-                model_id = item.get("name") or item.get("id")
-                if not model_id:
-                    continue
-                record = {"id": model_id}
-                for key in (
-                    "max_input_tokens",
-                    "max_output_tokens",
-                    "max_tokens",
-                    "context_length",
-                    "context_window",
-                    "mode",
-                    "pricing",
-                    "input_cost_per_token",
-                    "output_cost_per_token",
-                ):
-                    if key in item and item[key] is not None:
-                        record[key] = item[key]
-                normalized.append(record)
-            return {"data": normalized}
-        return {}
+
+        field_paths = self._model_field_paths(provider)
+        normalized = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            model_id = _first_path_value(item, MODEL_ID_PATHS)
+            if not model_id:
+                continue
+            record = {"id": model_id}
+            for key, paths in field_paths.items():
+                value = _first_path_value(item, paths)
+                if value is not None:
+                    record[key] = value
+            # Keep the raw pricing dict for cache/cost fields not covered by
+            # the canonical paths (e.g. cache-read pricing).
+            pricing = getter(item, "pricing")
+            if isinstance(pricing, dict):
+                record["pricing"] = pricing
+            for key in ("mode", "type", "supported_endpoints"):
+                value = getter(item, key)
+                if value not in (None, "", [], {}):
+                    record[key] = value
+            normalized.append(record)
+        return {"data": normalized}
 
     def _load_cache(self, provider: str) -> None:
         if self._cache_loaded.get(provider):
@@ -422,6 +573,31 @@ class ModelProviderManager:
             return os.environ.get(account_id_env)
         return None
 
+    def _model_field_paths(self, provider: str) -> Dict[str, tuple]:
+        """Return canonical field -> extraction paths, with provider overrides."""
+        overrides = (self.provider_configs.get(provider) or {}).get("model_field_paths") or {}
+        if not overrides:
+            return MODEL_FIELD_PATHS
+
+        paths = dict(MODEL_FIELD_PATHS)
+        for field, candidates in overrides.items():
+            if isinstance(candidates, str):
+                candidates = (candidates,)
+            if isinstance(candidates, (list, tuple)):
+                paths[field] = tuple(candidates)
+
+        return paths
+
+    def _model_list_paths(self, provider: str) -> tuple:
+        """Return candidate payload paths that may contain the model list."""
+        override = (self.provider_configs.get(provider) or {}).get("model_list_paths")
+        if isinstance(override, str):
+            return (override,)
+        if isinstance(override, (list, tuple)) and override:
+            return tuple(override)
+
+        return MODEL_LIST_PATHS
+
 
 _NUMBER_RE = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
@@ -453,3 +629,33 @@ def _first_value(record: Dict, *keys: str):
         if value not in (None, ""):
             return value
     return None
+
+
+def _first_path_value(record: Dict, paths):
+    """Return the first non-empty scalar value from ordered dotted paths."""
+
+    for path in paths:
+        value = getter(record, path)
+
+        if value in (None, "", [], {}):
+            continue
+
+        if isinstance(value, (dict, list, tuple)):
+            continue
+
+        return value
+
+    return None
+
+
+def _normalize_mode(value):
+    """Map provider model-type values (``language``, ``text``, ...) to ``chat``."""
+    if not isinstance(value, str):
+        return "chat"
+
+    value = value.lower()
+
+    if value in CHAT_MODE_VALUES:
+        return "chat"
+
+    return value

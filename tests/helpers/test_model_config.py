@@ -918,3 +918,104 @@ def test_model_init_claude_5_uses_reasoning_effort(tmp_path, monkeypatch):
     assert "thinking" not in model.extra_params
     assert "extra_body" not in model.extra_params
     assert model.get_reasoning_effort() == "medium"
+
+
+# ---------------------------------------------------------------------------
+# Router / multi-part model names
+# ---------------------------------------------------------------------------
+
+
+def test_router_model_inherits_vendor_alias_record():
+    """``openrouter/z-ai/x`` inherits from the bundled ``zai/x`` record."""
+    metadata = {
+        "zai/glm-5.3-flash": _record(
+            litellm_provider="zai",
+            max_input_tokens=1048576,
+            max_output_tokens=128000,
+        )
+    }
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "zai"
+    assert config["llm"]["max_input_tokens"] == 1048576
+    assert config["llm"]["max_output_tokens"] == 128000
+
+
+def test_router_model_inherits_google_to_gemini_alias():
+    metadata = {
+        "gemini/gemini-2.5-pro": _record(
+            litellm_provider="gemini",
+            max_input_tokens=1048576,
+            max_output_tokens=65536,
+        )
+    }
+    config = get_default_config("openrouter/google/gemini-2.5-pro", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "gemini"
+    assert config["llm"]["max_input_tokens"] == 1048576
+    assert config["llm"]["max_output_tokens"] == 65536
+
+
+def test_router_model_falls_back_to_same_route_tail_across_providers():
+    """A rehost-only metadata record still supplies limits for a router name."""
+    metadata = {
+        "baseten/zai-org/GLM-5.3-Flash": _record(
+            litellm_provider="baseten",
+            max_input_tokens=1048576,
+            max_output_tokens=131072,
+        )
+    }
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert config["llm"]["max_input_tokens"] == 1048576
+    assert config["llm"]["max_output_tokens"] == 131072
+
+
+def test_router_fallback_requires_matching_route_tail():
+    metadata = {"vendor/unrelated-model": _record(litellm_provider="vendor")}
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert "max_input_tokens" not in config["llm"]
+    assert "max_output_tokens" not in config["llm"]
+
+
+# ---------------------------------------------------------------------------
+# Router / multi-part model names
+# ---------------------------------------------------------------------------
+
+
+def test_router_model_inherits_vendor_aliased_record():
+    """``openrouter/z-ai/x`` inherits from the bundled ``zai/x`` record."""
+    metadata = {
+        "zai/glm-5.3-flash": _record(
+            litellm_provider="zai", max_input_tokens=1048576, max_output_tokens=128000
+        )
+    }
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "zai"
+    assert config["llm"]["max_input_tokens"] == 1048576
+    assert config["llm"]["max_output_tokens"] == 128000
+
+
+def test_router_model_inherits_from_rehosted_route_tail():
+    """When only a rehosted record exists, match its route tail."""
+    metadata = {
+        "baseten/zai-org/GLM-5.3-Flash": _record(
+            litellm_provider="baseten", max_input_tokens=1048576, max_output_tokens=131072
+        )
+    }
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert config["llm"]["litellm_provider"] == "baseten"
+    assert config["llm"]["max_input_tokens"] == 1048576
+    assert config["llm"]["max_output_tokens"] == 131072
+
+
+def test_router_route_fallback_requires_matching_model_tail():
+    """A different model name must not inherit an unrelated record."""
+    metadata = {"vendor/other-model": _record(litellm_provider="vendor")}
+    config = get_default_config("openrouter/z-ai/glm-5.3-flash", [metadata])
+
+    assert "max_input_tokens" not in config["llm"]
+    assert config["llm"]["litellm_provider"] == "openrouter"

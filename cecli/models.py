@@ -282,57 +282,30 @@ class ModelInfoManager:
 
     def fetch_openrouter_model_info(self, model):
         """
-        Fetch model info by scraping the openrouter model page.
-        Expected URL: https://openrouter.ai/<model_route>
-        Example: openrouter/qwen/qwen-2.5-72b-instruct:free
+        Fetch model metadata from OpenRouter's public models endpoint.
+
+        Expected model name: ``openrouter/<vendor>/<model>``.
         Returns a dict with keys: max_tokens, max_input_tokens, max_output_tokens,
         input_cost_per_token, output_cost_per_token.
         """
-        url_part = model[len("openrouter/") :]
-        url = "https://openrouter.ai/" + url_part
-        try:
-            import requests
-
-            response = requests.get(url, timeout=5, verify=self.verify_ssl)
-            if response.status_code != 200:
-                return {}
-            html = response.text
-            import re
-
-            if re.search(
-                f"The model\\s*.*{re.escape(url_part)}.* is not available",
-                html,
-                re.IGNORECASE,
-            ):
-                print(f"\x1b[91mError: Model '{url_part}' is not available\x1b[0m")
-                return {}
-            text = re.sub("<[^>]+>", " ", html)
-            context_match = re.search("([\\d,]+)\\s*context", text)
-            if context_match:
-                context_str = context_match.group(1).replace(",", "")
-                context_size = int(context_str)
-            else:
-                context_size = None
-            input_cost_match = re.search("\\$\\s*([\\d.]+)\\s*/M input tokens", text, re.IGNORECASE)
-            output_cost_match = re.search(
-                "\\$\\s*([\\d.]+)\\s*/M output tokens", text, re.IGNORECASE
-            )
-            input_cost = float(input_cost_match.group(1)) / 1000000 if input_cost_match else None
-            output_cost = float(output_cost_match.group(1)) / 1000000 if output_cost_match else None
-            if context_size is None or input_cost is None or output_cost is None:
-                return {}
-            params = {
-                "max_input_tokens": context_size,
-                "max_tokens": context_size,
-                "max_output_tokens": context_size,
-                "input_cost_per_token": input_cost,
-                "output_cost_per_token": output_cost,
-                "litellm_provider": "openrouter",
+        manager = ModelProviderManager(
+            {
+                "openrouter": {
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "models_url": "https://openrouter.ai/api/v1/models",
+                    "requires_api_key": False,
+                }
             }
-            return params
-        except Exception as e:
-            print("Error fetching openrouter info:", str(e))
-            return {}
+        )
+        manager.cache_dir = self.cache_dir
+        manager.verify_ssl = self.verify_ssl
+
+        info = manager.get_model_info(model)
+        if info:
+            info.setdefault("litellm_provider", "openrouter")
+            return info
+
+        return {}
 
 
 model_info_manager = ModelInfoManager()
