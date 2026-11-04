@@ -2340,6 +2340,7 @@ class Coder(metaclass=UsageMeta):
         if (
             self.context_compaction_max_tokens
             and non_compactable_tokens >= self.context_compaction_max_tokens
+            and not force
         ):
             if getattr(self, "_compaction_noop_warning_time", 0) + 300 < time.time():
                 self._compaction_noop_warning_time = time.time()
