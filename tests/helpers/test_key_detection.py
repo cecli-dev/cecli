@@ -103,7 +103,7 @@ def test_ambiguous_suffix_names_require_key_like_values():
     assert key_detection.detect_api_keys(merged, environ={}) == []
 
 
-def test_entropy_gate_rejects_whitespace_and_prose():
+def test_key_gate_rejects_whitespace_and_prose():
     environ = {"sortKey": "rotate this api key every90 days"}
 
     assert key_detection.detect_api_keys(environ=environ) == []
@@ -123,10 +123,46 @@ def test_path_detection_handles_urls_windows_and_relative_paths():
     assert not looks_like_path(FAKE_KEY)
 
 
-def test_entropy_thresholds_cover_secret_words():
-    assert set(key_detection.SECRET_NAME_SUFFIXES) <= set(
-        key_detection.CREDENTIAL_ENTROPY_THRESHOLDS
-    )
+def test_detects_provider_prefixes_for_ambiguous_names():
+    environ = {
+        "sortKey": "AKIAABCDEFGHIJKLMNOPQRSTUV",
+        "lookupKey": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == sorted(environ.values())
+
+
+def test_detects_short_same_case_prefixes_for_ambiguous_names():
+    environ = {
+        "sortKey": "LLM_0123456789abcdefghijklmnopqrstuvwxyz",
+        "lookupKey": "abc_0123456789abcdefghijklmnopqrstuvwxyz",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == sorted(environ.values())
+
+
+def test_detects_mixed_case_and_alternating_values_for_ambiguous_names():
+    environ = {
+        "sortKey": "aBcDeFgHiJkLmNoPqRsTuVwXyZ",
+        "lookupKey": "a2bc3d4ef5g6h7i8j9k0l1m2n3",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == sorted(environ.values())
+
+
+def test_rejects_path_starting_values_for_ambiguous_names():
+    environ = {
+        "sortKey": "./aBcDeFgHiJkLmNoPqRsTuVwXyZ",
+        "lookupKey": r"C:\aBcDeFgHiJkLmNoPqRsTuVwXyZ",
+    }
+
+    assert key_detection.detect_api_keys(environ=environ) == []
+
+
+def test_detects_private_and_jwt_named_values():
+    environ = {"SIGNING_PRIVATE": "p@ss:w0rd!", "SESSION_JWT": "pa:ssw0rd"}
+
+    assert set(key_detection.detect_api_keys(environ=environ)) == set(environ.values())
 
 
 def test_keeps_slash_containing_secrets():
