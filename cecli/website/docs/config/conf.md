@@ -280,7 +280,7 @@ Below is a sample of the YAML config file, which you can also [download from Git
 ## Timeout in seconds for API calls (default: None)
 #timeout: xxx
 
-## Specify what edit format the LLM should use (default depends on model)
+## Specify what edit format the LLM should use (default: agent)
 #edit-format: xxx
 
 ## Use architect edit format for the main chat

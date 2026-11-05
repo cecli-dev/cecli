@@ -158,7 +158,7 @@ Verify the SSL cert when connecting to models (default: True) Default: True Envi
 Timeout in seconds for API calls (default: None) Environment variable: `CECLI_TIMEOUT`
 
 ### `--edit-format EDIT_FORMAT`
-Specify what edit format the LLM should use (default depends on model) Environment variable: `CECLI_EDIT_FORMAT` Aliases:
+Specify what edit format the LLM should use (default: agent) Environment variable: `CECLI_EDIT_FORMAT` Aliases:
   - `--edit-format EDIT_FORMAT`
   - `--chat-mode EDIT_FORMAT`
 

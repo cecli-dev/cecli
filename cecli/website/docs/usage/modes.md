@@ -14,7 +14,7 @@ Cecli has a few different chat modes:
 - `help` - cecli will answer questions about cecli: usage, configuration, troubleshooting, etc.
 - `agent` - cecli will autonomously explore and modify your codebase using local tools, discovering and managing the relevant files itself.
 
-By default, cecli starts in "code" mode. As you are talking, you can send individual messages in a specific mode using `/code`, `/architect`, `/ask`, `/help`, and `/agent` commands: Using these `/`-commands applies just to that particular message. Your next message will go back to the active mode (usually "code" mode by default).
+By default, cecli starts in "agent" mode. As you are talking, you can send individual messages in a specific mode using `/code`, `/architect`, `/ask`, `/help`, and `/agent` commands: Using these `/`-commands applies just to that particular message. Your next message will go back to the active mode (usually "agent" mode by default).
 
 You can switch the active mode in a sticky way with the `/chat-mode <mode>` command:
 

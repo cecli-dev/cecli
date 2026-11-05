@@ -108,7 +108,7 @@ Below is a sample `.env` file, which you can also [download from GitHub](https:/
 ## Timeout in seconds for API calls (default: None)
 #CECLI_TIMEOUT=
 
-## Specify what edit format the LLM should use (default depends on model)
+## Specify what edit format the LLM should use (default: agent)
 #CECLI_EDIT_FORMAT=
 
 ## Use architect edit format for the main chat
