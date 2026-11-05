@@ -1,28 +1,24 @@
-"""Generic local chromadb RAG store over arbitrary files.
+"""Session-scoped, in-memory RAG store over arbitrary files.
 
-This mirrors the ``/help`` RAG mechanism (chromadb + ONNX default embedding,
-heading/chunk-aligned splitting) but generalizes it to user-specified files
-and folders.  A :class:`RagStore` chunks each target file, embeds the chunks
-into a persistent per-project chromadb collection, and can later retrieve the
-most relevant chunks for a query (retrieval-augmented generation).
+This mirrors the UX of ``/help`` RAG (chunk-aligned splitting + a
+dependency-free keyword retrieval path) but generalizes it to user-specified
+files and folders that are registered for the *current conversation only*.
+Unlike the old persistent chromadb design, nothing is written to disk: the
+chunks live on the coder (``coder.rag_files`` + ``coder.rag_index``) and
+disappear when the cecli session ends, exactly like files added with ``/add``.
 
-The command in :mod:`cecli.commands.rag` builds the store from files/folders
-selected interactively (like ``/add``) or passed as arguments.
+The commands in :mod:`cecli.commands.rag` register targets with ``/rag-add``
+and ask questions with ``/rag-question``.
 """
 
-import hashlib
 import os
-import threading
+import re
+from collections import Counter
 from pathlib import Path
 
-from cecli import __version__
 from cecli.help import _chunk_document
 
-_RAG_SCHEMA = "rag-v1"
-_RAG_INDEX_LOCK = threading.Lock()
-_rag_index_cache = {}
-
-# Chunk size tuned for the ONNX embedder; a little larger than help chunks
+# Chunk size tuned for in-memory retrieval; a little larger than help chunks
 # since user files are arbitrary.
 _RAG_CHUNK_CHARS = 1500
 _MAX_RESULTS = 8
@@ -38,21 +34,12 @@ _SKIP_SUFFIXES = {
     ".lock",
 }
 
-
-def _root_hash(root: str) -> str:
-    digest = hashlib.sha1(str(Path(root).resolve()).encode("utf-8")).hexdigest()
-    return digest[:16]
-
-
-def _store_path(root: str) -> str:
-    dname = (
-        Path.home()
-        / ".cecli"
-        / "caches"
-        / f"rag.{__version__}.{_RAG_SCHEMA}.{_root_hash(root)}"
-    )
-    dname.parent.mkdir(parents=True, exist_ok=True)
-    return str(dname)
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_KEYWORD_STOPWORDS = frozenset(
+    "a an and are as at be been by can could did do does for from had has have how "
+    "i if in into is it its me my no not of on or our should so than that the then "
+    "this to us was we were what when where which who why will with would you your".split()
+)
 
 
 def _is_skipped(fname: Path) -> bool:
@@ -109,111 +96,139 @@ def collect_target_files(paths, root: str) -> list:
     return sorted(set(result))
 
 
-def get_rag_store(root: str, files, verbose: bool = False) -> "RagStore":
-    """Build / fetch the chromadb RAG store for a set of files under ``root``."""
-    import chromadb
-    from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-
-    key = _store_path(root)
-    with _RAG_INDEX_LOCK:
-        cached = _rag_index_cache.get(key)
-        if cached is not None:
-            return cached
-
-        client = chromadb.PersistentClient(path=key)
-        store = RagStore(client, "rag", DefaultEmbeddingFunction(), root, files, verbose)
-        _rag_index_cache[key] = store
-        return store
+def _tokenize(text):
+    """Split text into lowercase search tokens, dropping stopwords."""
+    return [
+        token
+        for token in _TOKEN_RE.findall((text or "").lower())
+        if len(token) > 1 and token not in _KEYWORD_STOPWORDS
+    ]
 
 
-class RagStore:
-    """A chromadb-backed vector store that chunks + embeds a fixed file set."""
+def build_rag_index(files) -> dict:
+    """Chunk each file in-memory and build a dependency-free keyword index.
 
-    def __init__(self, client, collection_name, embedding_function, root, files, verbose=False):
-        self.collection = client.get_or_create_collection(
-            collection_name, embedding_function=embedding_function
-        )
-        self.root = root
-        self.files = list(files)
-        self.verbose = verbose
+    Returns a dict holding, for each file, its list of chunk entries.  Each
+    entry is ``{"id", "path", "document", "document_lower", "heading_tokens",
+    "body_tokens"}`` mirroring ``cecli.help._keyword_index`` so callers can score
+    relevance without any external embedding backend.
+    """
+    import os as _os
 
-    def index_files(self, files=None) -> int:
-        """(Re)index the given (or current) files.  Returns number of files indexed."""
-        files = self.files if files is None else list(files)
-        ids, documents, metadatas = [], [], []
-        for fname in files:
-            try:
-                text = Path(fname).read_text(encoding="utf-8", errors="replace")
-            except (OSError, UnicodeError):
+    entries = []
+    for fname in files:
+        try:
+            text = Path(fname).read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeError):
+            continue
+
+        filename_tokens = set(_tokenize(_os.path.basename(str(fname))))
+        for chunk_index, chunk in enumerate(_chunk_document(text, max_chars=_RAG_CHUNK_CHARS)):
+            if not chunk.strip():
                 continue
-            chunks = _chunk_document(text, max_chars=_RAG_CHUNK_CHARS)
-            for i, chunk in enumerate(chunks):
-                if not chunk.strip():
-                    continue
-                ids.append(f"{fname}#{i}")
-                documents.append(chunk)
-                metadatas.append(dict(path=str(fname)))
-        if documents:
-            # Replace the prior contents so re-indexing reflects current files.
-            existing = self.collection.get()
-            if existing["ids"]:
-                self.collection.delete(ids=existing["ids"])
-            self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
-        return len(files)
-
-    def count(self) -> int:
-        return self.collection.count()
-
-    def retrieve(self, question, n_results=_MAX_RESULTS, exclude_ids=None):
-        """Return ranked chunks as structured dicts (same shape as Help.retrieve)."""
-        total = self.count()
-        if not total:
-            return []
-        n_results = max(1, int(n_results))
-        exclude = set(exclude_ids or ())
-        fetch = min(total, n_results + len(exclude))
-        results = self.collection.query(
-            query_texts=[question],
-            n_results=fetch,
-            include=["documents", "metadatas", "distances"],
-        )
-        ids = (results.get("ids") or [[]])[0]
-        documents = (results.get("documents") or [[]])[0]
-        metadatas = (results.get("metadatas") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-
-        docs, seen = [], set(exclude)
-        for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances):
-            if not document or chunk_id in seen:
-                continue
-            seen.add(chunk_id)
-            metadata = metadata or {}
-            docs.append(
+            heading_tokens = set()
+            for line in chunk.splitlines():
+                if line.lstrip().startswith("#"):
+                    heading_tokens.update(_tokenize(line))
+            entries.append(
                 dict(
-                    id=chunk_id,
-                    path=metadata.get("path", ""),
-                    document=document,
-                    metadata=metadata,
-                    distance=distance,
+                    id=f"{fname}#{chunk_index}",
+                    path=str(fname),
+                    document=chunk,
+                    document_lower=chunk.lower(),
+                    filename_tokens=filename_tokens,
+                    heading_tokens=heading_tokens,
+                    body_tokens=Counter(_tokenize(chunk)),
                 )
             )
-            if len(docs) >= n_results:
-                break
-        return docs
+    return {"entries": entries, "files": sorted(set(str(f) for f in files))}
 
-    def ask(self, question, exclude_ids=None):
-        """Render retrieved chunks as an RAG context block for a prompt."""
-        documents = self.retrieve(question, exclude_ids=exclude_ids)
-        if not documents:
-            return ""
-        context = "# RAG context (retrieved from the registered files):\n\n"
-        used = 0
-        for doc in documents:
-            text = doc["document"]
-            if not text:
-                continue
-            if used and used + len(text) > _MAX_CONTEXT_CHARS:
-                break
-            used += len(text)
-            context += f'<doc from_path="{doc.get("path", "")}">\n{text}\n</doc>\n\n'
-        return context
+
+def _keyword_score(entry, tokens, phrase):
+    """Score a chunk using filename, heading, and body keyword overlap."""
+    score = 0.0
+    matched = 0
+    for token in tokens:
+        token_score = 0.0
+        if token in entry["filename_tokens"]:
+            token_score += 8.0
+        if token in entry["heading_tokens"]:
+            token_score += 5.0
+        count = entry["body_tokens"].get(token, 0)
+        if count:
+            token_score += min(count, 5)
+        if token_score:
+            matched += 1
+            score += token_score
+    if matched and len(tokens) > 1 and phrase in entry["document_lower"]:
+        score += 6.0
+    if matched:
+        score += 10.0 * matched / len(tokens)
+    return score
+
+
+def retrieve_from_index(index: dict, question, n_results=_MAX_RESULTS, exclude_ids=None):
+    """Score chunks in a :func:`build_rag_index` result against a question.
+
+    Returns ranked chunk dicts in the same shape the old ``RagStore.retrieve``
+    produced (``id``, ``path``, ``document``, ``metadata``, ``distance``) so the
+    command layer can render them uniformly.
+    """
+    entries = (index or {}).get("entries") or []
+    if not entries:
+        return []
+
+    query_tokens = list(dict.fromkeys(_tokenize(question or "")))
+    if not query_tokens:
+        return []
+
+    phrase = " ".join(query_tokens)
+    exclude = set(exclude_ids or ())
+    n_results = max(1, int(n_results))
+
+    scored = []
+    for entry in entries:
+        if entry["id"] in exclude:
+            continue
+        score = _keyword_score(entry, query_tokens, phrase)
+        if score > 0:
+            scored.append((score, entry))
+
+    scored.sort(key=lambda item: (-item[0], item[1]["id"]))
+
+    docs = []
+    for score, entry in scored:
+        docs.append(
+            dict(
+                id=entry["id"],
+                path=entry["path"],
+                document=entry["document"],
+                metadata=dict(path=entry["path"]),
+                distance=round(1.0 / (1.0 + score), 6),
+            )
+        )
+        if len(docs) >= n_results:
+            break
+    return docs
+
+
+def rag_context_block(index: dict, question, n_results=_MAX_RESULTS, exclude_ids=None):
+    """Render retrieved chunks as an RAG context block for a prompt.
+
+    Mirrors ``Help.ask``: returns a string block prefixed with the question
+    and the retrieved ``<doc>`` sections, capped by ``_MAX_CONTEXT_CHARS``.
+    """
+    documents = retrieve_from_index(index, question, n_results=n_results, exclude_ids=exclude_ids)
+    if not documents:
+        return ""
+    context = f"# Question: {question}\n\n# RAG context (retrieved from the files added this session):\n\n"
+    used = 0
+    for doc in documents:
+        text = doc["document"]
+        if not text:
+            continue
+        if used and used + len(text) > _MAX_CONTEXT_CHARS:
+            break
+        used += len(text)
+        context += f'<doc from_path="{doc.get("path", "")}">\n{text}\n</doc>\n\n'
+    return context
