@@ -97,12 +97,30 @@ def collect_target_files(paths, root: str) -> list:
 
 
 def _tokenize(text):
-    """Split text into lowercase search tokens, dropping stopwords."""
-    return [
-        token
-        for token in _TOKEN_RE.findall((text or "").lower())
-        if len(token) > 1 and token not in _KEYWORD_STOPWORDS
-    ]
+    """Split text into search tokens, dropping stopwords.
+
+    Handles both Latin/CJK text: Latin words are tokenized via ``[a-z0-9]+``;
+    CJK characters are tokenized as individual characters and 2-char bigrams so
+    that Chinese/Japanese/Korean questions can match Chinese/Japanese/Korean
+    document content without a full NLP dependency.
+    """
+    text_lower = (text or "").lower()
+    tokens = []
+    # Latin / alphanumeric words
+    for word in _TOKEN_RE.findall(text_lower):
+        if len(word) > 1 and word not in _KEYWORD_STOPWORDS:
+            tokens.append(word)
+    # CJK unigrams + bigrams (covers Chinese, Japanese, Korean)
+    cjk = [c for c in text_lower if "\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" or "\u3040" <= c <= "\u309f" or "\u30a0" <= c <= "\u30ff" or "\uac00" <= c <= "\ud7af"]
+    for ch in cjk:
+        if ch not in _KEYWORD_STOPWORDS:
+            tokens.append(ch)
+    for i in range(len(cjk) - 1):
+        bigram = cjk[i] + cjk[i + 1]
+        if bigram not in _KEYWORD_STOPWORDS:
+            tokens.append(bigram)
+    # De-duplicate while preserving order
+    return list(dict.fromkeys(tokens))
 
 
 def build_rag_index(files) -> dict:
