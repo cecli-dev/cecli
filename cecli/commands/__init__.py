@@ -54,7 +54,7 @@ from .quit import QuitCommand
 from .read_only import ReadOnlyCommand
 from .read_only_stub import ReadOnlyStubCommand
 from .reap_agent import ReapAgentCommand
-from .rag import RagAddCommand, RagDropCommand, RagQuestionCommand
+from .rag import RagAddCommand, RagDropCommand, RagLsCommand, RagQuestionCommand
 from .remove_memory import RemoveMemoryCommand
 from .report import ReportCommand
 from .reset import ResetCommand
@@ -140,6 +140,7 @@ CommandRegistry.register(ReadOnlyStubCommand)
 CommandRegistry.register(ReapAgentCommand)
 CommandRegistry.register(RagAddCommand)
 CommandRegistry.register(RagDropCommand)
+CommandRegistry.register(RagLsCommand)
 CommandRegistry.register(RagQuestionCommand)
 CommandRegistry.register(RemoveMemoryCommand)
 CommandRegistry.register(ReportCommand)
@@ -225,6 +226,7 @@ __all__ = [
     "ReapAgentCommand",
 "RagAddCommand",
 "RagDropCommand",
+    "RagLsCommand",
     "RagQuestionCommand",
     "ReasoningEffortCommand",
     "ReloadProgramSignal",
