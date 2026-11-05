@@ -206,7 +206,7 @@ class RagStore:
         documents = self.retrieve(question, exclude_ids=exclude_ids)
         if not documents:
             return ""
-        context = "# RAG context (retrieved from the registered files):\\n\\n"
+        context = "# RAG context (retrieved from the registered files):\n\n"
         used = 0
         for doc in documents:
             text = doc["document"]
@@ -215,5 +215,5 @@ class RagStore:
             if used and used + len(text) > _MAX_CONTEXT_CHARS:
                 break
             used += len(text)
-            context += f'<doc from_path="{doc.get("path", "")}">\\n{text}\\n</doc>\\n\\n'
+            context += f'<doc from_path="{doc.get("path", "")}">\n{text}\n</doc>\n\n'
         return context
