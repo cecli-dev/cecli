@@ -114,7 +114,7 @@ class RagCommand(BaseCommand):
         io.tool_output(f"Top {len(documents)} RAG chunks for {query!r}:")
         for doc in documents:
             rel = coder.get_rel_fname(doc["path"]) if doc.get("path") else doc.get("path")
-            score = round(1.0 - doc.get("distance", 0.0), 3)
+            score = round(max(0.0, 1.0 - doc.get("distance", 0.0)), 3)
             preview = " ".join((doc["document"] or "").split())[:200]
             io.tool_output(f"  [{score}] {rel}\n    {preview}")
         return format_command_result(io, "rag", f"Retrieved {len(documents)} RAG chunks")
