@@ -26,6 +26,7 @@ class RagCommand(BaseCommand):
     DESCRIPTION = "Register files/folders as RAG objects (chunk + embed for retrieval)"
     show_completion_notification = True
 
+    @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         """Build the RAG index over the selected files/folders, or query it."""
         from cecli.rag import get_rag_store
