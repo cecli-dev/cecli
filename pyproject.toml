@@ -54,5 +54,5 @@ write_to = "cecli/_version.py"
 local_scheme = "no-local-version"
 
 [tool.codespell]
-skip = "*.svg,*.scss,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*"
+skip = "*.svg,*.scss,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*,desktop/static/*,desktop/package-lock.json,desktop/src-tauri/Cargo.lock,desktop/src-tauri/icons/*"
 write-changes = true

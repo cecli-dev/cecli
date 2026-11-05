@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: false;
+  logs: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "cecli-light";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #ffffff;
+  --color-base-200: #f7f7f9;
+  --color-base-300: #ececf1;
+  --color-base-content: #202124;
+  --color-primary: #6f5bf0;
+  --color-primary-content: #ffffff;
+  --color-secondary: #8b7bff;
+  --color-secondary-content: #ffffff;
+  --color-accent: #10a37f;
+  --color-accent-content: #ffffff;
+  --color-neutral: #202124;
+  --color-neutral-content: #f4f4f7;
+  --color-info: #3b82f6;
+  --color-info-content: #ffffff;
+  --color-success: #0f9d76;
+  --color-success-content: #ffffff;
+  --color-warning: #b7791f;
+  --color-warning-content: #ffffff;
+  --color-error: #d93a4a;
+  --color-error-content: #ffffff;
+
+  --radius-selector: 0.75rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@source "../../index.html";
+@source "../**/*.js";
+
+@import "./base.css";
+@import "./backdrop.css";
+@import "./glass.css";
+@import "./layout.css";
+@import "./header.css";
+@import "./controls.css";
+@import "./chat.css";
+@import "./markdown.css";
+@import "./thoughts.css";
+@import "./tool.css";
+@import "./plan.css";
+@import "./permission.css";
+@import "./composer.css";
+@import "./utilities.css";
+@import "./motion.css";
+@import "./responsive.css";

@@ -1,0 +1,54 @@
+/* ---------------------------------------------------------------- thoughts */
+
+.thought {
+  margin: 4px 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fafafa;
+}
+
+.thought summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thought summary::-webkit-details-marker {
+  display: none;
+}
+
+.thought summary::before {
+  content: "\203a";
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.thought[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.thought-text {
+  max-height: 320px;
+  padding: 4px 15px 14px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  color: #6b6d78;
+  font-family: var(--font-mono);
+  font-size: 12.2px;
+  font-style: italic;
+  line-height: 1.68;
+  white-space: pre-wrap;
+}

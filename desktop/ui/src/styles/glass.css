@@ -1,0 +1,9 @@
+/* ------------------------------------------------------------------ glass */
+
+.panel-glass {
+  background: var(--ccli-glass-bg);
+  border: 1px solid var(--ccli-glass-border);
+  box-shadow: var(--shadow-panel);
+  -webkit-backdrop-filter: var(--ccli-glass-blur);
+  backdrop-filter: var(--ccli-glass-blur);
+}

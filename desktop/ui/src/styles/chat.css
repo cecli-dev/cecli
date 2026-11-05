@@ -1,0 +1,143 @@
+/* ------------------------------------------------------------------- chat */
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 10px 24px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-padding-bottom: 24px;
+}
+
+.transcript:focus-visible {
+  outline-offset: -4px;
+}
+
+/* ------------------------------------------------------------ empty state */
+
+.empty-state {
+  max-width: 720px;
+  margin: clamp(10px, 7vh, 72px) auto 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.cecli-logo {
+  display: inline-block;
+  margin: 0 auto 18px;
+  color: #111214;
+  font-family: var(--font-mono);
+  font-size: clamp(10px, 2vw, 19px);
+  line-height: 1.04;
+  text-align: left;
+  white-space: pre;
+}
+
+.empty-state h1 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: clamp(22px, 2.4vw, 27px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.empty-state > p {
+  max-width: 460px;
+  margin: 0 auto 22px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.example {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.example:hover {
+  border-color: #d2ccff;
+  color: var(--text);
+  background: #faf9ff;
+}
+
+.example-glyph {
+  display: none;
+}
+
+.example-text strong {
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+/* --------------------------------------------------------------- messages */
+
+.msg {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto 24px;
+  animation: rise 0.22s ease;
+}
+
+.msg--user {
+  justify-content: flex-end;
+}
+
+.msg--user .bubble {
+  max-width: 72%;
+  padding: 10px 16px;
+  border-radius: 18px;
+  color: #2a2740;
+  background: #f1efff;
+  font-size: 14.6px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.msg--assistant {
+  align-items: flex-start;
+}
+
+.msg-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-top: 3px;
+  border-radius: 8px;
+  color: var(--accent-a);
+  background: #f3f2fb;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.msg-body {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}

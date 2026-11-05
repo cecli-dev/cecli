@@ -1,0 +1,117 @@
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .topbar {
+    padding: 14px 16px 4px;
+  }
+
+  .transcript {
+    padding: 8px 18px 20px;
+  }
+
+  .permission-region {
+    padding: 0 18px 10px;
+  }
+
+  .composer-dock {
+    padding: 0 16px 12px;
+  }
+}
+
+@media (max-width: 720px) {
+  .workspace {
+    display: none;
+  }
+
+  .transcript {
+    padding: 6px 14px 16px;
+  }
+
+  .permission-region {
+    padding: 0 14px 10px;
+  }
+
+  .composer-dock {
+    padding: 0 12px 10px;
+  }
+
+  .msg--user .bubble {
+    max-width: 86%;
+  }
+
+  .empty-state {
+    margin-top: 8vh;
+  }
+
+  .jump-pill {
+    bottom: 118px;
+  }
+
+}
+
+@media (max-width: 560px) {
+  .examples {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .example {
+    justify-content: center;
+  }
+
+  .strip-config {
+    width: 100%;
+  }
+
+  .strip-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .usage {
+    margin-right: auto;
+  }
+
+  .logs-body {
+    position: fixed;
+    right: 12px;
+    bottom: 96px;
+    left: 12px;
+    width: auto;
+  }
+
+  .hint {
+    display: none;
+  }
+
+  .composer-meta {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand-name {
+    font-size: 15px;
+  }
+
+  .connection-status {
+    padding: 3px 8px;
+  }
+
+  .status-label {
+    font-size: 10.5px;
+  }
+
+  .picker-select {
+    max-width: 150px;
+  }
+
+  .composer-box {
+    border-radius: 20px;
+    padding: 10px 10px 10px 14px;
+  }
+
+  .cecli-logo {
+    font-size: 11px;
+  }
+}
