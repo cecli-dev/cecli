@@ -162,6 +162,7 @@ def convert_yaml_to_json_string(value, config_file_value=None):
 # the same option, so CLI keys win per-key while file-only keys are preserved.
 YAML_TO_JSON_ARG_KEYS = {
     "agent_config": "agent-config",
+    "browser": "browser",
     "tui_config": "tui-config",
     "mcp_servers": "mcp-servers",
     "custom": "custom",

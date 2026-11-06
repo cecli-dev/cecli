@@ -29,14 +29,11 @@ RUN python -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 RUN /venv/bin/python -m pip install --no-cache-dir uv
 
-# Playwright browser settings
-ENV PLAYWRIGHT_BROWSERS_PATH=${OLDHOME}/pw-browsers
-ENV PLAYWRIGHT_SKIP_BROWSER_GC=1
 
 # Create directories with proper permissions
-RUN mkdir -p ${OLDHOME}/.cecli ${OLDHOME}/.cache ${OLDHOME}/pw-browsers && \
+RUN mkdir -p ${OLDHOME}/.cecli ${OLDHOME}/.cache && \
     chown -R ${DEFAULTUSER}:${DEFAULTGROUP} ${OLDHOME} /app /venv && \
-    chmod -R 777 ${OLDHOME}/.cecli ${OLDHOME}/.cache ${OLDHOME}/pw-browsers
+    chmod -R 777 ${OLDHOME}/.cecli ${OLDHOME}/.cache
 
 # So git doesn't complain about unusual permissions
 RUN git config --system --add safe.directory /app
@@ -54,9 +51,6 @@ COPY requirements/ /tmp/cecli/requirements/
 RUN uv pip install --no-cache-dir -r /tmp/cecli/requirements.txt && \
     rm -rf /tmp/cecli
 
-# Install playwright browsers
-RUN uv pip install --no-cache-dir playwright && \
-    /venv/bin/python -m playwright install --with-deps chromium
 
 # Fix site-packages permissions
 RUN find /venv/lib/python3.12/site-packages \( -type d -exec chmod a+rwx {} + \) -o \( -type f -exec chmod a+rw {} + \)

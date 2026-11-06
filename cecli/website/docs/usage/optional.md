@@ -23,19 +23,11 @@ You need an key from an API provider to work with most models:
 
 You can [store your api keys in configuration or env files](../config/api-keys.html) and they will be loaded automatically whenever you run cecli.
 
-## Enable Playwright 
+## Enable Browser automation
 
 Cecli supports adding web pages to the chat with the `/web <url>` command. When you add a url to the chat, cecli fetches the page and scrapes its content.
 
-By default, cecli uses the `httpx` library to scrape web pages, but this only works on a subset of web pages. Some sites explicitly block requests from tools like httpx. Others rely heavily on javascript to render the page content, which isn't possible using only httpx.
-
-Cecli works best with all web pages if you install Playwright's chromium browser and its dependencies:
-
-```
-playwright install --with-deps chromium
-```
-
-See the [Playwright for Python documentation](https://playwright.dev/python/docs/browsers#install-system-dependencies) for additional information.
+Cecli uses browser-harness, which ships with cecli, to render pages that rely on JavaScript. You only need a Chrome or Chromium based browser installed. If no browser can be used, cecli falls back to plain HTTP requests.
 
 
 ## Enable voice coding 

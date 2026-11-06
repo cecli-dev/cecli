@@ -56,6 +56,7 @@ DEEP_MERGE_LIST_FIELDS: frozenset[str] = frozenset(
 DEEP_MERGE_JSON_FIELDS: frozenset[str] = frozenset(
     {
         "agent_config",
+        "browser",
         "mcp_servers",
         "hooks",
         "model_providers",
@@ -547,6 +548,17 @@ def get_parser(default_config_files, git_root):
     )
 
     ##########
+    group = parser.add_argument_group("Browser Settings")
+    group.add_argument(
+        "--browser",
+        metavar="BROWSER_CONFIG_JSON",
+        default=None,
+        help=(
+            "Specify browser-harness configuration as a JSON/YAML string or file path (e.g., "
+            '\'{"cdp_url": "http://127.0.0.1:9222", "launch": true}\')'
+        ),
+    )
+
     group = parser.add_argument_group("Security Settings")
     group.add_argument(
         "--security-config",
@@ -1143,12 +1155,6 @@ def get_parser(default_config_files, git_root):
         "--yolo",
         action="store_true",
         help="Always say yes to every confirmation (including cli commands)",
-        default=False,
-    )
-    group.add_argument(
-        "--disable-playwright",
-        action="store_true",
-        help="Never prompt for or attempt to install Playwright for web scraping (default: False).",
         default=False,
     )
     group.add_argument(

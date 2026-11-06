@@ -1,4 +1,4 @@
-import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,9 +20,8 @@ class TestScrape:
                     "M", (), {"edit_format": "code", "name": "dummy", "info": {}}
                 )()
                 self.tui = None
-                self.args = type("Args", (), {"disable_playwright": False})()
+                self.args = SimpleNamespace(browser=None)
                 self.io = io
-                self.args = type("Args", (), {"disable_playwright": False})()
 
             def get_rel_fname(self, fname):
                 return fname
@@ -41,163 +40,93 @@ class TestScrape:
 
         coder = DummyCoder()
         cmds = Commands(io, coder)
-        cmds._test_coder = coder  # keep strong reference to prevent GC of weakref
+        cmds._test_coder = coder
         return cmds
 
-    @patch("cecli.commands.web.install_playwright")
     @patch("cecli.commands.web.Scraper")
-    async def test_cmd_web_imports_playwright(
-        self, mock_scraper_class, mock_install_playwright, commands
-    ):
-        async def mock_install(*args, **kwargs):
-            sys.modules["playwright"] = MagicMock()
-            return True
-
-        mock_install_playwright.side_effect = mock_install
+    async def test_cmd_web_uses_browser_harness_scraper(self, mock_scraper_class, commands):
         mock_scraper_instance = mock_scraper_class.return_value
         mock_scraper_instance.scrape = AsyncMock(return_value="Scraped content")
-
         commands.io.tool_error = MagicMock()
 
-        try:
-            result = await commands.execute("web", "https://example.com", return_content=True)
+        result = await commands.execute("web", "https://example.com", return_content=True)
 
-            assert result is not None
-            assert "Scraped content" in result
+        assert "Scraped content" in result
+        commands.io.tool_error.assert_not_called()
 
-            playwright_imported = "playwright" in sys.modules
-            assert playwright_imported, "Playwright should be importable after running cmd_web"
+        _args, kwargs = mock_scraper_class.call_args
+        assert kwargs["browser_harness_available"] is True
 
-            commands.io.tool_error.assert_not_called()
-        finally:
-            if "playwright" in sys.modules:
-                del sys.modules["playwright"]
-
-    @patch("cecli.scrape.Scraper.scrape_with_httpx")
-    @patch("cecli.scrape.Scraper.scrape_with_playwright")
-    async def test_scrape_self_signed_ssl(self, mock_scrape_playwright, mock_scrape_httpx):
-        # Test with SSL verification - playwright fails
-        mock_scrape_playwright.return_value = (None, None)
-
-        scraper_verify = Scraper(
-            print_error=MagicMock(), playwright_available=True, verify_ssl=True
+    async def test_scrape_uses_browser_harness_when_available(self):
+        scraper = Scraper(
+            print_error=MagicMock(),
+            browser_harness_available=True,
         )
-        result_verify = await scraper_verify.scrape("https://self-signed.badssl.com")
-        assert result_verify is None
-        scraper_verify.print_error.assert_called()
+        html = "<html><body><h1>Rendered</h1></body></html>"
+        scraper.scrape_with_browser_harness = AsyncMock(return_value=(html, "text/html"))
+        scraper.html_to_markdown = MagicMock(return_value="# Rendered")
 
-        # Test without SSL verification - playwright succeeds
-        mock_scrape_playwright.return_value = (
-            "<html><body>self-signed content</body></html>",
-            "text/html",
-        )
-        scraper_no_verify = Scraper(
-            print_error=MagicMock(), playwright_available=True, verify_ssl=False
-        )
-        result_no_verify = await scraper_no_verify.scrape("https://self-signed.badssl.com")
-        assert result_no_verify is not None
-        assert "self-signed" in result_no_verify
-        scraper_no_verify.print_error.assert_not_called()
-
-    @patch("cecli.scrape.Scraper.scrape_with_playwright")
-    async def test_scrape_actual_url_with_playwright(self, mock_scrape_playwright):
-        # Create a Scraper instance with a mock print_error function
-        mock_print_error = MagicMock()
-        scraper = Scraper(print_error=mock_print_error, playwright_available=True)
-
-        # Mock the playwright scrape to return content
-        mock_scrape_playwright.return_value = (
-            "<html><body><h1>Example Domain</h1></body></html>",
-            "text/html",
-        )
-
-        # Scrape a mocked URL
         result = await scraper.scrape("https://example.com")
 
-        # Assert that the result contains expected content
-        assert result is not None
-        assert "Example Domain" in result
+        assert result == "# Rendered"
+        scraper.html_to_markdown.assert_called_once_with(html)
 
-        # Assert that print_error was never called
-        mock_print_error.assert_not_called()
+    async def test_scrape_falls_back_to_httpx_when_browser_harness_fails(self):
+        scraper = Scraper(
+            print_error=MagicMock(),
+            browser_harness_available=True,
+        )
+        scraper.scrape_with_browser_harness = AsyncMock(return_value=(None, None))
+        scraper.scrape_with_httpx = MagicMock(return_value=("plain text", "text/plain"))
+
+        result = await scraper.scrape("https://example.com")
+
+        assert result == "plain text"
+        scraper.scrape_with_httpx.assert_called_once_with("https://example.com")
+
+    async def test_scrape_without_browser_harness_uses_httpx(self):
+        scraper = Scraper(
+            print_error=MagicMock(),
+            browser_harness_available=False,
+        )
+        scraper.scrape_with_httpx = MagicMock(return_value=("plain text", "text/plain"))
+
+        result = await scraper.scrape("https://example.com")
+
+        assert result == "plain text"
+
+    async def test_scrape_text_html(self):
+        scraper = Scraper(
+            print_error=MagicMock(),
+            browser_harness_available=True,
+        )
+        html = "<html><body><h1>Test</h1><p>This is HTML content.</p></body></html>"
+        scraper.scrape_with_browser_harness = AsyncMock(return_value=(html, "text/html"))
+        scraper.html_to_markdown = MagicMock(return_value="# Test\n\nThis is HTML content.")
+
+        result = await scraper.scrape("https://example.com")
+
+        assert result == "# Test\n\nThis is HTML content."
+
+    async def test_scrape_failure_returns_none(self):
+        scraper = Scraper(
+            print_error=MagicMock(),
+            browser_harness_available=False,
+        )
+        scraper.scrape_with_httpx = MagicMock(return_value=(None, None))
+
+        result = await scraper.scrape("https://example.com")
+
+        assert result is None
+        scraper.print_error.assert_called_once_with(
+            "Failed to retrieve content from https://example.com"
+        )
 
     def test_scraper_print_error_not_called(self):
-        # Create a Scraper instance with a mock print_error function
-        mock_print_error = MagicMock()
-        scraper = Scraper(print_error=mock_print_error)
+        scraper = Scraper(print_error=MagicMock(), browser_harness_available=False)
 
-        # Test various methods of the Scraper class
         scraper.scrape_with_httpx("https://example.com")
         scraper.try_pandoc()
         scraper.html_to_markdown("<html><body><h1>Test</h1></body></html>")
 
-        # Assert that print_error was never called
-        mock_print_error.assert_not_called()
-
-    async def test_scrape_with_playwright_error_handling(self):
-        # Create a Scraper instance with a mock print_error function
-        mock_print_error = MagicMock()
-        scraper = Scraper(print_error=mock_print_error, playwright_available=True)
-
-        # Mock the necessary objects and methods
-        scraper.scrape_with_playwright = AsyncMock()
-        scraper.scrape_with_playwright.return_value = (None, None)
-
-        # Call the scrape method
-        result = await scraper.scrape("https://example.com")
-
-        # Assert that the result is None
-        assert result is None
-
-        # Assert that print_error was called with the expected error message
-        mock_print_error.assert_called_once_with(
-            "Failed to retrieve content from https://example.com"
-        )
-
-        # Reset the mock
-        mock_print_error.reset_mock()
-
-        # Test with a different return value
-        scraper.scrape_with_playwright.return_value = ("Some content", "text/html")
-        result = await scraper.scrape("https://example.com")
-
-        # Assert that the result is not None
-        assert result is not None
-
-        # Assert that print_error was not called
-        mock_print_error.assert_not_called()
-
-    async def test_scrape_text_plain(self):
-        # Create a Scraper instance
-        scraper = Scraper(print_error=MagicMock(), playwright_available=True)
-
-        # Mock the scrape_with_playwright method
-        plain_text = "This is plain text content."
-        scraper.scrape_with_playwright = AsyncMock(return_value=(plain_text, "text/plain"))
-
-        # Call the scrape method
-        result = await scraper.scrape("https://example.com")
-
-        # Assert that the result is the same as the input plain text
-        assert result == plain_text
-
-    async def test_scrape_text_html(self):
-        # Create a Scraper instance
-        scraper = Scraper(print_error=MagicMock(), playwright_available=True)
-
-        # Mock the scrape_with_playwright method
-        html_content = "<html><body><h1>Test</h1><p>This is HTML content.</p></body></html>"
-        scraper.scrape_with_playwright = AsyncMock(return_value=(html_content, "text/html"))
-
-        # Mock the html_to_markdown method
-        expected_markdown = "# Test\n\nThis is HTML content."
-        scraper.html_to_markdown = MagicMock(return_value=expected_markdown)
-
-        # Call the scrape method
-        result = await scraper.scrape("https://example.com")
-
-        # Assert that the result is the expected markdown
-        assert result == expected_markdown
-
-        # Assert that html_to_markdown was called with the HTML content
-        scraper.html_to_markdown.assert_called_once_with(html_content)
+        scraper.print_error.assert_not_called()

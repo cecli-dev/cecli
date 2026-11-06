@@ -378,8 +378,8 @@ Below is a sample `.env` file, which you can also [download from GitHub](https:/
 #################
 # Other settings:
 
-## Never prompt for or attempt to install Playwright for web scraping (default: False).
-#CECLI_DISABLE_PLAYWRIGHT=false
+## Specify browser-harness configuration as a JSON/YAML string or file path
+#CECLI_BROWSER=
 
 ## specify a file to edit (can be used multiple times)
 #CECLI_FILE=

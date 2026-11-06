@@ -102,6 +102,7 @@ def test_all_yaml_to_json_args_deep_merge_with_config_file():
     keys preserved, no underscore-key variants)."""
     assert set(YAML_TO_JSON_ARG_KEYS) == {
         "agent_config",
+        "browser",
         "tui_config",
         "mcp_servers",
         "custom",

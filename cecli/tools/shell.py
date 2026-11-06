@@ -16,6 +16,7 @@ except ImportError:
 import xxhash
 
 from cecli.helpers.background_commands import BackgroundCommandManager
+from cecli.helpers.browser import configure_browser_environment
 from cecli.run_cmd import run_cmd, run_cmd_subprocess
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError, is_creator_coder
@@ -237,7 +238,10 @@ class Tool(BaseTool):
             response.append_result("Command execution skipped by user.")
             return response
 
+        browser_command = command
         command = coder.format_command_with_prefix(command)
+        browser_config = getattr(getattr(coder, "args", None), "browser", None)
+        configure_browser_environment(browser_config, command=browser_command)
 
         # Determine timeout from agent_config (default: 30 seconds) as fallback
         config_timeout = 0
