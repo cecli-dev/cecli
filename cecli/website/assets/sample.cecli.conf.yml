@@ -92,7 +92,7 @@
 ## Timeout in seconds for API calls (default: None)
 #timeout: xxx
 
-## Specify what edit format the LLM should use (default depends on model)
+## Specify what edit format the LLM should use (default: agent)
 #edit-format: xxx
 
 ## Use architect edit format for the main chat
@@ -368,10 +368,14 @@
 #voice-input-device: xxx
 
 #################
-# Other settings:
+################
+# Browser Settings:
 
-## Never prompt for or attempt to install Playwright for web scraping (default: False).
-#disable-playwright: false
+## Specify browser-harness configuration as a JSON/YAML string or file path
+#browser: xxx
+
+#################
+# Other settings:
 
 ## specify a file to edit (can be used multiple times)
 #file: xxx

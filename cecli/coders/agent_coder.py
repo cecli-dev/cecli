@@ -19,6 +19,7 @@ from cecli.helpers import nested, responses
 from cecli.helpers.agents.service import AgentService
 from cecli.helpers.agents.tree import AgentTree
 from cecli.helpers.background_commands import BackgroundCommandManager
+from cecli.helpers.browser import export_active_cdp_url
 from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.helpers.similarity import (
     cosine_similarity,
@@ -130,6 +131,8 @@ class AgentCoder(Coder):
 
     def post_init(self):
         super().post_init()
+
+        export_active_cdp_url(getattr(self.args, "browser", None), include_default_ports=True)
 
         if not self._inherited_tools:
             # Populate per-instance tool and server filters from config
@@ -265,6 +268,7 @@ class AgentCoder(Coder):
                     # "context_summary",
                     # "directory_structure",
                     "environment_info",
+                    "browser_automation",
                     # "git_status",
                     # "symbol_outline",
                     "todo_list",
@@ -496,6 +500,7 @@ class AgentCoder(Coder):
             self.context_blocks_cache = {}
             block_types = [
                 "environment_info",
+                "browser_automation",
                 "directory_structure",
                 "git_status",
                 "symbol_outline",
@@ -538,6 +543,8 @@ class AgentCoder(Coder):
             content = self.get_todo_list()
         elif block_name == "skills":
             content = self.get_skills_context()
+        elif block_name == "browser_automation":
+            content = self.get_browser_automation_context()
         elif block_name == "servers":
             content = self.get_servers_context()
         elif block_name == "orchestration":
@@ -1710,6 +1717,32 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         except Exception as e:
             self.io.tool_error(f"Error generating skills content context: {str(e)}")
             return None
+
+    def get_browser_automation_context(self):
+        """
+        Generate a brief browser-harness usage context block.
+
+        Returns None when browser-harness is not installed.
+        """
+        from cecli.helpers.browser import is_browser_harness_available
+
+        if not self.use_enhanced_context or not is_browser_harness_available():
+            return None
+
+        result = '<context name="browser_automation" from="agent">\n'
+        result += "## Browser Automation\n\n"
+        result += (
+            "`browser-harness` drives a real Chrome/Chromium browser. Run it with a heredoc;"
+            " cecli sets `BU_CDP_URL` automatically so it attaches to a CDP browser:\n\n"
+            "```bash\n"
+            "browser-harness <<'PY'\n"
+            "print(page_info())\n"
+            "PY\n"
+            "```"
+        )
+        result += "\n</context>"
+
+        return result
 
     def get_servers_context(self):
         """

@@ -797,7 +797,8 @@ class ConversationChunks:
         """
         Add static context blocks to conversation (priority 50).
 
-        Static blocks include: environment_info, directory_structure, skills, servers, sub_agents
+        Static blocks include: environment_info, browser_automation, directory_structure,
+        skills, servers, sub_agents
         """
         coder = self.get_coder()
         if not coder:
@@ -817,6 +818,10 @@ class ConversationChunks:
                 block = coder.get_cached_context_block("environment_info")
                 if block:
                     message_blocks["environment_info"] = block
+            if "browser_automation" in coder.allowed_context_blocks:
+                block = coder.get_cached_context_block("browser_automation")
+                if block:
+                    message_blocks["browser_automation"] = block
             if "directory_structure" in coder.allowed_context_blocks:
                 block = coder.get_cached_context_block("directory_structure")
                 if block:

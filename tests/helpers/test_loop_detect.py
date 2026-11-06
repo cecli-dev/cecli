@@ -6,7 +6,8 @@ character, a single word, or a whole sentence). These tests cover:
 
 * what the detector can and cannot catch from LLM / small-language-model output,
 * the bounded-LRU behaviour of the sentence cache,
-* the ``show_send_output_stream`` integration that stops streaming early,
+* the ``show_send_output_stream`` integration that stops streaming early in agent
+  modes (single-shot modes skip loop tracking entirely),
 * the ``send``-level handling that marks the turn as ``[SYSTEM INTERJECTION: AVOID REPETITION]``
   and drops any pending tool calls so they are never executed,
 * the adaptive per-level allowances that relax when a stream loops and bleed back
@@ -227,7 +228,7 @@ class _FakeTokenProfiler:
         return a[0] if a else ""
 
 
-def _make_coder():
+def _make_coder(edit_format="agent"):
     coder = Coder.__new__(Coder)
     coder.stream = True
     coder.args = SimpleNamespace(debug=False, show_thinking=False)
@@ -251,7 +252,7 @@ def _make_coder():
     coder._output_loop_message = ""
     coder.repetition_penalties = LoopThresholdTracker()
     coder._has_empty_reflected = False
-    coder.edit_format = "code"
+    coder.edit_format = edit_format
     coder.max_compaction_retries = 3
     coder.enable_context_compaction = False
     coder.model_kwargs = {}
@@ -326,6 +327,24 @@ async def test_show_stream_detects_tool_args_loop_and_stops():
 
     assert coder._output_loop_detected is True
     assert "Char loop" in coder._output_loop_message
+
+
+@pytest.mark.parametrize("edit_format", ["code", "ask", "architect"])
+async def test_show_stream_skips_loop_detection_outside_agent_modes(edit_format):
+    coder = _make_coder(edit_format=edit_format)
+    chunks = [
+        _content_chunk("a" * 50),
+        _content_chunk("a" * 51),
+        _tool_chunk([_tc(0, "call_1", "Local--ls", "a" * 101)]),
+    ]
+    coder.consolidate_chunks = lambda: (None, None, None)
+
+    async for _ in coder.show_send_output_stream(_agen(chunks)):
+        pass
+
+    assert coder._output_loop_detected is False
+    assert coder._output_loop_message == ""
+    assert coder.repetition_penalties.factors == {"char": 1.0, "word": 1.0, "sentence": 1.0}
 
 
 async def test_show_stream_does_not_flag_normal_stream():

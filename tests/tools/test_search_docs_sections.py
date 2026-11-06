@@ -44,14 +44,14 @@ async def test_section_read_returns_only_that_subtree():
 
     assert entry["_"]["section"] == CONF_SECTION
     assert entry["_"]["level"] == 2
-    assert entry["_"]["range"] == [28, 183]
-    assert entry["_"]["lines"] == 646
+    assert entry["_"]["range"] == [28, 184]
+    assert entry["_"]["lines"] == 650
 
     assert content.startswith(f'<doc_file path="{CONF_PATH}"')
     assert f'section="{CONF_SECTION}"' in content
     assert 'level="2"' in content
-    assert 'lines="28-183"' in content
-    assert 'of_lines="646"' in content
+    assert 'lines="28-184"' in content
+    assert 'of_lines="650"' in content
 
     assert "## Merge Precedence" in content
     assert "### Deduplication" in content

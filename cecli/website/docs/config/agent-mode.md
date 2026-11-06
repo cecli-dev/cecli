@@ -300,6 +300,7 @@ The following context blocks are available and can be customized using `include_
 **Included by default:**
 
 - **`environment_info`**: Working directory, platform, date, language, and repository details
+- **`browser_automation`**: browser-harness usage guidance, included when browser-harness is installed
 - **`todo_list`**: Current tasks managed through `UpdateTodoList`
 - **`skills`**: Available skills and their configuration
 - **`servers`**: Connected, filtered, and disconnected MCP servers
@@ -378,6 +379,7 @@ agent-config:
 ```
 
 This configuration system allows for fine-grained control over which tools are available in Agent Mode, enabling security-conscious deployments and specialized workflows while maintaining essential functionality.
+
 
 ### Skills
 

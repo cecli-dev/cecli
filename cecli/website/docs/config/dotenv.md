@@ -108,7 +108,7 @@ Below is a sample `.env` file, which you can also [download from GitHub](https:/
 ## Timeout in seconds for API calls (default: None)
 #CECLI_TIMEOUT=
 
-## Specify what edit format the LLM should use (default depends on model)
+## Specify what edit format the LLM should use (default: agent)
 #CECLI_EDIT_FORMAT=
 
 ## Use architect edit format for the main chat
@@ -378,8 +378,8 @@ Below is a sample `.env` file, which you can also [download from GitHub](https:/
 #################
 # Other settings:
 
-## Never prompt for or attempt to install Playwright for web scraping (default: False).
-#CECLI_DISABLE_PLAYWRIGHT=false
+## Specify browser-harness configuration as a JSON/YAML string or file path
+#CECLI_BROWSER=
 
 ## specify a file to edit (can be used multiple times)
 #CECLI_FILE=

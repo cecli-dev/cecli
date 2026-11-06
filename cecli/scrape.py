@@ -6,93 +6,25 @@ import sys
 
 import pypandoc
 
-from cecli import __version__, urls, utils
+from cecli import __version__, urls
 from cecli.dump import dump  # noqa: F401
+from cecli.helpers.browser import is_browser_harness_available
 
 coder_user_agent = f"cecli/{__version__} +{urls.website}"
-
-# Playwright is nice because it has a simple way to install dependencies on most
-# platforms.
-
-
-def check_playwright():
-    try:
-        from playwright.async_api import async_playwright  # noqa: F401
-        from playwright.sync_api import sync_playwright  # noqa: F401
-
-        has_playwright = True
-    except ImportError:
-        has_playwright = False
-
-    return has_playwright
-
-
-async def check_chromium():
-    has_chromium = False
-
-    if check_playwright():
-        from playwright.async_api import async_playwright
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                await browser.close()
-                has_chromium = True
-        except Exception as e:
-            has_chromium = False
-            print(f"chromium errors {e}")
-
-    return has_chromium
-
-
-async def install_playwright(io):
-    has_playwright = check_playwright()
-    has_chromium = await check_chromium()
-
-    if has_playwright and has_chromium:
-        return True
-
-    pip_cmd = utils.get_pip_install(["cecli-dev[playwright]"])
-    chromium_cmd = "-m playwright install --with-deps chromium"
-    chromium_cmd = [sys.executable] + chromium_cmd.split()
-
-    cmds = ""
-    if not has_playwright:
-        cmds += " ".join(pip_cmd) + "\n"
-    if not has_chromium:
-        cmds += " ".join(chromium_cmd) + "\n"
-
-    text = f"""For the best web scraping, install Playwright:
-
-{cmds}
-See {urls.enable_playwright} for more info.
-"""
-
-    io.tool_output(text)
-    if not await io.confirm_ask("Install playwright?", default="y"):
-        return
-
-    if not has_playwright:
-        success, output = utils.run_install(pip_cmd)
-        if not success:
-            io.tool_error(output)
-            return
-
-    success, output = utils.run_install(chromium_cmd)
-    if not success:
-        io.tool_error(output)
-        return
-
-    return True
 
 
 class Scraper:
     pandoc_available = None
-    playwright_available = None
-    playwright_instructions_shown = False
+    _browser_harness_tab_ready = False
 
     # Public API...
-    def __init__(self, print_error=None, playwright_available=None, verify_ssl=True):
+    def __init__(
+        self,
+        print_error=None,
+        verify_ssl=True,
+        browser_harness_available=None,
+        browser_config=None,
+    ):
         """
         `print_error` - a function to call to print error/debug info.
         `verify_ssl` - if False, disable SSL certificate verification when scraping.
@@ -102,8 +34,12 @@ class Scraper:
         else:
             self.print_error = print
 
-        self.playwright_available = playwright_available
         self.verify_ssl = verify_ssl
+        if browser_harness_available is None:
+            browser_harness_available = is_browser_harness_available()
+
+        self.browser_harness_available = browser_harness_available
+        self.browser_config = browser_config or {}
 
     async def scrape(self, url):
         """
@@ -113,9 +49,13 @@ class Scraper:
         `url` - the URL to scrape.
         """
 
-        if self.playwright_available:
-            content, mime_type = await self.scrape_with_playwright(url)
-        else:
+        content = None
+        mime_type = None
+
+        if self.browser_harness_available:
+            content, mime_type = await self.scrape_with_browser_harness(url)
+
+        if not content:
             content, mime_type = self.scrape_with_httpx(url)
 
         if not content:
@@ -152,54 +92,105 @@ class Scraper:
         return False
 
     # Internals...
-    async def scrape_with_playwright(self, url):
-        import playwright  # noqa: F401
-        from playwright.async_api import Error as PlaywrightError
-        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-        from playwright.async_api import async_playwright
+    async def scrape_with_browser_harness(self, url):
+        """Render a page through browser-harness and return its outer HTML."""
+        import json
+        import os
+        import tempfile
 
-        async with async_playwright() as p:
-            try:
-                browser = await p.chromium.launch()
-            except Exception as e:
-                self.playwright_available = False
-                self.print_error(str(e))
+        from cecli.helpers.browser import (
+            browser_harness_env,
+            get_browser_config,
+            is_browser_harness_available,
+        )
+
+        if not is_browser_harness_available():
+            return None, None
+
+        config = get_browser_config(self.browser_config)
+        output_fd, output_path = tempfile.mkstemp(prefix="cecli-browser-", suffix=".json")
+        os.close(output_fd)
+
+        url_literal = json.dumps(url)
+        output_literal = json.dumps(output_path)
+        reuse_tab = Scraper._browser_harness_tab_ready
+
+        script = f"""
+import json
+import pathlib
+
+url = {url_literal}
+reuse_tab = {reuse_tab!r}
+
+try:
+    if reuse_tab:
+        ensure_real_tab()
+        goto_url(url)
+    else:
+        new_tab(url)
+except Exception:
+    new_tab(url)
+
+wait_for_load()
+
+data = {{
+    "contentType": js("document.contentType"),
+    "html": js("document.documentElement.outerHTML"),
+}}
+pathlib.Path({output_literal}).write_text(json.dumps(data), encoding="utf-8")
+"""
+
+        process = None
+        try:
+            env = await asyncio.to_thread(browser_harness_env, self.browser_config, True)
+            process = await asyncio.create_subprocess_exec(
+                "browser-harness",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            _stdout, stderr = await asyncio.wait_for(
+                process.communicate(script.encode("utf-8")),
+                timeout=config["harness_timeout"],
+            )
+
+            if process.returncode != 0:
+                error_text = stderr.decode("utf-8", errors="replace").strip()
+                if error_text:
+                    self.print_error(f"browser-harness scrape failed: {error_text[-1000:]}")
+
                 return None, None
 
+            with open(output_path, encoding="utf-8") as output_file:
+                data = json.load(output_file)
+        except asyncio.TimeoutError:
+            if process is not None:
+                process.kill()
+                await process.wait()
+
+            self.print_error(f"browser-harness timed out scraping {url}")
+            return None, None
+        except (OSError, ValueError):
+            return None, None
+        finally:
             try:
-                context = await browser.new_context(ignore_https_errors=not self.verify_ssl)
-                page = await context.new_page()
+                os.unlink(output_path)
+            except OSError:
+                pass
 
-                user_agent = await page.evaluate("navigator.userAgent")
-                user_agent = user_agent.replace("Headless", "")
-                user_agent = user_agent.replace("headless", "")
-                user_agent += " " + coder_user_agent
+        content = data.get("html") or ""
+        mime_type = data.get("contentType") or None
 
-                await page.set_extra_http_headers({"User-Agent": user_agent})
+        if not content:
+            return None, None
 
-                response = None
-                try:
-                    response = await page.goto(url, wait_until="networkidle", timeout=5000)
-                except PlaywrightTimeoutError:
-                    self.print_error(f"Page didn't quiesce, scraping content anyway: {url}")
-                    response = None
-                except PlaywrightError as e:
-                    self.print_error(f"Error navigating to {url}: {str(e)}")
-                    return None, None
+        if mime_type and not (
+            mime_type.startswith("text/html") or mime_type.startswith("application/xhtml")
+        ):
+            return None, None
 
-                try:
-                    content = await page.content()
-                    mime_type = None
-                    if response:
-                        content_type = await response.header_value("content-type")
-                        if content_type:
-                            mime_type = content_type.split(";")[0]
-                except PlaywrightError as e:
-                    self.print_error(f"Error retrieving page content: {str(e)}")
-                    content = None
-                    mime_type = None
-            finally:
-                await browser.close()
+        Scraper._browser_harness_tab_ready = True
 
         return content, mime_type
 
@@ -282,7 +273,11 @@ def slimdown_html(soup):
 
 
 async def main(url):
-    scraper = Scraper(playwright_available=check_playwright())
+    from cecli.helpers.browser import is_browser_harness_available
+
+    scraper = Scraper(
+        browser_harness_available=is_browser_harness_available(),
+    )
     content = await scraper.scrape(url)
     print(content)
 

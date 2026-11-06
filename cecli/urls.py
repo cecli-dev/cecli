@@ -1,7 +1,6 @@
 website = "https://cecli.dev/"
 edit_errors = "https://cecli.dev/docs/troubleshooting/edit-errors/"
 git = "https://cecli.dev/docs/git/"
-enable_playwright = "https://cecli.dev/docs/usage/optional/#enable-playwright"
 favicon = "https://cecli.dev/assets/cecli-temp-logo-favicon.svg"
 model_warnings = "https://cecli.dev/docs/llms/warnings/"
 token_limits = "https://cecli.dev/docs/troubleshooting/token-limits/"

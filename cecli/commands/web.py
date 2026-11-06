@@ -2,8 +2,9 @@ from typing import List
 
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.commands.utils.helpers import format_command_result
+from cecli.helpers.browser import is_browser_harness_available
 from cecli.helpers.conversation import ConversationService, MessageTag
-from cecli.scrape import Scraper, install_playwright
+from cecli.scrape import Scraper
 
 
 class WebCommand(BaseCommand):
@@ -25,27 +26,12 @@ class WebCommand(BaseCommand):
         scraper = kwargs.get("scraper")
 
         if not scraper:
-            # Get disable_playwright from coder args
-            disable_playwright = (
-                getattr(coder.args, "disable_playwright", False) if coder and coder.args else False
-            )
-            if disable_playwright:
-                res = False
-            else:
-                try:
-                    res = await install_playwright(io)
-                    if not res:
-                        io.tool_warning("Unable to initialize playwright.")
-                except Exception:
-                    io.tool_warning("Unable to initialize playwright.")
-                    res = False
-
-            # Get verify_ssl from kwargs or use default
             verify_ssl = kwargs.get("verify_ssl", True)
 
             scraper = Scraper(
                 print_error=io.tool_error,
-                playwright_available=res,
+                browser_harness_available=is_browser_harness_available(),
+                browser_config=getattr(getattr(coder, "args", None), "browser", None),
                 verify_ssl=verify_ssl,
             )
 
@@ -88,6 +74,7 @@ class WebCommand(BaseCommand):
         help_text += (
             "\nThis command scrapes a webpage, converts it to markdown, and adds it to the chat.\n"
         )
-        help_text += "It uses Playwright for JavaScript-rendered pages when available.\n"
-        help_text += "Use --disable-playwright to disable Playwright and use simpler scraping.\n"
+        help_text += (
+            "It uses browser-harness for JavaScript-rendered pages and falls back to plain HTTP.\n"
+        )
         return help_text

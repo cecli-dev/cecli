@@ -3,7 +3,6 @@
 include requirements/requirements.in
 include requirements/requirements-dev.in
 include requirements/requirements-help.in
-include requirements/requirements-playwright.in
 
 global-exclude .DS_Store
 

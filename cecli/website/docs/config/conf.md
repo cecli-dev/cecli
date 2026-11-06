@@ -105,6 +105,7 @@ The following fields are stored as JSON/YAML strings but are **internally deep-m
 - `retries` - Retry configuration
 - `custom` - Custom configurations
 - `tui-config` - TUI configuration
+- `browser` - Browser automation settings
 
 ### Examples
 
@@ -280,7 +281,7 @@ Below is a sample of the YAML config file, which you can also [download from Git
 ## Timeout in seconds for API calls (default: None)
 #timeout: xxx
 
-## Specify what edit format the LLM should use (default depends on model)
+## Specify what edit format the LLM should use (default: agent)
 #edit-format: xxx
 
 ## Use architect edit format for the main chat
@@ -567,11 +568,14 @@ Below is a sample of the YAML config file, which you can also [download from Git
 ## Specify the input device name for voice recording
 #voice-input-device: xxx
 
+################
+# Browser Settings:
+
+## Specify browser-harness configuration as a JSON/YAML string or file path
+#browser: xxx
+
 #################
 # Other settings:
-
-## Never prompt for or attempt to install Playwright for web scraping (default: False).
-#disable-playwright: false
 
 ## specify a file to edit (can be used multiple times)
 #file: xxx

@@ -162,6 +162,7 @@ def convert_yaml_to_json_string(value, config_file_value=None):
 # the same option, so CLI keys win per-key while file-only keys are preserved.
 YAML_TO_JSON_ARG_KEYS = {
     "agent_config": "agent-config",
+    "browser": "browser",
     "tui_config": "tui-config",
     "mcp_servers": "mcp-servers",
     "custom": "custom",
@@ -1403,7 +1404,7 @@ async def main_async(
             main_model=main_model,
             # Agent mode is the startup default; an explicit flag/config/env value
             # still wins, and reloads keep the session's current mode.
-            edit_format=args.edit_format or "agent",
+            edit_format=args.edit_format or (from_coder.edit_format if from_coder else "agent"),
             io=io,
             args=args,
             repo=repo,

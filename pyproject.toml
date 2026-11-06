@@ -33,7 +33,6 @@ dependencies = { file = "requirements/requirements.in" }
 [tool.setuptools.dynamic.optional-dependencies]
 dev = { file = "requirements/requirements-dev.in" }
 help = { file = "requirements/requirements-help.in" }
-playwright = { file = "requirements/requirements-playwright.in" }
 
 [tool.setuptools]
 include-package-data = true
@@ -43,7 +42,7 @@ include = ["cecli*"]
 
 [tool.uv]
 exclude-newer = "2 days"
-exclude-newer-package = { "py-cymbal" = "0 days" }
+exclude-newer-package = { "py-cymbal" = "0 days", "cecli-browser-harness" = "0 days" }
 
 [build-system]
 requires = ["setuptools>=68", "setuptools_scm[toml]>=8"]

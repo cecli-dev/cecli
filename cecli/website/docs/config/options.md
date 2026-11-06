@@ -66,11 +66,11 @@ usage: cecli [-h] [--model] [--openai-api-key] [--anthropic-api-key]
              [--show-release-notes | --no-show-release-notes]
              [--install-main-branch] [--upgrade] [--version]
              [--message] [--message-file]
-             [--gui | --no-gui | --browser | --no-browser]
+             [--browser BROWSER_CONFIG_JSON]
              [--copy-paste | --no-copy-paste] [--apply]
              [--apply-clipboard-edits] [--exit] [--show-repo-map]
              [--show-prompts] [--voice-format] [--voice-language]
-             [--voice-input-device] [--disable-playwright] [--file]
+             [--voice-input-device] [--file]
              [--read] [--vim] [--chat-language] [--commit-language]
              [--yes-always] [-v] [--load] [--encoding]
              [--line-endings] [-c] [--env-file]
@@ -158,7 +158,7 @@ Verify the SSL cert when connecting to models (default: True) Default: True Envi
 Timeout in seconds for API calls (default: None) Environment variable: `CECLI_TIMEOUT`
 
 ### `--edit-format EDIT_FORMAT`
-Specify what edit format the LLM should use (default depends on model) Environment variable: `CECLI_EDIT_FORMAT` Aliases:
+Specify what edit format the LLM should use (default: agent) Environment variable: `CECLI_EDIT_FORMAT` Aliases:
   - `--edit-format EDIT_FORMAT`
   - `--chat-mode EDIT_FORMAT`
 
@@ -482,8 +482,8 @@ Specify the input device name for voice recording Environment variable: `CECLI_V
 
 ## Other settings:
 
-### `--disable-playwright`
-Never prompt for or attempt to install Playwright for web scraping (default: False). Default: False Environment variable: `CECLI_DISABLE_PLAYWRIGHT`
+### `--browser BROWSER_CONFIG_JSON`
+Specify browser-harness configuration as a JSON/YAML string or file path Environment variable: `CECLI_BROWSER`
 
 ### `--file FILE`
 specify a file to edit (can be used multiple times) Environment variable: `CECLI_FILE`

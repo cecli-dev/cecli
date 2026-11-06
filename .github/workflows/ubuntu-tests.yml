@@ -54,8 +54,7 @@ jobs:
           pytest-mock \
           -r requirements/requirements.in \
           -r requirements/requirements-help.in \
-          -r requirements/requirements-playwright.in \
-          ".[help,playwright]"
+          ".[help]"
       env:
         PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
 

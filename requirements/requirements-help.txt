@@ -368,7 +368,7 @@ websocket-client==1.9.0
     # via
     #   -c requirements/common-constraints.txt
     #   kubernetes
-websockets==16.1.1
+websockets==17.4
     # via
     #   -c requirements/common-constraints.txt
     #   uvicorn

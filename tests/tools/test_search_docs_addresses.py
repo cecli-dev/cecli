@@ -141,7 +141,7 @@ async def test_toc_slugs_round_trip():
     assert entry["_"]["sections"] == 13
     assert entry["_"]["keys"] == 129
     assert '<doc_toc path="config/conf.md"' in entry["content"]
-    assert "merge-precedence YAML Config File > Merge Precedence (L28-183)" in entry["content"]
+    assert "merge-precedence YAML Config File > Merge Precedence (L28-184)" in entry["content"]
 
     follow_up = _result(
         await search_docs.Tool.execute(_coder(), path="config/conf.md#merge-precedence")
@@ -149,7 +149,7 @@ async def test_toc_slugs_round_trip():
     section = follow_up["result"][0]
 
     assert section["_"]["section"] == "YAML Config File > Merge Precedence"
-    assert section["_"]["range"] == [28, 183]
+    assert section["_"]["range"] == [28, 184]
 
 
 @pytest.mark.asyncio
@@ -160,11 +160,11 @@ async def test_config_key_anchor_reads_the_key_pair():
     assert entry["_"]["type"] == "doc_file"
     assert entry["_"]["key"] == "dark-mode"
     assert entry["_"]["value"] == "false"
-    assert entry["_"]["range"] == [361, 362]
+    assert entry["_"]["range"] == [362, 363]
 
     content = entry["content"]
     assert 'key="dark-mode"' in content
-    assert 'lines="361-362"' in content
+    assert 'lines="362-363"' in content
     assert "## Use colors suitable for a dark terminal background" in content
     assert "#dark-mode: false" in content
 

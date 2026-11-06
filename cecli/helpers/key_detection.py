@@ -1,8 +1,6 @@
-import math
 import os
 import re
 import threading
-from collections import Counter
 from typing import Any, Iterable, List, Mapping, Optional, Set
 
 # A run of key-safe characters (letters, digits and -_. only, so never any
@@ -39,11 +37,13 @@ SECRET_NAME_WORDS = {
     "apikeys",
     "credential",
     "credentials",
+    "jwt",
     "key",
     "keys",
     "passwd",
     "password",
     "passwords",
+    "private",
     "secret",
     "secrets",
     "token",
@@ -61,27 +61,45 @@ _SEPARATED_SECRET_SUFFIXES = tuple(
     separator + suffix for separator in _SUFFIX_SEPARATORS for suffix in SECRET_NAME_SUFFIXES
 )
 
-# A name that contains a credential word that is not a suffix ("KEY_DESCRIPTION_V2")
-# is not trusted on its own: the value must also look key-like, measured as
-# Shannon entropy in bits per character. Passwords are allowed a lower bar
-# because they are often human-chosen rather than random.
-DEFAULT_CREDENTIAL_ENTROPY = 3.2
+# Prefixes used by well-known providers. A value starting with one of these is
+# key-shaped without needing any other check.
+KNOWN_KEY_PREFIXES = (
+    "sk-ant-",
+    "sk-proj-",
+    "sk-",
+    "AIzaSy",
+    "AKIA",
+    "ASIA",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghr_",
+    "github_pat_",
+    "glpat-",
+    "xoxa-",
+    "xoxb-",
+    "xoxp-",
+    "xoxr-",
+    "xoxs-",
+    "gsk_",
+    "hf_",
+    "r8_",
+    "sk_live_",
+    "rk_live_",
+    "SG.",
+    "eyJ",
+)
 
-CREDENTIAL_ENTROPY_THRESHOLDS = {
-    "apikey": 3.2,
-    "apikeys": 3.2,
-    "credential": 3.0,
-    "credentials": 3.0,
-    "key": 3.2,
-    "keys": 3.2,
-    "passwd": 2.5,
-    "password": 2.5,
-    "passwords": 2.5,
-    "secret": 3.0,
-    "secrets": 3.0,
-    "token": 3.2,
-    "tokens": 3.2,
-}
+# A short run of same-case letters followed by a separator (``ghp_``, ``sk-``,
+# ``LLM_``) marks a key-shaped value even when the rest is unknown.
+_KEY_SHAPE_PREFIX_RE = re.compile(r"^(?:[A-Z]{2,5}|[a-z]{2,5})[-_]")
+
+# Two or more letter/digit transitions, e.g. ``a2bc3`` or ``1de456f``. Prose
+# and identifiers rarely alternate runs this way.
+_ALTERNATING_RUN_RE = re.compile(r"[A-Za-z]+\d+[A-Za-z]+|\d+[A-Za-z]+\d+")
+
+# Values starting with these are paths, identifiers rather than secrets.
+_PATH_START_PREFIXES = ("/", "\\", "./", ".\\", "../", "..\\", "~/", "~\\", "~")
 
 # Name words that mark a value as an identifier (paths, models, session ids,
 # hostnames). These are never scanned for key-like tokens: config/env entries
@@ -163,8 +181,8 @@ def detect_api_keys(
         punctuation that a key-like token regex cannot span.
       - containing a credential word, as a word or inside a longer token (e.g.
         "KEY_DESCRIPTION_V2" or "sortKey"): the whole value is taken only when
-        it also looks key-like (length, letter/digit mix and entropy above the
-        threshold for that word).
+        it also looks key-like (length, mixed case, alternating letter/digit
+        runs or a known provider prefix).
       - identifier-named (see BENIGN_NAME_WORDS) or path-shaped: not
         registered in full, because these legitimately hold long non-secret
         strings; any key-like tokens embedded in the value are still registered.
@@ -301,7 +319,7 @@ def _scan_entry(name: Any, value: Any, found: Set[str], expand: bool, forced: bo
         return
 
     if _contains_secret_word(name) or _is_ambiguous_secret_name(name):
-        if _looks_like_key_value(text, name):
+        if _looks_like_key_value(text):
             _register_secret_value(text, found)
             return
 
@@ -380,38 +398,51 @@ def _contains_secret_word(name: Any) -> bool:
     return bool(_name_words(name) & SECRET_NAME_WORDS)
 
 
-def _looks_like_key_value(value: str, name: Any) -> bool:
+def _looks_like_key_value(value: str) -> bool:
     """True if a value under a containing credential name looks like a key.
 
-    Best-effort: requires ``MIN_KEY_LENGTH`` characters, letters and digits and
-    no whitespace, so short or all-alpha passphrases under ambiguous names are
-    intentionally not detected.
+    Path-starting and whitespace-containing values are rejected. Otherwise the
+    value must match at least one key tell: a known provider prefix, a short
+    same-case prefix followed by ``-``/``_``, mixed upper/lowercase without path
+    separators, or an alternating letter/digit run.
     """
     stripped = value.strip()
 
-    if len(stripped) < MIN_KEY_LENGTH or _looks_like_path(stripped):
+    if len(stripped) < MIN_KEY_LENGTH or _starts_with_path(stripped):
         return False
 
     if any(char.isspace() for char in stripped):
         return False
 
-    has_alpha = any(char.isalpha() for char in stripped)
-    has_digit = any(char.isdigit() for char in stripped)
+    if stripped.startswith(KNOWN_KEY_PREFIXES):
+        return True
 
-    if not has_alpha or not has_digit:
+    if _KEY_SHAPE_PREFIX_RE.match(stripped):
+        return True
+
+    if "/" in stripped or "\\" in stripped:
         return False
 
-    return _shannon_entropy(stripped) >= _entropy_threshold(name)
+    if _has_mixed_case(stripped):
+        return True
+
+    return bool(_ALTERNATING_RUN_RE.search(stripped))
 
 
-def _entropy_threshold(name: Any) -> float:
-    """Return the entropy bar for the credential words in ``name``."""
-    words = _name_words(name) & set(CREDENTIAL_ENTROPY_THRESHOLDS)
+def _has_mixed_case(value: str) -> bool:
+    """True if ``value`` contains both uppercase and lowercase letters."""
+    has_upper = any(char.isupper() for char in value)
+    has_lower = any(char.islower() for char in value)
 
-    if not words:
-        return DEFAULT_CREDENTIAL_ENTROPY
+    return has_upper and has_lower
 
-    return min(CREDENTIAL_ENTROPY_THRESHOLDS[word] for word in words)
+
+def _starts_with_path(value: str) -> bool:
+    """True if ``value`` begins like an absolute, relative or home path."""
+    if _WINDOWS_PATH_RE.match(value):
+        return True
+
+    return value.startswith(_PATH_START_PREFIXES)
 
 
 def _looks_like_path(value: str) -> bool:
@@ -474,14 +505,6 @@ def _register_embedded_keys(value: str, found: Set[str]) -> None:
             continue
 
         found.update(_KEY_LIKE_RE.findall(chunk))
-
-
-def _shannon_entropy(value: str) -> float:
-    """Return the Shannon entropy of ``value`` in bits per character."""
-    counts = Counter(value)
-    length = len(value)
-
-    return -sum((count / length) * math.log2(count / length) for count in counts.values())
 
 
 def _redact_mapping(mapping: Mapping) -> Mapping:

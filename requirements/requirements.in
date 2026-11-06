@@ -32,6 +32,11 @@ xxhash>=3.6.0
 beautifulsoup4>=4.13.4
 pypandoc>=1.15
 
+# browser automation and JavaScript-rendered scraping
+# Fork widens browser-harness's websockets pin so cecli can stay on websockets>=16.
+# Published to PyPI as cecli-browser-harness; PyPI rejects direct git URL dependencies.
+cecli-browser-harness>=0.1.13.post1 ; python_version >= "3.11"
+
 # storage/caching
 chromadb>=1.5.9
 # chromadb's default ONNX embedder needs these directly; keep them in the base

@@ -4165,6 +4165,7 @@ class Coder(metaclass=UsageMeta):
     async def show_send_output_stream(self, completion):
         received_content = False
         chunk_index = 0
+        track_loops = self.edit_format in ("agent", "subagent")
         content_detector = LoopDetector(self.repetition_penalties)
         tool_detector = LoopDetector(self.repetition_penalties)
         loop_detected = False
@@ -4213,7 +4214,8 @@ class Coder(metaclass=UsageMeta):
                                             tool_call_chunk.function.arguments
                                         )
 
-                                        tool_detector.push(tool_call_chunk.function.arguments)
+                                        if track_loops:
+                                            tool_detector.push(tool_call_chunk.function.arguments)
 
                     except (AttributeError, IndexError):
                         # Handle cases where the response structure doesn't match expectations
@@ -4279,7 +4281,7 @@ class Coder(metaclass=UsageMeta):
                 chunk._hidden_params["created_at"] = chunk_index
                 self.partial_response_chunks.append(chunk)
 
-                if text:
+                if text and track_loops:
                     content_detector.push(text)
 
                 if self.show_pretty():
