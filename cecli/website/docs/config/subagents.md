@@ -41,11 +41,32 @@ and suggestions for improvement.
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Unique name used to reference the sub-agent in commands and the Delegate tool |
-| `model` | No | Model override for this sub-agent. If omitted, inherits the parent agent's model |
+| `model` | No | Model override for this sub-agent. Accepts a model name or one of the [model sentinels](#sub-agents-configuration-sub-agent-file-format-model-sentinels). If omitted, inherits the parent agent's model |
 | `hooks` | No | Per-agent hooks configuration (see [Hooks](hooks.html) for syntax) |
 | `agent-config` | No | Override `agent-config` property of cecli configuration with custom values for sub agent |
 | `auto_reap` | No | Controls whether this sub-agent is automatically reaped when the limit is reached. Defaults to `true` if omitted |
 | `keep_files` | No | When `true`, the sub-agent inherits the parent's editable and read-only files instead of starting with an empty file context. Defaults to `false` if omitted |
+
+#### Model Sentinels
+
+Instead of hard-coding a model name in the `model` field, you can use a sentinel that resolves to one of the parent coder's models at runtime. This keeps sub-agent definitions portable across configurations and lets them follow whatever models the session is already using.
+
+| Sentinel | Resolves to |
+|----------|-------------|
+| `<weak_model>` | The parent coder's weak model (falls back to the main model if no weak model is set) |
+| `<agent_model>` | The parent coder's agent model (falls back to the main model if no agent model is set) |
+| `<main_model>` | The parent coder's main model |
+| `<current>` | The currently active foreground agent's main model (falls back to the parent's main model) |
+
+```markdown
+---
+name: summarizer
+model: <weak_model>
+---
+You summarize long outputs into a few bullet points.
+```
+
+Because sentinels are resolved against the *parent* coder, a sub-agent defined once behaves correctly whether the session is running on a local model, a hosted model, or an agent-specific model. Any value that is not a recognised sentinel is treated as a literal model name.
 
 #### System Prompt
 
