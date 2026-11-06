@@ -406,6 +406,21 @@ class AgentService:
         # If it is already a plain reference (e.g., in tests), use it directly.
         return tui_ref
 
+    def _ensure_registry_loaded(self) -> None:
+        """Load sub-agent definitions when nothing has built the registry yet.
+
+        Only ``AgentCoder`` bootstraps the registry at construction, so
+        non-agent coders (e.g. ask mode) would otherwise report every
+        sub-agent as unknown to commands such as ``/creator``.
+        """
+        if self._global_registry:
+            return
+
+        self.build_registry(
+            list(getattr(self.coder, "sub_agent_paths", None) or []),
+            root=getattr(self.coder, "root", None),
+        )
+
     def _resolve_model_sentinel(self, value: str, parent_coder: Any):
         """Resolve a sentinel model marker to the appropriate Model instance.
 
@@ -713,6 +728,10 @@ class AgentService:
         )
 
         config = self._global_registry.get(name)
+        if not config:
+            self._ensure_registry_loaded()
+            config = self._global_registry.get(name)
+
         if not config:
             raise ValueError(
                 f"Unknown sub-agent '{name}'. " f"Available: {list(self._global_registry.keys())}"

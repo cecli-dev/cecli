@@ -571,6 +571,23 @@ class TestSpawn:
             await service.spawn("ghost")
 
     @pytest.mark.asyncio
+    async def test_spawn_builds_registry_when_empty(self, service):
+        """spawn loads built-in defaults for non-agent coders (issue #734)."""
+        assert AgentService.get_registry() == {}
+
+        mock_new_coder = MagicMock()
+        mock_new_coder.tui = None
+
+        with patch("cecli.coders.Coder") as MockCoder:
+            MockCoder.create = AsyncMock(return_value=mock_new_coder)
+            with patch("cecli.helpers.conversation.service.ConversationService") as MockConv:
+                MockConv.get_chunks.return_value = MagicMock()
+
+                await service.spawn("creator")
+
+        assert "creator" in AgentService.get_registry()
+
+    @pytest.mark.asyncio
     async def test_spawn_creates_without_generating(self, service, registry):
         """spawn creates sub-agent without calling generate."""
         mock_new_coder = MagicMock()
