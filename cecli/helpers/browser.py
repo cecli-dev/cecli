@@ -13,6 +13,7 @@ import platform
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -78,7 +79,7 @@ def parse_browser_config(value):
 
     try:
         path = Path(stripped).expanduser()
-    except (OSError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return {}
     if path.is_file():
         try:
@@ -114,7 +115,15 @@ def default_user_data_dir():
     if configured:
         return configured
 
-    return str(Path.home() / ".cecli" / "browser-profile")
+    try:
+        home = Path.home()
+    except RuntimeError:
+        # ``Path.home()`` raises when HOME/USERPROFILE are unset (for example in
+        # a stripped-down environment). Fall back to a temporary location so the
+        # browser helpers stay usable instead of aborting.
+        home = Path(tempfile.gettempdir())
+
+    return str(home / ".cecli" / "browser-profile")
 
 
 def cdp_available(cdp_url, timeout=1.0):

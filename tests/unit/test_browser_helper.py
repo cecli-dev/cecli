@@ -19,10 +19,12 @@ def test_is_browser_harness_command_rejects_unrelated_commands():
 def test_get_browser_config_uses_defaults():
     with patch.dict(os.environ, {}, clear=True):
         config = browser.get_browser_config()
+        # Resolve the expectation in the same (stripped) environment, since the
+        # default profile directory depends on env-provided home directories.
+        assert config["user_data_dir"] == browser.default_user_data_dir()
 
     assert config["cdp_url"] is None
     assert config["port"] == browser.DEFAULT_CDP_PORT
-    assert config["user_data_dir"] == browser.default_user_data_dir()
     assert config["launch"] is True
     assert config["headless"] is False
 
