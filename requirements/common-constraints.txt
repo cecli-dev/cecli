@@ -26,14 +26,14 @@ beautifulsoup4==4.14.2
     # via -r requirements/requirements.in
 blinker==1.9.0
     # via -r requirements/requirements.in
-browser-harness @ git+https://github.com/cecli-dev/browser-harness.git@f6186395dbe8b240105c75b4af039a8cac559d85
-    # via -r requirements/requirements.in
 build==1.3.0
     # via
     #   chromadb
     #   pip-tools
 cdp-use==1.4.5
-    # via browser-harness
+    # via cecli-browser-harness
+cecli-browser-harness==0.1.13.post1
+    # via -r requirements/requirements.in
 certifi==2025.11.12
     # via
     #   httpcore
@@ -85,7 +85,7 @@ distlib==0.4.0
 durationpy==0.10
     # via kubernetes
 fetch-use==0.4.0
-    # via browser-harness
+    # via cecli-browser-harness
 filelock==3.20.0
     # via
     #   huggingface-hub
@@ -273,7 +273,7 @@ pexpect==4.9.0
 pillow==12.3.0
     # via
     #   -r requirements/requirements.in
-    #   browser-harness
+    #   cecli-browser-harness
     #   matplotlib
 pip==25.3
     # via pip-tools
@@ -537,8 +537,8 @@ websocket-client==1.9.0
 websockets==17.4
     # via
     #   -r requirements/requirements.in
-    #   browser-harness
     #   cdp-use
+    #   cecli-browser-harness
     #   uvicorn
 wheel==0.45.1
     # via pip-tools

@@ -34,7 +34,8 @@ pypandoc>=1.15
 
 # browser automation and JavaScript-rendered scraping
 # Fork widens browser-harness's websockets pin so cecli can stay on websockets>=16.
-browser-harness @ git+https://github.com/cecli-dev/browser-harness.git@f6186395dbe8b240105c75b4af039a8cac559d85 ; python_version >= "3.11"
+# Published to PyPI as cecli-browser-harness; PyPI rejects direct git URL dependencies.
+cecli-browser-harness>=0.1.13.post1 ; python_version >= "3.11"
 
 # storage/caching
 chromadb>=1.5.9
