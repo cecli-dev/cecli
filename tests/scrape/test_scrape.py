@@ -43,8 +43,11 @@ class TestScrape:
         cmds._test_coder = coder
         return cmds
 
+    @patch("cecli.commands.web.is_browser_harness_available", return_value=True)
     @patch("cecli.commands.web.Scraper")
-    async def test_cmd_web_uses_browser_harness_scraper(self, mock_scraper_class, commands):
+    async def test_cmd_web_uses_browser_harness_scraper(
+        self, mock_scraper_class, _mock_harness_available, commands
+    ):
         mock_scraper_instance = mock_scraper_class.return_value
         mock_scraper_instance.scrape = AsyncMock(return_value="Scraped content")
         commands.io.tool_error = MagicMock()
