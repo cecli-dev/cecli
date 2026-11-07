@@ -1,7 +1,7 @@
 /* -------------------------------------------------------------- tool cards */
 
 .tool-card {
-  margin: 9px 0 14px;
+  margin: 9px 0 12px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -151,4 +151,69 @@
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Compact pill form used above assistant markdown. */
+.tool-card {
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  box-shadow: none;
+}
+
+.tool-head {
+  gap: 7px;
+  padding: 3px 8px 3px 5px;
+}
+
+.tool-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.tool-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tool-title {
+  font-size: 12px;
+}
+
+.tool-card:not(.is-open) .tool-locations {
+  display: none;
+}
+
+.tool-card:not(.is-open) .tool-title-wrap {
+  flex: none;
+  max-width: 240px;
+  gap: 0;
+}
+
+.tool-card .chip {
+  padding: 1px 6px;
+  font-size: 9px;
+}
+
+.tool-toggle {
+  width: 22px;
+  height: 22px;
+}
+
+.tool-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tool-card.is-open {
+  width: 100%;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(17, 20, 45, 0.04);
+}
+
+.tool-card.is-open .tool-head {
+  padding: 9px 11px;
 }

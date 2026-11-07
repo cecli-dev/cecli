@@ -3,14 +3,14 @@
 .permission-region {
   width: 100%;
   max-width: 820px;
-  margin: 0 auto;
-  padding: 0 24px 12px;
+  margin: 0;
+  padding: 0 20px 12px;
 }
 
 .permission-card {
   width: 100%;
   max-width: 760px;
-  margin: 0 auto;
+  margin: 0;
   padding: 16px 18px;
   border: 1px solid #f0dcb3;
   border-radius: 18px;

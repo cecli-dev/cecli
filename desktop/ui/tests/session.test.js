@@ -76,3 +76,39 @@ test('new_chat clears the transcript and session id', async () => {
     assert.equal(store.state.new_chat_pending, false);
   });
 });
+
+test('a workflow run uses the primary transcript', async () => {
+  await with_fast_timers(async () => {
+    const store = new Store(create_initial_state());
+    store.set_sessions([{ bridgeId: 'b1', title: 'one' }], 8);
+    store.update((state) => ({
+      ...state,
+      status: 'ready',
+      active_agent_session_id: 'child',
+    }));
+    const session = new Session(store);
+    globalThis.fetch = async () => response({ ok: true }, true, 200);
+
+    await session.registry_action('workflows', 'run', 'demo');
+
+    assert.equal(store.state.active_agent_session_id, null);
+    assert.equal(store.state.transcript.length, 1);
+    assert.equal(store.state.transcript[0].text, '/workflows run demo');
+    assert.equal(store.state.busy, true);
+  });
+});
+
+test('a rejected workflow leaves no phantom turn', async () => {
+  await with_fast_timers(async () => {
+    const store = new Store(create_initial_state());
+    store.set_sessions([{ bridgeId: 'b1', title: 'one' }], 8);
+    store.update((state) => ({ ...state, status: 'ready' }));
+    const session = new Session(store);
+    globalThis.fetch = async () => response({ ok: false, error: 'busy' }, false, 409);
+
+    await assert.rejects(session.registry_action('workflows', 'run', 'demo'));
+
+    assert.equal(store.state.transcript.length, 0);
+    assert.equal(store.state.busy, false);
+  });
+});

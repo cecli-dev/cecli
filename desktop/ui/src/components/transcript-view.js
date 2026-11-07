@@ -1,10 +1,11 @@
-import { LitElement, html } from 'lit';
+import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
 import { SCROLL_LOCK_PX } from '../core/constants.js';
 import { session } from '../core/session.js';
 import { StoreController, selectors, store } from '../core/store.js';
 import './assistant-turn.js';
+import './context-message.js';
 import './empty-state.js';
 import './user-message.js';
 
@@ -55,6 +56,7 @@ export class TranscriptView extends LitElement {
   }
   render() {
     const state = this._store.state;
+    const transcript = selectors.visible_transcript(state);
 
     return html`
       <div
@@ -66,22 +68,30 @@ export class TranscriptView extends LitElement {
         @scroll=${this._on_scroll}
         @transcript-layout=${this._maybe_autoscroll}
       >
+        ${selectors.visible_busy(state) && transcript.length === 0
+          ? html`<p class="history-note">
+              This turn is running in the background; earlier transcript history is not
+              replayed after a reload.
+            </p>`
+          : nothing}
         <empty-state
-          ?hidden=${selectors.has_transcript(state)}
+          ?hidden=${selectors.has_transcript(state) || selectors.visible_busy(state)}
           @example-select=${this._on_example}
         ></empty-state>
         ${repeat(
-          state.transcript,
+          transcript,
           (item) => item.id,
           (item) =>
             item.type === 'user'
               ? html`<user-message .text=${item.text}></user-message>`
-              : html`<assistant-turn .item=${item}></assistant-turn>`,
+              : item.type === 'context'
+                ? html`<context-message .item=${item}></context-message>`
+                : html`<assistant-turn
+                  .item=${item}
+                  .agentId=${state.active_agent_session_id}
+                ></assistant-turn>`,
         )}
       </div>
-      <button class="jump-pill" type="button" ?hidden=${state.auto_scroll} @click=${this._jump}>
-        <span aria-hidden="true">↓</span> Jump to latest
-      </button>
     `;
   }
 
@@ -118,10 +128,6 @@ export class TranscriptView extends LitElement {
     session.set_auto_scroll(at_bottom);
   }
 
-  _jump() {
-    session.jump_to_latest();
-    this._scroll_to_bottom(true);
-  }
 
   _on_example(event) {
     session.fill_composer(event.detail && event.detail.prompt);

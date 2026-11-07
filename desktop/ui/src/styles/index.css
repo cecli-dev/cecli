@@ -1,14 +1,8 @@
+/* stylelint-disable */
+
 @import "tailwindcss";
 
-@plugin "daisyui" {
-  themes: false;
-  logs: false;
-}
-
-@plugin "daisyui/theme" {
-  name: "cecli-light";
-  default: true;
-  prefersdark: false;
+:root {
   color-scheme: light;
 
   --color-base-100: #ffffff;
@@ -41,16 +35,13 @@
   --depth: 0;
   --noise: 0;
 }
-
-@source "../../index.html";
-@source "../**/*.js";
-
 @import "./base.css";
 @import "./backdrop.css";
 @import "./glass.css";
 @import "./layout.css";
 @import "./header.css";
 @import "./controls.css";
+@import "./sidebar.css";
 @import "./chat.css";
 @import "./markdown.css";
 @import "./thoughts.css";
@@ -58,6 +49,7 @@
 @import "./plan.css";
 @import "./permission.css";
 @import "./composer.css";
+@import "./agent.css";
 @import "./utilities.css";
 @import "./motion.css";
 @import "./responsive.css";

@@ -1,14 +1,30 @@
 import { create_initial_state } from './state.js';
 
-/** Minimal reactive store; reducers return a new state object or the same one. */
 export class Store {
   constructor(initial_state) {
-    this._state = initial_state;
+    this._views = new Map([['', this._strip(initial_state)]]);
+    this._active_bridge_id = null;
+    this._sessions = [];
+    this._max_sessions = initial_state.max_sessions || 8;
+    this._revisions = new Map();
     this._listeners = new Set();
   }
 
   get state() {
-    return this._state;
+    return this._project(this._active_bridge_id || '');
+  }
+
+  get active_bridge_id() {
+    return this._active_bridge_id;
+  }
+
+  get sessions() {
+    return this._sessions;
+  }
+
+  /** Monotonic per-bridge revision used to reject stale snapshots. */
+  revision(bridge_id) {
+    return this._revisions.get(bridge_id || '') || 0;
   }
 
   subscribe(listener) {
@@ -17,14 +33,154 @@ export class Store {
   }
 
   update(mutator) {
-    const next = mutator(this._state);
-    if (!next || next === this._state) return;
-    this._state = next;
+    this._write(this._active_bridge_id || '', mutator);
+  }
+
+  /** Apply an event to a background bridge without disturbing the active view. */
+  update_for(bridge_id, mutator) {
+    const key = bridge_id || this._active_bridge_id || '';
+    this._write(key, mutator);
+  }
+
+  /** A stable view adapter for one bridge, used by the event reducers. */
+  scoped(bridge_id) {
+    const owner = this;
+    return {
+      bridge_id,
+      get state() {
+        return owner.state_for(bridge_id);
+      },
+      update: (mutator) => owner.update_for(bridge_id, mutator),
+      patch_session: (first, second) =>
+        second === undefined
+          ? owner.patch_session(bridge_id, first)
+          : owner.patch_session(first, second),
+    };
+  }
+
+  state_for(bridge_id) {
+    const key = bridge_id || '';
+    if (!this._active_bridge_id || key === this._active_bridge_id) return this.state;
+    return this._project(key);
+  }
+  set_active(bridge_id) {
+    const next_id = bridge_id || null;
+    if (next_id === this._active_bridge_id) return;
+
+    const previous = this.state;
+    this._views.set(this._active_bridge_id || '', this._strip(previous));
+    this._active_bridge_id = next_id;
+    if (next_id && !this._views.has(next_id)) {
+      const summary = this._sessions.find((item) => item.bridgeId === next_id);
+      const blank = create_initial_state();
+      blank.connected = previous.connected;
+      blank.had_connection = previous.had_connection;
+      blank.disconnect_notified = previous.disconnect_notified;
+      blank.bridge_id = next_id;
+      blank.title = summary?.title || '';
+      blank.workspace = summary?.workspace || '';
+      blank.status = summary?.status || 'starting';
+      blank.session_id = summary?.sessionId || null;
+      blank.busy = Boolean(summary?.busy);
+      blank.activity = summary?.activity || 'idle';
+      blank.activity_detail = summary?.activityDetail || '';
+      this._views.set(next_id, this._strip(blank));
+    }
+
     this.emit();
   }
 
+  /** Replace the sidebar list, upserting by bridgeId so races never duplicate. */
+  set_sessions(sessions, max_sessions) {
+    if (Array.isArray(sessions)) {
+      this._sessions = [...sessions];
+    }
+    if (Number.isFinite(max_sessions)) this._max_sessions = max_sessions;
+
+    if (!this._active_bridge_id && this._sessions.length) {
+      this.set_active(this._sessions[0].bridgeId);
+      return;
+    }
+
+    this.emit();
+  }
+
+  remove_session(bridge_id) {
+    this._views.delete(bridge_id);
+    this._sessions = this._sessions.filter((item) => item.bridgeId !== bridge_id);
+    if (this._active_bridge_id === bridge_id) {
+      this._active_bridge_id = this._sessions[0]?.bridgeId || null;
+    }
+    this.emit();
+  }
+
+  /** Merge live activity into one sidebar summary without resetting it. */
+  patch_session(bridge_id, patch) {
+    if (typeof bridge_id === 'object' && bridge_id !== null && patch === undefined) {
+      patch = bridge_id;
+      bridge_id = this._active_bridge_id;
+    }
+    if (!bridge_id || !patch) return;
+
+    let changed = false;
+    const values = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    );
+    this._sessions = this._sessions.map((item) => {
+      if (item.bridgeId !== bridge_id) return item;
+      changed = true;
+      return { ...item, ...values };
+    });
+    if (changed) this.emit();
+  }
+
   emit() {
-    for (const listener of this._listeners) listener(this._state);
+    if (this._emit_scheduled) return;
+    this._emit_scheduled = true;
+    queueMicrotask(() => {
+      this._emit_scheduled = false;
+      for (const listener of this._listeners) listener(this.state);
+    });
+  }
+
+  _project(key) {
+    let view = this._views.get(key);
+    if (!view) {
+      view = key ? create_initial_state() : this._views.get('') || create_initial_state();
+    }
+    return {
+      ...view,
+      sessions: this._sessions,
+      active_bridge_id: this._active_bridge_id,
+      max_sessions: this._max_sessions,
+    };
+  }
+
+  _write(key, mutator) {
+    const before = this._views.get(key) || create_initial_state();
+    const next = mutator(this._project(key));
+    if (!next) return;
+
+    const clean = this._strip(next);
+    if (this._same_view(before, clean)) return;
+
+    this._views.set(key, clean);
+    this._revisions.set(key, this.revision(key) + 1);
+    this.emit();
+  }
+
+  _same_view(left, right) {
+    const keys = Object.keys(left);
+    if (keys.length !== Object.keys(right).length) return false;
+    return keys.every((key) => left[key] === right[key]);
+  }
+
+  _strip(view) {
+    const next = { ...view };
+    delete next.sessions;
+    delete next.active_bridge_id;
+    delete next.max_sessions;
+    return next;
   }
 }
 
@@ -84,8 +240,28 @@ export const selectors = {
     return 'normal';
   },
 
+  active_agent(state) {
+    if (!state.active_agent_session_id) return null;
+    return (
+      (state.subagents || []).find(
+        (agent) => agent.sessionId === state.active_agent_session_id,
+      ) || null
+    );
+  },
+
+  visible_transcript(state) {
+    if (!state.active_agent_session_id) return state.transcript;
+    return state.subagent_transcripts?.[state.active_agent_session_id] || [];
+  },
+
+  visible_busy(state) {
+    if (!state.active_agent_session_id) return state.busy;
+    const agent = selectors.active_agent(state);
+    return Boolean(agent?.running);
+  },
+
   has_transcript(state) {
-    return state.transcript.length > 0;
+    return selectors.visible_transcript(state).length > 0;
   },
 };
 

@@ -54,19 +54,21 @@ test('transcript reducers cover every streaming update kind', () => {
   });
   update(store, 's1', { sessionUpdate: 'usage_update', used: 10, size: 100 });
 
-  assert.equal(store.state.transcript.length, 1);
-  const turn = store.state.transcript[0];
+  assert.equal(store.state.transcript.length, 2);
+  const first = store.state.transcript[0];
+  assert.deepEqual(first.parts.map((part) => part.type), ['text']);
+  assert.equal(first.parts[0].text, 'Hello ');
+
+  const turn = store.state.transcript[1];
   assert.deepEqual(
     turn.parts.map((part) => part.type),
-    ['text', 'thought', 'text', 'tool', 'plan'],
+    ['thought', 'text', 'tool', 'plan'],
   );
-  assert.equal(turn.parts[0].text, 'Hello ');
-  assert.equal(turn.parts[1].text, 'thinking');
-  assert.equal(turn.parts[2].text, 'world');
-  assert.equal(turn.parts[3].content_text, 'file body');
-  assert.equal(turn.parts[3].status, 'completed');
-  assert.equal(turn.parts[4].entries.length, 1);
-  assert.equal(store.state.usage.used, 10);
+  assert.equal(turn.parts[0].text, 'thinking');
+  assert.equal(turn.parts[1].text, 'world');
+  assert.equal(turn.parts[2].content_text, 'file body');
+  assert.equal(turn.parts[2].status, 'completed');
+  assert.equal(turn.parts[3].entries.length, 1);
 });
 
 test('permissions resolve and clear with the turn', () => {
@@ -129,4 +131,83 @@ test('markdown escapes HTML before formatting', () => {
   assert.match(html, /<strong>bold<\/strong>/);
   assert.ok(!html.includes('<script'));
   assert.match(html, /&lt;script&gt;/);
+});
+
+test('assistant message blocks break on new streams and context messages', () => {
+  const store = create_store();
+  handle_event(store, { type: 'session', sessionId: 's1' });
+
+  update(store, 's1', {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'answer one' },
+  });
+  update(store, 's1', {
+    sessionUpdate: 'agent_thought_chunk',
+    content: { type: 'text', text: 'thinking two' },
+  });
+  update(store, 's1', {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'answer two' },
+  });
+  update(store, 's1', {
+    sessionUpdate: 'tool_call',
+    toolCallId: 't2',
+    title: 'Read file',
+    kind: 'read',
+    status: 'pending',
+  });
+
+  update(store, 's1', {
+    sessionUpdate: 'session_message',
+    senderSessionId: 'child',
+    recipientSessionId: 's1',
+    content: [{ type: 'text', text: 'child note' }],
+  });
+  update(store, 's1', {
+    sessionUpdate: 'agent_thought_chunk',
+    content: { type: 'text', text: 'thinking three' },
+  });
+  update(store, 's1', {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'answer three' },
+  });
+  update(store, 's1', {
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 't2',
+    status: 'completed',
+  });
+
+  assert.deepEqual(
+    store.state.transcript.map((item) => item.type),
+    ['assistant', 'assistant', 'context', 'assistant'],
+  );
+  assert.deepEqual(
+    store.state.transcript[0].parts.map((part) => part.type),
+    ['text'],
+  );
+  assert.deepEqual(
+    store.state.transcript[1].parts.map((part) => part.type),
+    ['thought', 'text', 'tool'],
+  );
+  assert.deepEqual(
+    store.state.transcript[3].parts.map((part) => part.type),
+    ['thought', 'text'],
+  );
+  assert.equal(store.state.transcript[1].parts[2].status, 'completed');
+  assert.equal(store.state.transcript[1].parts[0].open, false);
+  assert.equal(store.state.transcript[1].parts[0].auto_open, false);
+});
+
+test('primary activity follows state updates back to idle', () => {
+  const store = create_store();
+  handle_event(store, { type: 'session', sessionId: 's1' });
+
+  update(store, 's1', { sessionUpdate: 'state_update', state: 'running' });
+  assert.equal(store.state.activity, 'running');
+  assert.equal(store.state.busy, true);
+
+  update(store, 's1', { sessionUpdate: 'state_update', state: 'idle' });
+  assert.equal(store.state.activity, 'idle');
+  assert.equal(store.state.busy, false);
+  assert.equal(store.state.turn_state, 'idle');
 });

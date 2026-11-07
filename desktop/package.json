@@ -14,7 +14,8 @@
     "ui:check": "node scripts/check_ui.mjs",
     "test:ui": "node --test ui/tests/*.test.js",
     "gen:icons": "python3 scripts/gen_icons.py",
-    "icon": "tauri icon src-tauri/icons/icon.png"
+    "icon": "tauri icon src-tauri/icons/icon.png",
+    "runtime:install": "python3 scripts/install_runtime.py"
   },
   "dependencies": {
     "lit": "3.3.3"

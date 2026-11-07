@@ -1,27 +1,49 @@
-import { LitElement, html } from 'lit';
+import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
 import './markdown-view.js';
 import './plan-card.js';
-import './thought-block.js';
-import './tool-card.js';
+import { CHEVRON_ICON, TOOL_ICONS } from '../core/constants.js';
+import { location_label, status_label, tool_output_text } from '../core/format.js';
 
 export class AssistantTurn extends LitElement {
   static properties = {
     item: { attribute: false },
+    agentId: { type: String },
   };
+
+  constructor() {
+    super();
+    this._open_id = null;
+  }
 
   createRenderRoot() {
     return this;
   }
 
   render() {
+    const pills = this.item.parts.filter(
+      (part) => part.type === 'thought' || part.type === 'tool',
+    );
+    const content = this.item.parts.filter(
+      (part) => part.type !== 'thought' && part.type !== 'tool',
+    );
+
     return html`
       <div class="msg msg--assistant" data-turn=${this.item.turn}>
-        <div class="msg-avatar" aria-hidden="true">c</div>
         <div class="msg-body">
+          ${pills.length
+            ? html`<div class="assistant-pills">
+                ${repeat(
+                  pills,
+                  (part) => part.id,
+                  (part) => this._render_pill(part),
+                )}
+              </div>`
+            : nothing}
+          ${this._render_panel(pills.find((part) => part.id === this._open_id))}
           ${repeat(
-            this.item.parts,
+            content,
             (part) => part.id,
             (part) => this._render_part(part),
           )}
@@ -30,22 +52,103 @@ export class AssistantTurn extends LitElement {
     `;
   }
 
-  _render_part(part) {
-    switch (part.type) {
-      case 'text':
-        return html`<markdown-view
-          .text=${part.text}
-          .streaming=${part.streaming}
-        ></markdown-view>`;
-      case 'thought':
-        return html`<thought-block .part=${part}></thought-block>`;
-      case 'tool':
-        return html`<tool-card .part=${part}></tool-card>`;
-      case 'plan':
-        return html`<plan-card .part=${part}></plan-card>`;
-      default:
-        return html``;
+  _render_pill(part) {
+    const active = part.id === this._open_id;
+
+    if (part.type === 'thought') {
+      return html`
+        <button
+          type="button"
+          class="assistant-pill"
+          data-active=${active}
+          aria-expanded=${String(active)}
+          @click=${() => this._toggle(part.id)}
+        >
+          <span class="pill-label">Thinking</span>
+          <span class="pill-chevron" aria-hidden="true">${CHEVRON_ICON}</span>
+        </button>
+      `;
     }
+
+    const icon = TOOL_ICONS[part.kind] || TOOL_ICONS.other;
+
+    return html`
+      <button
+        type="button"
+        class="assistant-pill assistant-pill--tool"
+        data-active=${active}
+        aria-expanded=${String(active)}
+        title=${part.title}
+        @click=${() => this._toggle(part.id)}
+      >
+        <span class="tool-icon" data-kind=${part.kind} aria-hidden="true">${icon}</span>
+        <span class="pill-label">${part.title}</span>
+        <span
+          class="tool-status-dot"
+          data-status=${part.status}
+          title=${status_label(part.status)}
+        ></span>
+        <span class="pill-chevron" aria-hidden="true">${CHEVRON_ICON}</span>
+      </button>
+    `;
+  }
+
+  _render_panel(part) {
+    if (!part) return nothing;
+
+    if (part.type === 'thought') {
+      return html`
+        <div class="assistant-pill-panel">
+          <div class="pill-panel-body thought-panel-text">${part.text}</div>
+        </div>
+      `;
+    }
+
+    const output = tool_output_text(part.content_text);
+    const locations = (part.locations || []).filter(
+      (location) => location && location.path,
+    );
+
+    return html`
+      <div class="assistant-pill-panel">
+        <div class="pill-panel-head">
+          <span>${status_label(part.status)}</span>
+          ${locations.map(
+            (location) => html`<span class="tool-loc" title=${location.path}>
+              ${location_label(location)}
+            </span>`,
+          )}
+        </div>
+        ${output
+          ? html`<pre><code>${output}</code></pre>`
+          : html`<p class="pill-panel-empty">No output yet.</p>`}
+      </div>
+    `;
+  }
+
+  _toggle(part_id) {
+    const opening = this._open_id !== part_id;
+    this._open_id = opening ? part_id : null;
+    this.requestUpdate();
+
+    if (opening) {
+      this.dispatchEvent(
+        new CustomEvent('transcript-layout', { bubbles: true, composed: true }),
+      );
+    }
+  }
+
+  _render_part(part) {
+    if (part.type === 'text') {
+      return html`<markdown-view
+        .text=${part.text}
+        .streaming=${part.streaming}
+      ></markdown-view>`;
+    }
+    if (part.type === 'plan') {
+      return html`<plan-card .part=${part}></plan-card>`;
+    }
+    return html``;
   }
 }
 

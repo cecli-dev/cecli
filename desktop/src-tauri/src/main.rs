@@ -154,7 +154,7 @@ fn locate_bridge_script(app: &AppHandle) -> io::Result<PathBuf> {
 fn spawn_bridge(script: &Path, workspace: &Path, port: u16) -> io::Result<Child> {
     let mut last_error = None;
 
-    for python in python_candidates() {
+    for python in python_candidates(script) {
         let mut command = Command::new(&python);
         command
             .arg(script)
@@ -186,7 +186,7 @@ fn spawn_bridge(script: &Path, workspace: &Path, port: u16) -> io::Result<Child>
     }))
 }
 
-fn python_candidates() -> Vec<String> {
+fn python_candidates(script: &Path) -> Vec<String> {
     if let Ok(value) = env::var("CECLI_PYTHON") {
         let value = value.trim();
         if !value.is_empty() {
@@ -194,11 +194,25 @@ fn python_candidates() -> Vec<String> {
         }
     }
 
-    if cfg!(windows) {
-        vec!["python".to_string(), "python3".to_string()]
-    } else {
-        vec!["python3".to_string()]
+    let mut candidates = Vec::new();
+    if let Some(root) = script.parent() {
+        let runtime = if cfg!(windows) {
+            root.join(".runtime").join("venv").join("Scripts").join("python.exe")
+        } else {
+            root.join(".runtime").join("venv").join("bin").join("python")
+        };
+        if runtime.is_file() {
+            candidates.push(runtime.display().to_string());
+        }
     }
+
+    if cfg!(windows) {
+        candidates.extend(["python".to_string(), "python3".to_string()]);
+    } else {
+        candidates.push("python3".to_string());
+    }
+
+    candidates
 }
 
 fn cecli_override() -> Option<String> {
@@ -237,11 +251,16 @@ fn wait_for_bridge(child: &mut Child, port: u16) -> io::Result<()> {
 fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("http://127.0.0.1:{port}/").parse()?;
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("cecli desktop")
         .inner_size(1180.0, 840.0)
-        .min_inner_size(720.0, 520.0)
-        .build()?;
+        .min_inner_size(720.0, 520.0);
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone())?;
+    }
+
+    builder.build()?;
 
     Ok(())
 }

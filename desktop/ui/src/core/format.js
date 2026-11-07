@@ -67,6 +67,26 @@ export function extract_content_text(content) {
 }
 
 /** Remove one pair of surrounding ``` fences, if the whole text is fenced. */
+/** Extract display text and source metadata from a context envelope. */
+export function parse_message_text(text) {
+  const value = typeof text === 'string' ? text : String(text || '');
+  const opening = /<context\b([^>]*)>/i.exec(value);
+  const attributes = opening ? opening[1] : '';
+  const name = /\bname=["']([^"']+)["']/i.exec(attributes)?.[1] || '';
+  const from = /\bfrom=["']([^"']+)["']/i.exec(attributes)?.[1] || '';
+  const stripped = value
+    .replace(/<context\b[^>]*?\/?>/gi, '')
+    .replace(/<\/context\s*>/gi, '')
+    .trim();
+
+  return { text: stripped, is_user: name === 'user_input', context_name: name, from };
+}
+
+/** Backwards-compatible name for the user-input subset of the parser. */
+export function unwrap_user_input(text) {
+  return parse_message_text(text);
+}
+
 export function strip_surrounding_fences(text) {
   const value = typeof text === 'string' ? text : String(text || '');
   const trimmed = value.trim();

@@ -1,6 +1,5 @@
 import { LitElement, html } from 'lit';
 
-import { BRAND_ICON } from '../core/constants.js';
 import { StoreController, selectors, store } from '../core/store.js';
 
 export class AppHeader extends LitElement {
@@ -16,11 +15,12 @@ export class AppHeader extends LitElement {
   render() {
     const state = this._store.state;
     const label = selectors.connection_label(state);
+    const logo_url = `${import.meta.env.BASE_URL}cecli-temp-logo-favicon.svg`;
 
     return html`
       <header class="topbar">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">${BRAND_ICON}</span>
+          <img class="brand-mark" src=${logo_url} alt="" aria-hidden="true" />
           <span class="brand-name">cecli</span>
         </div>
 

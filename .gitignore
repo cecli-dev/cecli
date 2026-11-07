@@ -46,3 +46,6 @@ cecli/website/_site/*
 cecli/website/.sass-cache/*
 cecli/website/.docmd-*/*
 cecli/website/node_modules/*
+
+# Desktop local Python runtime (build-host only)
+desktop/.runtime/

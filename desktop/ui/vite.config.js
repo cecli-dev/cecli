@@ -22,13 +22,17 @@ export default defineConfig(({ command }) => ({
   plugins: [tailwindcss(), build_hash],
   server: {
     proxy: {
-      // The bridge accepts the Vite origin only because its Origin check compares
-      // hostnames, not ports. Changing that check breaks this dev proxy.
+      // Keep the browser origin intact so the bridge's Origin/Host check passes.
       '/api': {
         target: 'http://127.0.0.1:8765',
         changeOrigin: false,
         timeout: 0,
         proxyTimeout: 0,
+      },
+      '/ws': {
+        target: 'ws://127.0.0.1:8765',
+        ws: true,
+        changeOrigin: false,
       },
     },
   },

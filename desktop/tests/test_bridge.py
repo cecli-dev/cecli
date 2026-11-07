@@ -8,12 +8,15 @@ Only the standard library is used and the tests skip when sockets are absent.
 
 from __future__ import annotations
 
+import base64
 import http.client
 import json
+import os
 import queue
 import re
 import shlex
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -266,6 +269,52 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("currentModeId", state["modes"])
         self.assertIsInstance(state["clients"], int)
 
+    def test_completion_route(self) -> None:
+        self.wait_ready()
+
+        status, body = self.request("POST", "/api/complete", {"text": "/h"})
+
+        self.assertEqual(status, 200)
+        self.assertIn("/help", body["suggestions"])
+        self.assertEqual(body["descriptions"]["/help"], "Show help")
+
+    def test_history_replays_the_conversation_stream(self) -> None:
+        self.wait_ready()
+
+        status, body = self.request("GET", "/api/history")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["messages"][0]["role"], "user")
+        self.assertIn("Hello there", body["messages"][0]["content"])
+        self.assertEqual(body["messages"][1]["content"], "Hi, I can help.")
+        self.assertEqual(body["messages"][2]["toolCalls"][0]["name"], "ReadFile")
+        self.assertEqual(body["subagents"], [])
+
+    def test_workflow_runs_as_a_prompt(self) -> None:
+        self.wait_ready()
+
+        status, body = self.request("POST", "/api/workflows", {"action": "run", "name": "demo"})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        state = self.wait_state(lambda value: value.get("busy") is True)
+        self.assertTrue(state["busy"])
+
+    def test_subagent_updates_reach_the_state_tree(self) -> None:
+        self.wait_ready()
+
+        status, _ = self.request("POST", "/api/prompt", {"text": "spawn worker"})
+
+        self.assertEqual(status, 202)
+        state = self.wait_state(
+            lambda value: any(
+                agent.get("sessionId") == "child-1" for agent in value.get("subagents") or []
+            )
+        )
+        agent = next(item for item in state["subagents"] if item["sessionId"] == "child-1")
+        self.assertEqual(agent["title"], "worker")
+
     def test_session_ready_via_events(self) -> None:
         reader = self.open_events()
         events = reader.collect_until(lambda event: event.get("type") == "session")
@@ -308,7 +357,7 @@ class BridgeTest(unittest.TestCase):
         permission = events[-1]
         self.assertEqual(
             set(permission),
-            {"type", "requestId", "sessionId", "toolCall", "options"},
+            {"type", "requestId", "sessionId", "toolCall", "options", "bridgeId"},
         )
         self.assertEqual(permission["sessionId"], "fake-session")
         self.assertEqual([item["optionId"] for item in permission["options"]], ["y", "n"])
@@ -317,7 +366,7 @@ class BridgeTest(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertEqual(
             set(state["permissions"][0]),
-            {"requestId", "sessionId", "toolCall", "options"},
+            {"requestId", "sessionId", "toolCall", "options", "bridgeId"},
         )
 
         status, body = self.request("POST", "/api/prompt", {"text": "again"})
@@ -483,15 +532,15 @@ class BridgeTest(unittest.TestCase):
 
     def test_config_option_post(self) -> None:
         self.wait_ready()
-        state = self.wait_state(lambda snapshot: option_value(snapshot, "mode") == "ask")
+        state = self.wait_state(lambda snapshot: option_value(snapshot, "mode") == "agent")
         self.assertEqual(state["status"], "ready")
 
         status, body = self.request("POST", "/api/config", {"configId": "mode", "value": "code"})
-        self.assertEqual(status, 202)
-        self.assertTrue(body["ok"])
+        self.assertEqual(status, 409)
+        self.assertFalse(body["ok"])
 
-        state = self.wait_state(lambda snapshot: option_value(snapshot, "mode") == "code")
-        self.assertEqual(state["modes"]["currentModeId"], "code")
+        state = self.wait_state(lambda snapshot: option_value(snapshot, "mode") == "agent")
+        self.assertEqual(state["modes"]["currentModeId"], "agent")
 
     def test_new_session_clears_the_previous_id(self) -> None:
         self.wait_ready()
@@ -654,6 +703,76 @@ class BridgeTest(unittest.TestCase):
             None,
         )
         self.assertEqual(status, 200)
+
+    def test_sessions_api_supports_multiple_parents(self) -> None:
+        self.wait_ready()
+        status, body = self.request("GET", "/api/sessions")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["sessions"]), 1)
+
+        status, created = self.request("POST", "/api/sessions", {"title": "second"})
+        self.assertEqual(status, 201)
+        bridge_id = created["bridgeId"]
+
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            _, listing = self.request("GET", "/api/sessions")
+            matching = [item for item in listing["sessions"] if item["bridgeId"] == bridge_id]
+            if matching and matching[0]["status"] == "ready":
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("second session never became ready")
+
+        status, _ = self.request("POST", "/api/prompt", {"text": "hello"})
+        self.assertEqual(status, 400)
+        status, _ = self.request("POST", "/api/prompt", {"bridgeId": bridge_id, "text": "hello"})
+        self.assertEqual(status, 202)
+
+    def test_websocket_channel_returns_only_command_results(self) -> None:
+        self.wait_ready()
+        with urllib.request.urlopen(f"http://{self.host}:{self.port}/", timeout=5) as page:
+            html = page.read().decode("utf-8")
+        match = re.search(r'__CECLI_TOKEN__="([^"]+)"', html)
+        self.assertIsNotNone(match)
+        token = match.group(1)
+
+        connection = socket.create_connection((self.host, self.port), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        connection.sendall(
+            (
+                f"GET /ws HTTP/1.1\r\nHost: {self.host}:{self.port}\r\n"
+                "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
+                f"Sec-WebSocket-Protocol: cecli.desktop.v1, token.{token}\r\n\r\n"
+            ).encode("ascii")
+        )
+        try:
+            head = b""
+            while b"\r\n\r\n" not in head:
+                head += connection.recv(4096)
+            self.assertIn(b"101 Switching Protocols", head)
+
+            message = json.dumps({"id": "1", "command": "sessions.list", "params": {}}).encode(
+                "utf-8"
+            )
+            mask = os.urandom(4)
+            payload = bytes(value ^ mask[index % 4] for index, value in enumerate(message))
+            connection.sendall(bytes([0x81, 0x80 | len(message)]) + mask + payload)
+
+            header = connection.recv(2)
+            length = header[1] & 0x7F
+            if length == 126:
+                length = struct.unpack("!H", connection.recv(2))[0]
+            data = b""
+            while len(data) < length:
+                data += connection.recv(length - len(data))
+            reply = json.loads(data.decode("utf-8"))
+            self.assertTrue(reply.get("ok"))
+            self.assertNotIn("event", reply)
+            self.assertIn("sessions", reply.get("result", {}))
+        finally:
+            connection.close()
 
 
 # Test method names are intentionally descriptive; keep helpers below the suites.

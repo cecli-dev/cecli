@@ -1,9 +1,11 @@
 /** Map decoded SSE payloads and ACP updates onto store transitions. */
-import { extract_content_text, update_kind } from './format.js';
+import { extract_content_text, parse_message_text, update_kind } from './format.js';
 import { push_log, push_toast } from './notices.js';
 import {
   add_permission,
   append_text_chunk,
+  append_context_message,
+  append_user_message,
   append_thought_chunk,
   append_tool_chunk,
   clear_permissions,
@@ -28,7 +30,7 @@ export function handle_event(store, payload, hooks = {}) {
       break;
     case 'update':
       if (!update_matches_session(store, payload)) break;
-      handle_update(store, payload.update || {});
+      handle_update(store, payload.update || {}, payload.sessionId, payload.bridgeId);
       break;
     case 'permission':
       if (!permission_matches_session(store, payload)) break;
@@ -42,6 +44,12 @@ export function handle_event(store, payload, hooks = {}) {
       break;
     case 'log':
       push_log(store, payload.message, payload.level || 'info');
+      break;
+    case 'details':
+      apply_details(store, payload);
+      break;
+    case 'subagents':
+      apply_subagents(store, payload);
       break;
     case 'error':
       handle_error_event(store, payload);
@@ -66,6 +74,13 @@ function show_permission(state, payload) {
 
 /** Status transitions from the bridge. */
 function handle_status_event(store, payload) {
+  if (store.patch_session) {
+    store.patch_session({
+      status: payload.status,
+      activity: payload.activity,
+      activityDetail: payload.detail,
+    });
+  }
   if (payload.agent) store.update((state) => apply_agent(state, payload.agent));
   if (payload.detail) push_log(store, String(payload.detail), 'info');
 
@@ -97,27 +112,45 @@ function handle_session_event(store, payload) {
 }
 
 /** One ACP update, passed through by the bridge. */
-function handle_update(store, update) {
+function handle_update(store, update, session_id = null, bridge_id = null) {
   if (!update || typeof update !== 'object') return;
+
+  if (update_kind(update) === 'subagent_update') {
+    apply_subagent_update(store, update, bridge_id);
+    return;
+  }
+
+  const agent_id = agent_for_session(store.state, session_id);
+
+  if (update_kind(update) === 'session_message') {
+    const recipient = update.recipientSessionId || session_id;
+    const target_session = update.userMessage ? recipient : session_id;
+    apply_session_message(store, update, agent_for_session(store.state, target_session));
+    return;
+  }
 
   switch (update_kind(update)) {
     case 'agent_message_chunk':
-      store.update((state) => append_text_chunk(state, extract_content_text(update.content)));
+      store.update((state) =>
+        append_text_chunk(state, extract_content_text(update.content), agent_id),
+      );
       break;
     case 'agent_thought_chunk':
-      store.update((state) => append_thought_chunk(state, extract_content_text(update.content)));
+      store.update((state) =>
+        append_thought_chunk(state, extract_content_text(update.content), agent_id),
+      );
       break;
     case 'tool_call':
-      store.update((state) => upsert_tool(state, update, true));
+      store.update((state) => upsert_tool(state, update, true, agent_id));
       break;
     case 'tool_call_update':
-      store.update((state) => upsert_tool(state, update, false));
+      store.update((state) => upsert_tool(state, update, false, agent_id));
       break;
     case 'tool_call_content_chunk':
-      store.update((state) => append_tool_chunk(state, update));
+      store.update((state) => append_tool_chunk(state, update, agent_id));
       break;
     case 'plan':
-      store.update((state) => set_plan(state, update.entries));
+      store.update((state) => set_plan(state, update.entries, agent_id));
       break;
     case 'usage_update':
       store.update((state) => apply_usage(state, update));
@@ -129,7 +162,7 @@ function handle_update(store, update) {
       store.update((state) => set_mode(state, update.currentModeId));
       break;
     case 'state_update':
-      handle_state_update(store, update);
+      handle_state_update(store, update, agent_id);
       break;
     default:
       break;
@@ -137,12 +170,21 @@ function handle_update(store, update) {
 }
 
 /** Mirror state_update into the composer status line. */
-function handle_state_update(store, update) {
+function handle_state_update(store, update, agent_id = null) {
   const next = update.state;
+
+  if (agent_id) {
+    store.update((state) => upsert_subagent_state(state, agent_id, next));
+    if (next === 'idle') {
+      store.update((state) => finalize_assistant(state, agent_id));
+    }
+    return;
+  }
 
   if (next === 'requires_action') {
     store.update((state) => ({
       ...state,
+      activity: 'requires_action',
       busy: true,
       turn_state: 'requires_action',
       busy_message: 'Waiting for your approval',
@@ -150,15 +192,17 @@ function handle_state_update(store, update) {
   } else if (next === 'running') {
     store.update((state) => ({
       ...state,
+      activity: 'running',
       busy: true,
       turn_state: 'running',
-      busy_message: 'cecli is working…',
+      busy_message: 'cecli is working\u2026',
     }));
   } else if (next === 'idle') {
     store.update((state) => {
       const finalized = finalize_assistant(state);
       return {
         ...finalized,
+        activity: 'idle',
         busy: false,
         stopping: false,
         turn_state: 'idle',
@@ -174,6 +218,7 @@ function handle_prompt_done(store, payload, hooks) {
     const finalized = clear_permissions(finalize_assistant(state));
     return {
       ...finalized,
+      activity: 'idle',
       busy: false,
       stopping: false,
       turn_state: 'idle',
@@ -191,14 +236,29 @@ function handle_prompt_done(store, payload, hooks) {
 
 /** React to permission_resolved: keep the chosen card and other pending ones. */
 function handle_permission_resolved(store, payload, hooks) {
-  const key = String(payload.requestId);
-
+  const bridge_id = payload.bridgeId || store.state.bridge_id || '';
+  const key = bridge_id ? `${bridge_id}:${payload.requestId}` : String(payload.requestId);
   store.update((state) => restore_turn_state(mark_permission_resolved(state, key, payload.optionId)));
 
   if (typeof hooks.on_permission_resolved === 'function') hooks.on_permission_resolved(key);
 }
 
 /** Report bridge errors as toasts, never transcript spam. */
+/** Replace registry/details state from one authoritative server snapshot. */
+function apply_details(store, payload) {
+  const details = payload.details || {};
+  if (Array.isArray(payload.subagents)) apply_subagents(store, payload);
+  store.update((state) => ({
+    ...state,
+    skills: Array.isArray(details.skills) ? details.skills : state.skills,
+    mcp_servers: Array.isArray(details.mcpServers) ? details.mcpServers : state.mcp_servers,
+    workflows: Array.isArray(details.workflows) ? details.workflows : state.workflows,
+    context_files: Array.isArray(details.contextFiles)
+      ? details.contextFiles
+      : state.context_files,
+  }));
+}
+
 function handle_error_event(store, payload) {
   const message = payload.message || 'Unknown bridge error';
   store.update((state) => ({ ...state, retry_available: Boolean(state.last_prompt) }));
@@ -306,20 +366,177 @@ export function set_mode(state, current_mode_id) {
   return { ...state, config_options };
 }
 
-/** Whether an update belongs to the session currently on screen. */
-function update_matches_session(store, payload) {
-  const session_id = store.state.session_id;
-  if (!session_id) return false;
-
-  return !payload.sessionId || payload.sessionId === session_id;
+/** The sub-agent session id an update belongs to, or null for the primary. */
+function agent_for_session(state, session_id) {
+  if (!session_id) return null;
+  if (state.session_id && session_id === state.session_id) return null;
+  return (state.subagents || []).some((agent) => agent.sessionId === session_id)
+    ? session_id
+    : null;
 }
 
-/** Whether a permission request belongs to the session on screen. */
-function permission_matches_session(store, payload) {
-  const session_id = store.state.session_id;
-  if (!session_id || !payload.sessionId) return true;
+/** Merge one subagent announcement, state change or removal into the tree. */
+function apply_subagent_update(store, update, bridge_id = null) {
+  const session_id = update.sessionId;
+  if (!session_id) return;
 
-  return payload.sessionId === session_id;
+  store.update((state) => {
+    const agents = state.subagents || [];
+    const existing = agents.find((agent) => agent.sessionId === session_id) || {
+      sessionId: session_id,
+    };
+
+    if (update.capabilities === null) {
+      return {
+        ...state,
+        active_agent_session_id:
+          state.active_agent_session_id === session_id ? null : state.active_agent_session_id,
+        subagents: agents.map((agent) =>
+          agent.sessionId === session_id
+            ? { ...agent, removed: true, running: false, state: 'idle' }
+            : agent,
+        ),
+      };
+    }
+
+    const next_agent = { ...existing, removed: false };
+    if (update.title) next_agent.title = update.title;
+    if (update.description) next_agent.description = update.description;
+    if (update.capabilities) next_agent.announced = true;
+    if (update.state && typeof update.state === 'object') {
+      next_agent.state = update.state.state || 'idle';
+      next_agent.running = next_agent.state === 'running';
+      if (update.state.stopReason) next_agent.stopReason = update.state.stopReason;
+      if (update.state.error) next_agent.error = update.state.error;
+    }
+
+    const next_agents = agents.some((agent) => agent.sessionId === session_id)
+      ? agents.map((agent) => (agent.sessionId === session_id ? next_agent : agent))
+      : [...agents, next_agent];
+
+    return {
+      ...state,
+      subagents: next_agents,
+      subagent_transcripts: state.subagent_transcripts[session_id]
+        ? state.subagent_transcripts
+        : { ...state.subagent_transcripts, [session_id]: [] },
+    };
+  });
+
+  if (bridge_id && store.patch_session) {
+    store.patch_session(bridge_id, {
+      subagents: store.state.subagents,
+    });
+  }
+}
+
+/** Replace the sub-agent tree from a server snapshot/event. */
+function apply_subagents(store, payload) {
+  const incoming = Array.isArray(payload.subagents) ? payload.subagents : [];
+  store.update((state) => {
+    const by_id = new Map((state.subagents || []).map((agent) => [agent.sessionId, agent]));
+    for (const agent of incoming) {
+      if (!agent?.sessionId) continue;
+      by_id.set(agent.sessionId, { ...by_id.get(agent.sessionId), ...agent, removed: false });
+    }
+
+    const subagent_transcripts = { ...state.subagent_transcripts };
+    for (const agent of incoming) {
+      if (agent?.sessionId && !subagent_transcripts[agent.sessionId]) {
+        subagent_transcripts[agent.sessionId] = [];
+      }
+    }
+
+    const active_agent_session_id =
+      state.active_agent_session_id && by_id.has(state.active_agent_session_id)
+        ? state.active_agent_session_id
+        : null;
+
+    return {
+      ...state,
+      active_agent_session_id,
+      subagents: [...by_id.values()],
+      subagent_transcripts,
+    };
+  });
+
+  if (payload.bridgeId && store.patch_session) {
+    store.patch_session(payload.bridgeId, { subagents: incoming });
+  }
+}
+
+function upsert_subagent_state(state, session_id, next_state) {
+  return {
+    ...state,
+    subagents: (state.subagents || []).map((agent) =>
+      agent.sessionId === session_id
+        ? { ...agent, state: next_state, running: next_state === 'running' }
+        : agent,
+    ),
+  };
+}
+
+/** A message between agents, rendered in the receiving transcript. */
+function apply_session_message(store, update, agent_id) {
+  const raw = extract_content_text(update.content);
+  const parsed = parse_message_text(raw);
+  if (!parsed.text) return;
+
+  const is_user = Boolean(update.userMessage) || parsed.is_user;
+  const title = context_title(parsed.context_name);
+
+  store.update((state) =>
+    is_user
+      ? append_user_message(state, parsed.text, agent_id)
+      : append_context_message(
+          state,
+          parsed.text,
+          agent_id,
+          title,
+          sender_label(state, update.senderSessionId) || parsed.from,
+        ),
+  );
+}
+
+/** Human title for a context envelope name such as ``sub_agent_result``. */
+function context_title(name) {
+  const value = String(name || '').trim();
+  if (!value) return 'Agent message';
+
+  const label = value.replace(/[_-]+/g, ' ').trim();
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** Human label for the session that sent an inter-agent message. */
+function sender_label(state, sender_session_id) {
+  if (!sender_session_id) return '';
+  if (state.session_id && sender_session_id === state.session_id) return 'Main';
+
+  const agent = (state.subagents || []).find(
+    (item) => item.sessionId === sender_session_id,
+  );
+  return agent?.title || agent?.name || String(sender_session_id);
+}
+
+/** Whether an update belongs to the session currently on screen. */
+function update_matches_session(store, payload) {
+  if (!payload || !payload.update) return false;
+  if (!payload.sessionId) return true;
+
+  const state = store.state;
+  if (!state.session_id) return false;
+  if (payload.sessionId === state.session_id) return true;
+  return state.subagents.some((agent) => agent.sessionId === payload.sessionId);
+}
+
+/** Whether a permission request belongs to the session currently on screen. */
+function permission_matches_session(store, payload) {
+  if (!payload || payload.requestId === undefined) return false;
+  if (!payload.sessionId) return true;
+
+  const state = store.state;
+  if (!state.session_id || payload.sessionId === state.session_id) return true;
+  return state.subagents.some((agent) => agent.sessionId === payload.sessionId);
 }
 
 /** Return to running/idle once no permission cards remain. */

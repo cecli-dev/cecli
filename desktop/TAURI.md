@@ -122,7 +122,7 @@ desktop/
   ui/vite.config.js         dev proxy for /api, build output ../static
   ui/build-hash.mjs         hashes ui/ sources for the freshness guard
   scripts/check_ui.mjs      fails when static/ is stale or incomplete
-  scripts/gen_icons.py      renders the PNG/ICO/ICNS icons procedurally
+  scripts/gen_icons.py      renders the PNG/ICO/ICNS icons from the favicon SVG
   server.py                 the bridge the shell launches (unchanged)
   static/                   Vite build output served by the bridge
   tests/                    bridge tests with a fake ACP agent
@@ -178,9 +178,14 @@ sets the floor; use a current LTS release (Node 22 or 24) if you can.
 
 ### cecli and Python
 
-The bridge needs Python 3.10+ and a working `cecli` installation, exactly as
-described in [README.md](README.md#requirements). The Tauri shell does not
-provide either one in the current setup.
+The bridge needs Python 3.10+ and a working `cecli` installation. For a
+self-contained development build, `npm run runtime:install` creates
+`desktop/.runtime/venv` and installs this checkout (including the `cecli`
+console script) into it. The Rust shell prefers that interpreter, and
+`server.py` prefers the sibling `cecli` executable, so no global cecli is
+needed. The runtime is build-host state: it is gitignored and not bundled, so a
+packaged app still falls back to system Python and `PATH` unless you ship a
+frozen sidecar.
 
 ## Setup, build, run
 
@@ -188,17 +193,18 @@ provide either one in the current setup.
 cd desktop
 npm install          # app, UI and Tauri CLI dependencies
 npm run gen:icons    # writes src-tauri/icons/*
+npm run runtime:install  # create .runtime/venv and install cecli
 npm run ui:build     # optional: compile the frontend on its own
 npm run dev          # tauri dev: rebuild UI, compile shell, open the window
 npm run build        # tauri build: rebuild UI, release binary and bundles
 ```
 
-`npm run gen:icons` renders the icon set with only the Python standard library
+`npm run gen:icons` renders `ui/public/cecli-temp-logo-favicon.svg` with CairoSVG
 and writes PNGs (`32x32.png`, `128x128.png`, `128x128@2x.png`, `512x512.png`,
 and the 1024px `icon.png`) plus `icon.ico` and `icon.icns`. The `tauri.conf.json`
-bundle uses those outputs (512 px is available for manual use). The art is
-rendered in code, so rerun only after
-changing that script. `npm run tauri -- <args>` exposes the CLI directly (for
+bundle uses those outputs (512 px is available for manual use). If CairoSVG is
+unavailable, the script falls back to a procedural icon. Rerun after changing
+the SVG or script. `npm run tauri -- <args>` exposes the CLI directly (for
 example `npm run tauri -- info`).
 
 `beforeDevCommand` and `beforeBuildCommand` both run `npm run ui:build`, so
@@ -225,7 +231,7 @@ npm run dev
 | `CECLI_DESKTOP_PORT` | Pin the loopback port | An ephemeral `127.0.0.1` port, reserved at startup |
 | `CECLI_DESKTOP_SERVER` | Explicit path to `server.py` | Dev path, then bundled resource path |
 | `CECLI_DESKTOP_CECLI` | cecli executable (passed as `--cecli`) | Bridge falls back to `CECLI_BIN`, then `cecli` on `PATH` |
-| `CECLI_PYTHON` | Python interpreter used to run the bridge | `python3` on Unix; `python` then `python3` on Windows |
+| `CECLI_PYTHON` | Python interpreter used to run the bridge | `desktop/.runtime/venv`, then `python3` on Unix; `python` then `python3` on Windows |
 
 Use `CECLI_DESKTOP_PORT=8765` when you want to inspect the running app from a
 normal browser (`http://127.0.0.1:8765/`) or curl its API. Leave it unset in
@@ -291,6 +297,17 @@ the repository root instead, but an explicit override is still safer.
 ## Packaging the Python side
 
 Three options, from least to most work:
+
+### 0. Build-time runtime install
+
+`npm run runtime:install` creates `desktop/.runtime/venv` with `venv` and runs
+`pip install -e <repo>`. The Rust shell looks for that interpreter before
+falling back to `python3`. This is the lightest way to make the app run
+internally in development: no system cecli on `PATH`, no hand-built sidecar.
+The venv is build-host state (gitignored, not in `bundle.resources`) because
+`pip install -e` and `bin/python` contain absolute paths and are not
+relocatable. For distribution, use a frozen sidecar (option 2) or a native ACP
+client (option 3).
 
 ### 1. Current: system Python + repo checkout
 
@@ -413,10 +430,10 @@ What was verified in this tree:
 - `npm run ui:build` (Vite: 50 modules -> hashed `static/assets/index-*.js` and
   `index-*.css`) and `npm run ui:check` (source hash matches `static/.build-hash`)
 - `python3 -m py_compile desktop/server.py`; `flake8` clean
-- `python3 desktop/tests/test_bridge.py` (20 tests, fake ACP agent, no model
+- `python3 desktop/tests/test_bridge.py` (22 tests, fake ACP agent, no model
   calls, including a multi-permission turn, a cancelled-permission outcome, and
   SIGTERM with an open SSE client)
-- `npm run test:ui` (14 `node:test` cases: transcript reducers, permissions,
+- `npm run test:ui` (20 `node:test` cases: transcript reducers, permissions,
   session filtering, multi-permission turns, snapshots, markdown escaping,
   send/failure/new-chat)
 - a browser session against the built UI with the fake ACP agent: empty state

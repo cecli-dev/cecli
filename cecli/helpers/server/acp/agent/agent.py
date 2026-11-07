@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 import uuid
 import weakref
 from dataclasses import dataclass, field
@@ -263,6 +264,14 @@ class AcpAgent:
             "session/cancel": self._on_session_cancel,
             "session/set_config_option": self._on_set_config_option,
             "session/set_mode": self._on_set_mode,
+            "cecli/state": self._on_cecli_state,
+            "cecli/history": self._on_cecli_history,
+            "cecli/skill": self._on_cecli_skill,
+            "cecli/mcp": self._on_cecli_mcp,
+            "cecli/workflow": self._on_cecli_workflow,
+            "cecli/context": self._on_cecli_context,
+            "cecli/complete": self._on_cecli_complete,
+            "cecli/subagent/message": self._on_cecli_subagent_message,
         }
         handler = handlers.get(method)
         if handler is None:
@@ -395,6 +404,221 @@ class AcpAgent:
             return self.config.command(self._coder(), config_id, value)
         except ValueError as err:
             raise AcpError(INVALID_PARAMS, str(err))
+
+    # ── Desktop state and controls ───────────────────────────────────────
+
+    def _on_cecli_state(self, params: dict, request_id: Any) -> dict:
+        """Return the TUI-level state the desktop sidebar renders."""
+        coder = self._coder()
+        if coder is None:
+            return self._empty_state()
+        return self._state_snapshot(coder)
+
+    def _on_cecli_history(self, params: dict, request_id: Any) -> dict:
+        """Return each coder's visible conversation stream for transcript replay."""
+        coder = self._coder()
+        if coder is None:
+            return {"messages": [], "subagents": []}
+
+        from cecli.helpers.agents.service import AgentService
+
+        service = AgentService.get_instance(coder)
+        infos = {str(info.coder.uuid): info for info in service.sub_agents.values()}
+        subagents: list[dict[str, Any]] = []
+
+        for subagent in self.subagents.values():
+            info = infos.get(str(subagent.agent_uuid))
+            if info is None or subagent.removed:
+                continue
+            subagents.append(
+                {
+                    "sessionId": subagent.session_id,
+                    "uuid": subagent.agent_uuid,
+                    "messages": _conversation_history(info.coder),
+                }
+            )
+
+        return {"messages": _conversation_history(coder), "subagents": subagents}
+
+    def _on_cecli_skill(self, params: dict, request_id: Any) -> dict:
+        """Load, remove, include or exclude a skill on the serialised coder."""
+        coder = self._require_coder()
+        manager = getattr(coder, "skills_manager", None)
+        if manager is None:
+            raise AcpError(INVALID_PARAMS, "skills are not available")
+
+        action = params.get("action")
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            raise AcpError(INVALID_PARAMS, "name is required")
+
+        actions = {
+            "load": manager.load_skill,
+            "remove": manager.remove_skill,
+            "include": manager.include_skill,
+            "exclude": manager.exclude_skill,
+        }
+        handler = actions.get(action)
+        if handler is None:
+            raise AcpError(INVALID_PARAMS, f"unknown skill action: {action}")
+
+        try:
+            result = handler(name)
+        except Exception as err:
+            raise AcpError(INTERNAL_ERROR, str(err)) from err
+
+        return {"result": result, "skills": self._skills_state(coder)}
+
+    def _on_cecli_mcp(self, params: dict, request_id: Any) -> Any:
+        """Connect or disconnect an MCP server without blocking the dispatcher."""
+        coder = self._require_coder()
+        manager = getattr(coder, "mcp_manager", None)
+        if manager is None:
+            raise AcpError(INVALID_PARAMS, "MCP is not available")
+
+        action = params.get("action")
+        name = params.get("name")
+        if action not in ("connect", "disconnect") or not isinstance(name, str) or not name:
+            raise AcpError(INVALID_PARAMS, "action and name are required")
+
+        async def run() -> None:
+            error = None
+            try:
+                if action == "connect":
+                    await manager.connect_server(name)
+                else:
+                    await manager.disconnect_server(name)
+            except Exception as err:
+                error = str(err)
+
+            payload: dict[str, Any] = {"mcpServers": self._mcp_state(coder)}
+            if error:
+                payload["error"] = error
+            self.transport.send(result_message(request_id, payload))
+
+        asyncio.run_coroutine_threadsafe(run(), self._loop)
+        return _DEFERRED
+
+    def _on_cecli_workflow(self, params: dict, request_id: Any) -> Any:
+        """List workflows, or start a manual run in the background."""
+        coder = self._require_coder()
+        action = params.get("action", "list")
+
+        if action == "list":
+            return {"workflows": self._workflow_state(coder)}
+        if action != "run":
+            raise AcpError(INVALID_PARAMS, f"unknown workflow action: {action}")
+
+        from cecli.commands.workflow_helpers.common import find
+
+        wf = find(coder, params.get("name"))
+        if wf is None:
+            raise AcpError(INVALID_PARAMS, f"unknown workflow: {params.get('name')}")
+
+        async def run() -> None:
+            from cecli.helpers.workflows.runner import execute_workflow
+
+            try:
+                result = await execute_workflow(coder, wf, source="manual")
+                payload = {
+                    "status": result.status,
+                    "summary": result.summary,
+                    "workflows": self._workflow_state(coder),
+                }
+            except Exception as err:
+                payload = {"error": str(err), "workflows": self._workflow_state(coder)}
+            self.transport.send(result_message(request_id, payload))
+
+        asyncio.run_coroutine_threadsafe(run(), self._loop)
+        return _DEFERRED
+
+    def _on_cecli_context(self, params: dict, request_id: Any) -> dict:
+        """Add or remove a file from the coder's editable or read-only context."""
+        coder = self._require_coder()
+        action = params.get("action")
+        path = params.get("path")
+        if action not in ("add", "remove") or not isinstance(path, str) or not path:
+            raise AcpError(INVALID_PARAMS, "action and path are required")
+
+        root = self.cwd or os.getcwd()
+        absolute = path if os.path.isabs(path) else os.path.abspath(os.path.join(root, path))
+        read_only = bool(params.get("readOnly"))
+
+        if action == "add":
+            target = coder.abs_read_only_fnames if read_only else coder.abs_fnames
+            target.add(absolute)
+        else:
+            coder.abs_fnames.discard(absolute)
+            coder.abs_read_only_fnames.discard(absolute)
+
+        return {"contextFiles": self._context_state(coder)}
+
+    def _on_cecli_complete(self, params: dict, request_id: Any) -> dict:
+        """Return shell-style completion candidates for the desktop composer."""
+        coder = self._require_coder()
+        text = params.get("text")
+        if not isinstance(text, str):
+            raise AcpError(INVALID_PARAMS, "text is required")
+        return _complete(coder, text)
+
+    def _on_cecli_subagent_message(self, params: dict, request_id: Any) -> dict:
+        """Send a message to an active sub-agent, starting one when it is idle."""
+        from cecli.helpers.agents.service import AgentService
+
+        coder = self._require_coder()
+        session_id = params.get("sessionId")
+        text = params.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise AcpError(INVALID_PARAMS, "text is required")
+
+        subagent = next(
+            (
+                item
+                for item in self.subagents.values()
+                if item.session_id == session_id and not item.removed
+            ),
+            None,
+        )
+        if subagent is None:
+            raise AcpError(INVALID_PARAMS, "unknown sub-agent session")
+
+        service = AgentService.get_instance(coder)
+        info = service.sub_agents.get(subagent.agent_uuid)
+        if info is None:
+            raise AcpError(INVALID_PARAMS, "the sub-agent is no longer tracked")
+
+        if subagent.running:
+            from cecli.helpers.conversation.service import ConversationService
+            from cecli.helpers.conversation.tags import MessageTag
+
+            with service._get_lock(service._conversation_locks, info.coder.uuid):
+                ConversationService.get_manager(info.coder).add_message(
+                    message_dict={"role": "user", "content": text},
+                    tag=MessageTag.CUR,
+                    hash_key=(
+                        "desktop_message",
+                        "user",
+                        info.coder.uuid,
+                        str(time.monotonic_ns()),
+                    ),
+                    force=True,
+                )
+        else:
+            service.start_generate_task(info, text)
+
+        self._message_count += 1
+        self.send_update(
+            {
+                "sessionUpdate": "session_message",
+                "userMessage": True,
+                "messageId": f"cecli-message-{self._message_count}",
+                "senderSessionId": self.session_id,
+                "recipientSessionId": subagent.session_id,
+                "content": [{"type": "text", "text": text}],
+            },
+            subagent.parent_session_id,
+        )
+        return {"ok": True, "running": subagent.running}
 
     def _on_response(self, msg: dict) -> None:
         future, _session_id = self._pending.get(msg.get("id"), (None, None))
@@ -723,6 +947,382 @@ class AcpAgent:
 
         # It reports the cancelled idle state itself once it has stopped
         AgentService.get_instance(coder).cancel_sub_agent(subagent.agent_uuid)
+
+    # ── State helpers ─────────────────────────────────────────────────────
+
+    def _require_coder(self) -> Any:
+        coder = self._coder()
+        if coder is None:
+            raise AcpError(INTERNAL_ERROR, "cecli is not ready")
+        return coder
+
+    def _empty_state(self) -> dict[str, Any]:
+        return {
+            "activity": "idle",
+            "subagents": [],
+            "contextFiles": [],
+            "skills": [],
+            "mcpServers": [],
+            "workflows": [],
+        }
+
+    def _state_snapshot(self, coder: Any) -> dict[str, Any]:
+        if self.in_prompt():
+            activity = "running"
+        elif self._pending:
+            activity = "requires_action"
+        else:
+            activity = "idle"
+
+        return {
+            "activity": activity,
+            "subagents": self._subagent_state(coder),
+            "contextFiles": self._context_state(coder),
+            "skills": self._skills_state(coder),
+            "mcpServers": self._mcp_state(coder),
+            "workflows": self._workflow_state(coder),
+        }
+
+    def _subagent_state(self, coder: Any) -> list[dict[str, Any]]:
+        from cecli.helpers.agents.service import AgentService
+
+        service = AgentService.get_instance(coder)
+        infos = {str(info.coder.uuid): info for info in service.sub_agents.values()}
+        result: list[dict[str, Any]] = []
+
+        for agent_uuid, subagent in self.subagents.items():
+            info = infos.get(str(agent_uuid))
+            result.append(
+                {
+                    "sessionId": subagent.session_id,
+                    "parentSessionId": subagent.parent_session_id,
+                    "uuid": subagent.agent_uuid,
+                    "parentUuid": getattr(info, "parent_uuid", None),
+                    "name": getattr(info, "name", None) or subagent.agent_uuid,
+                    "status": getattr(getattr(info, "status", None), "value", "running"),
+                    "running": subagent.running,
+                    "removed": subagent.removed,
+                    "summary": getattr(info, "summary", None),
+                    "contextFiles": self._context_state(info.coder) if info else [],
+                }
+            )
+
+        announced = set(self.subagents)
+        for agent_uuid, info in infos.items():
+            if agent_uuid in announced:
+                continue
+            result.append(
+                {
+                    "sessionId": None,
+                    "parentSessionId": None,
+                    "uuid": agent_uuid,
+                    "parentUuid": info.parent_uuid,
+                    "name": info.name,
+                    "status": info.status.value,
+                    "running": info.status.value == "running",
+                    "removed": False,
+                    "summary": info.summary,
+                    "contextFiles": self._context_state(info.coder),
+                }
+            )
+
+        return result
+
+    def _context_state(self, coder: Any) -> list[dict[str, Any]]:
+        root = self.cwd or os.getcwd()
+        result: list[dict[str, Any]] = []
+        groups = (
+            (getattr(coder, "abs_fnames", set()), False),
+            (getattr(coder, "abs_read_only_fnames", set()), True),
+            (getattr(coder, "abs_read_only_stubs_fnames", set()), True),
+        )
+
+        for paths, read_only in groups:
+            for path in sorted(paths):
+                try:
+                    relative = os.path.relpath(path, root)
+                except ValueError:
+                    relative = path
+                result.append({"path": relative, "absolutePath": path, "readOnly": read_only})
+
+        return result
+
+    def _skills_state(self, coder: Any) -> list[dict[str, Any]]:
+        manager = getattr(coder, "skills_manager", None)
+        if manager is None:
+            return []
+        try:
+            return manager.get_all_skills_info()
+        except Exception:
+            return []
+
+    def _mcp_state(self, coder: Any) -> list[dict[str, Any]]:
+        manager = getattr(coder, "mcp_manager", None)
+        if manager is None:
+            return []
+
+        result = []
+        for server in getattr(manager, "servers", []):
+            config = getattr(server, "config", {}) or {}
+            result.append(
+                {
+                    "name": server.name,
+                    "connected": bool(
+                        server in getattr(manager, "connected_servers", set())
+                        or getattr(server, "is_connected", False)
+                    ),
+                    "enabled": bool(config.get("enabled", True)),
+                    "type": config.get("type") or ("stdio" if config.get("command") else "remote"),
+                }
+            )
+        return sorted(result, key=lambda item: item["name"])
+
+    def _workflow_state(self, coder: Any) -> list[dict[str, Any]]:
+        from cecli.commands.workflow_helpers.common import workflows
+
+        try:
+            items = workflows(coder)
+        except Exception:
+            items = []
+
+        return [
+            {
+                "name": wf.name,
+                "description": wf.description,
+                "schedule": wf.schedule,
+                "enabled": wf.enabled,
+                "tasks": len(wf.tasks),
+                "sourcePath": wf.source_path,
+            }
+            for wf in items
+        ]
+
+
+PATH_COMPLETION_COMMANDS = {"/add", "/read-only", "/read-only-stub", "/rules", "/load", "/save"}
+MAX_COMPLETIONS = 50
+
+
+def _conversation_history(coder: Any, limit: int = 400) -> list[dict[str, Any]]:
+    """Normalise a coder's CUR/DONE messages into a transcript-replay payload."""
+    from cecli.helpers.conversation.service import ConversationService
+    from cecli.helpers.conversation.tags import MessageTag
+
+    try:
+        manager = ConversationService.get_manager(coder)
+        messages = manager.get_messages()
+    except Exception:
+        return []
+
+    tags = (MessageTag.CUR.value, MessageTag.DONE.value)
+    history: list[dict[str, Any]] = []
+
+    for message in messages:
+        if message.tag not in tags:
+            continue
+
+        data = message.to_dict()
+        role = data.get("role")
+        if role not in ("user", "assistant", "tool"):
+            continue
+
+        content = data.get("content")
+        content = content if isinstance(content, str) else ("" if content is None else str(content))
+        tool_calls = data.get("tool_calls") or []
+        if not content and not tool_calls:
+            continue
+
+        entry: dict[str, Any] = {"role": role, "content": content}
+        reasoning = data.get("reasoning_content") or data.get("reasoning")
+        if reasoning:
+            entry["reasoning"] = str(reasoning)
+        if tool_calls:
+            entry["toolCalls"] = [
+                _history_tool_call(tool_call) for tool_call in tool_calls if tool_call
+            ]
+        if data.get("tool_call_id"):
+            entry["toolCallId"] = data["tool_call_id"]
+
+        history.append(entry)
+
+    return history[-limit:]
+
+
+def _history_tool_call(tool_call: Any) -> dict[str, Any]:
+    """Reduce one provider tool call to the id/name/arguments the UI needs."""
+    if isinstance(tool_call, dict):
+        function = tool_call.get("function") or {}
+        return {
+            "id": tool_call.get("id"),
+            "name": function.get("name") or tool_call.get("name") or "",
+            "arguments": function.get("arguments") or tool_call.get("arguments") or "",
+        }
+
+    function = getattr(tool_call, "function", None)
+    return {
+        "id": getattr(tool_call, "id", None),
+        "name": getattr(function, "name", "") or "",
+        "arguments": getattr(function, "arguments", "") or "",
+    }
+
+
+def _complete(coder: Any, text: str) -> dict[str, Any]:
+    """Return completion candidates for the desktop composer.
+
+    Mirrors the TUI's slash-command, argument, `@` mention and path
+    completion behavior closely enough that the desktop and terminal share
+    the same command surface.
+    """
+    commands = getattr(coder, "commands", None)
+    suggestions: list[str] = []
+    descriptions: dict[str, str] = {}
+    start = 0
+
+    if "@" in text:
+        at_index = text.rfind("@")
+        prefix = text[at_index + 1 :]
+        start = at_index + 1
+        suggestions = _mention_completions(coder, prefix)
+    elif text.startswith("/"):
+        parts = text.split(maxsplit=1)
+        cmd_part = parts[0]
+
+        if len(parts) == 1 and not text.endswith(" "):
+            suggestions, descriptions = _command_completions(commands, cmd_part)
+        else:
+            arg_prefix = "" if text.endswith(" ") else text.rsplit(maxsplit=1)[-1]
+            start = len(text) - len(arg_prefix)
+            if cmd_part in PATH_COMPLETION_COMMANDS:
+                suggestions = _path_completions(coder, arg_prefix)
+            else:
+                suggestions = _argument_completions(commands, coder, text, cmd_part, arg_prefix)
+    else:
+        words = text.rsplit(maxsplit=1)
+        last = words[-1] if words else ""
+        if "/" in last:
+            start = len(text) - len(last)
+            suggestions = _path_completions(coder, last)
+
+    unique = []
+    seen = set()
+    for item in suggestions:
+        value = str(item)
+        if value and value not in seen:
+            seen.add(value)
+            unique.append(value)
+
+    return {
+        "suggestions": unique[:MAX_COMPLETIONS],
+        "descriptions": {
+            key: value for key, value in descriptions.items() if key in unique[:MAX_COMPLETIONS]
+        },
+        "start": start,
+    }
+
+
+def _command_completions(commands: Any, cmd_part: str) -> tuple[list[str], dict[str, str]]:
+    if commands is None:
+        return [], {}
+
+    from cecli.commands.utils.registry import CommandRegistry
+
+    all_commands = commands.get_commands()
+    if cmd_part == "/":
+        matches = all_commands
+    else:
+        starts_with = [item for item in all_commands if item.startswith(cmd_part)]
+        contains = [
+            item for item in all_commands if cmd_part[1:] in item and not item.startswith(cmd_part)
+        ]
+        matches = starts_with + contains
+
+    descriptions = {}
+    for item in matches:
+        name = item[1:]
+        if name in HIDDEN_COMMANDS:
+            continue
+        description = CommandRegistry.get_command_description(name)
+        if description:
+            descriptions[item] = description
+
+    return [item for item in matches if item[1:] not in HIDDEN_COMMANDS], descriptions
+
+
+def _argument_completions(
+    commands: Any, coder: Any, text: str, cmd_name: str, arg_prefix: str
+) -> list[str]:
+    if commands is None:
+        return []
+
+    try:
+        if commands.uses_full_args_completion(cmd_name):
+            nested_text = text[len(cmd_name) :].lstrip()
+            values = commands.get_completions(cmd_name, args=nested_text, coder=coder)
+        else:
+            values = commands.get_completions(cmd_name, args=arg_prefix, coder=coder)
+    except Exception:
+        return []
+
+    if not values:
+        return []
+
+    exempt = {"/model", "/models", "/agent-model", "/editor-model", "/weak-model"}
+    lowered = arg_prefix.lower()
+    if arg_prefix and cmd_name not in exempt:
+        return [str(item) for item in values if lowered in str(item).lower()]
+    return [str(item) for item in values]
+
+
+def _mention_completions(coder: Any, prefix: str) -> list[str]:
+    values = _path_completions(coder, prefix)
+    try:
+        values.extend(coder.get_inchat_relative_files())
+    except Exception:
+        pass
+    return values
+
+
+def _path_completions(coder: Any, prefix: str) -> list[str]:
+    """Prefix then fuzzy file lookup under the coder's root."""
+    from cecli.helpers.file_system import FileSystemService
+
+    root = getattr(coder, "root", None) or os.getcwd()
+    try:
+        fs = getattr(coder, "fs", None) or FileSystemService.for_root(
+            str(root), repo=getattr(coder, "repo", None)
+        )
+        if prefix:
+            matches = fs.list_prefix(prefix) if fs.trie else []
+            if not matches:
+                matches = fs.search(prefix, threshold=0.1)
+            if matches:
+                return sorted(matches)
+    except Exception:
+        pass
+
+    return _filesystem_completions(str(root), prefix)
+
+
+def _filesystem_completions(root: str, prefix: str) -> list[str]:
+    if "/" in prefix:
+        dir_part, file_part = prefix.rsplit("/", 1)
+        search_dir = os.path.join(root, dir_part)
+        path_prefix = dir_part + "/"
+    else:
+        search_dir = root
+        file_part = prefix
+        path_prefix = ""
+
+    completions = []
+    try:
+        for entry in os.scandir(search_dir):
+            if file_part.lower() not in entry.name.lower():
+                continue
+            suffix = "/" if entry.is_dir() else ""
+            completions.append(path_prefix + entry.name + suffix)
+    except OSError:
+        pass
+
+    return sorted(completions)
 
 
 def _require_cwd(params: dict) -> str:

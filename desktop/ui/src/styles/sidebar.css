@@ -1,0 +1,332 @@
+/* ---------------------------------------------------------------- sidebar */
+
+.session-sidebar {
+  display: flex;
+  flex: 0 0 292px;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--color-base-300);
+  background: color-mix(in oklab, var(--color-base-100) 92%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+}
+
+.sidebar-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.sidebar-add,
+.session-close,
+.workflow-row,
+.registry-action {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.sidebar-add {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--color-base-200);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.sidebar-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.session-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px 12px;
+}
+
+.session-node {
+  margin-bottom: 6px;
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.session-node.is-active {
+  background: var(--color-base-200);
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.session-row:hover {
+  background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-badge {
+  max-width: 82px;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--color-base-300);
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-badge[data-activity='running'],
+.activity-badge[data-activity='tool'] {
+  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  color: var(--color-primary);
+}
+
+.permission-badge {
+  min-width: 17px;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--color-error);
+  color: var(--color-error-content);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.activity-badge[data-activity='exited'] {
+  background: color-mix(in oklab, var(--color-error) 14%, transparent);
+  color: var(--color-error);
+}
+
+.session-close {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  opacity: 0.5;
+}
+
+.session-close:hover {
+  background: var(--color-base-300);
+  opacity: 1;
+}
+
+.subagent-tree,
+.registry-list {
+  margin: 2px 0 4px;
+  padding: 0 0 0 22px;
+  list-style: none;
+}
+
+.subagent-row,
+.registry-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 7px;
+  padding: 5px 7px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.subagent-row:hover,
+.registry-row:hover {
+  background: var(--color-base-200);
+}
+
+.subagent-name,
+.registry-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-state {
+  font-size: 0.66rem;
+  opacity: 0.55;
+}
+
+.subagent-state[data-activity='running'] {
+  color: var(--color-primary);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.subagent-state[data-activity='requires action'] {
+  color: var(--color-warning);
+  opacity: 1;
+}
+
+.sidebar-workflows {
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow: auto;
+  border-top: 1px solid var(--color-base-300);
+  padding: 8px 12px 12px;
+}
+
+.sidebar-workflows-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+
+.sidebar-count {
+  min-width: 17px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: var(--color-base-200);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0.72;
+}
+
+.workflow-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border-radius: 8px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.workflow-row:hover {
+  background: var(--color-base-200);
+}
+
+.workflow-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-run {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: var(--color-base-200);
+  font-size: 0.64rem;
+  opacity: 0.72;
+}
+
+.workflow-row:hover .workflow-run {
+  background: var(--color-base-300);
+  opacity: 1;
+}
+
+.sidebar-workflows .sidebar-empty {
+  margin: 2px;
+}
+
+.registry-panel {
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow: auto;
+  border-top: 1px solid var(--color-base-300);
+  padding: 10px 12px 14px;
+}
+
+.registry-group h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0 4px;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.registry-group h3 span {
+  opacity: 0.8;
+}
+
+.registry-list {
+  padding-left: 0;
+}
+
+.registry-action {
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: var(--color-base-200);
+  font-size: 0.66rem;
+}
+
+.registry-action:hover {
+  background: var(--color-base-300);
+}
+
+.registry-empty,
+.sidebar-empty {
+  margin: 4px 12px;
+  font-size: 0.75rem;
+  opacity: 0.5;
+}
+
+.status-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-base-300);
+}
+
+.status-dot[data-status='ready'] {
+  background: var(--color-success);
+}
+
+.status-dot[data-status='starting'],
+.status-dot[data-status='busy'] {
+  background: var(--color-warning);
+}
+
+.status-dot[data-status='exited'] {
+  background: var(--color-error);
+}
+
+@media (max-width: 860px) {
+  .session-sidebar {
+    flex-basis: 228px;
+  }
+
+  .registry-panel {
+    display: none;
+  }
+}

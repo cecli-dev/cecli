@@ -5,9 +5,9 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 16px 22px 6px;
+  max-width: none;
+  margin: 0;
+  padding: 12px;
 }
 
 .brand {
@@ -18,20 +18,15 @@
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
+  flex: none;
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  color: #ffffff;
-  background: var(--accent-gradient);
-  box-shadow: 0 4px 12px -4px rgba(111, 91, 240, 0.6);
+  object-fit: cover;
+  box-shadow: 0 4px 12px -4px rgba(17, 20, 45, 0.35);
 }
 
-.brand-mark svg {
-  width: 16px;
-  height: 16px;
-}
 
 .brand-name {
   font-size: 16px;

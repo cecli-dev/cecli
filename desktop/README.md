@@ -55,6 +55,7 @@ overrides, and packaging notes are in [TAURI.md](TAURI.md).
 cd desktop
 npm install
 npm run gen:icons
+npm run runtime:install  # optional: create desktop/.runtime/venv with cecli
 npm run dev        # or: npm run build (both rebuild the UI first)
 ```
 
@@ -75,6 +76,20 @@ pick a specific cecli executable.
   ACP config options, a compact context-usage badge, and icon actions for logs,
   new chat, and restart.
 - Stop / cancel; send becomes a stop button while a turn runs.
+
+- A left sidebar with one tree per parent cecli session and its sub-agents.
+- Per-session activity badges, permission counts, context files, and loaded
+  skills/MCP servers/workflows.
+- Add/close parent sessions; switch sessions without losing the in-memory
+  transcript; message or cancel a sub-agent.
+- A registry panel at the bottom of the sidebar for toggling skills and MCP
+  servers and running workflows.
+
+`GET /api/sessions` lists the tree, `GET /api/state?bridgeId=...` returns one
+session view, and `GET /ws` is a command-only WebSocket (`sessions.*`,
+`session.*`, `subagents.*`, `skills.*`, `mcp.*`, `workflows.*`, `context.*`).
+SSE remains the only server-to-client event stream, so commands cannot race and
+duplicate state updates.
 
 ## Requirements
 
@@ -106,7 +121,7 @@ npm run ui:check        # fail if static/ does not match ui/ sources
 npm run test:ui         # node:test reducers, snapshots, session actions
 cd ..
 python3 -m py_compile desktop/server.py
-python3 desktop/tests/test_bridge.py -v   # 20 tests, fake ACP agent, no model calls
+python3 desktop/tests/test_bridge.py -v   # 22 tests, fake ACP agent, no model calls
 ```
 
 `npm run ui:dev` serves `ui/` on Vite's port and proxies `/api` to an already

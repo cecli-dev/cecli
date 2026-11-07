@@ -1,6 +1,7 @@
 /* --------------------------------------------------------------- markdown */
 
 .md {
+  padding-bottom: 6px;
   color: var(--text);
   font-size: 14.8px;
   line-height: 1.72;

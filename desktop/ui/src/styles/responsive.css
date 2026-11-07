@@ -6,11 +6,12 @@
   }
 
   .transcript {
-    padding: 8px 18px 20px;
+    padding: 0 16px 20px;
   }
 
-  .permission-region {
-    padding: 0 18px 10px;
+  .empty-hero {
+    flex-direction: column;
+    padding: 0 16px 10px;
   }
 
   .composer-dock {
@@ -24,11 +25,11 @@
   }
 
   .transcript {
-    padding: 6px 14px 16px;
+    padding: 0 12px 16px;
   }
 
   .permission-region {
-    padding: 0 14px 10px;
+    padding: 0 12px 10px;
   }
 
   .composer-dock {

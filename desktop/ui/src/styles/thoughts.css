@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------- thoughts */
 
 .thought {
-  margin: 4px 0 14px;
+  margin: 4px 0 12px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -51,4 +51,37 @@
   font-style: italic;
   line-height: 1.68;
   white-space: pre-wrap;
+}
+
+/* Compact pill form used above assistant markdown. */
+.thought {
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.thought summary {
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+}
+
+.thought summary::before {
+  font-size: 13px;
+}
+
+.thought[open] {
+  width: 100%;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.thought[open] summary {
+  padding: 7px 12px;
+}
+
+.thought-text {
+  padding: 8px 12px 12px;
 }

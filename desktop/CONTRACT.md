@@ -173,7 +173,7 @@ report the truth.
 ## UI requirements
 
 - Clean, light chat layout: soft lavender wash, white surfaces, subtle borders,
-  and a centred single-column transcript. No sidebar or always-open settings panel.
+  a centred transcript, and a left sidebar for sessions, sub-agents, and registries.
 - Header: brand, workspace path, connection status. Before the first turn the
   transcript shows a large empty state with the cecli ASCII wordmark (the same
   art as the cecli.dev hero, without its tagline), a short greeting, and example
@@ -193,6 +193,60 @@ report the truth.
   Always escape HTML first.
 - No external network requests from the page at runtime. Lit, daisyUI and
   Tailwind are bundled at build time; there is no CDN.
+- Sub-agent pills above the composer switch the transcript between the primary turn
+  and each discovered child session; child text, thoughts, tools and plans stream
+  into their own transcript while the sidebar keeps the agent tree fresh.
+- New-session, model and registry actions use modals: the sidebar `+` asks for
+  workspace path and title, the model chip opens a searchable model picker, and
+  the Skills, MCP and Context badges under the composer open their registries.
+- Workflows are listed in a dedicated sidebar section below the session tree;
+  each row runs `/workflows run <name>` in the active (primary) session.
+- The desktop always runs in agent mode; there is no mode switcher or
+  reasoning-effort selector. Mode changes are refused by the bridge, and effort
+  stays under the agent's control (`/reasoning-effort` still works).
+- The composer offers bridge completion candidates for `/` commands, command
+  arguments, `@` mentions and paths; Arrow keys move, Tab/Enter accept, Esc closes.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
 - Keyboard accessible; permission buttons reachable by tab; `Esc` cancels a turn
   when the composer is not focused.
+
+## Multi-session extensions
+
+The server owns `SessionManager`; each parent is an `AcpBridge` with its own
+`cecli --acp` child. `bridgeId` identifies a parent, while `sessionId` is the
+ACP coder id inside one bridge. Children may reuse JSON-RPC ids, so client-side
+permission keys are `bridgeId:requestId`.
+
+All mutation routes accept `bridgeId`; when more than one session exists it is
+required (400 otherwise). Relevant additions:
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/api/sessions` | - | `{sessions, activeBridgeId, maxSessions}` |
+| GET | `/api/state?bridgeId=...` | - | one bridge snapshot plus `sessions` |
+| POST | `/api/sessions` | `{cwd?, title?}` | 201 `{bridgeId, state}` |
+| POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
+| POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
+| GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
+| POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
+| POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |
+| POST | `/api/subagent/cancel` | `{bridgeId, sessionId}` | 202 |
+| POST | `/api/skills|mcp|workflows|context` | `{bridgeId, action, name, ...}` | 200 `{result}` |
+
+Snapshots add `bridgeId`, `primary`, `title`, `activity`, `activityDetail`, `subagents`,
+`detailsSupported`, `skills`, `mcpServers`, `workflows`, `contextFiles`, and
+permission entries tagged with `bridgeId`. SSE `status`, `session`, `update`,
+`permission`, `details`, `subagents`, and `sessions` events also carry `bridgeId`.
+The primary parent cannot be closed, and a busy parent cannot be closed.
+Workflow runs execute as `/workflows run <name>` in the primary session rather
+than as a separate child session.
+
+`GET /ws` is an RFC6455 command channel. The handshake requires the
+`cecli.desktop.v1` subprotocol and, when a token is configured, a
+`token.<token>` subprotocol. Client frames are `{id, command, params}`; server
+frames are only `{id, ok, result}` or `{id, ok: false, error, status?}`. No state
+events are pushed over WebSocket: SSE is the sole server-to-client event stream.
+Commands: `state.get`, `sessions.list|create|close`, `session.prompt|cancel|new|config|permission`,
+`state.details`, `subagents.list|message|cancel`, `skills.list|load|remove|include|exclude`,
+`complete.get`, `history.get`, `mcp.list|connect|disconnect`, `workflows.list|run`,
+`context.add|remove`.

@@ -22,6 +22,7 @@ _stdout_lock = threading.Lock()
 _config_options: list[dict[str, Any]] = []
 _pending_prompt: dict[str, Any] | None = None
 _permission_seq = 0
+_announced_subagents: set[str] = set()
 
 
 def send(message: dict[str, Any]) -> None:
@@ -40,12 +41,12 @@ def error(request_id: Any, code: int, message: str) -> None:
     send({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}})
 
 
-def update(payload: dict[str, Any]) -> None:
+def update(payload: dict[str, Any], session_id: str | None = None) -> None:
     send(
         {
             "jsonrpc": "2.0",
             "method": "session/update",
-            "params": {"sessionId": SESSION_ID, "update": payload},
+            "params": {"sessionId": session_id or SESSION_ID, "update": payload},
         }
     )
 
@@ -70,6 +71,17 @@ def default_config_options() -> list[dict[str, Any]]:
             "type": "select",
             "currentValue": "fake-1",
             "options": [{"value": "fake-1", "name": "Fake One", "description": "Small"}],
+        },
+        {
+            "id": "reasoning_effort",
+            "name": "Reasoning effort",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": "high",
+            "options": [
+                {"value": "low", "name": "Low"},
+                {"value": "high", "name": "High"},
+            ],
         },
     ]
 
@@ -176,6 +188,34 @@ def handle_prompt(request_id: Any, params: dict[str, Any]) -> None:
         }
     )
     _ask_permission()
+
+    if "spawn" in text:
+        _announced_subagents.add("child-1")
+        update(
+            {
+                "sessionUpdate": "subagent_update",
+                "sessionId": "child-1",
+                "title": "worker",
+                "description": "Background worker",
+                "capabilities": {},
+                "state": {"state": "running"},
+            }
+        )
+        update(
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "child output"},
+            },
+            "child-1",
+        )
+        update(
+            {
+                "sessionUpdate": "subagent_update",
+                "sessionId": "child-1",
+                "capabilities": {},
+                "state": {"state": "idle", "stopReason": "end_turn"},
+            }
+        )
     if "two permissions" in text:
         _ask_permission()
 
@@ -281,6 +321,103 @@ def _prompt_text(params: dict[str, Any]) -> str:
     )
 
 
+def handle_complete(request_id: Any, params: dict[str, Any]) -> None:
+    """Return deterministic completion suggestions for bridge tests."""
+    text = str(params.get("text") or "")
+
+    if text.startswith("/"):
+        suggestions = ["/help", "/status"]
+        descriptions = {"/help": "Show help", "/status": "Show status"}
+        start = 0
+    elif text.startswith("@"):
+        suggestions = ["README.md"]
+        descriptions = {}
+        start = 1
+    else:
+        suggestions = []
+        descriptions = {}
+        start = len(text)
+
+    result(
+        request_id,
+        {"suggestions": suggestions, "descriptions": descriptions, "start": start},
+    )
+
+
+def state_details() -> dict[str, Any]:
+    """Registry payload returned by ``cecli/state`` in tests."""
+    return {
+        "ready": True,
+        "skills": [{"name": "pdf", "loaded": True}],
+        "mcpServers": [{"name": "github", "connected": False}],
+        "workflows": [{"name": "demo"}],
+        "contextFiles": [{"path": "README.md"}],
+        "subagents": [],
+    }
+
+
+def handle_history(request_id: Any) -> None:
+    """Return a deterministic conversation stream for transcript replay."""
+    messages = [
+        {
+            "role": "user",
+            "content": '<context name="user_input" from="agent">\nHello there\n</context>',
+        },
+        {"role": "assistant", "content": "Hi, I can help."},
+        {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+                {
+                    "id": "call-1",
+                    "name": "ReadFile",
+                    "arguments": '{"path": "CONTRACT.md"}',
+                }
+            ],
+        },
+        {"role": "tool", "toolCallId": "call-1", "content": "contract body"},
+        {"role": "assistant", "content": "All done."},
+    ]
+    subagents = [
+        {
+            "sessionId": session_id,
+            "messages": [
+                {"role": "user", "content": "work"},
+                {"role": "assistant", "content": "child reply"},
+            ],
+        }
+        for session_id in sorted(_announced_subagents)
+    ]
+    result(request_id, {"messages": messages, "subagents": subagents})
+
+
+def handle_subagent_message(request_id: Any, params: dict[str, Any]) -> None:
+    """Echo a user message into a child session, like the real agent does."""
+    session_id = params.get("sessionId")
+    text = str(params.get("text") or "")
+    result(request_id, {"ok": True})
+
+    if not session_id:
+        return
+
+    update(
+        {
+            "sessionUpdate": "session_message",
+            "userMessage": True,
+            "senderSessionId": SESSION_ID,
+            "recipientSessionId": session_id,
+            "content": [{"type": "text", "text": text}],
+        }
+    )
+    update(
+        {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": f"echo: {text}"},
+        },
+        session_id,
+    )
+
+
 def dispatch(message: dict[str, Any]) -> None:
     """Handle one JSON-RPC request, notification or response."""
     method = message.get("method")
@@ -302,6 +439,16 @@ def dispatch(message: dict[str, Any]) -> None:
         handle_config(request_id, params)
     elif method == "session/cancel":
         handle_cancel(params)
+    elif method == "cecli/complete":
+        handle_complete(request_id, params)
+    elif method == "cecli/state":
+        result(request_id, state_details())
+    elif method == "cecli/history":
+        handle_history(request_id)
+    elif method == "cecli/subagent/message":
+        handle_subagent_message(request_id, params)
+    elif method in ("cecli/skill", "cecli/mcp", "cecli/context"):
+        result(request_id, {"ok": True})
     elif request_id is not None:
         error(request_id, -32601, f"Method not found: {method}")
 

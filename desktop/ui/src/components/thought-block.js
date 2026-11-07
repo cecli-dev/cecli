@@ -5,6 +5,7 @@ import { session } from '../core/session.js';
 export class ThoughtBlock extends LitElement {
   static properties = {
     part: { attribute: false },
+    agentId: { type: String },
   };
 
   createRenderRoot() {
@@ -24,7 +25,7 @@ export class ThoughtBlock extends LitElement {
     const open = event.currentTarget.open;
     if (open === this.part.open) return;
 
-    session.set_thought_open(this.part.id, open);
+    session.set_thought_open(this.part.id, open, this.agentId || null);
   }
 }
 

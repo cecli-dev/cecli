@@ -1,10 +1,8 @@
-"""Generate Tauri app icons using only the Python standard library.
+"""Generate Tauri app icons from the desktop favicon SVG.
 
-The icon is a dark glassmorphic rounded square with a deep indigo/cyan
-gradient, a soft radial glow, a translucent inner panel, and a white/cyan
-"c" ring that is open on the right. Every target size is rendered at 4x
-supersampling and box-downsampled for antialiasing, then encoded as an RGBA
-PNG without any third-party dependency.
+CairoSVG renders the same ``CE_`` artwork the browser uses as its favicon. If
+CairoSVG is unavailable, a procedural fallback icon keeps the script usable
+with only the Python standard library.
 """
 
 import math
@@ -14,6 +12,12 @@ import zlib
 
 ICON_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src-tauri", "icons"
+)
+SVG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "ui",
+    "public",
+    "cecli-temp-logo-favicon.svg",
 )
 SUPERSAMPLE = 4
 TARGETS = (
@@ -37,11 +41,22 @@ def main():
     """Render every target icon and write PNG, ICO, and ICNS files."""
     os.makedirs(ICON_DIR, exist_ok=True)
     pngs = {}
+    use_svg = os.path.isfile(SVG_PATH)
+    if not use_svg:
+        print(f"warning: {SVG_PATH} is missing; using the fallback icon")
 
     for size, name in TARGETS:
-        rgba = render_icon(size)
-        pixels = downsample(rgba, size * SUPERSAMPLE, size)
-        pngs[size] = encode_png(size, size, pixels)
+        data = None
+        if use_svg:
+            try:
+                data = render_svg_png(size)
+            except Exception as err:
+                print(f"warning: cannot render {SVG_PATH}: {err}; using fallback icon")
+                use_svg = False
+        if data is None:
+            data = render_fallback_png(size)
+
+        pngs[size] = data
         path = os.path.join(ICON_DIR, name)
         write_file(path, pngs[size])
         print(f"{path} {size}x{size} {os.path.getsize(path)} bytes")
@@ -53,6 +68,20 @@ def main():
     icns_path = os.path.join(ICON_DIR, "icon.icns")
     write_file(icns_path, encode_icns(pngs))
     print(f"{icns_path} {os.path.getsize(icns_path)} bytes")
+
+
+def render_svg_png(size):
+    """Render the favicon SVG to PNG bytes at one square size."""
+    import cairosvg
+
+    return cairosvg.svg2png(url=SVG_PATH, output_width=size, output_height=size)
+
+
+def render_fallback_png(size):
+    """Render the procedural icon when CairoSVG cannot read the SVG."""
+    rgba = render_icon(size)
+    pixels = downsample(rgba, size * SUPERSAMPLE, size)
+    return encode_png(size, size, pixels)
 
 
 def render_icon(size):
