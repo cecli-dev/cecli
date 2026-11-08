@@ -54,6 +54,7 @@ from .quit import QuitCommand
 from .read_only import ReadOnlyCommand
 from .read_only_stub import ReadOnlyStubCommand
 from .reap_agent import ReapAgentCommand
+from .reasoning_effort import ReasoningEffortCommand
 from .rag import RagAddCommand, RagDropCommand, RagLsCommand, RagQuestionCommand
 from .remove_memory import RemoveMemoryCommand
 from .report import ReportCommand
@@ -138,6 +139,7 @@ CommandRegistry.register(QuitCommand)
 CommandRegistry.register(ReadOnlyCommand)
 CommandRegistry.register(ReadOnlyStubCommand)
 CommandRegistry.register(ReapAgentCommand)
+CommandRegistry.register(ReasoningEffortCommand)
 CommandRegistry.register(RagAddCommand)
 CommandRegistry.register(RagDropCommand)
 CommandRegistry.register(RagLsCommand)
