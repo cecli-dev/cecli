@@ -160,3 +160,29 @@
 .usage-fill[data-level="high"] {
   background: var(--danger);
 }
+
+/* --------------------------------------------------------------- jump badge */
+
+.strip-badge.jump-badge {
+  border-color: #000000;
+  color: #ffffff;
+  background: #000000;
+}
+
+.strip-badge.jump-badge:hover {
+  border-color: #000000;
+  color: #ffffff;
+  background: #1a1a1a;
+}
+
+.strip-badge.jump-badge:focus-visible {
+  border-color: #000000;
+  color: #ffffff;
+  background: #000000;
+  outline: 2px solid rgba(111, 91, 240, 0.6);
+  outline-offset: 2px;
+}
+
+.strip-badge.jump-badge span {
+  color: inherit;
+}

@@ -1,0 +1,46 @@
+/* ------------------------------------------------------------- workbench */
+
+.workbench-panel {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-rows: minmax(240px, 1.35fr) minmax(160px, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: transparent;
+}
+
+
+.workbench-panel:has(browser-panel[data-collapsed]) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workbench-panel:has(background-panel[data-collapsed]) {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.workbench-panel:has(browser-panel[data-collapsed]):has(background-panel[data-collapsed]) {
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.workbench-panel:has(browser-panel[data-collapsed]) browser-panel,
+.workbench-panel:has(background-panel[data-collapsed]) background-panel {
+  height: auto;
+}
+
+.workbench-panel .browser-panel {
+  border-left: 0;
+}
+
+.workbench-panel .background-panel {
+  border-left: 0;
+}
+
+
+@media (max-width: 940px) {
+  .workbench-panel {
+    display: none;
+  }
+}

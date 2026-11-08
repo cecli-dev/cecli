@@ -2,6 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
 import { session } from '../core/session.js';
+import { CHEVRON_ICON } from '../core/constants.js';
 import { push_toast } from '../core/notices.js';
 import { StoreController, store } from '../core/store.js';
 
@@ -10,6 +11,7 @@ export class SessionSidebar extends LitElement {
   constructor() {
     super();
     this._store = new StoreController(this, store);
+    this._workflows_collapsed = false;
   }
 
   createRenderRoot() {
@@ -21,13 +23,13 @@ export class SessionSidebar extends LitElement {
     const workflows = state.workflows || [];
 
     return html`
-      <aside class="session-sidebar" aria-label="Sessions and registries">
+      <aside class="session-sidebar" aria-label="Workspaces and registries">
         <div class="sidebar-head">
-          <span class="sidebar-title">Sessions</span>
+          <span class="sidebar-title">Workspaces</span>
           <button
             class="sidebar-add"
             type="button"
-            title="New session"
+            title="Add workspace"
             ?disabled=${state.sessions.length >= state.max_sessions}
             @click=${this._create}
           >+</button>
@@ -40,13 +42,21 @@ export class SessionSidebar extends LitElement {
                 (item) => item.bridgeId,
                 (item) => this._render_session(item, state.active_bridge_id),
               )
-            : html`<p class="sidebar-empty">No sessions yet</p>`}
+            : html`<p class="sidebar-empty">No workspaces yet</p>`}
         </div>
 
-        <div class="sidebar-workflows">
-          <div class="sidebar-workflows-head">
+        <div class="sidebar-workflows" data-collapsed=${this._workflows_collapsed}>
+          <div class="sidebar-workflows-head" @click=${this._toggle_workflows}>
             <span class="sidebar-title">Workflows</span>
             <span class="sidebar-count">${workflows.length}</span>
+            <button
+              type="button"
+              class="sidebar-workflows-collapse"
+              title=${this._workflows_collapsed ? 'Expand workflows' : 'Collapse workflows'}
+              aria-label=${this._workflows_collapsed ? 'Expand workflows' : 'Collapse workflows'}
+              aria-expanded=${!this._workflows_collapsed}
+              @click=${this._toggle_workflows}
+            >${CHEVRON_ICON}</button>
           </div>
           ${workflows.length
             ? html`
@@ -62,6 +72,12 @@ export class SessionSidebar extends LitElement {
         </div>
       </aside>
     `;
+  }
+
+  _toggle_workflows(event) {
+    if (event) event.stopPropagation();
+    this._workflows_collapsed = !this._workflows_collapsed;
+    this.requestUpdate();
   }
 
   _render_session(item, active_bridge_id) {
@@ -84,10 +100,9 @@ export class SessionSidebar extends LitElement {
           <button
             class="session-close"
             type="button"
-            title=${item.primary ? 'Primary session' : 'Close session'}
-            ?hidden=${item.primary}
+            title=${item.primary ? 'Primary workspace' : 'Remove workspace'}
             ?disabled=${item.busy}
-            @click=${(event) => this._close(event, item.bridgeId)}
+            @click=${(event) => this._close(event, item)}
           >×</button>
         </div>
 
@@ -107,14 +122,20 @@ export class SessionSidebar extends LitElement {
     `;
   }
   _create() {
-    this.dispatchEvent(new CustomEvent('new-session', { bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent('add-workspace', { bubbles: true, composed: true }));
   }
 
-  _close(event, bridge_id) {
+  _close(event, item) {
     event.stopPropagation();
-    session
-      .close_session(bridge_id)
-      .catch((error) => push_toast(store, error.message, 'error'));
+    session.remove_workspace(item.workspace).catch(async (error) => {
+      if (error.message.includes('Unknown workspace')) {
+        await session.close_session(item.bridgeId).catch((close_error) => {
+          push_toast(store, close_error.message, 'error');
+        });
+        return;
+      }
+      push_toast(store, error.message, 'error');
+    });
   }
 
   _render_workflow(item) {

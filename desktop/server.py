@@ -28,7 +28,17 @@ import webbrowser
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+try:
+    from .browser_bridge import BrowserBridge, BrowserError
+    from .conf_store import ConfStore
+    from .onboarding_api import OnboardingError, OnboardingService
+except ImportError:  # pragma: no cover - the server also runs as a script
+    from browser_bridge import BrowserBridge, BrowserError
+    from conf_store import ConfStore
+    from onboarding_api import OnboardingError, OnboardingService
+
 MAX_BODY = 1024 * 1024
+DIRECTORY_LIMIT = 50
 SSE_QUEUE_SIZE = 512
 MAX_LINE_BYTES = 32 * 1024 * 1024
 STREAM_LIMIT = 10 * 1024 * 1024
@@ -146,12 +156,15 @@ class AcpBridge:
             "mcpServers": [],
             "workflows": [],
             "contextFiles": [],
+            "usage": {},
         }
         self.extra_sinks: list[Any] = []
         self.details_supported: bool | None = None
         self._details_task: asyncio.Task[Any] | None = None
         self._poll_task: asyncio.Task[Any] | None = None
         self.available_commands: list[dict[str, Any]] = []
+        self.shared_browser: dict[str, Any] | None = None
+        self._browser_announced = False
 
     async def start(self) -> None:
         """Launch the child and perform the ACP handshake in the background."""
@@ -189,6 +202,7 @@ class AcpBridge:
             "mcpServers": self.details.get("mcpServers", []),
             "workflows": self.details.get("workflows", []),
             "contextFiles": self.details.get("contextFiles", []),
+            "usage": self.details.get("usage", {}),
             "permissions": [
                 {"requestId": request_id, "bridgeId": self.bridge_id, **permission}
                 for request_id, permission in self._pending_permissions.items()
@@ -260,6 +274,27 @@ class AcpBridge:
         if isinstance(result, dict):
             self._apply_details(result)
         return result if isinstance(result, dict) else {}
+
+    async def announce_browser(self, endpoint: dict[str, Any]) -> None:
+        """Tell the child which live browser browser-harness should use."""
+        identity = (endpoint.get("cdpUrl"), endpoint.get("port"))
+        if self._browser_announced and self.shared_browser is not None:
+            current = (self.shared_browser.get("cdpUrl"), self.shared_browser.get("port"))
+            if current == identity:
+                self.shared_browser = dict(endpoint)
+                return
+
+        self._browser_announced = False
+        self.shared_browser = dict(endpoint)
+        if self.status != "ready" or self.session_id is None:
+            return
+
+        payload = {"sessionId": self.session_id, **endpoint}
+        try:
+            await self._request("cecli/browser", payload, timeout=10.0)
+            self._browser_announced = True
+        except (AcpError, asyncio.TimeoutError):
+            return
 
     async def set_skill(self, action: str, name: str) -> dict[str, Any]:
         """Load, remove, include or exclude one skill."""
@@ -422,6 +457,8 @@ class AcpBridge:
             self._start_poll()
             await self._broadcast(self._status_event())
             await self._broadcast(self._session_event())
+            if self.shared_browser is not None:
+                asyncio.create_task(self.announce_browser(self.shared_browser))
         except asyncio.CancelledError:
             raise
         except Exception as err:
@@ -721,6 +758,8 @@ class AcpBridge:
             value = result.get(key)
             if isinstance(value, list):
                 self.details[key] = value
+        if isinstance(result.get("usage"), dict):
+            self.details["usage"] = result["usage"]
         if isinstance(result.get("subagents"), list):
             for item in result["subagents"]:
                 child_id = item.get("sessionId")
@@ -1083,6 +1122,7 @@ class SessionManager:
         self.active_id: str | None = None
         self.ws_clients: set[WsClient] = set()
         self.sse_clients: set[SseClient] = set()
+        self.browser_endpoint: dict[str, Any] | None = None
         self._counter = 0
 
     def create(self, cwd: str | None = None, title: str | None = None) -> AcpBridge:
@@ -1109,6 +1149,7 @@ class SessionManager:
             primary=not self.sessions,
             title=title or os.path.basename(workspace.rstrip(os.sep)) or "cecli",
         )
+        bridge.shared_browser = self.browser_endpoint
         bridge.extra_sinks.append(self.publish)
         self.sessions[bridge_id] = bridge
         self.order.append(bridge_id)
@@ -1117,6 +1158,29 @@ class SessionManager:
         asyncio.create_task(bridge.start())
         self.publish_sessions()
         return bridge
+
+    async def announce_browser(self, endpoint: dict[str, Any]) -> None:
+        """Share one browser endpoint with every current and future session."""
+        self.browser_endpoint = dict(endpoint)
+        bridges = list(self.sessions.values())
+        await asyncio.gather(
+            *(bridge.announce_browser(endpoint) for bridge in bridges),
+            return_exceptions=True,
+        )
+
+    def allow_root(self, path: str) -> None:
+        """Let an explicitly configured workspace spawn its session."""
+        real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
+        if real not in self.allowed_roots:
+            self.allowed_roots.append(real)
+
+    def find_by_workspace(self, path: str) -> AcpBridge | None:
+        """The live session whose workspace is exactly ``path``, if any."""
+        real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
+        for bridge in self.sessions.values():
+            if os.path.realpath(bridge.workspace) == real:
+                return bridge
+        return None
 
     def get(self, bridge_id: str | None = None) -> AcpBridge:
         """Resolve an exact bridge id; never fall back to another session."""
@@ -1248,11 +1312,18 @@ class DesktopServer:
         root: Path,
         host: str = "127.0.0.1",
         token: str = "",
+        browser: BrowserBridge | None = None,
+        conf: ConfStore | None = None,
+        onboarding: OnboardingService | None = None,
     ) -> None:
         self.sessions = sessions
         self.token = token
         self.root = root
         self.host = host
+        self.browser = browser
+        self.conf = conf
+        self.onboarding = onboarding
+        self._browser_sync_task: asyncio.Task[Any] | None = None
 
     @property
     def bridge(self) -> AcpBridge:
@@ -1336,6 +1407,9 @@ class DesktopServer:
                 except asyncio.IncompleteReadError:
                     return
 
+                if method == "GET" and path == "/api/browser/stream":
+                    await self._serve_browser_stream(reader, writer)
+                    return
                 if method == "GET" and path == "/api/events":
                     await self._serve_events(reader, writer)
                     return
@@ -1376,14 +1450,22 @@ class DesktopServer:
             return self._serve_static(path[len("/static/") :])
 
         if method == "GET" and path == "/api/health":
+            bridge = next(iter(self.sessions.sessions.values()), None)
             return self._json(
                 200,
                 {
                     "ok": True,
-                    "status": self.sessions.get_default().status,
+                    "status": bridge.status if bridge is not None else "idle",
                     "sessions": len(self.sessions.sessions),
                 },
             )
+
+        if method == "GET" and path == "/api/browser/state":
+            try:
+                state = self._browser_bridge().snapshot()
+            except BrowserError as err:
+                return self._json(err.status, {"ok": False, "error": str(err)})
+            return self._json(200, {"ok": True, **state})
 
         if method == "GET" and path == "/api/state":
             return self._json(200, self.sessions.snapshot(self._query_bridge(query)))
@@ -1406,9 +1488,55 @@ class DesktopServer:
                 },
             )
 
+        if method == "GET" and path == "/api/workspaces":
+            return self._list_workspaces()
+
+        if method == "GET" and path == "/api/fs/dirs":
+            return self._list_directories((query.get("path") or [""])[0])
+
+        if method == "GET" and path == "/api/onboarding/status":
+            return self._onboarding_call(lambda: self.onboarding.status())
+
+        if method == "GET" and path == "/api/onboarding/providers":
+            slug = (query.get("slug") or [None])[0]
+            return self._onboarding_call(lambda: self.onboarding.providers(slug))
+
+        if method == "GET" and path == "/api/onboarding/copilot":
+            return self._onboarding_call(self.onboarding.copilot)
+
+        if method == "DELETE" and path == "/api/workspaces":
+            return await self._remove_workspace(body)
+
         if method != "POST":
             return self._json(404, {"ok": False, "error": "not found"})
 
+        if path.startswith("/api/browser/"):
+            suffix = path[len("/api/browser/") :]
+            if suffix == "start":
+                return await self._browser_start(body)
+            if suffix == "open":
+                return await self._browser_open(body)
+            if suffix == "action":
+                return await self._browser_action(body)
+            if suffix == "viewport":
+                return await self._browser_viewport(body)
+            if suffix == "input":
+                return await self._browser_input(body)
+            if suffix == "tab/close":
+                return await self._browser_close_tab(body)
+            if suffix == "tab/new":
+                return await self._browser_new_tab(body)
+            if suffix == "tab":
+                return await self._browser_tab(body)
+        if path == "/api/background":
+            return await self._background(body)
+
+        if path == "/api/workspaces":
+            return await self._add_workspace(body)
+        if path == "/api/onboarding/config":
+            return await self._onboarding_config(body)
+        if path == "/api/onboarding/copilot/login":
+            return await self._onboarding_copilot_login()
         if path == "/api/sessions":
             return await self._create_session(body)
         if path == "/api/sessions/close":
@@ -1440,6 +1568,187 @@ class DesktopServer:
             return await self._registry_action(path.rsplit("/", 1)[-1], body)
 
         return self._json(404, {"ok": False, "error": "not found"})
+
+    def _list_workspaces(self) -> tuple[int, bytes, str]:
+        """Configured folders with validity and their live session ids."""
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "workspace config is unavailable"})
+        workspaces = []
+        for entry in self.conf.workspace_states():
+            bridge = self.sessions.find_by_workspace(entry["path"]) if self.sessions else None
+            entry = {**entry, "bridgeId": bridge.bridge_id if bridge else None}
+            workspaces.append(entry)
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "workspaces": workspaces,
+                "configPath": str(self.conf.project_path),
+                "globalConfigPath": str(self.conf.global_path),
+            },
+        )
+
+    def _list_directories(self, raw_path: str) -> tuple[int, bytes, str]:
+        """Return matching child directories for the workspace path autocomplete."""
+        expanded = os.path.expandvars(os.path.expanduser(raw_path or ""))
+        if not expanded:
+            expanded = os.path.expanduser("~")
+        elif not os.path.isabs(expanded):
+            base = getattr(self.sessions, "default_workspace", os.getcwd())
+            expanded = os.path.join(base, expanded)
+
+        trailing = expanded.endswith((os.sep, os.altsep) if os.altsep else (os.sep,))
+        parent = expanded if trailing else os.path.dirname(expanded)
+        prefix = "" if trailing else os.path.basename(expanded)
+        if not parent:
+            parent = os.sep
+
+        try:
+            with os.scandir(parent) as iterator:
+                candidates = []
+                for entry in iterator:
+                    try:
+                        if not entry.is_dir():
+                            continue
+                    except OSError:
+                        continue
+                    if entry.name.startswith(".") and not prefix.startswith("."):
+                        continue
+                    candidates.append(entry)
+        except OSError:
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "parent": parent,
+                    "prefix": prefix,
+                    "separator": os.sep,
+                    "entries": [],
+                    "truncated": False,
+                },
+            )
+
+        candidates.sort(key=lambda entry: entry.name.lower())
+        needle = prefix.lower()
+        entries = []
+        truncated = False
+        for entry in candidates:
+            if needle and not entry.name.lower().startswith(needle):
+                continue
+            if len(entries) >= DIRECTORY_LIMIT:
+                truncated = True
+                break
+            entries.append({"name": entry.name, "path": os.path.join(parent, entry.name)})
+
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "parent": parent,
+                "prefix": prefix,
+                "separator": os.sep,
+                "entries": entries,
+                "truncated": truncated,
+            },
+        )
+
+    async def _add_workspace(self, body: bytes) -> tuple[int, bytes, str]:
+        """Validate and persist a folder, then start its session."""
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "workspace config is unavailable"})
+        path = data.get("path")
+        name = data.get("name")
+        if not isinstance(path, str) or not path.strip():
+            return self._json(400, {"ok": False, "error": "path is required"})
+        if name is not None and not isinstance(name, str):
+            return self._json(400, {"ok": False, "error": "name must be a string"})
+
+        try:
+            entry = self.conf.add_workspace(path, name)
+        except ValueError as err:
+            return self._json(400, {"ok": False, "error": str(err)})
+        except OSError as err:
+            return self._json(500, {"ok": False, "error": f"Failed to save workspace: {err}"})
+
+        bridge = self.sessions.find_by_workspace(entry["path"])
+        if bridge is None:
+            self.sessions.allow_root(entry["path"])
+            try:
+                bridge = self.sessions.create(entry["path"], entry["name"])
+            except BridgeError as err:
+                self.conf.remove_workspace(entry["path"])
+                return self._json(err.status, {"ok": False, "error": str(err)})
+
+        return self._json(
+            201,
+            {
+                "ok": True,
+                "workspace": entry,
+                "bridgeId": bridge.bridge_id,
+                "sessions": self.sessions.list_sessions(),
+            },
+        )
+
+    async def _remove_workspace(self, body: bytes) -> tuple[int, bytes, str]:
+        """Persist removal and close the folder's session when it is not primary."""
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "workspace config is unavailable"})
+        path = data.get("path")
+        if not isinstance(path, str) or not path.strip():
+            return self._json(400, {"ok": False, "error": "path is required"})
+
+        if not self.conf.remove_workspace(path):
+            return self._json(404, {"ok": False, "error": "Unknown workspace"})
+
+        closed = False
+        bridge = self.sessions.find_by_workspace(path)
+        if bridge is not None and not bridge.primary:
+            await self.sessions.close(bridge.bridge_id)
+            closed = True
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "closed": closed,
+                "sessions": self.sessions.list_sessions(),
+            },
+        )
+
+    def _onboarding_call(self, callback: Any) -> tuple[int, bytes, str]:
+        """Run one synchronous onboarding query, mapping failures to statuses."""
+        if self.onboarding is None:
+            return self._json(503, {"ok": False, "error": "onboarding is unavailable"})
+        try:
+            return self._json(200, callback())
+        except OnboardingError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+    async def _onboarding_config(self, body: bytes) -> tuple[int, bytes, str]:
+        """Persist provider keys and the default model from the GUI wizard."""
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if self.onboarding is None:
+            return self._json(503, {"ok": False, "error": "onboarding is unavailable"})
+        try:
+            return self._json(200, await self.onboarding.configure(data))
+        except OnboardingError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+    async def _onboarding_copilot_login(self) -> tuple[int, bytes, str]:
+        """Start or report the GitHub Copilot device flow."""
+        if self.onboarding is None:
+            return self._json(503, {"ok": False, "error": "onboarding is unavailable"})
+        try:
+            return self._json(200, await self.onboarding.copilot_login())
+        except OnboardingError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
 
     def _query_bridge(self, query: dict[str, list[str]]) -> str | None:
         values = query.get("bridgeId") or query.get("session") or []
@@ -1615,6 +1924,236 @@ class DesktopServer:
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(202, {"ok": True})
+
+    def _browser_bridge(self) -> BrowserBridge:
+        """The configured browser mirror, or an API-level failure."""
+        if self.browser is None:
+            raise BrowserError("the browser bridge is not configured")
+        return self.browser
+
+    def _announce_browser(self, state: dict[str, Any]) -> None:
+        """Tell every session which live browser browser-harness should use."""
+        announce = getattr(self.sessions, "announce_browser", None)
+        if announce is None or not state.get("running") or not state.get("cdpUrl"):
+            return
+
+        self._browser_sync_task = asyncio.create_task(
+            announce(
+                {
+                    "cdpUrl": state["cdpUrl"],
+                    "port": state.get("port"),
+                    "url": state.get("url", ""),
+                }
+            )
+        )
+
+    async def _browser_start(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        try:
+            state = await self._browser_bridge().start()
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        self._announce_browser(state)
+        return self._json(202, {"ok": True, **state})
+
+    async def _browser_open(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        url = data.get("url")
+        if not isinstance(url, str) or not url.strip():
+            return self._json(400, {"ok": False, "error": "url is required"})
+        try:
+            state = await self._browser_bridge().open(url)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(200, {"ok": True, **state})
+
+    async def _browser_action(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        action = data.get("action")
+        if not isinstance(action, str) or not action.strip():
+            return self._json(400, {"ok": False, "error": "action is required"})
+        try:
+            await self._browser_bridge().action(action)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(202, {"ok": True})
+
+    async def _browser_viewport(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        width = data.get("width")
+        height = data.get("height")
+        if width is None or height is None:
+            return self._json(400, {"ok": False, "error": "width and height are required"})
+        try:
+            await self._browser_bridge().set_viewport(width, height, data.get("dpr", 1.0))
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(202, {"ok": True})
+
+    async def _browser_input(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        event = data.get("event")
+        if not isinstance(event, dict):
+            return self._json(400, {"ok": False, "error": "event is required"})
+        try:
+            await self._browser_bridge().send_input(event)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(202, {"ok": True})
+
+    async def _browser_close_tab(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        tab_id = data.get("tabId") or data.get("id")
+        if not isinstance(tab_id, str) or not tab_id.strip():
+            return self._json(400, {"ok": False, "error": "tabId is required"})
+        try:
+            state = await self._browser_bridge().close_tab(tab_id)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(202, {"ok": True, **state})
+
+    async def _browser_new_tab(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        url = data.get("url")
+        if url is not None and not isinstance(url, str):
+            return self._json(400, {"ok": False, "error": "url must be a string"})
+        try:
+            state = await self._browser_bridge().new_tab(url or None)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(202, {"ok": True, **state})
+
+    async def _browser_tab(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        tab_id = data.get("tabId") or data.get("id")
+        if not isinstance(tab_id, str) or not tab_id.strip():
+            return self._json(400, {"ok": False, "error": "tabId is required"})
+        try:
+            state = await self._browser_bridge().select_tab(tab_id)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(202, {"ok": True, **state})
+
+    async def _background(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        action = data.get("action")
+        if action not in ("list", "output"):
+            return self._json(400, {"ok": False, "error": "action must be list or output"})
+        key = data.get("key")
+        if action == "output" and not isinstance(key, str):
+            return self._json(400, {"ok": False, "error": "key is required"})
+        params: dict[str, Any] = {"action": action}
+        if isinstance(key, str):
+            params["key"] = key
+        try:
+            bridge = self.sessions.get(data.get("bridgeId"))
+            result = await bridge.call_extension("cecli/background", params)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        if action == "list":
+            commands = result.get("commands")
+            return self._json(
+                200,
+                {"ok": True, "commands": commands if isinstance(commands, list) else []},
+            )
+        output = result.get("output")
+        command = result.get("command")
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "output": output if isinstance(output, str) else "",
+                "command": command if isinstance(command, dict) else {},
+            },
+        )
+
+    async def _serve_browser_stream(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            browser = self._browser_bridge()
+        except BrowserError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
+
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/event-stream\r\n"
+            b"Cache-Control: no-cache\r\n"
+            b"Connection: keep-alive\r\n"
+            b"X-Accel-Buffering: no\r\n\r\n"
+            b"retry: 2000\n\n"
+        )
+        queue = browser.subscribe()
+        try:
+            await writer.drain()
+        except (ConnectionError, RuntimeError):
+            browser.unsubscribe(queue)
+            return
+        except asyncio.CancelledError:
+            browser.unsubscribe(queue)
+            raise
+
+        writer_task = asyncio.create_task(self._browser_stream_writer(browser, queue, writer))
+        read_task = asyncio.create_task(self._wait_for_disconnect(reader))
+        try:
+            done, pending = await asyncio.wait(
+                {writer_task, read_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        finally:
+            browser.unsubscribe(queue)
+            await self._close_writer(writer)
+
+    async def _browser_stream_writer(
+        self,
+        browser: BrowserBridge,
+        queue: asyncio.Queue[dict[str, Any]],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            state = {"type": "state", "state": browser.snapshot()}
+            writer.write(f"data: {json.dumps(state, separators=(',', ':'))}\n\n".encode("utf-8"))
+            await writer.drain()
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    writer.write(b": ping\n\n")
+                    await writer.drain()
+                    continue
+                payload = (
+                    f"data: {json.dumps(event, separators=(',', ':'), ensure_ascii=False)}\n\n"
+                )
+                writer.write(payload.encode("utf-8"))
+                await writer.drain()
+        except (ConnectionError, BrokenPipeError, RuntimeError):
+            return
 
     async def _serve_websocket(
         self,
@@ -1839,6 +2378,26 @@ class DesktopServer:
         if command == "sessions.close":
             await self.sessions.close(bridge_id)
             return {"sessions": self.sessions.list_sessions()}
+
+        if command in ("background.list", "background.output"):
+            background = self.sessions.get(bridge_id)
+            action = command.split(".", 1)[1]
+            payload: dict[str, Any] = {"action": action}
+            key = params.get("key")
+            if action == "output":
+                if not isinstance(key, str):
+                    raise BridgeError(400, "key is required")
+                payload["key"] = key
+            result = await background.call_extension("cecli/background", payload)
+            if action == "list":
+                commands = result.get("commands")
+                return {"commands": commands if isinstance(commands, list) else []}
+            output = result.get("output")
+            entry = result.get("command")
+            return {
+                "output": output if isinstance(output, str) else "",
+                "command": entry if isinstance(entry, dict) else {},
+            }
 
         bridge = self.sessions.get_mutation(bridge_id)
 
@@ -2114,6 +2673,7 @@ class DesktopServer:
             409: "Conflict",
             413: "Payload Too Large",
             415: "Unsupported Media Type",
+            503: "Service Unavailable",
             500: "Internal Server Error",
         }.get(status, "Error")
 
@@ -2208,7 +2768,18 @@ async def run_server(config: ServerConfig) -> None:
         max_sessions=config.max_sessions,
         token=config.token,
     )
-    app = DesktopServer(manager, root, config.host, token=config.token)
+    conf = ConfStore(config.workspace)
+    onboarding = OnboardingService(manager, conf)
+    browser = BrowserBridge()
+    app = DesktopServer(
+        manager,
+        root,
+        config.host,
+        token=config.token,
+        browser=browser,
+        conf=conf,
+        onboarding=onboarding,
+    )
     server = await asyncio.start_server(app.handle_connection, config.host, config.port)
     port = server.sockets[0].getsockname()[1] if server.sockets else config.port
     app.port = port
@@ -2233,7 +2804,34 @@ async def run_server(config: ServerConfig) -> None:
         except (NotImplementedError, RuntimeError):
             pass
 
-    manager.create(config.workspace, "primary")
+    for entry in conf.workspace_states():
+        if not entry["valid"]:
+            print(
+                f"warning: skipping workspace {entry['path']}: {entry.get('error', 'invalid')}",
+                file=sys.stderr,
+                flush=True,
+            )
+            continue
+        manager.allow_root(entry["path"])
+        try:
+            manager.create(entry["path"], entry["name"])
+        except BridgeError as err:
+            print(
+                f"warning: could not start workspace {entry['path']}: {err}",
+                file=sys.stderr,
+                flush=True,
+            )
+    initial_browser = browser.snapshot()
+    if initial_browser.get("running") and initial_browser.get("cdpUrl"):
+        asyncio.create_task(
+            manager.announce_browser(
+                {
+                    "cdpUrl": initial_browser["cdpUrl"],
+                    "port": initial_browser.get("port"),
+                    "url": initial_browser.get("url", ""),
+                }
+            )
+        )
     if config.open_browser:
         asyncio.create_task(_open_browser(url))
 
@@ -2245,7 +2843,10 @@ async def run_server(config: ServerConfig) -> None:
             await asyncio.wait_for(server.wait_closed(), 2.0)
         except asyncio.TimeoutError:
             pass
-        await manager.shutdown()
+        try:
+            await manager.shutdown()
+        finally:
+            await browser.shutdown()
 
 
 async def _open_browser(url: str) -> None:

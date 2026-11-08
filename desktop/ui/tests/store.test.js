@@ -91,3 +91,44 @@ test('root patch_session defaults to the active bridge', () => {
   assert.equal(store.sessions[0].activity, 'running');
   assert.equal(store.sessions[0].busy, true);
 });
+
+test('connection state is shared across bridge views', () => {
+  const store = create_store();
+  store.update((state) => ({ ...state, connected: true, had_connection: true }));
+  store.set_sessions(
+    [{ bridgeId: 's1' }, { bridgeId: 's2' }],
+    8,
+  );
+
+  assert.equal(store.state.connected, true);
+  assert.equal(store.state.had_connection, true);
+
+  store.set_active('s2');
+  assert.equal(store.state.connected, true);
+
+  store.update((state) => ({ ...state, connected: false }));
+  assert.equal(store.state_for('s1').connected, false);
+  assert.equal(store.state_for('s2').connected, false);
+});
+
+test('reconnect updates the shared connection after switching bridges', () => {
+  const store = create_store();
+  store.set_sessions([{ bridgeId: 's1' }, { bridgeId: 's2' }], 8);
+  store.update((state) => ({ ...state, connected: true, had_connection: true }));
+
+  store.set_active('s2');
+  store.update((state) => ({ ...state, connected: false }));
+  store.set_active('s1');
+
+  const revision = store.revision('s1');
+  store.update((state) => ({
+    ...state,
+    connected: true,
+    had_connection: true,
+    disconnect_notified: false,
+  }));
+
+  assert.equal(store.state.connected, true);
+  assert.equal(store.state.had_connection, true);
+  assert.equal(store.revision('s1'), revision);
+});

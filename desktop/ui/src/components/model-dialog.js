@@ -89,6 +89,9 @@ export class ModelDialog extends LitElement {
             : html`<p class="modal-empty">No models match that search.</p>`}
           ${this._error ? html`<p class="modal-error">${this._error}</p>` : nothing}
           <div class="modal-actions">
+            <button type="button" class="modal-btn" @click=${this._open_onboarding}>
+              Add provider
+            </button>
             <button type="button" class="modal-btn" @click=${this._close}>Cancel</button>
           </div>
         </div>
@@ -139,6 +142,11 @@ export class ModelDialog extends LitElement {
       this._busy = false;
       this.requestUpdate();
     }
+  }
+
+  _open_onboarding() {
+    this.dispatchEvent(new CustomEvent('open-onboarding', { bubbles: true, composed: true }));
+    this._close();
   }
 
   _close() {

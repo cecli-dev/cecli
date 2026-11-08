@@ -271,6 +271,8 @@ class AcpAgent:
             "cecli/workflow": self._on_cecli_workflow,
             "cecli/context": self._on_cecli_context,
             "cecli/complete": self._on_cecli_complete,
+            "cecli/background": self._on_cecli_background,
+            "cecli/browser": self._on_cecli_browser,
             "cecli/subagent/message": self._on_cecli_subagent_message,
         }
         handler = handlers.get(method)
@@ -561,6 +563,58 @@ class AcpAgent:
             raise AcpError(INVALID_PARAMS, "text is required")
         return _complete(coder, text)
 
+    def _on_cecli_browser(self, params: dict, request_id: Any) -> dict:
+        """Point browser-harness at the desktop's shared browser."""
+        from cecli.helpers import browser
+
+        action = params.get("action", "set")
+        if action == "clear":
+            browser.clear_active_cdp_url()
+            return {"ok": True}
+
+        cdp_url = params.get("cdpUrl") or params.get("cdp_url")
+        if not isinstance(cdp_url, str) or not cdp_url.strip():
+            raise AcpError(INVALID_PARAMS, "cdpUrl is required")
+
+        parsed = urlparse(cdp_url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise AcpError(INVALID_PARAMS, "cdpUrl must be an http(s) URL")
+
+        port = params.get("port") or parsed.port
+        value = browser.set_active_cdp_url(cdp_url, port)
+        return {"ok": True, "cdpUrl": value, "port": port}
+
+    def _on_cecli_background(self, params: dict, request_id: Any) -> dict:
+        """List tracked background commands, or return one command's output."""
+        from cecli.helpers.background_commands import BackgroundCommandManager
+
+        action = params.get("action", "list")
+        commands = BackgroundCommandManager.list_background_commands()
+
+        if action == "list":
+            return {
+                "commands": [
+                    self._background_entry(command_key, info)
+                    for command_key, info in commands.items()
+                ]
+            }
+
+        if action != "output":
+            raise AcpError(INVALID_PARAMS, f"unknown background action: {action}")
+
+        command_key = params.get("key")
+        if not isinstance(command_key, str) or not command_key:
+            raise AcpError(INVALID_PARAMS, "key is required")
+
+        info = commands.get(command_key)
+        if info is None:
+            raise AcpError(INVALID_PARAMS, f"unknown background command: {command_key}")
+
+        return {
+            "output": BackgroundCommandManager.get_command_output(command_key),
+            "command": self._background_entry(command_key, info),
+        }
+
     def _on_cecli_subagent_message(self, params: dict, request_id: Any) -> dict:
         """Send a message to an active sub-agent, starting one when it is idle."""
         from cecli.helpers.agents.service import AgentService
@@ -738,7 +792,65 @@ class AcpAgent:
         if options:
             state["configOptions"] = options
             state["modes"] = self.config.modes(options)
+        state["usage"] = self._usage_state()
         return state
+
+    def _usage_state(self) -> dict[str, Any]:
+        """Token, cost and context metrics for the desktop metrics menu."""
+        usage: dict[str, Any] = {
+            "cost": None,
+            "tokens_sent": 0,
+            "tokens_received": 0,
+            "tokens_cached": 0,
+            "context_used": 0,
+            "context_size": 0,
+            "model": None,
+            "stats": None,
+        }
+        coder = self._coder()
+        if coder is None:
+            return usage
+
+        try:
+            model = coder.get_active_model()
+            name = getattr(model, "name", None)
+            usage["model"] = name
+            usage["cost"] = getattr(coder, "total_cost", None)
+            usage["tokens_sent"] = int(getattr(coder, "total_tokens_sent", 0) or 0)
+            usage["tokens_received"] = int(getattr(coder, "total_tokens_received", 0) or 0)
+            usage["tokens_cached"] = int(getattr(coder, "total_cached_tokens", 0) or 0)
+            info = getattr(model, "info", {}) or {}
+            usage["context_size"] = int(
+                info.get("max_input_tokens") or getattr(model, "max_chat_history_tokens", 0) or 0
+            )
+            if name:
+                tokens, peak, per_minute = type(coder)._get_token_usage_stats(name)
+                usage["stats"] = {
+                    "tokens_last_minute": tokens,
+                    "max_single_request": peak,
+                    "requests_per_minute": per_minute,
+                }
+            messages = self._context_messages(coder)
+            if messages:
+                usage["context_used"] = int(model.token_count(messages) or 0)
+        except Exception:
+            pass
+        return usage
+
+    def _context_messages(self, coder: Any) -> list[dict[str, Any]]:
+        """The current conversation messages used to estimate context usage."""
+        try:
+            from cecli.helpers.conversation import ConversationService
+
+            messages = ConversationService.get_manager(coder).get_messages_dict()
+            if messages:
+                return messages
+        except Exception:
+            pass
+        try:
+            return list(coder.done_messages) + list(coder.cur_messages)
+        except Exception:
+            return []
 
     def _sync_config(self) -> None:
         """Tell the client when a typed command (/model, /ask, ...) changed the options."""
@@ -1096,6 +1208,23 @@ class AcpAgent:
             }
             for wf in items
         ]
+
+    @staticmethod
+    def _background_entry(command_key: str, info: dict[str, Any]) -> dict[str, Any]:
+        """Convert a manager entry to the camelCase shape the desktop expects."""
+        return {
+            "key": command_key,
+            "command": info.get("command") or "",
+            "running": bool(info.get("running")),
+            "persist": bool(info.get("persist")),
+            "continuedInBackground": bool(info.get("continued_in_background")),
+            "bufferSize": info.get("buffer_size") or 0,
+            "pages": info.get("pages") or 0,
+            "totalChars": info.get("total_chars") or 0,
+            "startTime": info.get("start_time"),
+            "endTime": info.get("end_time"),
+            "duration": info.get("duration"),
+        }
 
 
 PATH_COMPLETION_COMMANDS = {"/add", "/read-only", "/read-only-stub", "/rules", "/load", "/save"}

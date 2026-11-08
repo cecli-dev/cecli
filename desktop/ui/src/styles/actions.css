@@ -1,0 +1,223 @@
+/* ------------------------------------------------------- strip icon menus */
+
+metrics-menu,
+actions-menu {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.strip-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.metrics-trigger {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  min-width: 30px;
+  padding: 0 6px;
+}
+
+.metrics-percent {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.metrics-trigger[aria-expanded="true"],
+.actions-trigger[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.metrics-icon svg,
+.actions-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.metrics-panel,
+.actions-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgba(17, 20, 45, 0.16);
+}
+
+.metrics-panel {
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+}
+
+.actions-panel {
+  min-width: 200px;
+  padding: 6px;
+}
+
+.strip-menu-head {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.metrics-grid {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.metrics-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.metrics-row dt {
+  color: var(--text-muted);
+}
+
+.metrics-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.metrics-stats {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.metrics-stats h3,
+.metrics-stats h4 {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.metrics-stats-group + .metrics-stats-group {
+  margin-top: 8px;
+}
+
+.metrics-stats-group h4 {
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.strip-menu-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.actions-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-dim);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.actions-item:hover:not(:disabled),
+.actions-item:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.actions-item:focus-visible {
+  outline: 2px solid rgba(111, 91, 240, 0.45);
+  outline-offset: -2px;
+}
+
+.actions-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.actions-item-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.actions-item-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.actions-item-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.actions-item-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.actions-item-hint {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.actions-item-hint code {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Keep the logs summary focus ring consistent with the icon buttons */
+.strip-actions .logs summary:focus-visible {
+  outline: 2px solid rgba(111, 91, 240, 0.45);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .metrics-panel,
+  .actions-panel {
+    right: auto;
+    left: 0;
+  }
+}

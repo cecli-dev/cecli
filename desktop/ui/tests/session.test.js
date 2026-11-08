@@ -31,6 +31,7 @@ test('send_prompt appends the user turn and marks the session busy', async () =>
     const store = new Store(create_initial_state());
     store.update((state) => ({ ...state, status: 'ready' }));
     const session = new Session(store);
+    store.set_sessions([{ bridgeId: 'b1', status: 'ready' }], 8);
     globalThis.fetch = async () => response({ ok: true }, true, 202);
 
     assert.equal(await session.send_prompt('hello'), true);
@@ -48,6 +49,7 @@ test('a rejected prompt preserves retry state without adding a turn', async () =
     store.update((state) => ({ ...state, status: 'ready' }));
     const session = new Session(store);
     globalThis.fetch = async () => response({ ok: false, error: 'busy' }, false, 409);
+    store.set_sessions([{ bridgeId: 'b1', status: 'ready' }], 8);
 
     assert.equal(await session.send_prompt('hello'), false);
     assert.equal(store.state.transcript.length, 0);

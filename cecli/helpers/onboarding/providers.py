@@ -118,7 +118,14 @@ def iter_providers() -> List[Dict]:
 
 
 def provider_has_key(entry: Dict) -> bool:
-    """Return True if the provider already has a key in the environment."""
+    """Return True if the provider already has usable credentials.
+
+    Key-based providers read their ``*_API_KEY`` variables. Providers that
+    authenticate out-of-band (notably GitHub Copilot) consult their token store
+    instead, so their models appear once OAuth has completed.
+    """
+    if entry.get("slug") == "github_copilot":
+        return _copilot_configured()
     return any(os.environ.get(env_var) for env_var in entry.get("api_key_env") or [])
 
 
@@ -157,3 +164,14 @@ def get_models_for_provider(slug: str, modes: Optional[Collection[str]] = None) 
         if content:
             return sorted(f"{slug}/{model_id}" for model_id in content)
     return []
+
+
+def _copilot_configured() -> bool:
+    """Whether Copilot's OAuth access token or cached API key exists."""
+    try:
+        from cecli.helpers.llms.providers.github_copilot import CopilotAuthenticator
+
+        auth = CopilotAuthenticator()
+    except Exception:
+        return False
+    return os.path.isfile(auth.access_token_file) or os.path.isfile(auth.api_key_file)

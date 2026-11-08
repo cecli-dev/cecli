@@ -61,6 +61,21 @@ def test_get_browser_config_reads_browser_settings():
     assert config["harness_timeout"] == 12.0
 
 
+def test_runtime_endpoint_overrides_defaults():
+    browser.clear_active_cdp_url()
+    try:
+        browser.set_active_cdp_url("http://127.0.0.1:9334", 9334)
+        with patch("cecli.helpers.browser.cdp_available", return_value=True):
+            config = browser.get_browser_config()
+            self_url = browser.ensure_cdp_url()
+
+        assert config["cdp_url"] == "http://127.0.0.1:9334"
+        assert config["port"] == 9334
+        assert self_url == "http://127.0.0.1:9334"
+    finally:
+        browser.clear_active_cdp_url()
+
+
 def test_ensure_cdp_url_prefers_explicit_config():
     assert browser.ensure_cdp_url({"cdp_url": "http://127.0.0.1:9444"}) == "http://127.0.0.1:9444"
 

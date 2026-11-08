@@ -1,5 +1,13 @@
 /** SSE transport and user actions for the bridge. */
-import { get_history, get_sessions, get_state, post_complete, post_json } from './api.js';
+import {
+  delete_json,
+  get_history,
+  get_onboarding_status,
+  get_sessions,
+  get_state,
+  post_complete,
+  post_json,
+} from './api.js';
 import { PERMISSION_CLEANUP_MS, RECONNECT_MAX_MS, RECONNECT_MIN_MS } from './constants.js';
 import { handle_event, restore_turn_state } from './events.js';
 import { apply_history, has_conversation } from './history.js';
@@ -31,6 +39,7 @@ export class Session {
   /** Open the SSE stream. */
   start() {
     this.connect();
+    this.refresh_onboarding();
     this.sync_timer = setInterval(() => this.sync_now(), 5000);
   }
 
@@ -131,6 +140,13 @@ export class Session {
     try {
       const payload = await get_sessions();
       this.store.set_sessions(payload.sessions, payload.maxSessions);
+      if (!(payload.sessions || []).length) {
+        this.store.update((state) =>
+          state.status === 'idle'
+            ? state
+            : { ...state, status: 'idle', busy: false, turn_state: 'idle', activity: 'idle' },
+        );
+      }
       this._sync_active_summary();
     } catch (error) {
       push_log(this.store, `session list failed: ${error.message}`, 'error');
@@ -236,6 +252,77 @@ export class Session {
     }
 
     apply_history(this.store, payload, target);
+  }
+
+  /** Reload onboarding state; opens the wizard on the first missing-model check. */
+  async refresh_onboarding(force = false) {
+    try {
+      const status = await get_onboarding_status();
+      this.store.update((state) => {
+        const current = state.onboarding || {};
+        if (
+          !force &&
+          current.checked &&
+          current.configured === Boolean(status.configured) &&
+          current.required === Boolean(status.requires_onboarding)
+        ) {
+          return state;
+        }
+
+        const required = Boolean(status.requires_onboarding);
+        return {
+          ...state,
+          onboarding: {
+            checked: true,
+            required,
+            configured: Boolean(status.configured),
+            model: status.model || null,
+          },
+          onboarding_open: !current.checked && required,
+        };
+      });
+      return status;
+    } catch (error) {
+      this.store.update((state) => ({
+        ...state,
+        onboarding: { ...(state.onboarding || {}), checked: true },
+      }));
+      return null;
+    }
+  }
+
+  open_onboarding() {
+    this.store.update((state) => ({ ...state, onboarding_open: true }));
+  }
+
+  close_onboarding() {
+    this.store.update((state) => ({ ...state, onboarding_open: false }));
+  }
+
+  /** Persist provider keys/model from the onboarding dialog and reload sessions. */
+  async configure_provider(payload) {
+    const result = await post_json('/api/onboarding/config', payload);
+    await this.refresh_onboarding(true);
+    await this.refresh_sessions();
+    await this.refresh_state(this.store.active_bridge_id);
+    return result;
+  }
+
+  /** Add a workspace, persist it, and select its new session. */
+  async add_workspace(path, name = null) {
+    const body = { path, ...(name ? { name } : {}) };
+    const result = await post_json('/api/workspaces', body);
+    await this.refresh_sessions();
+    if (result?.bridgeId) await this.switch_session(result.bridgeId);
+    return result;
+  }
+
+  /** Remove a workspace from conf.yml and close its non-primary session. */
+  async remove_workspace(path) {
+    const result = await delete_json('/api/workspaces', { path });
+    await this.refresh_sessions();
+    await this.refresh_state(this.store.active_bridge_id);
+    return result;
   }
 
   async switch_session(bridge_id) {
@@ -358,8 +445,8 @@ export class Session {
     const bridge_id = this.store.active_bridge_id;
     const agent_id = state.active_agent_session_id;
 
-    if (!bridge_id && state.sessions.length) {
-      push_toast(this.store, 'No active session', 'error');
+    if (!bridge_id) {
+      push_toast(this.store, 'Add a workspace first', 'error');
       return false;
     }
     if (!text) return false;

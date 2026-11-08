@@ -195,7 +195,54 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  cursor: pointer;
   padding: 0 2px 6px;
+  background: transparent;
+}
+
+.sidebar-workflows[data-collapsed='true'] {
+  padding: 8px 12px 0;
+}
+
+.sidebar-workflows-head .sidebar-title {
+  flex: 1;
+}
+
+.sidebar-workflows-collapse {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-workflows-collapse:hover {
+  color: var(--text);
+  background: var(--color-base-200);
+}
+
+.sidebar-workflows-collapse svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease;
+}
+
+.sidebar-workflows-collapse[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+.sidebar-workflows[data-collapsed='true'] .workflow-list,
+.sidebar-workflows[data-collapsed='true'] .sidebar-empty {
+  display: none;
 }
 
 .sidebar-count {

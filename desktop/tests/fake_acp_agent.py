@@ -418,6 +418,62 @@ def handle_subagent_message(request_id: Any, params: dict[str, Any]) -> None:
     )
 
 
+BACKGROUND_COMMANDS: list[dict[str, Any]] = [
+    {
+        "key": "bg_1_0001",
+        "command": "sleep 60",
+        "running": True,
+        "persist": False,
+        "continuedInBackground": True,
+        "bufferSize": 120,
+        "pages": 1,
+        "totalChars": 240,
+        "startTime": 1000.0,
+        "endTime": None,
+        "duration": 12.5,
+    },
+    {
+        "key": "bg_2_0002",
+        "command": "printf 'done\\n'",
+        "running": False,
+        "persist": True,
+        "continuedInBackground": False,
+        "bufferSize": 5,
+        "pages": 0,
+        "totalChars": 5,
+        "startTime": 900.0,
+        "endTime": 901.5,
+        "duration": 1.5,
+    },
+]
+
+BACKGROUND_OUTPUT = {
+    "bg_1_0001": "tick 1\ntick 2\ntick 3\n",
+    "bg_2_0002": "done\n",
+}
+
+
+def handle_background(request_id: Any, params: dict[str, Any]) -> None:
+    """Return deterministic background commands and output for bridge tests."""
+    action = params.get("action", "list")
+
+    if action == "list":
+        result(request_id, {"commands": BACKGROUND_COMMANDS})
+        return
+
+    if action != "output":
+        error(request_id, -32602, f"unknown background action: {action}")
+        return
+
+    key = params.get("key")
+    if key not in BACKGROUND_OUTPUT:
+        error(request_id, -32602, f"unknown background command: {key}")
+        return
+
+    command = next((item for item in BACKGROUND_COMMANDS if item["key"] == key), {})
+    result(request_id, {"output": BACKGROUND_OUTPUT[key], "command": command})
+
+
 def dispatch(message: dict[str, Any]) -> None:
     """Handle one JSON-RPC request, notification or response."""
     method = message.get("method")
@@ -445,6 +501,8 @@ def dispatch(message: dict[str, Any]) -> None:
         result(request_id, state_details())
     elif method == "cecli/history":
         handle_history(request_id)
+    elif method == "cecli/background":
+        handle_background(request_id, params)
     elif method == "cecli/subagent/message":
         handle_subagent_message(request_id, params)
     elif method in ("cecli/skill", "cecli/mcp", "cecli/context"):

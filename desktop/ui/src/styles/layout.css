@@ -18,11 +18,30 @@
 }
 
 .chat-panel {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.workspace-shell[data-sidebar-collapsed='true'] .session-sidebar,
+.workspace-shell[data-chat-collapsed='true'] .chat-panel,
+.workspace-shell[data-workbench-collapsed='true'] .workbench-panel {
+  display: none;
+}
+
+@media (max-width: 940px) {
+  .workspace-shell[data-chat-collapsed='true'] .chat-panel {
+    display: flex;
+  }
+}
+
+@media (max-width: 940px) {
+  .workspace-shell[data-sidebar-collapsed='true'] .session-sidebar {
+    display: flex;
+  }
 }
 
 .composer-dock {
@@ -41,6 +60,7 @@ app-backdrop,
 app-header,
 control-strip,
 toast-stack,
+workbench-panel,
 user-message,
 context-message,
 assistant-turn {

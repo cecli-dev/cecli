@@ -34,6 +34,9 @@ _BROWSER_HARNESS_PATTERN = re.compile(
 )
 
 _last_launch_attempt = 0.0
+_ACTIVE_CDP_URL = None
+_ACTIVE_CDP_PORT = None
+_ACTIVE_CDP_PREVIOUS = None
 
 
 def is_browser_harness_available():
@@ -92,14 +95,46 @@ def parse_browser_config(value):
     return {}
 
 
+def set_active_cdp_url(cdp_url, port=None):
+    """Point browser-harness at a browser owned by another process."""
+    global _ACTIVE_CDP_URL, _ACTIVE_CDP_PORT, _ACTIVE_CDP_PREVIOUS
+
+    value = str(cdp_url or "").strip().rstrip("/")
+    if not value:
+        clear_active_cdp_url()
+        return None
+
+    if _ACTIVE_CDP_URL is None:
+        _ACTIVE_CDP_PREVIOUS = os.environ.get(CDP_URL_ENV)
+
+    _ACTIVE_CDP_URL = value
+    _ACTIVE_CDP_PORT = _as_int(port, None) if port is not None else None
+    os.environ[CDP_URL_ENV] = value
+    return value
+
+
+def clear_active_cdp_url():
+    """Forget the externally supplied browser endpoint."""
+    global _ACTIVE_CDP_URL, _ACTIVE_CDP_PORT, _ACTIVE_CDP_PREVIOUS
+
+    _ACTIVE_CDP_URL = None
+    _ACTIVE_CDP_PORT = None
+    if _ACTIVE_CDP_PREVIOUS:
+        os.environ[CDP_URL_ENV] = _ACTIVE_CDP_PREVIOUS
+    else:
+        os.environ.pop(CDP_URL_ENV, None)
+    _ACTIVE_CDP_PREVIOUS = None
+
+
 def get_browser_config(browser_config=None):
     """Return normalized browser settings from config and the environment."""
     config = parse_browser_config(browser_config)
 
     return {
-        "cdp_url": config.get("cdp_url"),
+        "cdp_url": config.get("cdp_url") or _ACTIVE_CDP_URL,
+        "runtime_cdp_url": _ACTIVE_CDP_URL,
         "env_cdp_url": os.environ.get(CDP_URL_ENV),
-        "port": _as_int(config.get("port"), DEFAULT_CDP_PORT),
+        "port": _as_int(config.get("port") or _ACTIVE_CDP_PORT, DEFAULT_CDP_PORT),
         "user_data_dir": config.get("user_data_dir") or default_user_data_dir(),
         "launch_command": config.get("launch_command"),
         "launch": _as_bool(config.get("launch"), True),
@@ -151,7 +186,14 @@ def ensure_cdp_url(browser_config=None, launch=None, headless=None):
     """Resolve a CDP endpoint, optionally launching a browser when none exists."""
     config = get_browser_config(browser_config)
 
-    if config["cdp_url"]:
+    runtime_url = config["runtime_cdp_url"]
+    if runtime_url and cdp_available(runtime_url, timeout=0.4):
+        return runtime_url
+
+    if config["cdp_url"] and (
+        config["cdp_url"] != config["runtime_cdp_url"]
+        or cdp_available(config["cdp_url"], timeout=0.4)
+    ):
         return config["cdp_url"]
 
     env_cdp_url = config["env_cdp_url"]
@@ -176,7 +218,14 @@ def find_active_cdp_url(browser_config=None, include_default_ports=False):
     """Return a live CDP endpoint without launching a browser."""
     config = get_browser_config(browser_config)
 
-    if config["cdp_url"]:
+    runtime_url = config["runtime_cdp_url"]
+    if runtime_url and cdp_available(runtime_url, timeout=0.25):
+        return runtime_url
+
+    if config["cdp_url"] and (
+        config["cdp_url"] != config["runtime_cdp_url"]
+        or cdp_available(config["cdp_url"], timeout=0.25)
+    ):
         return config["cdp_url"]
 
     env_cdp_url = config["env_cdp_url"]

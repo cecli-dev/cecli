@@ -41,6 +41,7 @@
 @import "./layout.css";
 @import "./header.css";
 @import "./controls.css";
+@import "./actions.css";
 @import "./sidebar.css";
 @import "./chat.css";
 @import "./markdown.css";
@@ -49,6 +50,9 @@
 @import "./plan.css";
 @import "./permission.css";
 @import "./composer.css";
+@import "./browser.css";
+@import "./background.css";
+@import "./workbench.css";
 @import "./agent.css";
 @import "./utilities.css";
 @import "./motion.css";

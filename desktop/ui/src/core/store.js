@@ -8,6 +8,11 @@ export class Store {
     this._max_sessions = initial_state.max_sessions || 8;
     this._revisions = new Map();
     this._listeners = new Set();
+    this._connection = {
+      connected: initial_state.connected,
+      had_connection: initial_state.had_connection,
+      disconnect_notified: initial_state.disconnect_notified,
+    };
   }
 
   get state() {
@@ -153,6 +158,7 @@ export class Store {
       sessions: this._sessions,
       active_bridge_id: this._active_bridge_id,
       max_sessions: this._max_sessions,
+      ...this._connection,
     };
   }
 
@@ -161,12 +167,26 @@ export class Store {
     const next = mutator(this._project(key));
     if (!next) return;
 
-    const clean = this._strip(next);
-    if (this._same_view(before, clean)) return;
+    const connection = {
+      connected: next.connected,
+      had_connection: next.had_connection,
+      disconnect_notified: next.disconnect_notified,
+    };
+    const connection_changed =
+      connection.connected !== this._connection.connected ||
+      connection.had_connection !== this._connection.had_connection ||
+      connection.disconnect_notified !== this._connection.disconnect_notified;
+    this._connection = connection;
 
-    this._views.set(key, clean);
-    this._revisions.set(key, this.revision(key) + 1);
-    this.emit();
+    const clean = this._strip(next);
+    const view_changed = !this._same_view(before, clean);
+
+    if (view_changed) {
+      this._views.set(key, clean);
+      this._revisions.set(key, this.revision(key) + 1);
+    }
+
+    if (view_changed || connection_changed) this.emit();
   }
 
   _same_view(left, right) {
@@ -180,6 +200,9 @@ export class Store {
     delete next.sessions;
     delete next.active_bridge_id;
     delete next.max_sessions;
+    delete next.connected;
+    delete next.had_connection;
+    delete next.disconnect_notified;
     return next;
   }
 }

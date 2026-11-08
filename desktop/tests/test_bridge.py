@@ -157,6 +157,21 @@ class BridgeTest(unittest.TestCase):
         self.port = free_port()
         self.events = []
 
+        self.conf_path = Path(self.temp_dir.name) / "conf.yml"
+        self.conf_path.write_text(
+            "desktop:\n  folders:\n    - path: "
+            + json.dumps(str(self.workspace))
+            + "\n      name: workspace\n",
+            encoding="utf-8",
+        )
+        global_conf = Path(self.temp_dir.name) / "global.yml"
+        global_conf.write_text("{}\n", encoding="utf-8")
+        self.env = dict(
+            os.environ,
+            CECLI_DESKTOP_CONF_FILE=str(self.conf_path),
+            CECLI_DESKTOP_GLOBAL_CONF=str(global_conf),
+        )
+
         wrapper = Path(self.temp_dir.name) / "fake-cecli"
         wrapper.write_text(
             f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_AGENT))} "$@"\n',
@@ -180,6 +195,7 @@ class BridgeTest(unittest.TestCase):
             cwd=str(ROOT.parent),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=self.env,
         )
         self.wait_listening()
 
@@ -773,6 +789,33 @@ class BridgeTest(unittest.TestCase):
             self.assertIn("sessions", reply.get("result", {}))
         finally:
             connection.close()
+
+    def test_workspace_config_lists_and_removes(self) -> None:
+        self.wait_ready()
+
+        status, listing = self.request("GET", "/api/workspaces")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listing["workspaces"]), 1)
+        self.assertEqual(listing["workspaces"][0]["path"], str(self.workspace))
+        self.assertTrue(listing["workspaces"][0]["bridgeId"])
+
+        second = Path(self.temp_dir.name) / "second"
+        second.mkdir()
+        status, created = self.request(
+            "POST", "/api/workspaces", {"path": str(second), "name": "Second"}
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(created["workspace"]["name"], "Second")
+        self.assertTrue(created["bridgeId"])
+        self.assertEqual(len(created["sessions"]), 2)
+
+        status, removed = self.request("DELETE", "/api/workspaces", {"path": str(second)})
+        self.assertEqual(status, 200)
+        self.assertTrue(removed["closed"])
+
+        status, listing = self.request("GET", "/api/workspaces")
+        self.assertEqual(status, 200)
+        self.assertEqual([item["path"] for item in listing["workspaces"]], [str(self.workspace)])
 
 
 # Test method names are intentionally descriptive; keep helpers below the suites.

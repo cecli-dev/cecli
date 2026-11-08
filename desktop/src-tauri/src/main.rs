@@ -252,18 +252,68 @@ fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Er
     let url = format!("http://127.0.0.1:{port}/").parse()?;
 
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        .title("cecli desktop")
+        // A blank-looking title avoids WM fallback to the app identifier.
+        .title(" ")
         .inner_size(1180.0, 840.0)
-        .min_inner_size(720.0, 520.0);
+        .min_inner_size(720.0, 520.0)
+        .theme(Some(tauri::Theme::Light))
+        .background_color(tauri::webview::Color(242, 240, 255, 255));
 
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone())?;
     }
 
-    builder.build()?;
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
+
+    let window = builder.build()?;
+    set_native_titlebar(&window);
 
     Ok(())
 }
+
+/// Tint the Windows 11 caption and border to match the app backdrop.
+#[cfg(windows)]
+fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
+    };
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    // COLORREF is 0x00BBGGRR, not RGB.
+    let caption: u32 = 0x00fff0f2;
+    let text: u32 = 0x0033231f;
+    let border: u32 = 0x00eae6e6;
+    let size = std::mem::size_of::<u32>() as u32;
+
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &caption as *const u32 as *const core::ffi::c_void,
+            size,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TEXT_COLOR,
+            &text as *const u32 as *const core::ffi::c_void,
+            size,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &border as *const u32 as *const core::ffi::c_void,
+            size,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn set_native_titlebar<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) {}
 
 /// Ask the bridge to stop, then force it down after a short grace period.
 fn terminate(child: &mut Child) {

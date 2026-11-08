@@ -1,0 +1,145 @@
+/* ------------------------------------------------------------ onboarding */
+
+.onboarding-card {
+  max-height: min(82vh, 720px);
+  overflow: auto;
+}
+
+.onboarding-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.onboarding-head h2 {
+  margin: 0 0 4px;
+}
+
+.onboarding-back {
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--color-base-200);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.onboarding-back:hover {
+  background: var(--color-base-300);
+}
+
+.onboarding-list {
+  margin-top: 12px;
+}
+
+.onboarding-row .registry-modal-name {
+  flex: 1;
+}
+
+.onboarding-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.onboarding-copilot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.onboarding-copilot p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.onboarding-code {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--color-base-300);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--color-base-200);
+}
+
+.onboarding-code code {
+  align-self: flex-start;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--color-base-100);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.onboarding-code a {
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+
+.onboarding-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.onboarding-manual .modal-btn {
+  align-self: flex-end;
+}
+
+/* ------------------------------------------- workspace path autocomplete */
+
+.path-suggestions {
+  max-height: 190px;
+  margin: -8px 0 14px;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.path-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.path-suggestion:hover,
+.path-suggestion[data-active='true'] {
+  background: var(--surface-muted);
+}
+
+.path-suggestion-name {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.path-suggestion-path {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

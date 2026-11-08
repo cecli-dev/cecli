@@ -30,7 +30,18 @@ export function create_initial_state() {
     modes: {},
     agent: { name: 'cecli', version: '' },
     turn_state: 'idle',
-    usage: { used: 0, size: 0, cost: null },
+    usage: {
+      used: 0,
+      size: 0,
+      cost: null,
+      tokens_sent: 0,
+      tokens_received: 0,
+      tokens_cached: 0,
+      context_used: 0,
+      context_size: 0,
+      model: null,
+      stats: null,
+    },
     auto_scroll: true,
     last_prompt: '',
     retry_available: false,
@@ -46,5 +57,7 @@ export function create_initial_state() {
     new_chat_pending: false,
     restart_pending: false,
     sidebar_open: true,
+    onboarding: { checked: false, required: false, configured: false, model: null },
+    onboarding_open: false,
   };
 }

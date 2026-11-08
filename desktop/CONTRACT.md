@@ -207,8 +207,170 @@ report the truth.
 - The composer offers bridge completion candidates for `/` commands, command
   arguments, `@` mentions and paths; Arrow keys move, Tab/Enter accept, Esc closes.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
+- A right-hand workbench column keeps a live Chrome/Chromium preview above a
+  background-command panel. The browser streams real pages over SSE and forwards
+  pointer, wheel, text and key input; the command panel mirrors the TUI's active
+  tabs, command line, output and Follow control. Chat and workbench split the
+  remaining width evenly, and header toggles hide the sidebar, chat, or workbench.
+  The tab strip scrolls horizontally without a visible scrollbar, offers new-tab
+  and hover-close controls, and the browser, background, and workflows headers
+  each collapse their own section when clicked. The column hides below 940px.
 - Keyboard accessible; permission buttons reachable by tab; `Esc` cancels a turn
   when the composer is not focused.
+
+## Browser preview bridge
+
+`desktop/browser_bridge.py` drives an installed Chromium browser over the
+Chrome DevTools Protocol so the UI can show real pages that refuse framing or
+need a real cookie jar. It is standard-library only and never exposes CDP past
+loopback.
+
+- Discovery: `CECLI_BROWSER_BIN` first, then `shutil.which` for Chrome, Edge,
+  Chromium and Brave, then the usual Windows, macOS, Linux and WSL install
+  paths (including `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe`).
+  Chrome is preferred.
+- Profile: `~/.cecli/desktop/browser-profile`, override `CECLI_BROWSER_PROFILE`.
+  The profile is dedicated, so the user's daily browser is untouched and logins
+  persist across restarts.
+- Debugger: prefers the standard CDP ports `127.0.0.1:9222`, `9223`, `9224` and
+  `9225`, then `9334`; the chosen port is saved in the profile. Override with
+  `CECLI_BROWSER_CDP_PORT`. Under WSL, a Windows `chrome.exe` is reached through
+  the Windows host address.
+- Window mode: `CECLI_BROWSER_WINDOW_MODE=auto|offscreen|minimized|headless|visible`.
+  `auto` is headless on WSL (WSLg ignores window positions, so an off-screen
+  browser would cover the desktop app), minimized on other Linux desktops, and
+  off-screen on macOS and Windows. A user-supplied `CECLI_BROWSER_BIN` keeps the
+  off-screen default so wrapper scripts are not forced into headless mode.
+  Headless uses `--headless=new`; CDP screencast and input behave the same.
+  Minimized adds `--start-minimized` and falls back to xdotool when available.
+  The mode is resolved per launch and persists no window setting; attaching to
+  an existing browser leaves its window state untouched.
+- Launch: detached with `--remote-debugging-port`, `--user-data-dir`,
+  `--no-first-run`, `--no-default-browser-check`, the window flags for the
+  resolved mode, and the background-throttling disable flags, then `about:blank`.
+- The same page target is reused across calls. `Page` and `Runtime` are enabled
+  on attach, and one shared screencast runs while at least one stream client is
+  connected. JPEG frames are quality 70, acked at about 25 fps, capped at
+  2048x2048, and the last frame is replayed to late subscribers.
+- The page is emulated at up to four times the panel's CSS size, uniformly
+  scaled down to stay within a 1920x1080 page viewport, so the page always fills
+  the pane without exceeding 1080p.
+  The canvas has its own 50%-300% client-side zoom; wheel input is forwarded to
+  the page and, once the page reaches a scroll boundary while zoomed, native
+  scrolling pans the canvas and then chains to the surrounding containers.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers}` |
+| POST | `/api/browser/start` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser |
+| POST | `/api/browser/open` | `{url}` | 200 `{ok, ...snapshot}`; 400 empty/invalid; 503/409 if no browser |
+| POST | `/api/browser/action` | `{action: "back"|"forward"|"reload"|"stop"}` | 202 `{ok}`; 400 unknown action |
+| POST | `/api/browser/viewport` | `{width, height, dpr}` | 202 `{ok}`; 400 bad values |
+| POST | `/api/browser/input` | `{event}` | 202 `{ok}`; 400 bad event |
+| POST | `/api/browser/tab/new` | `{url?}` | 202 `{ok, ...snapshot}`; 400 bad url |
+| POST | `/api/browser/tab/close` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
+| POST | `/api/browser/tab` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
+| GET | `/api/browser/stream` | - | SSE frame stream |
+
+`viewport` is `{width, height, dpr}`. Bare domains become `https://`; `http(s)`,
+`localhost`, loopback and `about:` addresses are preserved.
+
+Snapshots include `tabs` (`[{id, title, url, active}]`), `activeTabId`, and the
+page `scroll` metrics (`{x, y, maxX, maxY}`) used for wheel chaining. The bridge
+polls the debugger every 1.5 seconds while it runs, so tabs opened by
+browser-harness or the user appear without a reload; `POST /api/browser/tab`
+switches the shared screencast to one of them. The desktop canvas can also be
+zoomed client-side without changing the emulated page viewport.
+
+Input events accepted by `POST /api/browser/input`:
+
+- `{kind: "mouse", type: "mousePressed"|"mouseReleased"|"mouseMoved", x, y, button, clickCount, buttons}`
+- `{kind: "wheel", x, y, deltaX, deltaY}`
+- `{kind: "text", text}`
+- `{kind: "key", type: "keyDown"|"keyUp", key, code, modifiers, text}`
+
+Modifiers may be a bitmask or a list of `alt`, `ctrl`, `meta` and `shift`
+(Alt=1, Ctrl=2, Meta=4, Shift=8).
+
+`GET /api/browser/stream` uses `Content-Type: text/event-stream`,
+`Cache-Control: no-cache`, keep-alive and `retry: 2000`. On connect it sends
+`data: {"type":"state","state":{...snapshot}}`, then
+`data: {"type":"frame","data":"<base64 jpeg>","meta":{...}}`, and
+`data: {"type":"error","message":"..."}` on failures. A `: ping` comment goes
+out every 15 seconds. The subscriber is removed when the connection closes, and
+the final subscriber stops the shared screencast.
+
+`POST /api/background` with `{bridgeId?, action: "list"}` returns
+`{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns
+`{ok, output, command}`. Both call the agent's `cecli/background` extension.
+The WebSocket channel exposes the same operations as `background.list` and
+`background.output`.
+
+For a manual check against the installed browser, run
+`python3 desktop/scripts/browser_smoke.py`; it uses a scratch profile, verifies
+frames and input, and always shuts its browser down.
+
+## Workspaces and onboarding
+
+The desktop shell loads one session per folder listed in `desktop.folders`:
+
+```yaml
+desktop:
+  folders:
+    - path: /abs/path
+      name: Display Name
+```
+
+Configuration is read from `~/.cecli/conf.yml` first and then from the
+project-local `<workspace>/.cecli/conf.yml`, with project values overriding
+global ones. Writes go to the project file atomically and preserve every
+unrelated key. `CECLI_DESKTOP_CONF_FILE` and `CECLI_DESKTOP_GLOBAL_CONF`
+override the two paths (used by tests). When the key is absent the server starts
+with zero sessions; `--workspace` only establishes the allowed root and default
+cwd, it does not auto-open a session.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, globalConfigPath}` |
+| POST | `/api/workspaces` | `{path, name?}` | 201 `{ok, workspace, bridgeId, sessions}` |
+| DELETE | `/api/workspaces` | `{path}` | 200 `{ok, closed, sessions}` |
+
+Each workspace entry carries `valid`, `error?` and the live `bridgeId` when its
+session exists. Removing the primary workspace keeps its session until restart;
+non-primary workspaces are closed.
+
+GUI onboarding mirrors the TUI wizard: keys are written to `~/.cecli/.env`,
+the model to `~/.cecli/conf.yml`, and running children restart so they pick up
+the new environment.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/api/onboarding/status` | - | `{configured, requires_onboarding, model, provider}` |
+| GET | `/api/onboarding/providers` | - | `{providers}`; `?slug=` adds `{provider, models}` |
+| POST | `/api/onboarding/config` | `{provider, model, api_keys?}` | `{configured: true, provider, model}` |
+| GET | `/api/onboarding/copilot` | - | `{configured, models, login, token_dir, ...}` |
+| POST | `/api/onboarding/copilot/login` | `{}` | device-flow `{state, verification_uri, user_code}` |
+
+GitHub Copilot has no API key: `configured` is derived from its OAuth token
+files, `requires_key` is false, and its models appear in the model picker once
+the device flow completes.
+
+Snapshots and `details` events include:
+
+```json
+"usage": {
+  "cost": 0.01,
+  "tokens_sent": 120,
+  "tokens_received": 30,
+  "tokens_cached": 0,
+  "context_used": 120,
+  "context_size": 200000,
+  "model": "deepseek/deepseek-chat",
+  "stats": {"tokens_last_minute": 120, "max_single_request": 80, "requests_per_minute": 2}
+}
+```
+
+`used`/`size` remain populated for the legacy context meter.
 
 ## Multi-session extensions
 
@@ -250,3 +412,10 @@ Commands: `state.get`, `sessions.list|create|close`, `session.prompt|cancel|new|
 `state.details`, `subagents.list|message|cancel`, `skills.list|load|remove|include|exclude`,
 `complete.get`, `history.get`, `mcp.list|connect|disconnect`, `workflows.list|run`,
 `context.add|remove`.
+
+When the bridge starts, navigates, or reattaches to its browser, it calls the
+`cecli/browser` ACP extension on every ready session with `{"cdpUrl", "port",
+"url"}`. That updates `cecli/helpers/browser.py` so browser-harness reuses the
+workbench browser instead of launching another one. The extension is re-sent only
+when the CDP endpoint changes, and new sessions receive the current endpoint once
+ready.

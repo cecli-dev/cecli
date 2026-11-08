@@ -284,6 +284,7 @@ dependencies = [
  "libc",
  "tauri",
  "tauri-build",
+ "windows",
 ]
 
 [[package]]

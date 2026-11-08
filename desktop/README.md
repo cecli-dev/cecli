@@ -82,6 +82,16 @@ pick a specific cecli executable.
   skills/MCP servers/workflows.
 - Add/close parent sessions; switch sessions without losing the in-memory
   transcript; message or cancel a sub-agent.
+- A right-hand workbench with a live Chrome/Chromium page preview above the
+  active background-command panel. The preview has a tab strip for every open
+  browser tab (including tabs opened by browser-harness), a new-tab button,
+  hover-close controls, and a horizontally scrollable strip without a visible
+  scrollbar. Client-side zoom controls do not change the emulated page viewport,
+  and wheel scrolling hands off from the page into the zoomed canvas at page
+  scroll boundaries. The browser, background, and workflows headers collapse
+  their sections when clicked. Chat and the workbench split the remaining width,
+  header toggles collapse the sidebar, chat, or workbench, and the emulated page
+  fills the pane up to a 1920x1080 viewport.
 - A registry panel at the bottom of the sidebar for toggling skills and MCP
   servers and running workflows.
 
@@ -95,6 +105,16 @@ duplicate state updates.
 
 - Python 3.10+ on the machine running the bridge. Only the standard library is
   used (`asyncio`, `http`, `json`, `subprocess`), so there is nothing to install.
+- Chrome, Chromium, Edge or Brave for the browser preview. A dedicated profile
+  is kept under `~/.cecli/desktop/browser-profile`; set `CECLI_BROWSER_BIN` if
+  the browser is installed in a nonstandard location.
+  The preview window opens off-screen on macOS and Windows, minimized on other
+  Linux desktops, and headless under WSL so it cannot cover the desktop app.
+  Override this with
+  `CECLI_BROWSER_WINDOW_MODE=offscreen|minimized|headless|visible`.
+  On WSL, use a Chrome/Chromium installation inside the Linux distribution. A
+  Windows `chrome.exe` found under `/mnt/c` only works with mirrored WSL
+  networking; default NAT cannot reach its loopback debug port.
 - A working `cecli` installation and whatever API keys your normal `cecli`
   session uses.
 - Node 20.19+ or 22.12+ and npm only when rebuilding the UI or the Tauri app.

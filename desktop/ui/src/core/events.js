@@ -248,15 +248,18 @@ function handle_permission_resolved(store, payload, hooks) {
 function apply_details(store, payload) {
   const details = payload.details || {};
   if (Array.isArray(payload.subagents)) apply_subagents(store, payload);
-  store.update((state) => ({
-    ...state,
-    skills: Array.isArray(details.skills) ? details.skills : state.skills,
-    mcp_servers: Array.isArray(details.mcpServers) ? details.mcpServers : state.mcp_servers,
-    workflows: Array.isArray(details.workflows) ? details.workflows : state.workflows,
-    context_files: Array.isArray(details.contextFiles)
-      ? details.contextFiles
-      : state.context_files,
-  }));
+  store.update((state) => {
+    const next = {
+      ...state,
+      skills: Array.isArray(details.skills) ? details.skills : state.skills,
+      mcp_servers: Array.isArray(details.mcpServers) ? details.mcpServers : state.mcp_servers,
+      workflows: Array.isArray(details.workflows) ? details.workflows : state.workflows,
+      context_files: Array.isArray(details.contextFiles)
+        ? details.contextFiles
+        : state.context_files,
+    };
+    return details.usage ? apply_usage(next, details.usage) : next;
+  });
 }
 
 function handle_error_event(store, payload) {
@@ -322,22 +325,49 @@ export function set_workspace(state, path) {
 
 /** Merge a usage_update payload. */
 export function apply_usage(state, update) {
-  const used = Number(update.used);
-  const size = Number(update.size);
+  if (!update || typeof update !== 'object') return state;
+
   const usage = { ...state.usage };
+  let changed = false;
 
-  if (Number.isFinite(used)) usage.used = used;
-  if (Number.isFinite(size)) usage.size = size;
-  if (update.cost) usage.cost = update.cost;
-
-  if (
-    usage.used === state.usage.used &&
-    usage.size === state.usage.size &&
-    usage.cost === state.usage.cost
-  ) {
-    return state;
+  for (const key of [
+    'tokens_sent',
+    'tokens_received',
+    'tokens_cached',
+    'context_used',
+    'context_size',
+  ]) {
+    const value = Number(update[key]);
+    if (Number.isFinite(value) && usage[key] !== value) {
+      usage[key] = value;
+      changed = true;
+    }
   }
 
+  const used = Number(update.used ?? update.context_used);
+  const size = Number(update.size ?? update.context_size);
+  if (Number.isFinite(used) && usage.used !== used) {
+    usage.used = used;
+    changed = true;
+  }
+  if (Number.isFinite(size) && usage.size !== size) {
+    usage.size = size;
+    changed = true;
+  }
+  if (update.cost !== undefined && usage.cost !== update.cost) {
+    usage.cost = update.cost;
+    changed = true;
+  }
+  if (update.model !== undefined && usage.model !== update.model) {
+    usage.model = update.model;
+    changed = true;
+  }
+  if (update.stats !== undefined && usage.stats !== update.stats) {
+    usage.stats = update.stats;
+    changed = true;
+  }
+
+  if (!changed) return state;
   return { ...state, usage };
 }
 
