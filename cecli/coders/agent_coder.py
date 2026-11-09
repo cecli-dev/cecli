@@ -29,6 +29,7 @@ from cecli.helpers.similarity import (
 from cecli.helpers.skills import SkillsManager
 from cecli.hooks import HookIntegration
 from cecli.mcp import LocalServer, McpServerManager
+from cecli.run_cmd import get_shell_info
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import copy_tool_call, tool_call_to_dict
@@ -818,6 +819,12 @@ class AgentCoder(Coder):
             result += f"- Working directory: {self.root}\n"
             result += f"- Current date: {current_date}\n"
             result += f"- Platform: {platform_info}\n"
+            result += f"- Shell: {get_shell_info()}\n"
+            if platform.system() == "Windows":
+                result += (
+                    "- Shell syntax: Do not assume a POSIX/Linux shell; use commands supported"
+                    " by this environment.\n"
+                )
             result += f"- Language preference: {language}\n"
 
             # Agent identity so the model can recognise itself and the primary

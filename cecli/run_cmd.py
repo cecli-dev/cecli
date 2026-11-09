@@ -25,7 +25,7 @@ def run_cmd(command, verbose=False, error_print=None, cwd=None, should_print=Tru
         return 1, error_message
 
 
-def get_windows_parent_process_name():
+def get_windows_parent_process_name(names=("powershell.exe", "cmd.exe")):
     try:
         current_process = psutil.Process()
         while True:
@@ -33,12 +33,27 @@ def get_windows_parent_process_name():
             if parent is None:
                 break
             parent_name = parent.name().lower()
-            if parent_name in ["powershell.exe", "cmd.exe"]:
+            if parent_name in names:
                 return parent_name
             current_process = parent
         return None
     except Exception:
         return None
+
+
+def get_shell_info():
+    """Return a human-readable description of the shell cecli is running in."""
+    if platform.system() == "Windows":
+        parent_process = get_windows_parent_process_name(("powershell.exe", "pwsh.exe", "cmd.exe"))
+        if parent_process in ("powershell.exe", "pwsh.exe"):
+            return f"PowerShell ({parent_process})"
+
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        return f"cmd.exe ({comspec})"
+
+    shell_path = os.environ.get("SHELL", "/bin/sh")
+    shell_name = os.path.basename(shell_path) or shell_path
+    return f"{shell_name} ({shell_path})"
 
 
 def run_cmd_subprocess(
