@@ -1,14 +1,19 @@
 """Tests for cecli/background ACP actions."""
 
 import base64
+import platform
 import sys
 import time
 import types
 
 import pytest
 
-from cecli.helpers.background_commands import BackgroundCommandManager
+from cecli.helpers.background_commands import HAS_PTY, BackgroundCommandManager
 from cecli.helpers.server.acp.agent.agent import INVALID_PARAMS, AcpAgent, AcpError
+
+
+# PTY-backed commands are only created on non-Windows platforms with termios support.
+PTY_RESIZE_SUPPORTED = HAS_PTY and platform.system() != "Windows"
 
 
 def make_agent():
@@ -116,7 +121,7 @@ def test_resize_reports_result(sleeper):
     result = call(make_agent(), action="resize", key=sleeper, cols=120, rows=40)
     assert result["cols"] == 120
     assert result["rows"] == 40
-    assert result["resized"] is True
+    assert result["resized"] is PTY_RESIZE_SUPPORTED
     result = call(make_agent(), action="input", key=sleeper, data="hello\n", owner="ui")
     assert result["ok"] is True
     assert result["accepted"] == len("hello\n")
