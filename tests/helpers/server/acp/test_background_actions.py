@@ -11,7 +11,6 @@ import pytest
 from cecli.helpers.background_commands import HAS_PTY, BackgroundCommandManager
 from cecli.helpers.server.acp.agent.agent import INVALID_PARAMS, AcpAgent, AcpError
 
-
 # PTY-backed commands are only created on non-Windows platforms with termios support.
 PTY_RESIZE_SUPPORTED = HAS_PTY and platform.system() != "Windows"
 
