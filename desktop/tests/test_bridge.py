@@ -158,18 +158,19 @@ class BridgeTest(unittest.TestCase):
         self.events = []
 
         self.conf_path = Path(self.temp_dir.name) / "conf.yml"
-        self.conf_path.write_text(
-            "desktop:\n  folders:\n    - path: "
-            + json.dumps(str(self.workspace))
-            + "\n      name: workspace\n",
-            encoding="utf-8",
-        )
+        self.conf_path.write_text("{}\n", encoding="utf-8")
         global_conf = Path(self.temp_dir.name) / "global.yml"
         global_conf.write_text("{}\n", encoding="utf-8")
+        desktop_conf = Path(self.temp_dir.name) / "desktop.yml"
+        desktop_conf.write_text(
+            "folders:\n  - path: " + json.dumps(str(self.workspace)) + "\n    name: workspace\n",
+            encoding="utf-8",
+        )
         self.env = dict(
             os.environ,
             CECLI_DESKTOP_CONF_FILE=str(self.conf_path),
             CECLI_DESKTOP_GLOBAL_CONF=str(global_conf),
+            CECLI_DESKTOP_FOLDERS_FILE=str(desktop_conf),
         )
 
         wrapper = Path(self.temp_dir.name) / "fake-cecli"
@@ -806,6 +807,7 @@ class BridgeTest(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         self.assertEqual(created["workspace"]["name"], "Second")
+        self.assertFalse(created["workspace"]["enable_on_startup"])
         self.assertTrue(created["bridgeId"])
         self.assertEqual(len(created["sessions"]), 2)
 
@@ -816,6 +818,34 @@ class BridgeTest(unittest.TestCase):
         status, listing = self.request("GET", "/api/workspaces")
         self.assertEqual(status, 200)
         self.assertEqual([item["path"] for item in listing["workspaces"]], [str(self.workspace)])
+
+    def test_workspace_update_persists_name_and_startup(self) -> None:
+        self.wait_ready()
+
+        status, listing = self.request("GET", "/api/workspaces")
+        self.assertEqual(status, 200)
+        path = listing["workspaces"][0]["path"]
+        self.assertTrue(listing["workspaces"][0]["enable_on_startup"])
+
+        status, updated = self.request(
+            "POST",
+            "/api/workspaces/update",
+            {"path": path, "name": "Renamed", "enable_on_startup": False},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["workspace"]["name"], "Renamed")
+        self.assertFalse(updated["workspace"]["enable_on_startup"])
+
+        status, listing = self.request("GET", "/api/workspaces")
+        self.assertEqual(status, 200)
+        self.assertEqual(listing["workspaces"][0]["name"], "Renamed")
+        self.assertFalse(listing["workspaces"][0]["enable_on_startup"])
+
+        self.request(
+            "POST",
+            "/api/workspaces/update",
+            {"path": path, "name": "workspace", "enable_on_startup": True},
+        )
 
 
 # Test method names are intentionally descriptive; keep helpers below the suites.

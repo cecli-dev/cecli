@@ -29,6 +29,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    from .parent_death import child_parent_death_hook
+except ImportError:  # pragma: no cover - the module also runs as a script
+    from parent_death import child_parent_death_hook
+
 DEFAULT_PORT = 9222
 PORT_CANDIDATES = (9222, 9223, 9224, 9225, 9334)
 PORT_FILE = ".cecli-browser-port"
@@ -99,7 +104,7 @@ BROWSER_COMMANDS = (
 )
 
 WINDOW_MODE_ENV = "CECLI_BROWSER_WINDOW_MODE"
-WINDOW_MODES = ("auto", "offscreen", "minimized", "headless", "visible")
+WINDOW_MODES = ("auto", "offscreen", "minimized", "headless", "hidden", "visible")
 WINDOW_SIZE_FLAG = "--window-size=1280,900"
 OFFSCREEN_POSITION_FLAG = "--window-position=-32000,-32000"
 
@@ -439,6 +444,7 @@ class BrowserBridge:
         self._host = "127.0.0.1"
         self._process: subprocess.Popen[Any] | None = None
         self._window_mode: str | None = None
+        self._hide_task: asyncio.Task[Any] | None = None
         self._session: _CdpSession | None = None
         self._target_id: str | None = None
         self._session_unsubs: list[Callable[[], None]] = []
@@ -788,6 +794,7 @@ class BrowserBridge:
         await self._stop_screencast(force=True)
         self._stop_tab_poll()
         self._stop_scroll_poll()
+        self._stop_hidden_watch()
         for queue in list(self._subscribers):
             self._subscribers.discard(queue)
         session = self._session
@@ -937,6 +944,10 @@ class BrowserBridge:
         else:
             kwargs["start_new_session"] = True
 
+            parent_death_hook = child_parent_death_hook()
+            if parent_death_hook is not None:
+                kwargs["preexec_fn"] = parent_death_hook
+
         try:
             self._process = subprocess.Popen(args, **kwargs)
         except OSError as err:
@@ -956,6 +967,8 @@ class BrowserBridge:
 
         if self._window_mode == "minimized":
             await _minimize_window(self._process)
+        elif self._window_mode == "hidden":
+            self._start_hidden_watch()
 
         self._write_saved_port()
 
@@ -983,6 +996,30 @@ class BrowserBridge:
             (self._profile / PORT_FILE).write_text(str(self._port), encoding="utf-8")
         except OSError:
             return
+
+    def _start_hidden_watch(self) -> None:
+        """Keep every Chrome window of this launch unmapped on X11."""
+
+        process = self._process
+        if process is None or not sys.platform.startswith("linux"):
+            return
+        task = self._hide_task
+        if task is not None and not task.done():
+            return
+        self._hide_task = asyncio.create_task(self._keep_hidden(process.pid))
+
+    def _stop_hidden_watch(self) -> None:
+        task = self._hide_task
+        self._hide_task = None
+        if task is not None:
+            task.cancel()
+
+    async def _keep_hidden(self, pid: int) -> None:
+        """Poll for Chrome windows and unmap them; WSLg cannot minimize."""
+
+        while self._process is not None and self._process.poll() is None:
+            await asyncio.to_thread(_unmap_browser_windows, pid)
+            await asyncio.sleep(1.0)
 
     def _choose_port(self) -> int:
         """Pick the first standard loopback CDP port that is still free."""
@@ -1525,11 +1562,13 @@ def _standard_paths() -> list[str]:
 def _resolve_window_mode(executable: str | None = None, requested: str | None = None) -> str:
     """Resolve the requested window mode to one concrete launch mode.
 
-    ``auto`` uses headless Chromium on WSL because WSLg ignores window
-    positioning, minimizes on other Linux desktops, and keeps the historical
-    off-screen placement on macOS and Windows. A user-supplied
-    ``CECLI_BROWSER_BIN`` keeps the off-screen default so wrapper scripts that
-    need a display are not forced into headless mode.
+    ``auto`` hides the browser window on WSL when X11 is available: WSLg
+    ignores window positioning and cannot minimize, but unmapping the window
+    keeps a full windowed browser running invisibly. Without X11 it falls back
+    to headless. Other Linux desktops minimize, while macOS and Windows keep
+    the historical off-screen placement. A user-supplied ``CECLI_BROWSER_BIN``
+    keeps the off-screen default so wrapper scripts that need a display are not
+    forced into a minimized window.
     """
 
     value = (requested or os.environ.get(WINDOW_MODE_ENV, "")).strip().lower()
@@ -1540,7 +1579,7 @@ def _resolve_window_mode(executable: str | None = None, requested: str | None = 
     if os.environ.get("CECLI_BROWSER_BIN", "").strip():
         return "offscreen"
     if _is_wsl():
-        return "headless"
+        return "hidden" if _x11_hide_supported() else "headless"
     if sys.platform.startswith("linux"):
         return "minimized"
     return "offscreen"
@@ -1551,7 +1590,7 @@ def _window_flags(mode: str) -> list[str]:
 
     if mode == "headless":
         return ["--headless=new", WINDOW_SIZE_FLAG]
-    if mode == "visible":
+    if mode in ("visible", "hidden"):
         return [WINDOW_SIZE_FLAG]
     if mode == "minimized":
         return [WINDOW_SIZE_FLAG, OFFSCREEN_POSITION_FLAG, "--start-minimized"]
@@ -1590,16 +1629,150 @@ async def _minimize_window(process: subprocess.Popen[Any] | None) -> None:
     executable = shutil.which("xdotool")
     if not executable:
         return
+
+    for _ in range(3):
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    executable,
+                    "search",
+                    "--onlyvisible",
+                    "--pid",
+                    str(process.pid),
+                    "windowminimize",
+                ],
+                capture_output=True,
+                timeout=1.5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
+
+        if result.returncode == 0:
+            return
+
+        await asyncio.sleep(0.5)
+
+
+def _x11_hide_supported() -> bool:
+    """Whether an X11 display is available to unmap browser windows."""
+
+    import ctypes.util
+
+    if not sys.platform.startswith("linux") or not os.environ.get("DISPLAY"):
+        return False
+
+    return ctypes.util.find_library("X11") is not None
+
+
+def _unmap_browser_windows(pid: int) -> int:
+    """Unmap every top-level X11 window owned by ``pid``; returns the count."""
+
+    import ctypes
+    import ctypes.util
+
+    library = ctypes.util.find_library("X11")
+    if not library or not os.environ.get("DISPLAY"):
+        return 0
+
+    x11 = ctypes.CDLL(library)
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XDefaultRootWindow.restype = ctypes.c_ulong
+    x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x11.XInternAtom.restype = ctypes.c_ulong
+    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x11.XQueryTree.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+        ctypes.POINTER(ctypes.c_uint),
+    ]
+    x11.XGetWindowProperty.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_long,
+        ctypes.c_long,
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    x11.XUnmapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    x11.XFree.argtypes = [ctypes.c_void_p]
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+    display = x11.XOpenDisplay(None)
+    if not display:
+        return 0
+
     try:
-        await asyncio.to_thread(
-            subprocess.run,
-            [executable, "search", "--onlyvisible", "--pid", str(process.pid), "windowminimize"],
-            capture_output=True,
-            timeout=2.0,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return
+        root = x11.XDefaultRootWindow(display)
+        root_return = ctypes.c_ulong()
+        parent_return = ctypes.c_ulong()
+        children = ctypes.POINTER(ctypes.c_ulong)()
+        count = ctypes.c_uint()
+        if not x11.XQueryTree(
+            display,
+            root,
+            ctypes.byref(root_return),
+            ctypes.byref(parent_return),
+            ctypes.byref(children),
+            ctypes.byref(count),
+        ):
+            return 0
+
+        atom = x11.XInternAtom(display, b"_NET_WM_PID", 0)
+        hidden = 0
+        try:
+            for index in range(count.value):
+                window = children[index]
+                actual_type = ctypes.c_ulong()
+                actual_format = ctypes.c_int()
+                items = ctypes.c_ulong()
+                remaining = ctypes.c_ulong()
+                value = ctypes.c_void_p()
+                status = x11.XGetWindowProperty(
+                    display,
+                    window,
+                    atom,
+                    0,
+                    1,
+                    0,
+                    6,
+                    ctypes.byref(actual_type),
+                    ctypes.byref(actual_format),
+                    ctypes.byref(items),
+                    ctypes.byref(remaining),
+                    ctypes.byref(value),
+                )
+                if status != 0 or not value:
+                    continue
+
+                try:
+                    if items.value:
+                        owner = ctypes.cast(value, ctypes.POINTER(ctypes.c_ulong))[0]
+                        if owner == pid:
+                            x11.XUnmapWindow(display, window)
+                            hidden += 1
+                finally:
+                    x11.XFree(value)
+        finally:
+            if children:
+                x11.XFree(children)
+
+        x11.XFlush(display)
+        return hidden
+    finally:
+        x11.XCloseDisplay(display)
 
 
 def _wsl_nameserver() -> str | None:

@@ -173,3 +173,107 @@
   background: var(--accent-a);
   animation: blink 1.05s steps(1, end) infinite;
 }
+
+/* ------------------------------------------------------------ tables */
+
+.md-table-wrap {
+  margin: 0 0 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.md-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.6px;
+  line-height: 1.55;
+}
+
+.md-table-wrap th,
+.md-table-wrap td {
+  padding: 8px 12px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table-wrap th:last-child,
+.md-table-wrap td:last-child {
+  border-right: 0;
+}
+
+.md-table-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.md-table-wrap thead th {
+  color: var(--text-dim);
+  background: var(--surface-muted);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.md-table-wrap tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-muted) 55%, transparent);
+}
+
+.md-table-wrap th[align="center"],
+.md-table-wrap td[align="center"] {
+  text-align: center;
+}
+
+.md-table-wrap th[align="right"],
+.md-table-wrap td[align="right"] {
+  text-align: right;
+}
+
+.md-table-wrap th[align="left"],
+.md-table-wrap td[align="left"] {
+  text-align: left;
+}
+
+.md-table-wrap code {
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- math */
+
+.math-block {
+  display: block;
+  margin: 0 0 14px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface-muted);
+  text-align: center;
+}
+
+.math-block .math-content {
+  display: inline-block;
+}
+
+.math-block-pending {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
+.math-block-pending .math-content::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -0.15em;
+  background: var(--accent-a);
+  animation: blink 1.05s steps(1, end) infinite;
+}
+
+.math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}

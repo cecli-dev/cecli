@@ -81,3 +81,20 @@
     display: none;
   }
 }
+
+.brand-context {
+  min-width: 0;
+  max-width: 40ch;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 940px) {
+  .brand-context {
+    max-width: 22ch;
+  }
+}

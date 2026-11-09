@@ -164,3 +164,58 @@ export function location_label(location) {
   const line = location_line(location);
   return line ? `${basename(location.path)}:${line}` : basename(location.path);
 }
+
+/** Replace a leading home directory with `~`, guessing common Unix layouts. */
+export function shorten_home_path(path, home = '') {
+  const value = String(path || '');
+  if (!value) return '';
+
+  const home_dir = String(home || '');
+  if (home_dir) {
+    return value === home_dir || value.startsWith(`${home_dir}/`)
+      ? `~${value.slice(home_dir.length)}`
+      : value;
+  }
+
+  const match = value.match(/^(?:\/home\/[^/]+|\/Users\/[^/]+|\/root)(?=\/|$)/);
+  return match ? `~${value.slice(match[0].length)}` : value;
+}
+
+/** Directory + branch label for the active sub-agent, or the main workspace. */
+export function active_agent_location(state, home = '') {
+  const active_id = state?.active_agent_session_id;
+  const subagents = Array.isArray(state?.subagents) ? state.subagents : [];
+  const agent = active_id ? subagents.find((entry) => entry.sessionId === active_id) : null;
+  const cwd = (agent && agent.cwd) || state?.cwd || '';
+  const branch = (agent && agent.gitBranch) || state?.git_branch || '';
+
+  return [shorten_home_path(cwd, home), branch]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' • ');
+}
+
+/** Whether a turn part renders as an expandable pill. */
+export function is_pill_part(part) {
+  return Boolean(part) && ['thought', 'tool', 'diff'].includes(part.type);
+}
+
+/** Split a unified diff into display lines classified for the panel. */
+export function diff_lines(diff) {
+  return String(diff || '')
+    .split('\n')
+    .map((line) => {
+      if (
+        line.startsWith('+++') ||
+        line.startsWith('---') ||
+        line.startsWith('diff ') ||
+        line.startsWith('@@') ||
+        line.startsWith('index ')
+      ) {
+        return { kind: 'hunk', text: line };
+      }
+      if (line.startsWith('+')) return { kind: 'add', text: line };
+      if (line.startsWith('-')) return { kind: 'del', text: line };
+      return { kind: 'ctx', text: line };
+    });
+}

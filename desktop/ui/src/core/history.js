@@ -23,6 +23,9 @@ export function apply_history(store, payload, bridge_id = null) {
       };
     }
 
+    const with_diffs = attach_diffs(next.transcript, payload.diffs, 'main');
+    if (with_diffs !== next.transcript) next = { ...next, transcript: with_diffs };
+
     const entries = Array.isArray(payload.subagents) ? payload.subagents : [];
     if (!entries.length) return next;
 
@@ -33,16 +36,17 @@ export function apply_history(store, payload, bridge_id = null) {
     for (const entry of entries) {
       const session_id = entry?.sessionId;
       const history = Array.isArray(entry?.messages) ? entry.messages : [];
-      if (!session_id || !history.length) continue;
+      const diffs = Array.isArray(entry?.diffs) ? entry.diffs : [];
+      if (!session_id || (!history.length && !diffs.length)) continue;
 
       const existing = transcripts[session_id] || [];
-      if (has_conversation(existing)) continue;
+      const imported = history.length > 0 && !has_conversation(existing);
+      let items = imported ? [...messages_to_items(history, session_id), ...existing] : existing;
+      items = attach_diffs(items, diffs, session_id);
+      if (items === existing) continue;
 
-      transcripts = {
-        ...transcripts,
-        [session_id]: [...messages_to_items(history, session_id), ...existing],
-      };
-      currents = { ...currents, [session_id]: null };
+      transcripts = { ...transcripts, [session_id]: items };
+      if (imported) currents = { ...currents, [session_id]: null };
       changed = true;
     }
 
@@ -157,4 +161,56 @@ function tool_part(id, call) {
     locations: [],
     content_text: arguments_text,
   };
+}
+
+/** Attach replayed file diffs as pill parts, deduping what is already shown. */
+function attach_diffs(items, diffs, scope) {
+  const entries = (Array.isArray(diffs) ? diffs : []).filter((diff) => diff && diff.file);
+  if (!entries.length) return items;
+
+  const seen = new Set();
+  for (const item of items) {
+    if (item?.type !== 'assistant') continue;
+    for (const part of item.parts || []) {
+      if (part.type === 'diff') seen.add(`${part.file}\u0000${part.diff}`);
+    }
+  }
+
+  const parts = [];
+  entries.forEach((diff, index) => {
+    const file = String(diff.file || '');
+    const text = typeof diff.diff === 'string' ? diff.diff : '';
+    const key = `${file}\u0000${text}`;
+    if (!file || seen.has(key)) return;
+
+    seen.add(key);
+    parts.push({
+      id: `${scope}-diff-${items.length}-${index}`,
+      type: 'diff',
+      file,
+      diff: text,
+      status: 'completed',
+    });
+  });
+  if (!parts.length) return items;
+
+  const transcript = [...items];
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.type !== 'assistant') continue;
+
+    transcript[index] = {
+      ...transcript[index],
+      parts: [...(transcript[index].parts || []), ...parts],
+    };
+    return transcript;
+  }
+
+  transcript.push({
+    id: `${scope}-diff-turn`,
+    type: 'assistant',
+    turn: 0,
+    parts,
+    had_text: false,
+  });
+  return transcript;
 }

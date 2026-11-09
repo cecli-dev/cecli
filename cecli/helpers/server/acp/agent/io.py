@@ -21,6 +21,8 @@ def _plain(*messages) -> str:
 
 
 class AcpInputOutput(InputOutput):
+    is_acp = True
+
     def __init__(self, pretty=False, *args, agent=None, **kwargs):
         # Set before InputOutput.__init__, which may already emit warnings
         self.agent = agent or get_agent()
@@ -181,6 +183,9 @@ class AcpInputOutput(InputOutput):
 
     def tool_call_event(self, tool_call_id, status, coder_uuid=None, **kwargs):
         self.agent.emitter_for(coder_uuid).tool_event(tool_call_id, status, **kwargs)
+
+    def diff_event(self, file_path, diff, coder_uuid=None, **kwargs):
+        self.agent.emitter_for(coder_uuid).diff(file_path, diff)
 
     def subagent_event(self, agent_uuid, event, **kwargs):
         self.agent.subagent_event(agent_uuid, event, **kwargs)

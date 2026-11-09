@@ -170,6 +170,30 @@ export function append_tool_chunk(state, update, agent_id = null) {
   );
 }
 
+/** Record a file edit as a diff pill on the current turn. */
+export function append_diff_part(state, update, agent_id = null) {
+  const file = String(update?.filePath || update?.file || '').trim();
+  const diff = typeof update?.diff === 'string' ? update.diff : '';
+  if (!file) return state;
+
+  if (find_diff(state, agent_id, file, diff)) return state;
+
+  const ensured = ensure_assistant(state, agent_id);
+  const created = {
+    id: next_id('diff'),
+    type: 'diff',
+    file,
+    diff,
+    status: 'completed',
+  };
+
+  return update_assistant(
+    ensured.state,
+    { ...ensured.assistant, parts: [...ensured.assistant.parts, created] },
+    agent_id,
+  );
+}
+
 /** Replace the current turn's plan checklist. */
 export function set_plan(state, entries, agent_id = null) {
   const ensured = ensure_assistant(state, agent_id);
@@ -414,6 +438,23 @@ function find_tool(state, agent_id, tool_id) {
   }
 
   return null;
+}
+
+/** Whether this exact file edit is already rendered in the transcript. */
+function find_diff(state, agent_id, file, diff) {
+  const view = transcript_view(state, agent_id);
+
+  for (let index = view.transcript.length - 1; index >= 0; index -= 1) {
+    const assistant = view.transcript[index];
+    if (assistant.type !== 'assistant') continue;
+
+    const found = (assistant.parts || []).some(
+      (part) => part.type === 'diff' && part.file === file && part.diff === diff,
+    );
+    if (found) return true;
+  }
+
+  return false;
 }
 
 /** Auto-collapse reasoning once visible answer text begins. */

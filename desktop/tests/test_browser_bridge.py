@@ -168,6 +168,7 @@ class WindowModeTests(unittest.TestCase):
         self.assertNotIn("--headless=new", offscreen)
 
         self.assertEqual(_window_flags("visible"), [browser_bridge.WINDOW_SIZE_FLAG])
+        self.assertEqual(_window_flags("hidden"), [browser_bridge.WINDOW_SIZE_FLAG])
 
     def test_launch_args_include_selected_mode(self) -> None:
         args = _launch_args("/usr/bin/chrome", 9222, "/tmp/profile", "headless")
@@ -186,6 +187,8 @@ class WindowModeTests(unittest.TestCase):
             self.assertEqual(_resolve_window_mode(), "visible")
         with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": "minimized"}):
             self.assertEqual(_resolve_window_mode(), "minimized")
+        with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": "hidden"}):
+            self.assertEqual(_resolve_window_mode(), "hidden")
 
     def test_invalid_override_falls_back_to_auto(self) -> None:
         with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": "banana"}):
@@ -193,10 +196,17 @@ class WindowModeTests(unittest.TestCase):
                 with mock.patch.object(browser_bridge.sys, "platform", "linux"):
                     self.assertEqual(_resolve_window_mode(), "minimized")
 
-    def test_auto_wsl_uses_headless(self) -> None:
+    def test_auto_wsl_hides_when_x11_is_available(self) -> None:
         with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": ""}):
             with mock.patch.object(browser_bridge, "_is_wsl", return_value=True):
-                self.assertEqual(_resolve_window_mode(), "headless")
+                with mock.patch.object(browser_bridge, "_x11_hide_supported", return_value=True):
+                    self.assertEqual(_resolve_window_mode(), "hidden")
+
+    def test_auto_wsl_falls_back_to_headless_without_x11(self) -> None:
+        with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": ""}):
+            with mock.patch.object(browser_bridge, "_is_wsl", return_value=True):
+                with mock.patch.object(browser_bridge, "_x11_hide_supported", return_value=False):
+                    self.assertEqual(_resolve_window_mode(), "headless")
 
     def test_auto_linux_uses_minimized(self) -> None:
         with mock.patch.dict(os.environ, {"CECLI_BROWSER_WINDOW_MODE": ""}):
@@ -257,6 +267,11 @@ class WindowModeTests(unittest.TestCase):
             args = popen.call_args.args[0]
             self.assertIn("--headless=new", args)
             self.assertNotIn("--window-position=-32000,-32000", args)
+
+            if sys.platform.startswith("linux"):
+                kwargs = popen.call_args.kwargs
+                self.assertTrue(kwargs.get("start_new_session"))
+                self.assertTrue(callable(kwargs.get("preexec_fn")))
 
 
 def _server_frame(payload: bytes, opcode: int = 0x1) -> bytes:

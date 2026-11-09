@@ -98,7 +98,7 @@ export class WorkspaceDialog extends LitElement {
               @keydown=${this._on_keydown}
             />
           </label>
-          <p class="modal-hint">Saved to .cecli/conf.yml and opened as a new session.</p>
+          <p class="modal-hint">Saved to ~/.cecli/desktop.yml and opened as a new session.</p>
           ${this._error ? html`<p class="modal-error">${this._error}</p>` : nothing}
           <div class="modal-actions">
             <button type="button" class="modal-btn" @click=${this._close}>Cancel</button>

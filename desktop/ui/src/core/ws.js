@@ -1,3 +1,4 @@
+import { get_desktop_token } from './token.js';
 /** Command-only WebSocket channel; SSE remains the server-to-client delta stream. */
 export class BridgeSocket {
   constructor() {
@@ -16,7 +17,7 @@ export class BridgeSocket {
     if (this.open_promise) return this.open_promise;
 
     this.open_promise = new Promise((resolve) => {
-      const token = window.__CECLI_TOKEN__ || '';
+      const token = get_desktop_token();
       const protocols = ['cecli.desktop.v1'];
       if (token) protocols.push(`token.${token}`);
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';

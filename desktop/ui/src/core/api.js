@@ -1,13 +1,14 @@
 /** JSON helpers for the bridge API. */
 
 /** POST JSON and surface bridge error bodies as thrown messages. */
+import { get_desktop_token } from './token.js';
 export async function post_json(path, body) {
   let response;
 
   try {
     response = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: post_headers(),
       body: JSON.stringify(body === undefined ? {} : body),
     });
   } catch (error) {
@@ -26,10 +27,20 @@ export async function post_json(path, body) {
       data && (data.error || data.message)
         ? data.error || data.message
         : `Request failed (${response.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.body = data;
+    throw error;
   }
 
   return data;
+}
+
+function post_headers() {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = get_desktop_token();
+  if (token) headers['X-Cecli-Token'] = token;
+  return headers;
 }
 
 /** GET the authoritative /api/state snapshot. */

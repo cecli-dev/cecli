@@ -205,6 +205,7 @@ export class ComposerBar extends LitElement {
   }
 
   _on_global_keydown(event) {
+    if (event.target?.closest?.('terminal-panel, cli-panel')) return;
     if (event.key !== 'Escape' || !this._is_busy()) return;
 
     const textarea = this._textarea();

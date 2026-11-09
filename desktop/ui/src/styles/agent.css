@@ -387,6 +387,37 @@
   font-size: 10px;
 }
 
+.registry-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.registry-section-title {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.registry-hook-meta {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.registry-hook-description {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* -------------------------------------------------------- registry badges */
 
 .model-trigger {

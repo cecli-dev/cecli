@@ -22,14 +22,6 @@ actions-menu {
   padding: 0 6px;
 }
 
-.metrics-percent {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
 .metrics-trigger[aria-expanded="true"],
 .actions-trigger[aria-expanded="true"] {
   color: var(--text);

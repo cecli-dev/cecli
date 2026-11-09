@@ -222,6 +222,16 @@ class UpdateEmitter:
             self._console_open = True
         self._emit_message(prefix + text.strip("\n") + "\n")
 
+    # ── File edits ──────────────────────────────────────────────
+
+    def diff(self, file_path: str, diff: str) -> None:
+        """A file edit, for clients that render diffs beside the message."""
+        if not file_path:
+            return
+
+        self._flush_held()
+        self._send({"sessionUpdate": "diff", "filePath": str(file_path), "diff": str(diff or "")})
+
     # ── Tool calls ──────────────────────────────────────────────
 
     def tool_event(self, tool_call_id: str, status: str, **kwargs: Any) -> None:

@@ -98,7 +98,8 @@ export class ActionsMenu extends LitElement {
     this._sending = true;
     this._close_panel();
     try {
-      await session.send_prompt(command);
+      const sent = await session.send_prompt(command);
+      if (sent !== false) session.reset_transcript_state();
     } finally {
       this._sending = false;
       this.requestUpdate();

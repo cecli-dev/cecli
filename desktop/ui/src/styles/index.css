@@ -53,6 +53,8 @@
 @import "./browser.css";
 @import "./background.css";
 @import "./workbench.css";
+@import "./terminal.css";
+@import "./cli.css";
 @import "./agent.css";
 @import "./utilities.css";
 @import "./motion.css";

@@ -377,3 +377,25 @@
     display: none;
   }
 }
+.session-settings {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  opacity: 0.55;
+}
+
+.session-settings svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.session-settings:hover {
+  background: var(--color-base-300);
+  opacity: 1;
+}
+
+.activity-badge[data-activity='stopped'] {
+  background: var(--color-base-200);
+  color: var(--text-muted);
+}

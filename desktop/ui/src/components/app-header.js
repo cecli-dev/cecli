@@ -1,5 +1,8 @@
 import { LitElement, html } from 'lit';
 
+import { active_agent_location } from '../core/format.js';
+import { StoreController, store } from '../core/store.js';
+
 
 const PANE_ICONS = {
   sidebar: html`<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true">
@@ -24,6 +27,7 @@ export class AppHeader extends LitElement {
   };
   constructor() {
     super();
+    this._store = new StoreController(this, store);
     this.chatCollapsed = false;
     this.sidebarCollapsed = false;
     this.workbenchCollapsed = false;
@@ -35,6 +39,7 @@ export class AppHeader extends LitElement {
 
   render() {
     const logo_url = `${import.meta.env.BASE_URL}cecli-temp-logo-favicon.svg`;
+    const location = active_agent_location(this._store.state);
 
     return html`
       <header class="topbar">
@@ -42,6 +47,9 @@ export class AppHeader extends LitElement {
           <img class="brand-mark" src=${logo_url} alt="" aria-hidden="true" />
           <span class="brand-name">cecli</span>
         </div>
+        ${location
+          ? html`<span class="brand-context" title=${location}>• ${location}</span>`
+          : ''}
 
 
         <div class="pane-toggles" role="group" aria-label="Panel visibility">

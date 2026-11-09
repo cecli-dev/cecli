@@ -21,10 +21,31 @@ export function apply_snapshot(store, snapshot, bridge_id = null, prune_keys = n
   const scoped = store.scoped(target);
   scoped.update((state) => set_workspace(state, snapshot.workspace));
   scoped.update((state) => ({ ...state, bridge_id: target }));
+  if (snapshot.terminal) {
+    scoped.update((state) => ({ ...state, terminal: snapshot.terminal }));
+  }
+  if (snapshot.cliPane) {
+    scoped.update((state) => ({ ...state, cliPane: { ...state.cliPane, ...snapshot.cliPane } }));
+  }
+  if (snapshot.cli) {
+    scoped.update((state) => ({
+      ...state,
+      cli: {
+        terminals: Array.isArray(snapshot.cli.terminals) ? snapshot.cli.terminals : state.cli.terminals,
+        background: Array.isArray(snapshot.cli.background) ? snapshot.cli.background : state.cli.background,
+      },
+    }));
+  }
   if (snapshot.sessionId !== undefined) {
     scoped.update((state) => ({ ...state, session_id: snapshot.sessionId }));
   }
   if (snapshot.title) scoped.update((state) => ({ ...state, title: snapshot.title }));
+  if (typeof snapshot.cwd === 'string') {
+    scoped.update((state) => ({ ...state, cwd: snapshot.cwd }));
+  }
+  if (typeof snapshot.gitBranch === 'string') {
+    scoped.update((state) => ({ ...state, git_branch: snapshot.gitBranch }));
+  }
   if (snapshot.agent) scoped.update((state) => apply_agent(state, snapshot.agent));
   if (snapshot.modes) scoped.update((state) => ({ ...state, modes: snapshot.modes }));
   if (Array.isArray(snapshot.configOptions)) {
@@ -38,6 +59,7 @@ export function apply_snapshot(store, snapshot, bridge_id = null, prune_keys = n
     subagents: Array.isArray(snapshot.subagents) ? snapshot.subagents : state.subagents,
     skills: Array.isArray(snapshot.skills) ? snapshot.skills : state.skills,
     mcp_servers: Array.isArray(snapshot.mcpServers) ? snapshot.mcpServers : state.mcp_servers,
+    hooks: Array.isArray(snapshot.hooks) ? snapshot.hooks : state.hooks,
     workflows: Array.isArray(snapshot.workflows) ? snapshot.workflows : state.workflows,
     context_files: Array.isArray(snapshot.contextFiles)
       ? snapshot.contextFiles

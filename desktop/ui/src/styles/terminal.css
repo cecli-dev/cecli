@@ -1,0 +1,127 @@
+/* ----------------------------------------------------------------- terminal */
+
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface-muted);
+}
+
+.terminal-heading {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.terminal-status {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.terminal-unread {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent, #6f5bf0);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.terminal-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.terminal-chevron svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 120ms ease;
+}
+
+.terminal-panel[data-collapsed] .terminal-chevron svg {
+  transform: rotate(-90deg);
+}
+
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-tab,
+.terminal-action {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.terminal-tab[data-active='true'] {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.terminal-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.terminal-spacer {
+  flex: 1 1 auto;
+}
+
+.terminal-host {
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding: 4px 2px 0 8px;
+  overflow: hidden;
+  background: #ffffff;
+  color: #111111;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.terminal-note {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.terminal-note code {
+  font-family: var(--font-mono);
+}

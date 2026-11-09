@@ -594,12 +594,20 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
         from cecli.helpers.server.acp.agent import get_agent
 
         acp_agent = get_agent()
+        atexit.register(acp_agent.shutdown)
+        import signal
+
+        def _handle_termination(signum, frame):
+            acp_agent.request_termination()
+            raise SystemExit(128 + signum)
+
+        for _sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGINT", None)):
+            if _sig is not None:
+                signal.signal(_sig, _handle_termination)
         cwd = acp_agent.bootstrap()
         if cwd is None:
             return 0
         os.chdir(cwd)
-        # Answer anything still waiting (e.g. a failed startup) on the way out
-        atexit.register(acp_agent.shutdown)
 
     # Tracks the coder instance from a ReloadProgramSignal so the new
     # main_async() can pass it as from_coder to Coder.create(), preserving

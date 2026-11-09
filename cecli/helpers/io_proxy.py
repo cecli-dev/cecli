@@ -137,6 +137,16 @@ class IOProxy(Generic[T]):
             kwargs["coder_uuid"] = self._coder_uuid
         return self._target.tool_call_event(tool_call_id, status, **kwargs)
 
+    def diff_event(self, file_path: str, diff: str, **kwargs: Any) -> Any:
+        """Forward diff_event with coder_uuid injected, when the backend supports it."""
+        handler = getattr(self._target, "diff_event", None)
+        if handler is None:
+            return None
+
+        if "coder_uuid" not in kwargs:
+            kwargs["coder_uuid"] = self._coder_uuid
+        return handler(file_path, diff, **kwargs)
+
     def reset_streaming_response(self, **kwargs) -> Any:
         """Forward reset_streaming_response with coder_uuid injected."""
         if "coder_uuid" not in kwargs:

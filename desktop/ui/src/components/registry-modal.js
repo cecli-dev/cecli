@@ -1,12 +1,14 @@
 import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
+import { group_hooks } from '../core/hooks.js';
 import { session } from '../core/session.js';
 import { StoreController, store } from '../core/store.js';
 
 const TABS = [
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP' },
+  { id: 'hooks', label: 'Hooks' },
   { id: 'context', label: 'Context' },
 ];
 
@@ -78,11 +80,57 @@ export class RegistryModal extends LitElement {
     switch (this.tab) {
       case 'mcp':
         return this._render_servers(state.mcp_servers || []);
+      case 'hooks':
+        return this._render_hooks(state.hooks || []);
       case 'context':
         return this._render_context(state.context_files || []);
       default:
         return this._render_skills(state.skills || []);
     }
+  }
+
+  _render_hooks(items) {
+    const sections = group_hooks(items);
+    if (!sections.length) return html`<p class="modal-empty">No hooks are registered.</p>`;
+
+    return html`
+      <div class="registry-sections">
+        ${sections.map(
+          (section) => html`
+            <section class="registry-section">
+              <h3 class="registry-section-title">${section.label}</h3>
+              <ul class="registry-modal-list">
+                ${section.hooks.map((hook) => {
+                  const name = hook.name || String(hook);
+                  const enabled = hook.enabled !== false;
+                  const description = hook.description
+                    ? html`<span class="registry-hook-description">${hook.description}</span>`
+                    : nothing;
+
+                  return html`
+                    <li class="registry-modal-row">
+                      <span class="status-dot" data-status=${enabled ? 'ready' : 'idle'}></span>
+                      <span class="registry-modal-name" title=${name}>
+                        ${name}
+                        ${description}
+                      </span>
+                      <span class="registry-hook-meta">priority ${hook.priority ?? 10}</span>
+                      <button
+                        type="button"
+                        class="modal-btn modal-btn--small"
+                        @click=${() => this._act('hooks', enabled ? 'remove' : 'load', name)}
+                      >
+                        ${enabled ? 'Disable' : 'Enable'}
+                      </button>
+                    </li>
+                  `;
+                })}
+              </ul>
+            </section>
+          `,
+        )}
+      </div>
+    `;
   }
 
   _render_skills(items) {

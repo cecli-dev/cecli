@@ -175,6 +175,20 @@ fn spawn_bridge(script: &Path, workspace: &Path, port: u16) -> io::Result<Child>
         #[cfg(unix)]
         command.process_group(0);
 
+        #[cfg(target_os = "linux")]
+        {
+            let parent_pid = std::process::id() as libc::pid_t;
+            unsafe {
+                command.pre_exec(move || {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                    if libc::getppid() != parent_pid {
+                        libc::_exit(1);
+                    }
+                    Ok(())
+                });
+            }
+        }
+
         match command.spawn() {
             Ok(child) => return Ok(child),
             Err(err) => last_error = Some(err),
@@ -197,9 +211,15 @@ fn python_candidates(script: &Path) -> Vec<String> {
     let mut candidates = Vec::new();
     if let Some(root) = script.parent() {
         let runtime = if cfg!(windows) {
-            root.join(".runtime").join("venv").join("Scripts").join("python.exe")
+            root.join(".runtime")
+                .join("venv")
+                .join("Scripts")
+                .join("python.exe")
         } else {
-            root.join(".runtime").join("venv").join("bin").join("python")
+            root.join(".runtime")
+                .join("venv")
+                .join("bin")
+                .join("python")
         };
         if runtime.is_file() {
             candidates.push(runtime.display().to_string());

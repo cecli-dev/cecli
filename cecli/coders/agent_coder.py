@@ -2002,7 +2002,11 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         advertised by command key and read on demand through ``ManageResources``
         paging.
         """
-        command_info = BackgroundCommandManager.list_background_commands()
+        command_info = {
+            command_key: info
+            for command_key, info in BackgroundCommandManager.list_background_commands().items()
+            if info.get("consumed_at") is None
+        }
 
         if not command_info:
             return ""
@@ -2037,10 +2041,11 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 output += f'{{"paging": [{{"target": "{command_key}", "page": 1}}]}}\n'
 
         # Clean up stale (finished) background commands after reading their output
+        # Mark finished commands consumed so they stay out of future injections
+        # while remaining visible to the CLI pane until their TTL expires.
         for command_key, info in command_info.items():
             if not info.get("running", False):
-                BackgroundCommandManager.stop_background_command(command_key)
-
+                BackgroundCommandManager.mark_consumed(command_key)
         return output
 
     def get_background_command_state(self):

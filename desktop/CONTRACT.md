@@ -236,18 +236,25 @@ loopback.
   `9225`, then `9334`; the chosen port is saved in the profile. Override with
   `CECLI_BROWSER_CDP_PORT`. Under WSL, a Windows `chrome.exe` is reached through
   the Windows host address.
-- Window mode: `CECLI_BROWSER_WINDOW_MODE=auto|offscreen|minimized|headless|visible`.
-  `auto` is headless on WSL (WSLg ignores window positions, so an off-screen
-  browser would cover the desktop app), minimized on other Linux desktops, and
-  off-screen on macOS and Windows. A user-supplied `CECLI_BROWSER_BIN` keeps the
-  off-screen default so wrapper scripts are not forced into headless mode.
-  Headless uses `--headless=new`; CDP screencast and input behave the same.
-  Minimized adds `--start-minimized` and falls back to xdotool when available.
+- Window mode: `CECLI_BROWSER_WINDOW_MODE=auto|offscreen|minimized|headless|hidden|visible`.
+  `auto` hides the window on WSL when X11 is available: WSLg ignores window
+  positions and does not honor `--start-minimized`, so the bridge launches a
+  windowed browser and unmaps its top-level windows instead. Without X11 it
+  falls back to headless. Other Linux desktops minimize, and macOS and Windows
+  stay off-screen. A user-supplied `CECLI_BROWSER_BIN` keeps the off-screen
+  default. Headless uses `--headless=new`; CDP screencast and input behave the
+  same. Minimized adds `--start-minimized` and retries xdotool iconify when
+  available. Hidden is windowed plus a per-second X11 unmap watchdog, so it
+  keeps a normal browser fingerprint while staying off the desktop. Hidden
+  only applies to a browser this bridge launched; attaching to an existing
+  browser leaves its window state untouched.
   The mode is resolved per launch and persists no window setting; attaching to
   an existing browser leaves its window state untouched.
 - Launch: detached with `--remote-debugging-port`, `--user-data-dir`,
   `--no-first-run`, `--no-default-browser-check`, the window flags for the
   resolved mode, and the background-throttling disable flags, then `about:blank`.
+  On Linux the launched browser also dies with the bridge, including an abrupt
+  SIGKILL; attaching to an already-running browser leaves that browser alone.
 - The same page target is reused across calls. `Page` and `Runtime` are enabled
   on attach, and one shared screencast runs while at least one stream client is
   connected. JPEG frames are quality 70, acked at about 25 fps, capped at
@@ -310,29 +317,62 @@ For a manual check against the installed browser, run
 `python3 desktop/scripts/browser_smoke.py`; it uses a scratch profile, verifies
 frames and input, and always shuts its browser down.
 
+## Terminal panel
+
+The right workbench has a collapsed-by-default `Terminal` panel with two modes.
+Logs mode renders the existing SSE `log` events (child stderr and non-JSON
+stdout warnings) through xterm.js and a 2,000-line UI ring. Shell mode is a
+per-workspace shell; it is available by default on a loopback bind and
+can be disabled with `--no-terminal` or `CECLI_DESKTOP_TERMINAL=0`.
+
+- ACP stdin/stdout stay on their pipes. The terminal is a separate process with
+  `cwd` set to the workspace. POSIX hosts use a `$SHELL -i` PTY with its own
+  process group, so sudo prompts and interactive commands work. Other hosts use
+  a line-oriented pipe shell (`%COMSPEC%`/cmd.exe) where stdin can answer
+  ordinary prompts but there is no resize, job control, or TUI support.
+- `--terminal-shell` / `CECLI_DESKTOP_TERMINAL_SHELL` overrides the shell;
+  `--no-terminal` / `CECLI_DESKTOP_TERMINAL=0` disables it.
+the existing WS helpers. Binary frames are `[uint64 big-endian seq][raw PTY
+bytes]`; text frames are JSON `ready`, `reset`, `exit`, `error`; client text
+`{type:"input",data}` and `{type:"resize",cols,rows}` (binary input is also
+accepted). Replay is a 256 KiB ring; `since` older than the ring returns
+`reset` followed by the current buffer.
+- Controls: `GET /api/terminal/state?bridgeId=...`, `POST /api/terminal/start`,
+`stop`, `input`, `resize` (`{bridgeId, data|base64}`, `{bridgeId, cols, rows}`).
+`GET /api/terminal/stream` is the read-only SSE fallback.
+- `terminal` appears in `/api/state` as `{enabled, available, running, seq,
+cols, rows, shell, bridgeId}` and is updated by the panel.
+- Security: off by default; forced off for non-loopback binds; token required on
+the WS; input is never logged or persisted; the UI only sends input while the
+Shell tab is active. Agent-initiated `sudo` prompts are not answerable through
+ACP stdin; users type into the PTY shell instead.
+
 ## Workspaces and onboarding
 
-The desktop shell loads one session per folder listed in `desktop.folders`:
+The desktop shell loads one session per folder listed in `~/.cecli/desktop.yml`:
 
 ```yaml
-desktop:
-  folders:
-    - path: /abs/path
-      name: Display Name
+folders:
+  - path: /abs/path
+    name: Display Name
+    enable_on_startup: true
 ```
 
-Configuration is read from `~/.cecli/conf.yml` first and then from the
-project-local `<workspace>/.cecli/conf.yml`, with project values overriding
-global ones. Writes go to the project file atomically and preserve every
-unrelated key. `CECLI_DESKTOP_CONF_FILE` and `CECLI_DESKTOP_GLOBAL_CONF`
-override the two paths (used by tests). When the key is absent the server starts
-with zero sessions; `--workspace` only establishes the allowed root and default
-cwd, it does not auto-open a session.
+Workspace entries live in `~/.cecli/desktop.yml` as a top-level `folders` list,
+kept separate from the CLI config; writes go there atomically and preserve every
+unrelated key. Legacy `desktop.folders` lists in `~/.cecli/conf.yml` or the
+project-local `<workspace>/.cecli/conf.yml` are read only when desktop.yml has no
+folders. Other settings still merge global then project (project wins).
+`CECLI_DESKTOP_CONF_FILE`, `CECLI_DESKTOP_GLOBAL_CONF`, and
+`CECLI_DESKTOP_FOLDERS_FILE` override those paths (used by tests). When no
+folders are configured the server starts with zero sessions; `--workspace` only
+establishes the allowed root and default cwd, it does not auto-open a session.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, globalConfigPath}` |
-| POST | `/api/workspaces` | `{path, name?}` | 201 `{ok, workspace, bridgeId, sessions}` |
+| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, desktopConfigPath, globalConfigPath, projectConfigPath}` |
+| POST | `/api/workspaces` | `{path, name?, enable_on_startup?}` | 201 `{ok, workspace, bridgeId, sessions}` |
+| POST | `/api/workspaces/update` | `{path, name?, enable_on_startup?}` | 200 `{ok, workspace, bridgeId, sessions}` |
 | DELETE | `/api/workspaces` | `{path}` | 200 `{ok, closed, sessions}` |
 
 Each workspace entry carries `valid`, `error?` and the live `bridgeId` when its
@@ -363,6 +403,7 @@ Snapshots and `details` events include:
   "tokens_sent": 120,
   "tokens_received": 30,
   "tokens_cached": 0,
+  "cache_hit_ratio": 0.0,
   "context_used": 120,
   "context_size": 200000,
   "model": "deepseek/deepseek-chat",
@@ -370,6 +411,8 @@ Snapshots and `details` events include:
 }
 ```
 
+`cost` is null when the model has no pricing and no cost accrued; `cache_hit_ratio`
+is `tokens_cached / tokens_sent` clamped to 0..1 (null when no tokens were sent).
 `used`/`size` remain populated for the legacy context meter.
 
 ## Multi-session extensions

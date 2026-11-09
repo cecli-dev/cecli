@@ -54,7 +54,7 @@ export class ControlStrip extends LitElement {
         </div>
         <div class="strip-actions">
           <metrics-menu></metrics-menu>
-          <log-drawer></log-drawer>
+          ${state.cliPane?.enabled ? nothing : html`<log-drawer></log-drawer>`}
           <actions-menu></actions-menu>
         </div>
       </div>

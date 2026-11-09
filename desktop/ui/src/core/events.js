@@ -1,8 +1,11 @@
 /** Map decoded SSE payloads and ACP updates onto store transitions. */
 import { extract_content_text, parse_message_text, update_kind } from './format.js';
 import { push_log, push_toast } from './notices.js';
+import { push_cli_event } from './cli-bus.js';
+import { push_terminal_log } from './log-bus.js';
 import {
   add_permission,
+  append_diff_part,
   append_text_chunk,
   append_context_message,
   append_user_message,
@@ -44,9 +47,19 @@ export function handle_event(store, payload, hooks = {}) {
       break;
     case 'log':
       push_log(store, payload.message, payload.level || 'info');
+      push_terminal_log({
+        level: payload.level || 'info',
+        message: payload.message,
+        source: payload.source || payload.level || 'info',
+        bridge_id: payload.bridgeId || payload.bridge_id || null,
+        ts: payload.ts,
+      });
       break;
     case 'details':
       apply_details(store, payload);
+      break;
+    case 'cli':
+      push_cli_event(payload);
       break;
     case 'subagents':
       apply_subagents(store, payload);
@@ -115,6 +128,11 @@ function handle_session_event(store, payload) {
 function handle_update(store, update, session_id = null, bridge_id = null) {
   if (!update || typeof update !== 'object') return;
 
+  const kind = update_kind(update);
+  const quiet = store.state.suppress_transcript;
+  const non_transcript = ['usage_update', 'config_option_update', 'current_mode_update', 'state_update', 'subagent_update'];
+  if (quiet && !non_transcript.includes(kind)) return;
+
   if (update_kind(update) === 'subagent_update') {
     apply_subagent_update(store, update, bridge_id);
     return;
@@ -151,6 +169,9 @@ function handle_update(store, update, session_id = null, bridge_id = null) {
       break;
     case 'plan':
       store.update((state) => set_plan(state, update.entries, agent_id));
+      break;
+    case 'diff':
+      store.update((state) => append_diff_part(state, update, agent_id));
       break;
     case 'usage_update':
       store.update((state) => apply_usage(state, update));
@@ -215,7 +236,8 @@ function handle_state_update(store, update, agent_id = null) {
 /** Finish a turn after prompt_done. */
 function handle_prompt_done(store, payload, hooks) {
   store.update((state) => {
-    const finalized = clear_permissions(finalize_assistant(state));
+    const base = state.suppress_transcript ? reset_transcript(state) : finalize_assistant(state);
+    const finalized = clear_permissions(base);
     return {
       ...finalized,
       activity: 'idle',
@@ -223,6 +245,7 @@ function handle_prompt_done(store, payload, hooks) {
       stopping: false,
       turn_state: 'idle',
       busy_message: '',
+      suppress_transcript: false,
       retry_available:
         payload && payload.stopReason === 'cancelled'
           ? Boolean(state.last_prompt)
@@ -365,6 +388,15 @@ export function apply_usage(state, update) {
   if (update.stats !== undefined && usage.stats !== update.stats) {
     usage.stats = update.stats;
     changed = true;
+  }
+
+  if (update.cache_hit_ratio !== undefined) {
+    const ratio = update.cache_hit_ratio === null ? null : Number(update.cache_hit_ratio);
+    const value = ratio !== null && Number.isFinite(ratio) ? ratio : null;
+    if (usage.cache_hit_ratio !== value) {
+      usage.cache_hit_ratio = value;
+      changed = true;
+    }
   }
 
   if (!changed) return state;

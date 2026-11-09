@@ -6,7 +6,7 @@
   max-width: 820px;
   width: 100%;
   margin: 0;
-  padding: 0 20px 24px;
+  padding: 14px 20px 24px;
   overflow-x: hidden;
   overflow-y: auto;
   scroll-padding-bottom: 24px;
@@ -309,4 +309,47 @@
   color: var(--text-muted);
   font-size: 0.82rem;
   text-align: left;
+}
+
+/* --------------------------------------------------------------- diff pills */
+
+.assistant-pill--diff .pill-label {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+}
+
+.diff-panel {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 0;
+  background: #fbfbfc;
+  font-family: var(--font-mono);
+  font-size: 11.8px;
+  line-height: 1.5;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 12px;
+  color: #3a3b45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line.add {
+  background: rgba(15, 157, 118, 0.1);
+  color: var(--positive);
+}
+
+.diff-line.del {
+  background: rgba(217, 58, 74, 0.1);
+  color: var(--danger);
+}
+
+.diff-line.hunk {
+  background: rgba(111, 91, 240, 0.08);
+  color: var(--accent-a);
 }

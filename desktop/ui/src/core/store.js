@@ -5,6 +5,7 @@ export class Store {
     this._views = new Map([['', this._strip(initial_state)]]);
     this._active_bridge_id = null;
     this._sessions = [];
+    this._workspaces = [];
     this._max_sessions = initial_state.max_sessions || 8;
     this._revisions = new Map();
     this._listeners = new Set();
@@ -25,6 +26,10 @@ export class Store {
 
   get sessions() {
     return this._sessions;
+  }
+
+  get workspaces() {
+    return this._workspaces;
   }
 
   /** Monotonic per-bridge revision used to reject stale snapshots. */
@@ -110,6 +115,13 @@ export class Store {
     this.emit();
   }
 
+  /** Replace the configured workspace list; sessions stay the live subset. */
+  set_workspaces(workspaces) {
+    if (!Array.isArray(workspaces)) return;
+    this._workspaces = [...workspaces];
+    this.emit();
+  }
+
   remove_session(bridge_id) {
     this._views.delete(bridge_id);
     this._sessions = this._sessions.filter((item) => item.bridgeId !== bridge_id);
@@ -156,6 +168,7 @@ export class Store {
     return {
       ...view,
       sessions: this._sessions,
+      workspaces: this._workspaces,
       active_bridge_id: this._active_bridge_id,
       max_sessions: this._max_sessions,
       ...this._connection,
@@ -198,6 +211,7 @@ export class Store {
   _strip(view) {
     const next = { ...view };
     delete next.sessions;
+    delete next.workspaces;
     delete next.active_bridge_id;
     delete next.max_sessions;
     delete next.connected;

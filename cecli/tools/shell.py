@@ -191,7 +191,7 @@ class Tool(BaseTool):
                 success = BackgroundCommandManager.send_command_input(background_key, stdin)
                 if success:
                     response.append_result(
-                        f"Sent input to background command {background_key}: {stdin}"
+                        f"Sent {len(stdin)} character(s) of input to background command {background_key}."
                     )
                     return response
                 else:
@@ -254,6 +254,12 @@ class Tool(BaseTool):
         timeout = max(config_timeout, min(timeout, max(300, config_timeout)))
 
         if user_input_required:
+            if getattr(coder.io, "is_acp", False):
+                # ACP has no local TTY; run under a PTY in the background so
+                # the client can answer prompts via the CLI input lease.
+                return await cls._execute_background(
+                    coder, command, use_pty=True, stdin=stdin, interactive=True
+                )
             return await cls._execute_interactive(coder, command)
         elif background:
             return await cls._execute_background(coder, command, use_pty=pty, stdin=stdin)
@@ -313,12 +319,16 @@ class Tool(BaseTool):
         return confirmed
 
     @classmethod
-    async def _execute_background(cls, coder, command_string, use_pty=None, stdin=None):
+    async def _execute_background(
+        cls, coder, command_string, use_pty=None, stdin=None, interactive=False
+    ):
         """
         Execute command in background.
 
         Args:
             stdin: Optional text to send to the command's stdin after starting
+            interactive: True when the command may prompt and must be answered
+                through the CLI pane's input lease (ACP has no local TTY)
         """
         coder.io.tool_output(f"⛭ Starting background command: {command_string}", type="tool-result")
 
@@ -346,11 +356,21 @@ class Tool(BaseTool):
             BackgroundCommandManager.send_command_input(command_key, stdin)
 
         response = ToolResponse(cls.NORM_NAME)
+        if interactive:
+            response.append_result(
+                f"Interactive command started in the background: {command_string}\n"
+                f"Command key: {command_key}\n"
+                "The user can answer any prompt through the CLI pane. Wait for the"
+                " output and exit code to be injected; do not re-run the command."
+            )
+            return response
+
         response.append_result(
             f"Background command started: {command_string}\n"
             f"Command key: {command_key}\n"
             "Output will be injected into chat stream."
         )
+
         return response
 
     @classmethod
@@ -423,7 +443,7 @@ class Tool(BaseTool):
                 shell=True,
                 executable=shell if platform.system() != "Windows" else None,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 stdin=subprocess.PIPE,
                 cwd=coder.root,
                 text=True,
@@ -487,7 +507,7 @@ class Tool(BaseTool):
                 except Exception:
                     pass
 
-                BackgroundCommandManager.stop_background_command(command_key)
+                BackgroundCommandManager.close_background_command(command_key)
                 response.append_result("Command execution interrupted by user.")
                 return response
 
@@ -502,8 +522,8 @@ class Tool(BaseTool):
             if command_completed:
                 exit_code = wait_task.result()
 
-                # Remove from background tracking since it's done
-                BackgroundCommandManager.stop_background_command(command_key)
+                # Remove from background tracking since output was already returned
+                BackgroundCommandManager.close_background_command(command_key)
 
                 # Output to TUI console if TUI exists (same logic as _execute_foreground)
                 if coder.tui and coder.tui():
@@ -540,7 +560,7 @@ class Tool(BaseTool):
             # finished. Terminate and unregister it so the child, its
             # reader/writer threads, and the wait_task thread don't outlive the
             # interrupted turn.
-            success, _, _ = BackgroundCommandManager.stop_background_command(command_key)
+            success, _ = BackgroundCommandManager.close_background_command(command_key)
             if not success:
                 cls._terminate_process(process)
 
@@ -638,7 +658,8 @@ class Tool(BaseTool):
             f"\u26ed Starting interactive shell command: {command_string}", type="tool-result"
         )
 
-        tui = coder.tui() if coder.tui else None
+        tui_factory = getattr(coder, "tui", None)
+        tui = tui_factory() if callable(tui_factory) else None
 
         def _run_interactive():
             return run_cmd(
@@ -845,8 +866,7 @@ class Tool(BaseTool):
             coder.io.tool_output(f"{color_start}Options:{color_end} {', '.join(extras)}")
 
         if stdin:
-            coder.io.tool_output(f"{color_start}Stdin:{color_end}")
-            coder.io.tool_output(stdin)
+            coder.io.tool_output(f"[redacted {len(stdin)} character(s)]")
 
         if background_key and action:
             coder.io.tool_output(f"{color_start}Background Key:{color_end} {background_key}")

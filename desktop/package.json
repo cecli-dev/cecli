@@ -18,11 +18,14 @@
     "runtime:install": "python3 scripts/install_runtime.py"
   },
   "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0",
+    "katex": "0.19.1",
     "lit": "3.3.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "2.12.4",
     "daisyui": "5.7.50",
     "tailwindcss": "4.3.3",
     "vite": "8.3.5"

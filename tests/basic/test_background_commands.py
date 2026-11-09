@@ -377,7 +377,7 @@ def test_get_background_command_output_roster_incremental_and_pages(monkeypatch)
 
 
 def test_get_background_command_output_stops_finished_commands(monkeypatch):
-    """Finished commands are reported once and then removed from tracking."""
+    """Finished commands stay out of injection but remain until TTL."""
     from cecli.coders.agent_coder import AgentCoder
 
     monkeypatch.setattr(
@@ -393,15 +393,13 @@ def test_get_background_command_output_stops_finished_commands(monkeypatch):
         },
     )
     monkeypatch.setattr(BackgroundCommandManager, "get_new_command_output", lambda key: "")
-    stopped = []
-    monkeypatch.setattr(
-        BackgroundCommandManager, "stop_background_command", lambda key: stopped.append(key)
-    )
+    consumed = []
+    monkeypatch.setattr(BackgroundCommandManager, "mark_consumed", lambda key: consumed.append(key))
 
     output = AgentCoder.get_background_command_output(object())
 
     assert "finished" in output
-    assert stopped == ["bg_3_0001"]
+    assert consumed == ["bg_3_0001"]
 
 
 def test_mark_continued_in_background_flags_registered_command(monkeypatch):
@@ -423,3 +421,42 @@ def test_mark_continued_in_background_flags_command(monkeypatch):
     assert process.continued_in_background is True
 
     assert BackgroundCommandManager.mark_continued_in_background("bg_9_9999") is False
+
+
+def test_natural_exit_retains_command_and_emits_once(monkeypatch):
+    """Natural exit emits one `exited` event and keeps the entry until TTL."""
+    import time
+
+    events = []
+
+    class Sink:
+        def publish(self, params):
+            events.append(params)
+
+        def publish_output(self, key, seq, data):
+            pass
+
+    monkeypatch.setattr(BackgroundCommandManager, "event_sink", Sink())
+    monkeypatch.setattr(BackgroundCommandManager, "_background_commands", {})
+    monkeypatch.setattr(BackgroundCommandManager, "_ttl_started", True)
+
+    command = f'{sys.executable} -c "import sys; sys.exit(3)"'
+    key = BackgroundCommandManager.start_background_command(command)
+
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        entry = BackgroundCommandManager.list_background_commands().get(key)
+        if entry and entry["ended_at"] is not None:
+            break
+        time.sleep(0.05)
+
+    entry = BackgroundCommandManager.list_background_commands()[key]
+    assert entry["ended_at"] is not None
+    assert entry["exit_code"] == 3
+
+    exited = [event for event in events if event.get("event") == "exited"]
+    assert len(exited) == 1
+    assert exited[0]["code"] == 3
+
+    assert BackgroundCommandManager.mark_consumed(key) is True
+    assert BackgroundCommandManager.list_background_commands()[key]["consumed_at"] is not None

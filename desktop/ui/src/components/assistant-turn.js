@@ -4,7 +4,13 @@ import { repeat } from 'lit/directives/repeat.js';
 import './markdown-view.js';
 import './plan-card.js';
 import { CHEVRON_ICON, TOOL_ICONS } from '../core/constants.js';
-import { location_label, status_label, tool_output_text } from '../core/format.js';
+import {
+  diff_lines,
+  is_pill_part,
+  location_label,
+  status_label,
+  tool_output_text,
+} from '../core/format.js';
 
 export class AssistantTurn extends LitElement {
   static properties = {
@@ -22,12 +28,8 @@ export class AssistantTurn extends LitElement {
   }
 
   render() {
-    const pills = this.item.parts.filter(
-      (part) => part.type === 'thought' || part.type === 'tool',
-    );
-    const content = this.item.parts.filter(
-      (part) => part.type !== 'thought' && part.type !== 'tool',
-    );
+    const pills = this.item.parts.filter(is_pill_part);
+    const content = this.item.parts.filter((part) => !is_pill_part(part));
 
     return html`
       <div class="msg msg--assistant" data-turn=${this.item.turn}>
@@ -70,6 +72,25 @@ export class AssistantTurn extends LitElement {
       `;
     }
 
+    if (part.type === 'diff') {
+      return html`
+        <button
+          type="button"
+          class="assistant-pill assistant-pill--diff"
+          data-active=${active}
+          aria-expanded=${String(active)}
+          title=${part.file}
+          @click=${() => this._toggle(part.id)}
+        >
+          <span class="tool-icon" data-kind="edit" aria-hidden="true">
+            ${TOOL_ICONS.edit}
+          </span>
+          <span class="pill-label">Edited ${part.file}</span>
+          <span class="pill-chevron" aria-hidden="true">${CHEVRON_ICON}</span>
+        </button>
+      `;
+    }
+
     const icon = TOOL_ICONS[part.kind] || TOOL_ICONS.other;
 
     return html`
@@ -100,6 +121,18 @@ export class AssistantTurn extends LitElement {
       return html`
         <div class="assistant-pill-panel">
           <div class="pill-panel-body thought-panel-text">${part.text}</div>
+        </div>
+      `;
+    }
+
+    if (part.type === 'diff') {
+      return html`
+        <div class="assistant-pill-panel diff-panel">
+          ${repeat(
+            diff_lines(part.diff),
+            (line, index) => `${part.id}-${index}`,
+            (line) => html`<span class="diff-line ${line.kind}">${line.text || ' '}</span>`,
+          )}
         </div>
       `;
     }

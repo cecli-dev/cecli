@@ -12,6 +12,7 @@ import './toast-stack.js';
 import './transcript-view.js';
 import './workbench-panel.js';
 import './workspace-dialog.js';
+import './workspace-settings-dialog.js';
 
 import { session } from '../core/session.js';
 import { StoreController, store } from '../core/store.js';
@@ -21,6 +22,7 @@ export class CecliApp extends LitElement {
     super();
     this._store = new StoreController(this, store);
     this._workspace_dialog_open = false;
+    this._editing_workspace = null;
     this._chat_collapsed = false;
     this._sidebar_collapsed = false;
     this._workbench_collapsed = false;
@@ -46,7 +48,10 @@ export class CecliApp extends LitElement {
           data-sidebar-collapsed=${String(this._sidebar_collapsed)}
           data-workbench-collapsed=${String(this._workbench_collapsed)}
         >
-          <session-sidebar @add-workspace=${this._on_add_workspace}></session-sidebar>
+          <session-sidebar
+            @add-workspace=${this._on_add_workspace}
+            @edit-workspace=${this._on_edit_workspace}
+          ></session-sidebar>
           <main class="chat-panel">
             <transcript-view></transcript-view>
             <permission-region></permission-region>
@@ -64,6 +69,11 @@ export class CecliApp extends LitElement {
         .open=${this._workspace_dialog_open}
         @close=${this._on_workspace_dialog_close}
       ></workspace-dialog>
+      <workspace-settings-dialog
+        .open=${Boolean(this._editing_workspace)}
+        .workspace=${this._editing_workspace}
+        @close=${this._on_workspace_settings_close}
+      ></workspace-settings-dialog>
       <onboarding-dialog .open=${Boolean(this._store.state.onboarding_open)}></onboarding-dialog>
     `;
   }
@@ -89,6 +99,16 @@ export class CecliApp extends LitElement {
 
   _on_workspace_dialog_close() {
     this._workspace_dialog_open = false;
+    this.requestUpdate();
+  }
+
+  _on_edit_workspace(event) {
+    this._editing_workspace = event.detail || null;
+    this.requestUpdate();
+  }
+
+  _on_workspace_settings_close() {
+    this._editing_workspace = null;
     this.requestUpdate();
   }
 

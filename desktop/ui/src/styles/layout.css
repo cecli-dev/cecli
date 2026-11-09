@@ -97,3 +97,11 @@ tool-card,
 plan-card {
   width: 100%;
 }
+
+cli-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}

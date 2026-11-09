@@ -43,7 +43,7 @@ export class MetricsMenu extends LitElement {
     const percent = size > 0 ? Math.min(Math.max(((used || 0) / size) * 100, 0), 100) : null;
     const rows = this._rows(state, usage, used, size, percent);
     const stats = this._render_stats(usage.stats);
-    const title = `Usage metrics${percent === null ? '' : ` \u00b7 context ${Math.round(percent)}%`}`;
+    const title = 'Usage metrics';
 
     return html`
       <div
@@ -64,9 +64,6 @@ export class MetricsMenu extends LitElement {
           @click=${this._toggle}
         >
           <span class="metrics-icon" aria-hidden="true">${METRICS_ICON}</span>
-          ${percent === null
-            ? nothing
-            : html`<span class="metrics-percent">${Math.round(percent)}%</span>`}
         </button>
         ${this._open ? html`
           <div class="metrics-panel" role="region" aria-label="Usage metrics">
@@ -98,6 +95,11 @@ export class MetricsMenu extends LitElement {
     if (used !== null && size !== null && size > 0) {
       const suffix = percent === null ? '' : ` \u00b7 ${Math.round(percent)}%`;
       rows.push(this._row('Context', `${format_tokens(used)} / ${format_tokens(size)}${suffix}`));
+    }
+
+    const cache_ratio = this._cache_hit_ratio(usage);
+    if (cache_ratio !== null) {
+      rows.push(this._row('Cache hit ratio', `${(cache_ratio * 100).toFixed(1)}%`));
     }
 
     const model = usage.model || this._model_name(state);
@@ -174,6 +176,17 @@ export class MetricsMenu extends LitElement {
 
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : null;
+  }
+
+  _cache_hit_ratio(usage) {
+    const explicit = this._number(usage.cache_hit_ratio);
+    if (explicit !== null) return Math.min(Math.max(explicit, 0), 1);
+
+    const sent = this._number(usage.tokens_sent);
+    const cached = this._number(usage.tokens_cached);
+    if (sent === null || sent <= 0 || cached === null) return null;
+
+    return Math.min(cached / sent, 1);
   }
 
   _model_name(state) {

@@ -7,10 +7,13 @@ in the background and capturing their output for injection into chat streams.
 
 import os
 import platform
+import re
+import signal
 import subprocess
 import threading
+import time
 from collections import deque
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import xxhash
 
@@ -23,6 +26,72 @@ try:
     HAS_PTY = True
 except ImportError:
     HAS_PTY = False
+BG_REPLAY_BYTES = 256 * 1024
+BG_INPUT_MAX = 64 * 1024
+BG_EXITED_TTL = 900.0
+BG_INPUT_LEASE_SECONDS = 30.0
+BG_PROMPT_QUIET_SECONDS = 0.30
+BG_PROMPT_REEMIT_SECONDS = 30.0
+
+_ANSI_ESCAPE = re.compile(
+    r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[\]^_]|[\x1b\x9b][][()#;?]*"
+    r"(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><~]"
+)
+_PROMPT_RE = re.compile(
+    r"(?i)(?:password|passphrase|sudo|\[sudo\]|are you sure|continue\?|"
+    r"press (?:any key|enter)|login|username|token|otp|verification code)"
+    r"[^\n]{0,80}[:?]?\s*$"
+)
+
+
+def strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE.sub("", text)
+
+
+class StreamRing:
+    """Bounded raw-byte ring with absolute byte sequence numbers."""
+
+    def __init__(self, limit: int = BG_REPLAY_BYTES):
+        self.limit = max(1024, int(limit))
+        self._data = bytearray()
+        self._seq = 0
+
+    @property
+    def seq(self) -> int:
+        return self._seq
+
+    @property
+    def start_seq(self) -> int:
+        return self._seq - len(self._data)
+
+    def append(self, data: bytes) -> int:
+        if not data:
+            return self._seq
+        self._data.extend(data)
+        self._seq += len(data)
+        excess = len(self._data) - self.limit
+        if excess > 0:
+            del self._data[:excess]
+        return self._seq
+
+    def snapshot(self, since: Optional[int] = None) -> Tuple[int, bytes, bool]:
+        start = self.start_seq
+        if since is None or since < start:
+            return self._seq, bytes(self._data), since is not None and since < start
+        offset = max(0, int(since) - start)
+        return self._seq, bytes(self._data[offset:]), False
+
+    def clear(self) -> None:
+        self._data.clear()
+
+
+class BackgroundInputError(Exception):
+    """Semantic input failure mapped to an HTTP status by the desktop server."""
+
+    def __init__(self, code: str, owner: Optional[str] = None):
+        super().__init__(code)
+        self.code = code
+        self.owner = owner
 
 
 class CircularBuffer:
@@ -211,48 +280,63 @@ class PagedOutputBuffer:
 
 
 class InputBuffer:
-    """
-    Thread-safe buffer for queuing input to be sent to a process.
-    """
+    """Thread-safe, byte-oriented, bounded queue for process stdin."""
 
-    def __init__(self):
+    def __init__(self, max_bytes: int = BG_INPUT_MAX):
         self.queue = deque()
         self.lock = threading.Lock()
         self._data_ready = threading.Event()
+        self.max_bytes = max_bytes
+        self._size = 0
 
-    def append(self, text: str) -> None:
-        """Add text to the input queue."""
+    @property
+    def size(self) -> int:
         with self.lock:
-            self.queue.append(text)
+            return self._size
+
+    def append(self, text: str) -> bool:
+        return self.append_bytes(text.encode("utf-8"))
+
+    def append_bytes(self, data: bytes) -> bool:
+        if not data:
+            return True
+
+        with self.lock:
+            if self._size + len(data) > self.max_bytes:
+                return False
+            self.queue.append(bytes(data))
+            self._size += len(data)
 
         self._data_ready.set()
+        return True
 
-    def pop_all(self) -> str:
-        """Get and clear all queued input."""
+    def pop_all(self) -> bytes:
         with self.lock:
-            result = "".join(self.queue)
+            result = b"".join(self.queue)
             self.queue.clear()
+            self._size = 0
             self._data_ready.clear()
             return result
 
     def has_input(self) -> bool:
-        """Check if there is queued input."""
         with self.lock:
             return len(self.queue) > 0
 
     def wait_for_input(self, timeout: float | None = None) -> bool:
-        """Block until input arrives or *timeout* elapses."""
         return self._data_ready.wait(timeout)
 
     def wake(self) -> None:
-        """Wake a blocked writer so it can re-check its stop condition."""
         self._data_ready.set()
+
+    def clear(self) -> None:
+        with self.lock:
+            self.queue.clear()
+            self._size = 0
+            self._data_ready.clear()
 
 
 class BackgroundProcess:
-    """
-    Represents a background process with output capture.
-    """
+    """Represents a background process with raw output and lifecycle capture."""
 
     def __init__(
         self,
@@ -263,265 +347,611 @@ class BackgroundProcess:
         input_buffer: Optional[InputBuffer] = None,
         master_fd: Optional[int] = None,
     ):
-        self.master_fd = master_fd
-        """
-        Initialize background process wrapper.
-
-        Args:
-            command: Original command string
-            process: Subprocess.Popen object
-            buffer: CircularBuffer for output storage
-            persist: If True, output buffer won't be cleared when read
-        """
-        import time
-
         self.command = command
         self.process = process
         self.buffer = buffer
-        self.reader_thread = None
-        self.last_read_position = 0
-        self.start_time = time.time()
-        self.end_time = None
         self.persist = persist
         self.continued_in_background = False
         self.input_buffer = input_buffer or InputBuffer()
+        self.master_fd = master_fd
+        self.read_fd = master_fd
+        self.write_fd = None
+        self._shared_fd = False
+        if master_fd is not None:
+            try:
+                self.write_fd = os.dup(master_fd)
+            except OSError:
+                self.write_fd = master_fd
+                self._shared_fd = True
+
+        self.command_key: Optional[str] = None
+        self.stream = StreamRing()
+        self.state = "running" if self.is_alive() else "exited"
+        self.exit_code: Optional[int] = None
+        self.signal: Optional[int] = None
+        self.ended_at: Optional[float] = None
+        self.cols = 100
+        self.rows = 30
+        self.pty = master_fd is not None
+        self.needs_input = False
+        self.last_prompt: Optional[str] = None
+        self.consumed_at: Optional[float] = None
+        self.close_requested = False
+        self.input_owner: Optional[str] = None
+        self.input_lease_until = 0.0
+        self.event_sink = None
+        self.on_exit = None
+
+        self.reader_thread = None
         self.writer_thread = None
+        self.last_read_position = 0
+        self.start_time = time.time()
+        self.end_time = None
+
+        self._state_lock = threading.RLock()
+        self._exit_lock = threading.Lock()
+        self._exited_event = threading.Event()
+        self._exit_reported = False
+        self._kill_timer = None
+        self._stop_requested = False
+        self._pgid: Optional[int] = None
+        self._descendant_pids: set[int] = set()
         self._stop_event = threading.Event()
+        self._last_output_at = time.monotonic()
+        self._prompt_fingerprint = None
+        self._last_prompt_at = 0.0
+
         self._start_output_reader()
         self._start_input_writer()
+        self._start_exit_reaper()
+        self._start_prompt_watcher()
 
     def _start_output_reader(self) -> None:
-        """Start thread to read process output."""
-
         def reader():
-            import re
-
-            # Regex to strip ANSI terminal escape sequences
-            _ansi_escape = re.compile(
-                r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[\]^_]|[\x1b\x9b][][()#;?]*"
-                r"(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><~]"
-            )
-
-            def _strip_ansi(text: str) -> str:
-                return _ansi_escape.sub("", text)
-
-            def _pump(stream, use_readline=False, strip_ansi=False):
-                """Blocking read pump for a single output stream.
-
-                Uses a blocking read instead of non-blocking reads + polling,
-                so it consumes no CPU while idle and works identically on
-                Linux, macOS, and Windows (select/os.set_blocking are
-                socket-only on Windows and cannot be used on pipes there).
-                """
-                while not self._stop_event.is_set():
-                    try:
-                        if use_readline:
-                            # Fallback when fileno() is unavailable
-                            # (e.g. mock objects in tests)
-                            data = stream.readline()
-                        else:
-                            data = os.read(stream.fileno(), 4096).decode(errors="replace")
-                    except (OSError, EOFError, ValueError):
-                        break
-                    if not data:
-                        # EOF: the process exited or the stream closed
-                        break
-                    if strip_ansi:
-                        data = _strip_ansi(data)
-                    self.buffer.append(data)
-
             try:
-                if self.master_fd is not None:
+                if self.read_fd is not None:
                     while not self._stop_event.is_set():
                         try:
-                            data = os.read(self.master_fd, 4096).decode(errors="replace")
-                            if not data:
-                                break
-                            # Strip ANSI escape sequences from PTY output
-                            self.buffer.append(_strip_ansi(data))
-                        except (OSError, EOFError):
+                            data = os.read(self.read_fd, 4096)
+                        except (BlockingIOError, InterruptedError):
+                            continue
+                        except (OSError, EOFError, ValueError):
                             break
+                        if not data:
+                            break
+                        self._append_output(data)
                 else:
-                    # Pipe mode: spawn one blocking pump per stream so stderr
-                    # cannot fill up while stdout is being read. Pumps use
-                    # blocking reads and stop on EOF, which stop() triggers by
-                    # terminating the process (closing the pipe write ends).
-                    # A grandchild that inherits those write ends keeps a pump
-                    # alive until it exits (bounded by the daemon thread and
-                    # self-healing).
-                    pumps = []
-                    if hasattr(self.process.stdout, "fileno"):
-                        # Use os.read() instead of readline() to capture
-                        # partial line output (e.g. REPL prompts without newlines)
-                        pumps.append(
-                            threading.Thread(
-                                target=_pump,
-                                args=(self.process.stdout,),
-                                daemon=True,
-                            )
-                        )
-                    else:
-                        # Fallback to readline when fileno() is unavailable
-                        # (e.g. mock objects in tests)
-                        pumps.append(
-                            threading.Thread(
-                                target=_pump,
-                                args=(self.process.stdout, True),
-                                daemon=True,
-                            )
-                        )
-                    if hasattr(self.process.stderr, "fileno"):
-                        # Best-effort stderr capture
-                        pumps.append(
-                            threading.Thread(
-                                target=_pump,
-                                args=(self.process.stderr,),
-                                daemon=True,
-                            )
-                        )
+                    streams = []
+                    stdout = getattr(self.process, "stdout", None)
+                    stderr = getattr(self.process, "stderr", None)
+                    if stdout is not None:
+                        streams.append(stdout)
+                    if stderr is not None and stderr is not stdout:
+                        streams.append(stderr)
 
-                    for pump_thread in pumps:
-                        pump_thread.start()
-
-                    for pump_thread in pumps:
-                        pump_thread.join()
-            except Exception as e:
-                self.buffer.append(f"\n[Error reading process output: {str(e)}]\n")
+                    pumps = [
+                        threading.Thread(target=self._pump_stream, args=(stream,), daemon=True)
+                        for stream in streams
+                    ]
+                    for pump in pumps:
+                        pump.start()
+                    for pump in pumps:
+                        pump.join()
+            finally:
+                self._close_read_fd()
 
         self.reader_thread = threading.Thread(target=reader, daemon=True)
         self.reader_thread.start()
 
+    def _pump_stream(self, stream) -> None:
+        while not self._stop_event.is_set():
+            try:
+                if hasattr(stream, "fileno"):
+                    try:
+                        data = os.read(stream.fileno(), 4096)
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    except (OSError, ValueError):
+                        break
+                else:
+                    data = stream.readline()
+            except (OSError, EOFError, ValueError):
+                break
+
+            if not data:
+                break
+            raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
+            self._append_output(raw)
+
+    def _append_output(self, data: bytes) -> None:
+        with self._state_lock:
+            seq = self.stream.append(data)
+            self._last_output_at = time.monotonic()
+            self.needs_input = False
+            self.last_prompt = None
+            self._emit_output_locked(seq, data)
+            text = strip_ansi(data.decode("utf-8", errors="replace"))
+            try:
+                self.buffer.append(text)
+            except Exception:
+                pass
+
     def _start_input_writer(self) -> None:
-        """Start thread to write input to process stdin."""
+        stdin = getattr(self.process, "stdin", None)
+        if self.write_fd is None and stdin is None:
+            self.writer_thread = None
+            return
 
         def writer():
             try:
                 while not self._stop_event.is_set() and self.is_alive():
-                    # Block until input arrives; the timeout is only a liveness
-                    # fallback for a process that exits on its own.
-                    if not self.input_buffer.wait_for_input(timeout=1.0):
+                    if not self.input_buffer.wait_for_input(timeout=0.5):
                         continue
-
-                    if self._stop_event.is_set():
-                        break
-
-                    text = self.input_buffer.pop_all()
-                    if text:
-                        if self.master_fd is not None:
-                            os.write(self.master_fd, text.encode("latin-1"))
+                    data = self.input_buffer.pop_all()
+                    if not data:
+                        continue
+                    try:
+                        if self.write_fd is not None:
+                            view = memoryview(data)
+                            while view:
+                                written = os.write(self.write_fd, view)
+                                view = view[written:]
                         else:
                             try:
-                                # Try to write to the binary buffer for lossless propagation
-                                self.process.stdin.buffer.write(text.encode("latin-1"))
-                                self.process.stdin.buffer.flush()
-                            except (AttributeError, ValueError):
-                                # Fallback to text mode if buffer is not available
-                                self.process.stdin.write(text)
-                                self.process.stdin.flush()
-            except (BrokenPipeError, OSError):
-                pass
-            except Exception as e:
-                self.buffer.append(f"\n[Error writing to process input: {str(e)}]\n")
+                                stdin.buffer.write(data)
+                                stdin.buffer.flush()
+                            except AttributeError:
+                                stdin.write(data.decode("utf-8", errors="replace"))
+                                stdin.flush()
+                    except (BrokenPipeError, OSError, ValueError):
+                        break
+                    except Exception:
+                        continue
             finally:
-                try:
-                    if self.master_fd is not None:
-                        os.close(self.master_fd)
-                    else:
-                        self.process.stdin.close()
-                except Exception:
-                    pass
+                if self.write_fd is not None and not self._shared_fd:
+                    try:
+                        os.close(self.write_fd)
+                    except OSError:
+                        pass
+                    self.write_fd = None
+                elif stdin is not None and self.write_fd is None:
+                    try:
+                        stdin.close()
+                    except Exception:
+                        pass
 
         self.writer_thread = threading.Thread(target=writer, daemon=True)
         self.writer_thread.start()
 
+    def _start_exit_reaper(self) -> None:
+        def reaper():
+            try:
+                code = self.process.wait()
+            except Exception:
+                code = None
+            if code is None and self.is_alive():
+                return
+            if code is None:
+                code = self.process.poll()
+            self._mark_exited(code)
+
+        threading.Thread(target=reaper, daemon=True).start()
+
+    def _start_prompt_watcher(self) -> None:
+        def watcher():
+            while not self._exited_event.is_set():
+                time.sleep(0.1)
+                if self.state != "running" or self.needs_input:
+                    continue
+                if time.monotonic() - self._last_output_at < BG_PROMPT_QUIET_SECONDS:
+                    continue
+                try:
+                    tail = self.buffer.get_all()[-300:]
+                except Exception:
+                    continue
+                if not tail or not _PROMPT_RE.search(tail):
+                    continue
+                fingerprint = tail[-80:]
+                now = time.monotonic()
+                if (
+                    fingerprint == self._prompt_fingerprint
+                    and now - self._last_prompt_at < BG_PROMPT_REEMIT_SECONDS
+                ):
+                    continue
+                with self._state_lock:
+                    self.needs_input = True
+                    self.last_prompt = tail[-200:]
+                    self._prompt_fingerprint = fingerprint
+                    self._last_prompt_at = now
+                    self._emit_locked(
+                        "needs_input",
+                        prompt=self.last_prompt,
+                        state=self.state,
+                    )
+
+        threading.Thread(target=watcher, daemon=True).start()
+
     def get_output(self, clear: bool = False) -> str:
-        """
-        Get current output buffer.
-
-        Args:
-            clear: If True, clear buffer after reading
-
-        Returns:
-            Current output content
-        """
         return self.buffer.get_all(clear)
 
     def get_new_output(self) -> str:
-        """
-        Get new output since last call.
-
-        Returns:
-            New output since last call
-        """
         new_output, new_position = self.buffer.get_new_output(self.last_read_position)
         self.last_read_position = new_position
         return new_output
 
     def is_alive(self) -> bool:
-        """Check if process is running."""
         return self.process.poll() is None
 
     def send_input(self, text: str) -> None:
-        """Queue input to be sent to the process."""
-        if self.input_buffer:
-            self.input_buffer.append(text)
-
-    def stop(self, timeout: float = 5.0) -> Tuple[bool, str, Optional[int]]:
-        """
-        Stop the process gracefully.
-
-        Args:
-            timeout: Seconds to wait for graceful termination
-
-        Returns:
-            Tuple of (success, output, exit_code)
-        """
-        import time
-
         try:
-            # Signal threads to stop
+            self.send_input_bytes(text.encode("utf-8"), owner="agent")
+        except BackgroundInputError:
+            pass
+
+    def send_input_bytes(
+        self,
+        data: bytes,
+        owner: Optional[str] = None,
+        release: bool = False,
+    ) -> Tuple[int, str]:
+        now = time.monotonic()
+
+        if release:
+            with self._state_lock:
+                if owner is None or self.input_owner == owner or self.input_owner is None:
+                    self.input_owner = None
+                    self.input_lease_until = 0.0
+                    return 0, "released"
+                raise BackgroundInputError("input_locked", self.input_owner)
+
+        with self._state_lock:
+            if self._exit_reported or not self.is_alive():
+                raise BackgroundInputError("not_running")
+            if self.input_owner is not None and self.input_lease_until < now:
+                self.input_owner = None
+            if self.input_owner is not None and self.input_owner != owner:
+                raise BackgroundInputError("input_locked", self.input_owner)
+            if len(data) > BG_INPUT_MAX:
+                raise BackgroundInputError("too_large")
+            if not self.input_buffer.append_bytes(data):
+                raise BackgroundInputError("queue_full")
+            if owner is not None:
+                self.input_owner = owner
+            self.input_lease_until = now + BG_INPUT_LEASE_SECONDS
+            self.needs_input = False
+            self.last_prompt = None
+            self.input_buffer.wake()
+            return len(data), "accepted"
+
+    def mark_consumed(self) -> None:
+        with self._state_lock:
+            self.consumed_at = time.time()
+
+    def resize(self, cols: Any, rows: Any) -> bool:
+        try:
+            cols = max(20, min(500, int(cols)))
+            rows = max(5, min(200, int(rows)))
+        except (TypeError, ValueError):
+            return False
+        with self._state_lock:
+            self.cols = cols
+            self.rows = rows
+            if not self.pty or self.master_fd is None:
+                return False
+            try:
+                import fcntl
+                import struct
+                import termios
+
+                fcntl.ioctl(
+                    self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0)
+                )
+                return True
+            except OSError:
+                return False
+
+    def signal_stop(self, timeout: float = 5.0) -> None:
+        with self._state_lock:
+            if self._exit_reported:
+                return
+            self.state = "stopping"
             self._stop_event.set()
             self.input_buffer.wake()
 
-            # Try SIGTERM first
-            self.process.terminate()
-            self.process.wait(timeout=timeout)
+        self._stop_requested = True
+        self._capture_process_group()
+        self._signal_tree(signal.SIGTERM, hard=False)
 
-            # Get final output
-            output = self.get_output(clear=True)
-            exit_code = self.process.returncode
-            self.end_time = time.time()
-            return True, output, exit_code
+        timer = threading.Timer(timeout, self._force_kill)
+        timer.daemon = True
+        self._kill_timer = timer
+        timer.start()
 
+    def _force_kill(self) -> None:
+        if not self._stop_requested:
+            return
+
+        sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+        if os.name == "posix" and self.pty and self._pgid:
+            try:
+                os.killpg(self._pgid, sig)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+        self._kill_descendants(sig)
+
+        pid = getattr(self.process, "pid", None)
+        if pid and os.name == "posix":
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+
+    def _capture_process_group(self) -> None:
+        if os.name != "posix":
+            return
+
+        pid = getattr(self.process, "pid", None)
+        if not pid:
+            return
+
+        if self.pty:
+            try:
+                self._pgid = os.getpgid(pid)
+            except OSError:
+                self._pgid = pid
+            return
+
+        try:
+            import psutil
+
+            parent = psutil.Process(pid)
+            self._descendant_pids = {child.pid for child in parent.children(recursive=True)}
+        except Exception:
+            pass
+
+    def _kill_descendants(self, sig: int) -> None:
+        if os.name != "posix" or not self._descendant_pids:
+            return
+
+        try:
+            import psutil
+        except Exception:
+            return
+
+        pids = set(self._descendant_pids)
+        for pid in list(pids):
+            try:
+                pids.update(child.pid for child in psutil.Process(pid).children(recursive=True))
+            except Exception:
+                pass
+
+        for pid in pids:
+            try:
+                psutil.Process(pid).send_signal(sig)
+            except Exception:
+                pass
+
+        self._descendant_pids = set()
+
+    def _has_live_descendants(self) -> bool:
+        if os.name != "posix":
+            return False
+
+        if self.pty:
+            if not self._pgid:
+                return False
+            try:
+                os.killpg(self._pgid, 0)
+                return True
+            except OSError:
+                return False
+
+        try:
+            import psutil
+        except Exception:
+            return False
+
+        for pid in list(self._descendant_pids):
+            try:
+                proc = psutil.Process(pid)
+                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
+    def _signal_tree(self, sig: int, hard: bool) -> None:
+        process = self.process
+        pid = getattr(process, "pid", None)
+
+        if pid and os.name == "posix" and self.pty:
+            try:
+                os.killpg(self._pgid or os.getpgid(pid), sig)
+                return
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+        if pid and os.name == "posix":
+            try:
+                import psutil
+
+                parent = psutil.Process(pid)
+                for child in parent.children(recursive=True):
+                    try:
+                        child.send_signal(sig)
+                    except Exception:
+                        pass
+                parent.send_signal(sig)
+                return
+            except Exception:
+                pass
+
+        try:
+            if hard:
+                process.kill()
+            else:
+                process.terminate()
+        except OSError:
+            pass
+
+    def wait_exit(self, timeout: Optional[float] = None) -> bool:
+        return self._exited_event.wait(timeout)
+
+    def stop(self, timeout: float = 5.0) -> Tuple[bool, str, Optional[int]]:
+        self.signal_stop(timeout)
+        code = None
+        try:
+            code = self.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # Force kill if timeout
-            self.process.kill()
-            self.process.wait()
+            self._force_kill()
+            try:
+                code = self.process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                code = self.process.poll()
+        self._finish_stop(code)
+        return True, self.get_output(clear=False), self.exit_code
 
-            output = self.get_output(clear=True)
-            exit_code = self.process.returncode
-            self.end_time = time.time()
+    def _finish_stop(self, code: Optional[int]) -> Optional[int]:
+        """Mark exit and force-kill any descendants that outlived the leader."""
+        if code is None:
+            code = self.process.poll()
+        if code is not None or not self.is_alive():
+            self._mark_exited(code)
 
-            return True, output, exit_code
+        if self._has_live_descendants():
+            self._force_kill()
+            self.wait_exit(2.0)
+            if code is None:
+                code = self.process.poll()
+            if code is not None or not self.is_alive():
+                self._mark_exited(code)
 
-        except Exception as e:
-            return False, f"Error stopping process: {str(e)}", None
+        if self._kill_timer is not None and not self._has_live_descendants():
+            self._kill_timer.cancel()
+            self._kill_timer = None
+        return self.exit_code
 
     def wait(self, timeout: Optional[float] = None) -> Optional[int]:
-        """
-        Wait for process completion.
-
-        Args:
-            timeout: Timeout in seconds
-
-        Returns:
-            Exit code or None if timeout
-        """
         try:
             self.process.wait(timeout=timeout)
             return self.process.returncode
         except subprocess.TimeoutExpired:
             return None
+
+    def _mark_exited(self, code: Optional[int]) -> None:
+        with self._exit_lock:
+            if self._exit_reported:
+                return
+            self._exit_reported = True
+
+        with self._state_lock:
+            self.exit_code = code
+            self.end_time = time.time()
+            self.ended_at = self.end_time
+            self.state = "exited" if code is not None else "failed"
+            self.input_owner = None
+            self.input_lease_until = 0.0
+            self.needs_input = False
+            self.last_prompt = None
+            self._stop_event.set()
+            self._exited_event.set()
+        if self._kill_timer is not None and not (
+            self._stop_requested and self._has_live_descendants()
+        ):
+            self._kill_timer.cancel()
+            self._kill_timer = None
+
+        self.input_buffer.wake()
+        self._emit_locked(
+            "exited",
+            code=code,
+            signal=self.signal,
+            endedAt=self.ended_at,
+            state=self.state,
+            command=self._entry_locked(),
+        )
+
+        if self.close_requested:
+            with self._state_lock:
+                self._emit_locked("closed", reason="close", command=self._entry_locked())
+            if self.on_exit is not None:
+                try:
+                    self.on_exit()
+                except Exception:
+                    pass
+
+    def _close_read_fd(self) -> None:
+        fd, self.read_fd = self.read_fd, None
+        if fd is None:
+            return
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    def _entry_locked(self) -> Dict[str, Any]:
+        return {
+            "key": self.command_key,
+            "command": self.command,
+            "state": self.state,
+            "running": self.is_alive(),
+            "persist": self.persist,
+            "continuedInBackground": self.continued_in_background,
+            "pid": getattr(self.process, "pid", None),
+            "cols": self.cols,
+            "rows": self.rows,
+            "pty": self.pty,
+            "seq": self.stream.seq,
+            "startSeq": self.stream.start_seq,
+            "startedAt": self.start_time,
+            "endedAt": self.ended_at,
+            "exitCode": self.exit_code,
+            "signal": self.signal,
+            "needsInput": self.needs_input,
+            "lastPrompt": self.last_prompt,
+            "inputOwner": self.input_owner,
+            "consumedAt": self.consumed_at,
+            "closeRequested": self.close_requested,
+            "bufferSize": self.buffer.size(),
+            "pages": getattr(self.buffer, "page_count", 0),
+            "totalChars": getattr(self.buffer, "total_added", self.buffer.size()),
+        }
+
+    def entry(self) -> Dict[str, Any]:
+        with self._state_lock:
+            return self._entry_locked()
+
+    def _emit_output_locked(self, seq: int, data: bytes) -> None:
+        sink = self.event_sink
+        if sink is None or not self.command_key:
+            return
+        try:
+            sink.publish_output(self.command_key, seq, data)
+        except Exception:
+            pass
+
+    def _emit_locked(self, event: str, **fields: Any) -> None:
+        """Publish an event via the sink while state locks may be held.
+
+        The sink must be a non-blocking enqueue (never a transport send) so
+        callers holding `_state_lock` cannot stall on I/O.
+        """
+        sink = self.event_sink
+        if sink is None or not self.command_key:
+            return
+        params = {
+            "schemaVersion": 1,
+            "event": event,
+            "key": self.command_key,
+            "state": self.state,
+        }
+        params.update(fields)
+        try:
+            sink.publish(params)
+        except Exception:
+            pass
 
 
 class BackgroundCommandManager:
@@ -533,6 +963,8 @@ class BackgroundCommandManager:
     _background_commands: Dict[str, BackgroundProcess] = {}
     _lock = threading.Lock()
     _next_id = 1
+    event_sink = None
+    _ttl_started = False
 
     @classmethod
     def _generate_command_key(cls, command: str) -> str:
@@ -640,7 +1072,7 @@ class BackgroundCommandManager:
                     resolved_command,
                     shell=True,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
                     stdin=subprocess.PIPE,
                     cwd=cwd,
                     text=True,
@@ -661,8 +1093,17 @@ class BackgroundCommandManager:
             # Generate unique key and store
             command_key = command_key or cls._generate_command_key(command)
 
+            bg_process.command_key = command_key
+            bg_process.on_exit = lambda: cls._remove(command_key)
+            bg_process.event_sink = cls.event_sink
+            if not bg_process.is_alive():
+                bg_process.state = "exited"
+
             with cls._lock:
                 cls._background_commands[command_key] = bg_process
+
+            cls._ensure_ttl_thread()
+            cls._emit(command_key, "started", command=bg_process.entry())
 
             if verbose:
                 print(f"[Background] Started command: {command} (key: {command_key})")
@@ -683,8 +1124,14 @@ class BackgroundCommandManager:
                 return False
 
             bg_process.continued_in_background = True
+            entry = (
+                bg_process.entry()
+                if hasattr(bg_process, "entry")
+                else {"key": command_key, "continuedInBackground": True}
+            )
 
-            return True
+        cls._emit(command_key, "state", command=entry, reason="continued_in_background")
+        return True
 
     @classmethod
     def is_command_running(cls, command_key: str) -> bool:
@@ -739,23 +1186,174 @@ class BackgroundCommandManager:
             return bg_process.get_new_output()
 
     @classmethod
-    def send_command_input(cls, command_key: str, text: str) -> bool:
-        """
-        Send input to a background command.
+    def set_event_sink(cls, sink) -> None:
+        cls.event_sink = sink
+        with cls._lock:
+            for bg_process in cls._background_commands.values():
+                bg_process.event_sink = sink
 
-        Args:
-            command_key: Command key returned by start_background_command
-            text: Text to send to the command's stdin
+    @classmethod
+    def _emit(cls, command_key: str, event: str, **fields: Any) -> None:
+        """Publish an event via the class-level sink.
 
-        Returns:
-            True if input was queued, False if command not found
+        The sink must be a non-blocking enqueue (never a transport send).
         """
+        sink = cls.event_sink
+        if sink is None:
+            return
+        params = {
+            "schemaVersion": 1,
+            "event": event,
+            "key": command_key,
+        }
+        params.update(fields)
+        try:
+            sink.publish(params)
+        except Exception:
+            pass
+
+    @classmethod
+    def send_input_bytes(
+        cls,
+        command_key: str,
+        data: bytes,
+        owner: Optional[str] = None,
+        release: bool = False,
+    ) -> Tuple[int, str]:
         with cls._lock:
             bg_process = cls._background_commands.get(command_key)
-            if not bg_process:
-                return False
-        bg_process.send_input(text)
+        if not bg_process:
+            return 0, "not_found"
+
+        try:
+            return bg_process.send_input_bytes(data, owner=owner, release=release)
+        except BackgroundInputError as err:
+            return 0, err.code
+
+    @classmethod
+    def send_command_input(cls, command_key: str, text: str) -> bool:
+        accepted, status = cls.send_input_bytes(command_key, text.encode("utf-8"), owner="agent")
+        return status in ("accepted", "released") and accepted >= 0
+
+    @classmethod
+    def close_background_command(cls, command_key: str) -> Tuple[bool, str]:
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+        if not bg_process:
+            return False, "not_found"
+
+        if bg_process.is_alive():
+            bg_process.close_requested = True
+            bg_process.signal_stop()
+            return True, "closing"
+
+        cls._remove(command_key)
+        cls._emit(command_key, "closed", reason="close", command=bg_process.entry())
+        return True, "closed"
+
+    @classmethod
+    def signal_stop_background_command(cls, command_key: str, timeout: float = 5.0) -> bool:
+        """Signal a command without waiting for its exit (reader-safe)."""
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+        if not bg_process or not bg_process.is_alive():
+            return False
+
+        bg_process.signal_stop(timeout=timeout)
         return True
+
+    @classmethod
+    def signal_stop_all_background_commands(cls, timeout: float = 5.0) -> int:
+        """Signal every live command; returns how many were signalled."""
+        with cls._lock:
+            commands = list(cls._background_commands.values())
+
+        stopped = 0
+        for bg_process in commands:
+            if bg_process.is_alive():
+                bg_process.signal_stop(timeout=timeout)
+                stopped += 1
+
+        return stopped
+
+    @classmethod
+    def snapshot_background_command(cls, command_key: str, since=None):
+        """Return raw ring bytes from ``since`` (or the retained window)."""
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+        if not bg_process:
+            return None
+
+        try:
+            since_value = None if since is None else int(since)
+        except (TypeError, ValueError):
+            since_value = None
+
+        with bg_process._state_lock:
+            seq, data, reset = bg_process.stream.snapshot(since_value)
+            return {
+                "seq": seq,
+                "startSeq": bg_process.stream.start_seq,
+                "data": bytes(data),
+                "reset": reset,
+                "state": bg_process.state,
+            }
+
+    @classmethod
+    def resize_background_command(cls, command_key: str, cols, rows):
+        """Resize a PTY-backed command; returns None when the key is unknown."""
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+        if not bg_process:
+            return None
+
+        resized = bg_process.resize(cols, rows)
+        return {"resized": bool(resized), "cols": bg_process.cols, "rows": bg_process.rows}
+
+    @classmethod
+    def mark_consumed(cls, command_key: str) -> bool:
+        with cls._lock:
+            bg_process = cls._background_commands.get(command_key)
+        if not bg_process:
+            return False
+        bg_process.mark_consumed()
+        return True
+
+    @classmethod
+    def _remove(cls, command_key: str) -> None:
+        with cls._lock:
+            cls._background_commands.pop(command_key, None)
+
+    @classmethod
+    def _ensure_ttl_thread(cls) -> None:
+        with cls._lock:
+            if cls._ttl_started:
+                return
+            cls._ttl_started = True
+
+        def reaper():
+            while True:
+                time.sleep(5.0)
+                expired = []
+                with cls._lock:
+                    now = time.time()
+                    for command_key, bg_process in list(cls._background_commands.items()):
+                        if (
+                            not bg_process.is_alive()
+                            and bg_process.end_time is not None
+                            and now - bg_process.end_time > BG_EXITED_TTL
+                        ):
+                            expired.append((command_key, bg_process))
+                            cls._background_commands.pop(command_key, None)
+                for command_key, bg_process in expired:
+                    cls._emit(
+                        command_key,
+                        "closed",
+                        reason="ttl",
+                        command=bg_process.entry(),
+                    )
+
+        threading.Thread(target=reaper, daemon=True).start()
 
     @classmethod
     def get_all_command_outputs(cls, clear: bool = False) -> Dict[str, str]:
@@ -782,77 +1380,69 @@ class BackgroundCommandManager:
             return outputs
 
     @classmethod
-    def stop_background_command(cls, command_key: str) -> Tuple[bool, str, Optional[int]]:
-        """
-        Stop a running background command.
-
-        Args:
-            command_key: Command key returned by start_background_command
-
-        Returns:
-            Tuple of (success, output, exit_code)
-        """
+    def stop_background_command(
+        cls, command_key: str, timeout: float = 5.0
+    ) -> Tuple[bool, str, Optional[int]]:
+        """Signal a command and retain its metadata and final ring for TTL."""
         with cls._lock:
             bg_process = cls._background_commands.get(command_key)
-            if not bg_process:
-                return False, f"No background command found with key: {command_key}", None
+        if not bg_process:
+            return False, f"No background command found with key: {command_key}", None
 
-            # Stop the process
-            success, output, exit_code = bg_process.stop()
-
-            # Remove from tracking
-            if command_key in cls._background_commands:
-                del cls._background_commands[command_key]
-
-            return success, output, exit_code
+        return bg_process.stop(timeout=timeout)
 
     @classmethod
-    def stop_all_background_commands(cls) -> Dict[str, Tuple[bool, str, Optional[int]]]:
-        """
-        Stop all running background commands.
-
-        Returns:
-            Dictionary mapping command keys to (success, output, exit_code) tuples
-        """
-        results = {}
+    def stop_all_background_commands(
+        cls, timeout: float = 5.0
+    ) -> Dict[str, Tuple[bool, str, Optional[int]]]:
+        """Signal every command outside the manager lock, bounded in total."""
         with cls._lock:
-            command_keys = list(cls._background_commands.keys())
+            commands = list(cls._background_commands.items())
 
-        for command_key in command_keys:
-            success, output, exit_code = cls.stop_background_command(command_key)
-            results[command_key] = (success, output, exit_code)
+        for _, bg_process in commands:
+            if bg_process.is_alive():
+                bg_process.signal_stop(timeout=timeout)
 
+        deadline = time.monotonic() + timeout
+        results = {}
+        for command_key, bg_process in commands:
+            remaining = max(0.0, deadline - time.monotonic())
+            bg_process.wait_exit(remaining)
+            bg_process._finish_stop(bg_process.process.poll())
+            results[command_key] = (
+                True,
+                bg_process.get_output(clear=False),
+                bg_process.exit_code,
+            )
         return results
 
     @classmethod
     def list_background_commands(cls) -> Dict[str, Dict[str, any]]:
-        """
-        List all background commands with their status.
-
-        Returns:
-            Dictionary with command information including timestamps
-        """
-        import time
-
+        """List commands with legacy snake_case keys plus the new CLI fields."""
         with cls._lock:
-            result = {}
-            for command_key, bg_process in cls._background_commands.items():
-                result[command_key] = {
-                    "command": bg_process.command,
-                    "running": bg_process.is_alive(),
-                    "persist": getattr(bg_process, "persist", False),
-                    "continued_in_background": getattr(
-                        bg_process, "continued_in_background", False
-                    ),
-                    "buffer_size": bg_process.buffer.size(),
-                    "pages": getattr(bg_process.buffer, "page_count", 0),
-                    "total_chars": getattr(
-                        bg_process.buffer, "total_added", bg_process.buffer.size()
-                    ),
-                    "start_time": bg_process.start_time,
-                    "end_time": bg_process.end_time,
+            processes = list(cls._background_commands.items())
+
+        result = {}
+        now = time.time()
+        for command_key, bg_process in processes:
+            entry = bg_process.entry()
+            entry.update(
+                {
+                    "buffer_size": entry["bufferSize"],
+                    "total_chars": entry["totalChars"],
+                    "start_time": entry["startedAt"],
+                    "end_time": entry["endedAt"],
+                    "continued_in_background": entry["continuedInBackground"],
+                    "exit_code": entry["exitCode"],
+                    "ended_at": entry["endedAt"],
+                    "needs_input": entry["needsInput"],
+                    "last_prompt": entry["lastPrompt"],
+                    "input_owner": entry["inputOwner"],
+                    "consumed_at": entry["consumedAt"],
+                    "close_requested": entry["closeRequested"],
+                    "start_seq": entry["startSeq"],
                     "duration": (
-                        time.time() - bg_process.start_time
+                        now - bg_process.start_time
                         if bg_process.is_alive()
                         else (
                             bg_process.end_time - bg_process.start_time
@@ -861,7 +1451,9 @@ class BackgroundCommandManager:
                         )
                     ),
                 }
-            return result
+            )
+            result[command_key] = entry
+        return result
 
     _line_buffered_tool = None
 

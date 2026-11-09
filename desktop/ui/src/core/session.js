@@ -5,6 +5,7 @@ import {
   get_onboarding_status,
   get_sessions,
   get_state,
+  get_workspaces,
   post_complete,
   post_json,
 } from './api.js';
@@ -138,8 +139,14 @@ export class Session {
   /** GET the authoritative snapshot; also called on every SSE open. */
   async refresh_sessions() {
     try {
-      const payload = await get_sessions();
+      const [payload, workspace_payload] = await Promise.all([
+        get_sessions(),
+        get_workspaces().catch(() => null),
+      ]);
       this.store.set_sessions(payload.sessions, payload.maxSessions);
+      if (workspace_payload) {
+        this.store.set_workspaces(workspace_payload.workspaces || []);
+      }
       if (!(payload.sessions || []).length) {
         this.store.update((state) =>
           state.status === 'idle'
@@ -317,7 +324,24 @@ export class Session {
     return result;
   }
 
-  /** Remove a workspace from conf.yml and close its non-primary session. */
+  /** Start (or focus) a configured workspace's live session. */
+  async open_workspace(path, name = null) {
+    const body = { path, ...(name ? { name } : {}) };
+    const result = await post_json('/api/workspaces', body);
+    await this.refresh_sessions();
+    if (result?.bridgeId) await this.switch_session(result.bridgeId);
+    return result;
+  }
+
+  /** Persist a workspace name or startup flag. */
+  async update_workspace(path, changes) {
+    const result = await post_json('/api/workspaces/update', { path, ...changes });
+    await this.refresh_sessions();
+    await this.refresh_state(this.store.active_bridge_id);
+    return result;
+  }
+
+  /** Remove a workspace from desktop.yml and close its non-primary session. */
   async remove_workspace(path) {
     const result = await delete_json('/api/workspaces', { path });
     await this.refresh_sessions();
@@ -574,6 +598,20 @@ export class Session {
     } finally {
       this.store.update((state) => ({ ...state, new_chat_pending: false }));
     }
+  }
+
+  /** Reset the visible transcript to the initial empty/loading state. */
+  reset_transcript_state() {
+    this.clear_permission_cleanup();
+    this.history_loaded.clear();
+    this.store.update((state) => ({
+      ...reset_transcript(state),
+      busy: false,
+      stopping: false,
+      busy_message: '',
+      turn_state: 'idle',
+      suppress_transcript: true,
+    }));
   }
 
   /** Restart the bridge child process. */

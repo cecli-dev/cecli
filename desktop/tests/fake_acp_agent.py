@@ -23,6 +23,22 @@ _config_options: list[dict[str, Any]] = []
 _pending_prompt: dict[str, Any] | None = None
 _permission_seq = 0
 _announced_subagents: set[str] = set()
+_hooks: list[dict[str, Any]] = [
+    {
+        "name": "guard",
+        "type": "pre_tool",
+        "enabled": True,
+        "priority": 5,
+        "description": "Blocks unsafe commands",
+    },
+    {
+        "name": "notify",
+        "type": "on_message",
+        "enabled": False,
+        "priority": 20,
+        "description": None,
+    },
+]
 
 
 def send(message: dict[str, Any]) -> None:
@@ -348,12 +364,42 @@ def state_details() -> dict[str, Any]:
     """Registry payload returned by ``cecli/state`` in tests."""
     return {
         "ready": True,
+        "cwd": os.getcwd(),
+        "gitBranch": "main",
         "skills": [{"name": "pdf", "loaded": True}],
         "mcpServers": [{"name": "github", "connected": False}],
         "workflows": [{"name": "demo"}],
         "contextFiles": [{"path": "README.md"}],
+        "hooks": [
+            dict(hook) for hook in sorted(_hooks, key=lambda item: (item["type"], item["priority"]))
+        ],
         "subagents": [],
     }
+
+
+def handle_hook(request_id: Any, params: dict[str, Any]) -> None:
+    """Enable or disable one fake hook and return the refreshed list."""
+    name = params.get("name")
+    action = params.get("action")
+    if action in ("load", "enable"):
+        enabled = True
+    elif action in ("remove", "disable"):
+        enabled = False
+    else:
+        error(request_id, -32602, f"unknown hook action: {action}")
+        return
+
+    for hook in _hooks:
+        if hook["name"] == name:
+            hook["enabled"] = enabled
+            hooks = [
+                dict(item)
+                for item in sorted(_hooks, key=lambda entry: (entry["type"], entry["priority"]))
+            ]
+            result(request_id, {"result": True, "hooks": hooks})
+            return
+
+    error(request_id, -32602, f"Hook '{name}' not found")
 
 
 def handle_history(request_id: Any) -> None:
@@ -378,6 +424,12 @@ def handle_history(request_id: Any) -> None:
         {"role": "tool", "toolCallId": "call-1", "content": "contract body"},
         {"role": "assistant", "content": "All done."},
     ]
+    diffs = [
+        {
+            "file": "CONTRACT.md",
+            "diff": "@@ -1 +1 @@\n-old line\n+new line",
+        }
+    ]
     subagents = [
         {
             "sessionId": session_id,
@@ -385,10 +437,16 @@ def handle_history(request_id: Any) -> None:
                 {"role": "user", "content": "work"},
                 {"role": "assistant", "content": "child reply"},
             ],
+            "diffs": [
+                {
+                    "file": f"{session_id}.md",
+                    "diff": "@@ -2 +2 @@\n-child line\n+child line two",
+                }
+            ],
         }
         for session_id in sorted(_announced_subagents)
     ]
-    result(request_id, {"messages": messages, "subagents": subagents})
+    result(request_id, {"messages": messages, "subagents": subagents, "diffs": diffs})
 
 
 def handle_subagent_message(request_id: Any, params: dict[str, Any]) -> None:
@@ -499,6 +557,8 @@ def dispatch(message: dict[str, Any]) -> None:
         handle_complete(request_id, params)
     elif method == "cecli/state":
         result(request_id, state_details())
+    elif method == "cecli/hook":
+        handle_hook(request_id, params)
     elif method == "cecli/history":
         handle_history(request_id)
     elif method == "cecli/background":

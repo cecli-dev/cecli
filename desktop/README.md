@@ -34,6 +34,11 @@ python3 desktop/server.py \
 ```
 
 `--cecli` falls back to `$CECLI_BIN`, then `cecli` on `PATH`. Anything after
+
+On Linux the bridge exits when the process that launched it exits, so closing
+the shell or desktop app does not leave orphaned `cecli --acp` children behind.
+Set `CECLI_DESKTOP_KEEP_ON_PARENT_EXIT=1` to keep a deliberately detached
+bridge alive.
 `--` is forwarded to cecli, for example `-- --model gpt-5 --yes`.
 
 > The server binds loopback only unless you pass `--host`. Treat it as a local
@@ -109,9 +114,10 @@ duplicate state updates.
   is kept under `~/.cecli/desktop/browser-profile`; set `CECLI_BROWSER_BIN` if
   the browser is installed in a nonstandard location.
   The preview window opens off-screen on macOS and Windows, minimized on other
-  Linux desktops, and headless under WSL so it cannot cover the desktop app.
-  Override this with
-  `CECLI_BROWSER_WINDOW_MODE=offscreen|minimized|headless|visible`.
+  Linux desktops, and hidden under WSL when X11 is available (WSLg cannot
+  position or minimize windows, so the browser window is unmapped instead);
+  without an X11 display it falls back to headless. Override this with
+  `CECLI_BROWSER_WINDOW_MODE=offscreen|minimized|headless|hidden|visible`.
   On WSL, use a Chrome/Chromium installation inside the Linux distribution. A
   Windows `chrome.exe` found under `/mnt/c` only works with mirrored WSL
   networking; default NAT cannot reach its loopback debug port.
@@ -119,7 +125,12 @@ duplicate state updates.
   session uses.
 - Node 20.19+ or 22.12+ and npm only when rebuilding the UI or the Tauri app.
   The Python bridge and the committed `static/` output need no Node at runtime.
-
+- The optional terminal panel runs a shell in the workspace. POSIX hosts use a
+  PTY (`$SHELL -i`), so sudo prompts and interactive commands work; Windows and
+  no resize or TUI support. It is enabled by default on loopback; disable it
+  with `--no-terminal` or `CECLI_DESKTOP_TERMINAL=0`, and set `--terminal-shell`
+  to override the shell. It is forced off for non-loopback binds, and the Logs
+  tab works regardless.
 ## Troubleshooting
 
 - **Connection dot stays amber.** The agent is still starting or configuring the

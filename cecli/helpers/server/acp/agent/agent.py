@@ -10,6 +10,8 @@ coder's normal linear run loop drives each turn: a turn starts when
 from __future__ import annotations
 
 import asyncio
+import base64
+import math
 import os
 import sys
 import time
@@ -160,6 +162,9 @@ class AcpAgent:
         self.subagents_supported = False
         self.subagents: dict[str, _Subagent] = {}
         self._message_count = 0
+        self._shutdown_started = False
+        self._termination_requested = False
+        self._background_emitter = None
 
     # ── Lifecycle ───────────────────────────────────────────────
 
@@ -215,10 +220,14 @@ class AcpAgent:
         self._loop = loop
         self._inputs = asyncio.Queue()
         self.transport.attach(loop)
+        self._start_background_emitter()
         self._dispatcher = loop.create_task(self._dispatch())
 
     def shutdown(self) -> None:
         """Answer whatever is still waiting before the process exits."""
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
         for request_id in self._deferred_new:
             self.transport.send(
                 error_message(
@@ -229,6 +238,41 @@ class AcpAgent:
             )
         self._deferred_new.clear()
         self._finish_turn()
+        try:
+            from cecli.helpers.background_commands import BackgroundCommandManager
+
+            BackgroundCommandManager.stop_all_background_commands(timeout=2.0)
+        except Exception:
+            pass
+
+        emitter = getattr(self, "_background_emitter", None)
+        if emitter is not None:
+            from cecli.helpers.background_commands import BackgroundCommandManager
+
+            BackgroundCommandManager.set_event_sink(None)
+            emitter.close()
+            self._background_emitter = None
+
+    def _start_background_emitter(self) -> None:
+        """Install the ordered background event sink for this bridge."""
+        from cecli.helpers.background_commands import BackgroundCommandManager
+        from cecli.helpers.server.acp.agent.background_events import (
+            BackgroundEventEmitter,
+        )
+
+        if self._background_emitter is not None:
+            self._background_emitter.close()
+
+        self._background_emitter = BackgroundEventEmitter(
+            lambda notification: self.transport.send(notification)
+        )
+        BackgroundCommandManager.set_event_sink(self._background_emitter)
+
+    def request_termination(self) -> None:
+        """Signal-safe: flag termination without acquiring locks or waiting."""
+        self._termination_requested = True
+        if self.turn is not None:
+            self.turn.cancelled = True
 
     async def _dispatch(self) -> None:
         while True:
@@ -247,15 +291,19 @@ class AcpAgent:
             self.turn.cancelled = True
             self._interrupt_coder()
         self._inputs.put_nowait(EOF)
+        try:
+            from cecli.helpers.background_commands import BackgroundCommandManager
+
+            BackgroundCommandManager.stop_all_background_commands(timeout=2.0)
+        except Exception:
+            pass
 
     # ── Inbound ─────────────────────────────────────────────────
-
     def _handle(self, msg: dict) -> None:
         method = msg.get("method")
         params = msg.get("params") or {}
         is_request = "id" in msg
         request_id = msg.get("id")
-
         handlers = {
             "initialize": self._on_initialize,
             "authenticate": lambda params, request_id: {},
@@ -267,6 +315,7 @@ class AcpAgent:
             "cecli/state": self._on_cecli_state,
             "cecli/history": self._on_cecli_history,
             "cecli/skill": self._on_cecli_skill,
+            "cecli/hook": self._on_cecli_hook,
             "cecli/mcp": self._on_cecli_mcp,
             "cecli/workflow": self._on_cecli_workflow,
             "cecli/context": self._on_cecli_context,
@@ -420,7 +469,7 @@ class AcpAgent:
         """Return each coder's visible conversation stream for transcript replay."""
         coder = self._coder()
         if coder is None:
-            return {"messages": [], "subagents": []}
+            return {"messages": [], "subagents": [], "diffs": []}
 
         from cecli.helpers.agents.service import AgentService
 
@@ -437,10 +486,15 @@ class AcpAgent:
                     "sessionId": subagent.session_id,
                     "uuid": subagent.agent_uuid,
                     "messages": _conversation_history(info.coder),
+                    "diffs": _conversation_diffs(info.coder),
                 }
             )
 
-        return {"messages": _conversation_history(coder), "subagents": subagents}
+        return {
+            "messages": _conversation_history(coder),
+            "subagents": subagents,
+            "diffs": _conversation_diffs(coder),
+        }
 
     def _on_cecli_skill(self, params: dict, request_id: Any) -> dict:
         """Load, remove, include or exclude a skill on the serialised coder."""
@@ -470,6 +524,42 @@ class AcpAgent:
             raise AcpError(INTERNAL_ERROR, str(err)) from err
 
         return {"result": result, "skills": self._skills_state(coder)}
+
+    def _on_cecli_hook(self, params: dict, request_id: Any) -> dict:
+        """Enable or disable a configured hook on the serialised coder.
+
+        ``load``/``enable`` turn a hook on and ``remove``/``disable`` turn it off.
+        The change only lives in the running session; nothing is written back to
+        the YAML or Python hook sources.
+        """
+        from cecli.hooks.service import HookService
+
+        coder = self._require_coder()
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            raise AcpError(INVALID_PARAMS, "name is required")
+
+        actions = {
+            "load": "enable_hook",
+            "enable": "enable_hook",
+            "remove": "disable_hook",
+            "disable": "disable_hook",
+        }
+        method = actions.get(params.get("action"))
+        if method is None:
+            raise AcpError(INVALID_PARAMS, f"unknown hook action: {params.get('action')}")
+
+        try:
+            manager = HookService.get_manager(coder)
+            if not manager.hook_exists(name):
+                raise AcpError(INVALID_PARAMS, f"Hook '{name}' not found")
+            changed = getattr(manager, method)(name)
+        except AcpError:
+            raise
+        except Exception as err:
+            raise AcpError(INTERNAL_ERROR, str(err)) from err
+
+        return {"result": bool(changed), "hooks": self._hooks_state(coder)}
 
     def _on_cecli_mcp(self, params: dict, request_id: Any) -> Any:
         """Connect or disconnect an MCP server without blocking the dispatcher."""
@@ -585,7 +675,7 @@ class AcpAgent:
         return {"ok": True, "cdpUrl": value, "port": port}
 
     def _on_cecli_background(self, params: dict, request_id: Any) -> dict:
-        """List tracked background commands, or return one command's output."""
+        """Handle background command introspection and control actions."""
         from cecli.helpers.background_commands import BackgroundCommandManager
 
         action = params.get("action", "list")
@@ -599,21 +689,117 @@ class AcpAgent:
                 ]
             }
 
-        if action != "output":
-            raise AcpError(INVALID_PARAMS, f"unknown background action: {action}")
+        if action == "stop_all":
+            stopped = BackgroundCommandManager.signal_stop_all_background_commands()
+            return {"ok": True, "stopped": stopped, "state": "stopping"}
 
         command_key = params.get("key")
         if not isinstance(command_key, str) or not command_key:
             raise AcpError(INVALID_PARAMS, "key is required")
 
         info = commands.get(command_key)
-        if info is None:
-            raise AcpError(INVALID_PARAMS, f"unknown background command: {command_key}")
 
-        return {
-            "output": BackgroundCommandManager.get_command_output(command_key),
-            "command": self._background_entry(command_key, info),
-        }
+        if action == "output":
+            if info is None:
+                raise AcpError(INVALID_PARAMS, f"unknown background command: {command_key}")
+            return {
+                "output": BackgroundCommandManager.get_command_output(command_key),
+                "command": self._background_entry(command_key, info),
+            }
+
+        if action == "state":
+            if info is None:
+                return {"ok": False, "error": "not_found"}
+            return {"command": self._background_entry(command_key, info)}
+
+        if action == "snapshot":
+            snapshot = BackgroundCommandManager.snapshot_background_command(
+                command_key, params.get("since")
+            )
+            if snapshot is None:
+                return {"ok": False, "error": "not_found"}
+            return {
+                "seq": snapshot["seq"],
+                "startSeq": snapshot["startSeq"],
+                "data": base64.b64encode(snapshot["data"]).decode("ascii"),
+                "reset": snapshot["reset"],
+                "state": snapshot["state"],
+            }
+
+        if action == "input":
+            release = bool(params.get("release", False))
+            encoded = params.get("base64")
+            raw = params.get("data")
+
+            if isinstance(encoded, str):
+                try:
+                    data = base64.b64decode(encoded.encode("ascii"), validate=True)
+                except Exception:
+                    raise AcpError(INVALID_PARAMS, "base64 is invalid")
+            elif isinstance(raw, str):
+                data = raw.encode("utf-8")
+            elif release:
+                data = b""
+            else:
+                raise AcpError(INVALID_PARAMS, "base64 or data is required")
+
+            accepted, status = BackgroundCommandManager.send_input_bytes(
+                command_key,
+                data,
+                owner=params.get("owner"),
+                release=release,
+            )
+            if status in ("accepted", "released"):
+                updated = BackgroundCommandManager.list_background_commands().get(command_key, {})
+                return {
+                    "ok": True,
+                    "accepted": accepted,
+                    "inputSeq": params.get("inputSeq"),
+                    "inputOwner": updated.get("input_owner", updated.get("inputOwner")),
+                }
+            return {"ok": False, "error": status}
+
+        if action == "resize":
+            info_r = BackgroundCommandManager.resize_background_command(
+                command_key, params.get("cols"), params.get("rows")
+            )
+            if info_r is None:
+                return {"ok": False, "error": "not_found"}
+            return {
+                "cols": info_r["cols"],
+                "rows": info_r["rows"],
+                "resized": info_r["resized"],
+            }
+
+        if action == "stop":
+            if info is None:
+                return {"ok": False, "error": "not_found"}
+            timeout = max(0.1, float(params.get("timeoutMs", 5000)) / 1000.0)
+            signalled = BackgroundCommandManager.signal_stop_background_command(
+                command_key, timeout=timeout
+            )
+            return {
+                "ok": True,
+                "exitCode": info.get("exit_code", info.get("exitCode")),
+                "signal": info.get("signal"),
+                "endedAt": info.get("ended_at", info.get("endedAt")),
+                "state": "stopping" if signalled else info.get("state"),
+            }
+            return {
+                "ok": True,
+                "exitCode": info.get("exit_code", info.get("exitCode")),
+                "signal": info.get("signal"),
+                "endedAt": info.get("ended_at", info.get("endedAt")),
+                "state": "stopping" if signalled else info.get("state"),
+            }
+
+        if action == "close":
+            ok, status = BackgroundCommandManager.close_background_command(command_key)
+            if not ok:
+                return {"ok": False, "error": status}
+            return {"ok": True, "state": status}
+
+        raise AcpError(INVALID_PARAMS, f"unknown background action: {action}")
 
     def _on_cecli_subagent_message(self, params: dict, request_id: Any) -> dict:
         """Send a message to an active sub-agent, starting one when it is idle."""
@@ -796,12 +982,19 @@ class AcpAgent:
         return state
 
     def _usage_state(self) -> dict[str, Any]:
-        """Token, cost and context metrics for the desktop metrics menu."""
+        """Token, cost and context metrics for the desktop metrics menu.
+
+        ``cache_hit_ratio`` is cached prompt tokens over sent prompt tokens
+        (0..1), matching the rate the TUI reports; cached tokens are a subset of
+        sent tokens.  Each field is read independently so one missing attribute
+        cannot blank the whole payload.
+        """
         usage: dict[str, Any] = {
             "cost": None,
             "tokens_sent": 0,
             "tokens_received": 0,
             "tokens_cached": 0,
+            "cache_hit_ratio": None,
             "context_used": 0,
             "context_size": 0,
             "model": None,
@@ -811,30 +1004,46 @@ class AcpAgent:
         if coder is None:
             return usage
 
-        try:
-            model = coder.get_active_model()
-            name = getattr(model, "name", None)
-            usage["model"] = name
-            usage["cost"] = getattr(coder, "total_cost", None)
-            usage["tokens_sent"] = int(getattr(coder, "total_tokens_sent", 0) or 0)
-            usage["tokens_received"] = int(getattr(coder, "total_tokens_received", 0) or 0)
-            usage["tokens_cached"] = int(getattr(coder, "total_cached_tokens", 0) or 0)
-            info = getattr(model, "info", {}) or {}
-            usage["context_size"] = int(
-                info.get("max_input_tokens") or getattr(model, "max_chat_history_tokens", 0) or 0
-            )
-            if name:
+        model = _active_model(coder)
+        name = getattr(model, "name", None)
+        usage["model"] = name
+        usage["tokens_sent"] = _usage_int(coder, "total_tokens_sent")
+        usage["tokens_received"] = _usage_int(coder, "total_tokens_received")
+        usage["tokens_cached"] = _usage_int(coder, "total_cached_tokens")
+        usage["cache_hit_ratio"] = _cache_hit_ratio(usage["tokens_cached"], usage["tokens_sent"])
+
+        info = getattr(model, "info", None)
+        info = info if isinstance(info, dict) else {}
+        context_size = _usage_int(info, "max_input_tokens")
+        if context_size <= 0:
+            context_size = _usage_int(model, "max_chat_history_tokens")
+        usage["context_size"] = context_size
+
+        # Cost is only meaningful when the model carries pricing metadata; an
+        # unpriced model reports null rather than a fabricated zero.
+        total_cost = _usage_number(coder, "total_cost")
+        priced = bool(info.get("input_cost_per_token") or info.get("output_cost_per_token"))
+        if total_cost is not None and (total_cost > 0 or priced):
+            usage["cost"] = total_cost
+
+        if name:
+            try:
                 tokens, peak, per_minute = type(coder)._get_token_usage_stats(name)
                 usage["stats"] = {
                     "tokens_last_minute": tokens,
                     "max_single_request": peak,
                     "requests_per_minute": per_minute,
                 }
-            messages = self._context_messages(coder)
-            if messages:
+            except Exception as err:
+                log(f"could not read token usage stats: {err!r}")
+
+        messages = self._context_messages(coder)
+        if messages and model is not None:
+            try:
                 usage["context_used"] = int(model.token_count(messages) or 0)
-        except Exception:
-            pass
+            except Exception as err:
+                log(f"could not count context tokens: {err!r}")
+
         return usage
 
     def _context_messages(self, coder: Any) -> list[dict[str, Any]]:
@@ -1075,6 +1284,7 @@ class AcpAgent:
             "contextFiles": [],
             "skills": [],
             "mcpServers": [],
+            "hooks": [],
             "workflows": [],
         }
 
@@ -1088,11 +1298,15 @@ class AcpAgent:
 
         return {
             "activity": activity,
+            "cwd": str(self.cwd or ""),
+            "gitBranch": _git_branch_for(self.cwd),
             "subagents": self._subagent_state(coder),
             "contextFiles": self._context_state(coder),
             "skills": self._skills_state(coder),
             "mcpServers": self._mcp_state(coder),
+            "hooks": self._hooks_state(coder),
             "workflows": self._workflow_state(coder),
+            "usage": self._usage_state(),
         }
 
     def _subagent_state(self, coder: Any) -> list[dict[str, Any]]:
@@ -1104,10 +1318,17 @@ class AcpAgent:
 
         for agent_uuid, subagent in self.subagents.items():
             info = infos.get(str(agent_uuid))
+            info_coder = getattr(info, "coder", None) if info else None
+            root = str(
+                getattr(info_coder, "root", None) or getattr(subagent.emitter, "root", None) or ""
+            )
+            branch = _git_branch_for(root)
             result.append(
                 {
                     "sessionId": subagent.session_id,
                     "parentSessionId": subagent.parent_session_id,
+                    "cwd": root,
+                    "gitBranch": branch,
                     "uuid": subagent.agent_uuid,
                     "parentUuid": getattr(info, "parent_uuid", None),
                     "name": getattr(info, "name", None) or subagent.agent_uuid,
@@ -1123,10 +1344,15 @@ class AcpAgent:
         for agent_uuid, info in infos.items():
             if agent_uuid in announced:
                 continue
+
+            root = str(getattr(info.coder, "root", None) or "")
+            branch = _git_branch_for(root)
             result.append(
                 {
                     "sessionId": None,
                     "parentSessionId": None,
+                    "cwd": root,
+                    "gitBranch": branch,
                     "uuid": agent_uuid,
                     "parentUuid": info.parent_uuid,
                     "name": info.name,
@@ -1167,6 +1393,44 @@ class AcpAgent:
             return manager.get_all_skills_info()
         except Exception:
             return []
+
+    def _hooks_state(self, coder: Any) -> list[dict[str, Any]]:
+        """Configured hooks as one flat list ordered by type then priority.
+
+        Types follow ``HookType`` declaration order with unknown types last.
+        """
+        from cecli.hooks.service import HookService
+        from cecli.hooks.types import HookType
+
+        try:
+            manager = HookService.get_manager(coder)
+            all_hooks = manager.get_all_hooks()
+        except Exception:
+            return []
+
+        result: list[dict[str, Any]] = []
+        for hook_type, hooks in all_hooks.items():
+            for hook in hooks:
+                result.append(
+                    {
+                        "name": hook.name,
+                        "type": getattr(hook.type, "value", hook_type),
+                        "enabled": bool(hook.enabled),
+                        "priority": hook.priority,
+                        "description": getattr(hook, "description", None),
+                    }
+                )
+
+        type_order = {hook_type.value: index for index, hook_type in enumerate(HookType)}
+        unknown = len(type_order)
+        result.sort(
+            key=lambda item: (
+                type_order.get(item["type"], unknown),
+                item["priority"],
+                str(item["name"]),
+            )
+        )
+        return result
 
     def _mcp_state(self, coder: Any) -> list[dict[str, Any]]:
         manager = getattr(coder, "mcp_manager", None)
@@ -1215,14 +1479,28 @@ class AcpAgent:
         return {
             "key": command_key,
             "command": info.get("command") or "",
+            "state": info.get("state") or ("running" if info.get("running") else "exited"),
             "running": bool(info.get("running")),
             "persist": bool(info.get("persist")),
             "continuedInBackground": bool(info.get("continued_in_background")),
+            "pid": info.get("pid"),
+            "cols": info.get("cols", 100),
+            "rows": info.get("rows", 30),
+            "pty": bool(info.get("pty")),
+            "seq": info.get("seq", 0),
+            "startSeq": info.get("start_seq", info.get("startSeq", 0)),
+            "exitCode": info.get("exit_code", info.get("exitCode")),
+            "signal": info.get("signal"),
+            "endedAt": info.get("ended_at", info.get("endedAt")),
+            "needsInput": bool(info.get("needs_input", info.get("needsInput"))),
+            "lastPrompt": info.get("last_prompt", info.get("lastPrompt")),
+            "inputOwner": info.get("input_owner", info.get("inputOwner")),
+            "consumedAt": info.get("consumed_at", info.get("consumedAt")),
             "bufferSize": info.get("buffer_size") or 0,
             "pages": info.get("pages") or 0,
             "totalChars": info.get("total_chars") or 0,
-            "startTime": info.get("start_time"),
-            "endTime": info.get("end_time"),
+            "startTime": info.get("start_time", info.get("startedAt")),
+            "endTime": info.get("end_time", info.get("endedAt")),
             "duration": info.get("duration"),
         }
 
@@ -1274,6 +1552,80 @@ def _conversation_history(coder: Any, limit: int = 400) -> list[dict[str, Any]]:
         history.append(entry)
 
     return history[-limit:]
+
+
+MAX_DIFF_CHARS = 40_000
+
+
+def _conversation_diffs(coder: Any) -> list[dict[str, Any]]:
+    """Extract file-edit diffs from a coder's DIFFS messages for replay.
+
+    Each entry is ``{"file": relative path, "diff": raw unified diff}``.  The
+    diffs also travel live as ``sessionUpdate: diff`` updates; replay dedupes
+    identical payloads so a reconnect cannot double-render them.
+    """
+    from cecli.helpers.conversation.service import ConversationService
+    from cecli.helpers.conversation.tags import MessageTag
+
+    try:
+        manager = ConversationService.get_manager(coder)
+        messages = manager.get_messages()
+    except Exception:
+        return []
+
+    diffs: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for message in messages:
+        if message.tag != MessageTag.DIFFS.value:
+            continue
+
+        data = message.to_dict()
+        content = data.get("content")
+        parsed = _parse_diff_message(content if isinstance(content, str) else str(content))
+        if parsed is None:
+            continue
+
+        file_name, diff = parsed
+        if (file_name, diff) in seen:
+            continue
+
+        seen.add((file_name, diff))
+        if len(diff) > MAX_DIFF_CHARS:
+            diff = diff[:MAX_DIFF_CHARS].rstrip() + "\n...(truncated)"
+        diffs.append({"file": file_name, "diff": diff})
+
+    return diffs
+
+
+def _parse_diff_message(content: str) -> tuple[str, str] | None:
+    """Split a DIFFS message into ``(relative path, raw diff)``."""
+    import json
+
+    if not content:
+        return None
+
+    header, separator, body = content.partition("\n\n")
+    if not separator:
+        return None
+
+    file_name = header.split(" has been updated.", 1)[0].strip()
+    body = body.strip("\n")
+
+    if body.lstrip().startswith("{"):
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+
+        if isinstance(payload, dict):
+            file_name = str(payload.get("file_name") or file_name).strip()
+            body = str(payload.get("prefixed_diff") or "")
+
+    if not file_name or not body:
+        return None
+
+    return file_name, body
 
 
 def _history_tool_call(tool_call: Any) -> dict[str, Any]:
@@ -1487,3 +1839,128 @@ def _add_mentions(coder: Any, paths: list[str]) -> None:
         else:
             coder.abs_read_only_fnames.add(real)
             coder.io.tool_output(f"Added {real} to the chat (read-only)")
+
+
+def _active_model(coder: Any) -> Any:
+    """The model currently answering for ``coder``, if one can be resolved."""
+    get_active_model = getattr(coder, "get_active_model", None)
+    if callable(get_active_model):
+        try:
+            model = get_active_model()
+        except Exception as err:
+            log(f"could not resolve the active model: {err!r}")
+        else:
+            if model is not None:
+                return model
+
+    return getattr(coder, "main_model", None)
+
+
+def _cache_hit_ratio(cached: int, sent: int) -> float | None:
+    """Cached prompt tokens over sent prompt tokens, clamped to 0..1."""
+    if sent <= 0:
+        return None
+
+    return min(max(cached / sent, 0.0), 1.0)
+
+
+def _usage_int(source: Any, name: str) -> int:
+    """Read an attribute or mapping key as a non-negative int, defaulting to 0."""
+    value = _usage_value(source, name)
+    if isinstance(value, bool) or value is None:
+        return 0
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+
+    return int(number) if math.isfinite(number) and number > 0 else 0
+
+
+def _usage_number(source: Any, name: str) -> float | None:
+    """Read an attribute or mapping key as a finite float, or None."""
+    value = _usage_value(source, name)
+    if isinstance(value, bool) or value is None:
+        return None
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return number if math.isfinite(number) else None
+
+
+def _usage_value(source: Any, name: str) -> Any:
+    """Read ``name`` from a mapping or an object without leaking exceptions."""
+    if isinstance(source, dict):
+        return source.get(name)
+
+    try:
+        return getattr(source, name, None)
+    except Exception:
+        return None
+
+
+def _git_branch_for(cwd: Any) -> str:
+    """Return the checked-out branch under ``cwd`` without shelling out.
+
+    Reads ``.git/HEAD`` directly, walking up parent directories. Worktree ``.git``
+    files (``gitdir: ...``) are followed, and a detached HEAD yields its short sha.
+    Returns an empty string when no readable repository is found.
+    """
+    try:
+        if not cwd:
+            return ""
+
+        git_dir = _git_dir_for(os.path.abspath(str(cwd)))
+        if not git_dir:
+            return ""
+
+        with open(os.path.join(git_dir, "HEAD"), "r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read().strip()
+    except (OSError, TypeError, ValueError):
+        return ""
+
+    if not head:
+        return ""
+
+    if head.startswith("ref:"):
+        ref = head[4:].strip()
+        prefix = "refs/heads/"
+        return ref[len(prefix) :] if ref.startswith(prefix) else ref.rpartition("/")[2]
+
+    return head[:7]
+
+
+def _git_dir_for(start: str) -> str:
+    """Find the ``.git`` directory for ``start``, following parent dirs and worktrees."""
+    current = start
+
+    while current:
+        candidate = os.path.join(current, ".git")
+
+        if os.path.isdir(candidate):
+            return candidate
+
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8", errors="replace") as handle:
+                    first = handle.readline().strip()
+            except OSError:
+                return ""
+
+            if first.startswith("gitdir:"):
+                git_dir = first[len("gitdir:") :].strip()
+                if not os.path.isabs(git_dir):
+                    git_dir = os.path.normpath(os.path.join(current, git_dir))
+                return git_dir
+
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+
+        current = parent
+
+    return ""

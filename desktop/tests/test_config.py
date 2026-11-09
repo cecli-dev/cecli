@@ -35,6 +35,7 @@ class ConfStoreTest(unittest.TestCase):
         self.workspace.mkdir()
         self.global_path = self.root / "global.yml"
         self.project_path = self.workspace / ".cecli" / "conf.yml"
+        self.desktop_path = self.root / "desktop.yml"
         self.global_path.write_text("model: openai/gpt-5\nunrelated: 7\n", encoding="utf-8")
 
     def tearDown(self) -> None:
@@ -42,7 +43,10 @@ class ConfStoreTest(unittest.TestCase):
 
     def store(self) -> conf_store.ConfStore:
         return conf_store.ConfStore(
-            self.workspace, global_path=self.global_path, project_path=self.project_path
+            self.workspace,
+            global_path=self.global_path,
+            project_path=self.project_path,
+            desktop_path=self.desktop_path,
         )
 
     def test_absent_folders_means_zero_workspaces(self) -> None:
@@ -53,7 +57,7 @@ class ConfStoreTest(unittest.TestCase):
 
     def test_add_and_remove_workspace_preserves_other_keys(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
-        self.project_path.write_text("theme: dark\ndesktop:\n  extra: true\n", encoding="utf-8")
+        self.desktop_path.write_text("theme: dark\ndesktop:\n  extra: true\n", encoding="utf-8")
         second = self.root / "second"
         second.mkdir()
         store = self.store()
@@ -62,23 +66,69 @@ class ConfStoreTest(unittest.TestCase):
 
         self.assertEqual(entry["path"], str(second))
         self.assertEqual(entry["name"], "Second")
-        data = yaml.safe_load(self.project_path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
         self.assertEqual(data["theme"], "dark")
         self.assertTrue(data["desktop"]["extra"])
-        self.assertEqual(data["desktop"]["folders"][0]["path"], str(second))
+        self.assertEqual(data["folders"][0]["path"], str(second))
 
         self.assertTrue(store.remove_workspace(str(second)))
-        data = yaml.safe_load(self.project_path.read_text(encoding="utf-8"))
-        self.assertEqual(data["desktop"]["folders"], [])
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["folders"], [])
         self.assertEqual(data["desktop"]["extra"], True)
 
-    def test_project_folders_override_global(self) -> None:
-        global_folders = self.root / "global-ws"
-        global_folders.mkdir()
-        self.global_path.write_text(
-            yaml.safe_dump({"desktop": {"folders": [{"path": str(global_folders)}]}}),
+    def test_enable_on_startup_defaults_and_updates(self) -> None:
+        first = self.root / "first"
+        second = self.root / "second"
+        first.mkdir()
+        second.mkdir()
+        store = self.store()
+
+        first_entry = store.add_workspace(str(first), "First")
+        second_entry = store.add_workspace(str(second), "Second")
+
+        self.assertTrue(first_entry["enable_on_startup"])
+        self.assertFalse(second_entry["enable_on_startup"])
+        updated = store.update_workspace(str(second), enable_on_startup=True, name="Renamed")
+        self.assertTrue(updated["enable_on_startup"])
+        self.assertEqual(updated["name"], "Renamed")
+
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertTrue(data["folders"][0]["enable_on_startup"])
+        self.assertTrue(data["folders"][1]["enable_on_startup"])
+        self.assertEqual(data["folders"][1]["name"], "Renamed")
+
+    def test_desktop_file_wins_over_legacy_configs(self) -> None:
+        desktop_folder = self.root / "desktop-ws"
+        desktop_folder.mkdir()
+        legacy_global = self.root / "global-ws"
+        legacy_global.mkdir()
+        self.desktop_path.write_text(
+            yaml.safe_dump({"folders": [{"path": str(desktop_folder)}]}),
             encoding="utf-8",
         )
+        self.global_path.write_text(
+            yaml.safe_dump({"desktop": {"folders": [{"path": str(legacy_global)}]}}),
+            encoding="utf-8",
+        )
+        self.project_path.parent.mkdir(parents=True, exist_ok=True)
+        self.project_path.write_text(
+            yaml.safe_dump({"desktop": {"folders": [{"path": str(self.workspace)}]}}),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(self.store().workspaces()[0]["path"], str(desktop_folder))
+
+    def test_global_conf_is_legacy_fallback(self) -> None:
+        legacy = self.root / "legacy-ws"
+        legacy.mkdir()
+        self.global_path.write_text(
+            yaml.safe_dump({"desktop": {"folders": [{"path": str(legacy)}]}}),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(self.store().workspaces()[0]["path"], str(legacy))
+
+    def test_project_folders_are_legacy_fallback(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
         self.project_path.write_text(
             yaml.safe_dump({"desktop": {"folders": [{"path": str(self.workspace)}]}}),
@@ -89,8 +139,8 @@ class ConfStoreTest(unittest.TestCase):
 
     def test_invalid_folder_is_reported_not_raised(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
-        self.project_path.write_text(
-            yaml.safe_dump({"desktop": {"folders": [{"path": str(self.root / "missing")}]}}),
+        self.desktop_path.write_text(
+            yaml.safe_dump({"folders": [{"path": str(self.root / "missing")}]}),
             encoding="utf-8",
         )
 
@@ -109,9 +159,13 @@ class OnboardingServiceTest(unittest.TestCase):
         self.workspace.mkdir()
         self.global_path = self.root / "global.yml"
         self.project_path = self.root / "conf.yml"
+        self.desktop_path = self.root / "desktop.yml"
         self.global_path.write_text("", encoding="utf-8")
         self.store = conf_store.ConfStore(
-            self.workspace, global_path=self.global_path, project_path=self.project_path
+            self.workspace,
+            global_path=self.global_path,
+            project_path=self.project_path,
+            desktop_path=self.desktop_path,
         )
 
     def tearDown(self) -> None:
@@ -195,10 +249,13 @@ class EmptyWorkspaceServerTest(unittest.TestCase):
         wrapper.chmod(0o755)
         global_conf = self.root / "global.yml"
         global_conf.write_text("", encoding="utf-8")
+        desktop_conf = self.root / "desktop.yml"
+        desktop_conf.write_text("", encoding="utf-8")
         env = dict(
             os.environ,
             CECLI_DESKTOP_CONF_FILE=str(conf),
             CECLI_DESKTOP_GLOBAL_CONF=str(global_conf),
+            CECLI_DESKTOP_FOLDERS_FILE=str(desktop_conf),
         )
         self.process = subprocess.Popen(
             [

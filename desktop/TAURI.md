@@ -18,8 +18,11 @@ the Python bridge, which a browser tab cannot do.
 WKWebView. The app does not ship a browser engine, so binaries stay small and
 start fast compared with an Electron bundle.
 - **Real desktop behaviour.** A dedicated window, app icon, taskbar/dock entry,
-  and an exit path that asks the bridge to stop before force-killing it. A
-  SIGKILL of the shell itself can still orphan the child, as with any supervisor.
+   and an exit path that asks the bridge to stop before force-killing it. On
+   Linux, the bridge, every ACP child, the spawned browser and terminal shells
+   also ask the kernel to terminate them when their parent exits, so a crashed
+   or SIGKILLed shell leaves no `cecli` processes or detached browsers behind.
+   processes behind.
 - **Cross-platform and mobile-capable.** The same Rust + web UI model runs on
 all three desktop platforms, and Tauri v2 has mobile targets (see
 [Mobile status](#mobile-status) for why this bridge is still desktop-first).
@@ -232,6 +235,8 @@ npm run dev
 | `CECLI_DESKTOP_SERVER` | Explicit path to `server.py` | Dev path, then bundled resource path |
 | `CECLI_DESKTOP_CECLI` | cecli executable (passed as `--cecli`) | Bridge falls back to `CECLI_BIN`, then `cecli` on `PATH` |
 | `CECLI_PYTHON` | Python interpreter used to run the bridge | `desktop/.runtime/venv`, then `python3` on Unix; `python` then `python3` on Windows |
+| `CECLI_DESKTOP_TERMINAL` | Enable the terminal panel | Enabled on loopback; `--no-terminal` or `0/false/no/off` disables; forced off for non-loopback binds |
+| `CECLI_DESKTOP_TERMINAL_SHELL` | Shell used by the terminal panel | `$SHELL`/`/bin/sh` on POSIX; `%COMSPEC%`/`cmd.exe` on Windows |
 
 Use `CECLI_DESKTOP_PORT=8765` when you want to inspect the running app from a
 normal browser (`http://127.0.0.1:8765/`) or curl its API. Leave it unset in
@@ -242,6 +247,13 @@ the project you expect — a desktop launcher may start the app in `$HOME` — s
 set `CECLI_DESKTOP_WORKSPACE` explicitly in a launcher or dev script. Tauri's
 dev command runs the binary from `src-tauri`; debug builds detect that and use
 the repository root instead, but an explicit override is still safer.
+
+The Terminal panel (Logs and optional Shell tabs) is collapsed by default and
+uses a WebSocket for raw terminal bytes. It is enabled by default on loopback
+and can be disabled with `--no-terminal`; POSIX uses a real PTY, while Windows
+falls back to a line-oriented pipe shell with stdin support but no TUI/resize.
+Run the shell in the workspace the user expects, because it does not inherit the
+agent's process group.
 
 ## Configuration notes
 
@@ -446,8 +458,10 @@ What was verified in this tree:
 - `tauri.conf.json` validates against the installed Tauri CLI schema
 
 Not verified: window-close cleanup inside a real Tauri session, release-mode
-bundling (deb/rpm/AppImage), and non-Linux targets. An external SIGKILL of the
-shell also bypasses child cleanup, as noted above.
+bundling (deb/rpm/AppImage), and non-Linux targets. On Linux the kernel
+parent-death signal cleans up the bridge and its ACP children even after an
+external SIGKILL; on Windows and macOS an external SIGKILL can still orphan
+them.
 
 ## Research and sources
 

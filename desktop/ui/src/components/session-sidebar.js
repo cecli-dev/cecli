@@ -2,7 +2,7 @@ import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
 import { session } from '../core/session.js';
-import { CHEVRON_ICON } from '../core/constants.js';
+import { CHEVRON_ICON, SETTINGS_ICON } from '../core/constants.js';
 import { push_toast } from '../core/notices.js';
 import { StoreController, store } from '../core/store.js';
 
@@ -21,6 +21,7 @@ export class SessionSidebar extends LitElement {
   render() {
     const state = this._store.state;
     const workflows = state.workflows || [];
+    const workspaces = state.workspaces?.length ? state.workspaces : state.sessions;
 
     return html`
       <aside class="session-sidebar" aria-label="Workspaces and registries">
@@ -30,16 +31,16 @@ export class SessionSidebar extends LitElement {
             class="sidebar-add"
             type="button"
             title="Add workspace"
-            ?disabled=${state.sessions.length >= state.max_sessions}
+            ?disabled=${workspaces.length >= state.max_sessions}
             @click=${this._create}
           >+</button>
         </div>
 
         <div class="session-tree">
-          ${state.sessions.length
+          ${workspaces.length
             ? repeat(
-                state.sessions,
-                (item) => item.bridgeId,
+                workspaces,
+                (item) => item.path || item.bridgeId || item.workspace,
                 (item) => this._render_session(item, state.active_bridge_id),
               )
             : html`<p class="sidebar-empty">No workspaces yet</p>`}
@@ -82,28 +83,43 @@ export class SessionSidebar extends LitElement {
 
   _render_session(item, active_bridge_id) {
     const state = this._store.state;
-    const active = item.bridgeId === active_bridge_id;
-    const activity = this._activity_for(item, active);
+    const path = item.path || item.workspace || '';
+    const live =
+      (item.bridgeId && state.sessions.find((entry) => entry.bridgeId === item.bridgeId)) ||
+      state.sessions.find((entry) => entry.workspace === path) ||
+      null;
+    const bridge_id = live?.bridgeId || item.bridgeId || null;
+    const active = bridge_id === active_bridge_id;
+    const title = item.name || live?.title || item.title || path;
+    const status = live?.status || 'stopped';
+    const activity = live ? this._activity_for(live, active) : 'stopped';
     const live_subagents = (state.subagents || []).filter((agent) => !agent.removed);
-    const subagents =
-      active && live_subagents.length ? live_subagents : item.subagents || [];
+    const subagents = live
+      ? active && live_subagents.length
+        ? live_subagents
+        : live.subagents || []
+      : [];
+    const permission_count = live?.permissionCount || item.permissionCount || 0;
 
     return html`
       <div class="session-node ${active ? 'is-active' : ''}">
-        <div class="session-row" @click=${() => session.switch_session(item.bridgeId)}>
-          <span class="status-dot" data-status=${item.status} aria-hidden="true"></span>
-          <span class="session-name" title=${item.workspace || ''}>${item.title}</span>
+        <div
+          class="session-row"
+          @click=${() => this._open(item, bridge_id, path, title)}
+        >
+          <span class="status-dot" data-status=${status} aria-hidden="true"></span>
+          <span class="session-name" title=${path}>${title}</span>
           <span class="activity-badge" data-activity=${activity}>${activity}</span>
-          ${item.permissionCount
-            ? html`<span class="permission-badge" title="Pending permissions">${item.permissionCount}</span>`
+          ${permission_count
+            ? html`<span class="permission-badge" title="Pending permissions">${permission_count}</span>`
             : nothing}
           <button
-            class="session-close"
+            class="session-settings"
             type="button"
-            title=${item.primary ? 'Primary workspace' : 'Remove workspace'}
-            ?disabled=${item.busy}
-            @click=${(event) => this._close(event, item)}
-          >×</button>
+            title="Workspace settings"
+            aria-label="Workspace settings"
+            @click=${(event) => this._settings(event, item, path, title)}
+          >${SETTINGS_ICON}</button>
         </div>
 
         ${subagents.length
@@ -125,17 +141,29 @@ export class SessionSidebar extends LitElement {
     this.dispatchEvent(new CustomEvent('add-workspace', { bubbles: true, composed: true }));
   }
 
-  _close(event, item) {
-    event.stopPropagation();
-    session.remove_workspace(item.workspace).catch(async (error) => {
-      if (error.message.includes('Unknown workspace')) {
-        await session.close_session(item.bridgeId).catch((close_error) => {
-          push_toast(store, close_error.message, 'error');
-        });
-        return;
-      }
+  _open(item, bridge_id, path, title) {
+    if (bridge_id) {
+      session.switch_session(bridge_id);
+      return;
+    }
+    session.open_workspace(path, title).catch((error) => {
       push_toast(store, error.message, 'error');
     });
+  }
+
+  _settings(event, item, path, title) {
+    event.stopPropagation();
+    this.dispatchEvent(
+      new CustomEvent('edit-workspace', {
+        detail: {
+          path,
+          name: item.name || title,
+          enable_on_startup: item.enable_on_startup !== false,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   _render_workflow(item) {

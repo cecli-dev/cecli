@@ -30,12 +30,18 @@ from typing import Any, AsyncIterator
 
 try:
     from .browser_bridge import BrowserBridge, BrowserError
+    from .cli_registry import CliRegistry, error_code
     from .conf_store import ConfStore
     from .onboarding_api import OnboardingError, OnboardingService
+    from .parent_death import arm_parent_death, child_parent_death_hook
+    from .terminal import TerminalError, TerminalManager, replay_offsets
 except ImportError:  # pragma: no cover - the server also runs as a script
     from browser_bridge import BrowserBridge, BrowserError
+    from cli_registry import CliRegistry, error_code
     from conf_store import ConfStore
     from onboarding_api import OnboardingError, OnboardingService
+    from parent_death import arm_parent_death, child_parent_death_hook
+    from terminal import TerminalError, TerminalManager, replay_offsets
 
 MAX_BODY = 1024 * 1024
 DIRECTORY_LIMIT = 50
@@ -153,10 +159,13 @@ class AcpBridge:
         self.subagents: dict[str, dict[str, Any]] = {}
         self.details: dict[str, Any] = {
             "skills": [],
+            "hooks": [],
             "mcpServers": [],
             "workflows": [],
             "contextFiles": [],
             "usage": {},
+            "cwd": "",
+            "gitBranch": "",
         }
         self.extra_sinks: list[Any] = []
         self.details_supported: bool | None = None
@@ -164,6 +173,7 @@ class AcpBridge:
         self._poll_task: asyncio.Task[Any] | None = None
         self.available_commands: list[dict[str, Any]] = []
         self.shared_browser: dict[str, Any] | None = None
+        self.background_event_sink = None
         self._browser_announced = False
 
     async def start(self) -> None:
@@ -188,6 +198,8 @@ class AcpBridge:
             "status": self.status,
             "busy": self.busy,
             "workspace": self.workspace,
+            "cwd": self.details.get("cwd", ""),
+            "gitBranch": self.details.get("gitBranch", ""),
             "sessionId": self.session_id,
             "configOptions": self.config_options,
             "modes": self.modes,
@@ -200,6 +212,7 @@ class AcpBridge:
             "detailsSupported": self.details_supported,
             "skills": self.details.get("skills", []),
             "mcpServers": self.details.get("mcpServers", []),
+            "hooks": self.details.get("hooks", []),
             "workflows": self.details.get("workflows", []),
             "contextFiles": self.details.get("contextFiles", []),
             "usage": self.details.get("usage", {}),
@@ -304,6 +317,10 @@ class AcpBridge:
         """Connect or disconnect one MCP server."""
         return await self.call_extension("cecli/mcp", {"action": action, "name": name})
 
+    async def set_hook(self, action: str, name: str) -> dict[str, Any]:
+        """Enable (``load``) or disable (``remove``) one configured hook."""
+        return await self.call_extension("cecli/hook", {"action": action, "name": name})
+
     async def run_workflow(self, name: str) -> dict[str, Any]:
         """Run a workflow as a normal slash command in the primary session.
 
@@ -331,11 +348,13 @@ class AcpBridge:
             raise BridgeError(409, "The agent is not ready")
 
         result = await self.call_extension("cecli/history", {})
+        diffs = result.get("diffs")
         messages = result.get("messages")
         subagents = result.get("subagents")
         return {
             "messages": messages if isinstance(messages, list) else [],
             "subagents": subagents if isinstance(subagents, list) else [],
+            "diffs": diffs if isinstance(diffs, list) else [],
         }
 
     async def set_context(self, action: str, path: str, read_only: bool = False) -> dict[str, Any]:
@@ -409,6 +428,10 @@ class AcpBridge:
         if os.name == "posix":
             # Own process group so terminate()/kill() reach tool subprocesses too
             spawn_kwargs["start_new_session"] = True
+
+        parent_death_hook = child_parent_death_hook()
+        if parent_death_hook is not None:
+            spawn_kwargs["preexec_fn"] = parent_death_hook
 
         try:
             self.process = await asyncio.create_subprocess_exec(
@@ -622,7 +645,17 @@ class AcpBridge:
         )
 
     async def _handle_notification(self, message: dict[str, Any]) -> None:
-        if message.get("method") != "session/update":
+        method = message.get("method")
+        if method == "cecli/background/event":
+            sink = self.background_event_sink
+            if sink is not None:
+                try:
+                    sink(message.get("params") or {})
+                except Exception:
+                    pass
+            return
+
+        if method != "session/update":
             return
 
         params = message.get("params") or {}
@@ -754,12 +787,16 @@ class AcpBridge:
             return
 
         self.details_supported = True
-        for key in ("skills", "mcpServers", "workflows", "contextFiles"):
+        for key in ("skills", "mcpServers", "hooks", "workflows", "contextFiles"):
             value = result.get(key)
             if isinstance(value, list):
                 self.details[key] = value
         if isinstance(result.get("usage"), dict):
             self.details["usage"] = result["usage"]
+        if isinstance(result.get("cwd"), str):
+            self.details["cwd"] = result["cwd"]
+        if isinstance(result.get("gitBranch"), str):
+            self.details["gitBranch"] = result["gitBranch"]
         if isinstance(result.get("subagents"), list):
             for item in result["subagents"]:
                 child_id = item.get("sessionId")
@@ -1124,6 +1161,7 @@ class SessionManager:
         self.sse_clients: set[SseClient] = set()
         self.browser_endpoint: dict[str, Any] | None = None
         self._counter = 0
+        self.background_event_sink = None
 
     def create(self, cwd: str | None = None, title: str | None = None) -> AcpBridge:
         """Add a parent session, spawning its ACP child in the background."""
@@ -1150,6 +1188,10 @@ class SessionManager:
             title=title or os.path.basename(workspace.rstrip(os.sep)) or "cecli",
         )
         bridge.shared_browser = self.browser_endpoint
+        if self.background_event_sink is not None:
+            bridge.background_event_sink = lambda params, bid=bridge_id: self.background_event_sink(
+                bid, params
+            )
         bridge.extra_sinks.append(self.publish)
         self.sessions[bridge_id] = bridge
         self.order.append(bridge_id)
@@ -1315,6 +1357,8 @@ class DesktopServer:
         browser: BrowserBridge | None = None,
         conf: ConfStore | None = None,
         onboarding: OnboardingService | None = None,
+        terminal: TerminalManager | None = None,
+        cli_enabled: bool = True,
     ) -> None:
         self.sessions = sessions
         self.token = token
@@ -1323,12 +1367,48 @@ class DesktopServer:
         self.browser = browser
         self.conf = conf
         self.onboarding = onboarding
+        self.terminal = terminal or TerminalManager()
+        self.cli_enabled = bool(cli_enabled) and is_loopback_host(host)
+        self.cli = CliRegistry(enabled=self.cli_enabled)
+        if self.sessions is not None:
+            self.sessions.background_event_sink = self._on_background_event
         self._browser_sync_task: asyncio.Task[Any] | None = None
 
     @property
     def bridge(self) -> AcpBridge:
         """The default parent session, kept for single-session callers."""
         return self.sessions.get_default()
+
+    def _on_background_event(self, bridge_id: str, params: dict[str, Any]) -> None:
+        """Fold one child background notification into the CLI mirror (sync)."""
+        if not self.cli_enabled:
+            return
+        self.cli.apply_event(bridge_id, params)
+
+        event = params.get("event")
+        if not event or event == "output" or self.sessions is None:
+            return
+
+        publish = getattr(self.sessions, "publish", None)
+        if publish is None:
+            return
+
+        key = params.get("key")
+        publish(
+            {
+                "type": "cli",
+                "bridgeId": bridge_id,
+                "event": event,
+                "cliId": key,
+                "key": key,
+                "state": params.get("state"),
+                "lastPrompt": params.get("prompt"),
+                "exitCode": params.get("code"),
+                "endedAt": params.get("endedAt"),
+                "signal": params.get("signal"),
+                "entry": params.get("command"),
+            }
+        )
 
     async def handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -1413,6 +1493,15 @@ class DesktopServer:
                 if method == "GET" and path == "/api/events":
                     await self._serve_events(reader, writer)
                     return
+                if method == "GET" and path == "/api/terminal/ws":
+                    await self._serve_terminal_websocket(reader, writer, headers, query)
+                    return
+                if method == "GET" and path == "/api/terminal/stream":
+                    await self._serve_terminal_stream(reader, writer, query)
+                    return
+                if method == "GET" and path == "/api/cli/stream":
+                    await self._serve_cli_stream(reader, writer, query, headers)
+                    return
 
                 try:
                     status, payload, content_type = await self._route(method, path, body, query)
@@ -1468,7 +1557,20 @@ class DesktopServer:
             return self._json(200, {"ok": True, **state})
 
         if method == "GET" and path == "/api/state":
-            return self._json(200, self.sessions.snapshot(self._query_bridge(query)))
+            bridge = self.sessions.get(self._query_bridge(query))
+            snapshot = self.sessions.snapshot(bridge.bridge_id)
+            snapshot["terminal"] = self.terminal.state(bridge.bridge_id)
+            if self.cli_enabled:
+                await self.cli.ensure_state(bridge)
+            snapshot["cliPane"] = self.cli.state_payload(bridge.bridge_id)
+            return self._json(200, snapshot)
+
+        if method == "GET" and path == "/api/terminal/state":
+            try:
+                bridge = self.sessions.get((query.get("bridgeId") or [None])[0])
+            except BridgeError as err:
+                return self._json(err.status, {"ok": False, "error": str(err)})
+            return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
 
         if method == "GET" and path == "/api/history":
             bridge = self.sessions.get(self._query_bridge(query))
@@ -1507,6 +1609,31 @@ class DesktopServer:
         if method == "DELETE" and path == "/api/workspaces":
             return await self._remove_workspace(body)
 
+        if method == "GET" and path == "/api/cli/state":
+            if not self.cli_enabled:
+                return self._json(403, {"ok": False, "error": "cli pane disabled"})
+            try:
+                bridge = self.sessions.get(self._query_bridge(query))
+            except BridgeError as err:
+                return self._json(err.status, {"ok": False, "error": str(err)})
+            await self.cli.ensure_state(bridge)
+            mirror = self.cli.mirror(bridge.bridge_id)
+            background = [
+                {**entry, "cliId": entry.get("cliId") or entry.get("key")}
+                for entry in mirror.entries.values()
+            ]
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "bridgeId": bridge.bridge_id,
+                    "workspace": bridge.workspace,
+                    "terminals": self.terminal.terminals(bridge.bridge_id),
+                    "background": background,
+                    "cliPane": self.cli.state_payload(bridge.bridge_id),
+                },
+            )
+
         if method != "POST":
             return self._json(404, {"ok": False, "error": "not found"})
 
@@ -1530,9 +1657,15 @@ class DesktopServer:
                 return await self._browser_tab(body)
         if path == "/api/background":
             return await self._background(body)
+        if path.startswith("/api/cli/"):
+            return await self._cli_route(path[len("/api/cli/") :], body)
+        if path.startswith("/api/terminal/"):
+            return await self._terminal_route(path[len("/api/terminal/") :], body)
 
         if path == "/api/workspaces":
             return await self._add_workspace(body)
+        if path == "/api/workspaces/update":
+            return await self._update_workspace(body)
         if path == "/api/onboarding/config":
             return await self._onboarding_config(body)
         if path == "/api/onboarding/copilot/login":
@@ -1564,7 +1697,7 @@ class DesktopServer:
             return await self._subagent_message(body)
         if path == "/api/subagent/cancel":
             return await self._subagent_cancel(body)
-        if path in ("/api/skills", "/api/mcp", "/api/workflows", "/api/context"):
+        if path in ("/api/skills", "/api/mcp", "/api/hooks", "/api/workflows", "/api/context"):
             return await self._registry_action(path.rsplit("/", 1)[-1], body)
 
         return self._json(404, {"ok": False, "error": "not found"})
@@ -1583,8 +1716,10 @@ class DesktopServer:
             {
                 "ok": True,
                 "workspaces": workspaces,
-                "configPath": str(self.conf.project_path),
+                "configPath": str(self.conf.desktop_path),
+                "desktopConfigPath": str(self.conf.desktop_path),
                 "globalConfigPath": str(self.conf.global_path),
+                "projectConfigPath": str(self.conf.project_path),
             },
         )
 
@@ -1661,13 +1796,16 @@ class DesktopServer:
             return self._json(503, {"ok": False, "error": "workspace config is unavailable"})
         path = data.get("path")
         name = data.get("name")
+        enable = data.get("enable_on_startup")
         if not isinstance(path, str) or not path.strip():
             return self._json(400, {"ok": False, "error": "path is required"})
         if name is not None and not isinstance(name, str):
             return self._json(400, {"ok": False, "error": "name must be a string"})
+        if enable is not None and not isinstance(enable, bool):
+            return self._json(400, {"ok": False, "error": "enable_on_startup must be a boolean"})
 
         try:
-            entry = self.conf.add_workspace(path, name)
+            entry = self.conf.add_workspace(path, name, enable_on_startup=enable)
         except ValueError as err:
             return self._json(400, {"ok": False, "error": str(err)})
         except OSError as err:
@@ -1692,8 +1830,47 @@ class DesktopServer:
             },
         )
 
+    async def _update_workspace(self, body: bytes) -> tuple[int, bytes, str]:
+        """Rename a folder or change whether it starts with the app."""
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "workspace config is unavailable"})
+        path = data.get("path")
+        name = data.get("name")
+        enable = data.get("enable_on_startup")
+        if not isinstance(path, str) or not path.strip():
+            return self._json(400, {"ok": False, "error": "path is required"})
+        if name is not None and not isinstance(name, str):
+            return self._json(400, {"ok": False, "error": "name must be a string"})
+        if enable is not None and not isinstance(enable, bool):
+            return self._json(400, {"ok": False, "error": "enable_on_startup must be a boolean"})
+
+        try:
+            entry = self.conf.update_workspace(path, name, enable)
+        except ValueError as err:
+            status = 404 if "Unknown workspace" in str(err) else 400
+            return self._json(status, {"ok": False, "error": str(err)})
+        except OSError as err:
+            return self._json(500, {"ok": False, "error": f"Failed to save workspace: {err}"})
+
+        bridge = self.sessions.find_by_workspace(entry["path"])
+        if bridge is not None:
+            bridge.title = entry["name"]
+            self.sessions.publish_sessions()
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "workspace": entry,
+                "bridgeId": bridge.bridge_id if bridge else None,
+                "sessions": self.sessions.list_sessions(),
+            },
+        )
+
     async def _remove_workspace(self, body: bytes) -> tuple[int, bytes, str]:
-        """Persist removal and close the folder's session when it is not primary."""
+        """Persist removal and stop the folder's live session, if any."""
         data = self._decode_json(body)
         if data is None:
             return self._json(400, {"ok": False, "error": "invalid JSON"})
@@ -1703,14 +1880,33 @@ class DesktopServer:
         if not isinstance(path, str) or not path.strip():
             return self._json(400, {"ok": False, "error": "path is required"})
 
+        bridge = self.sessions.find_by_workspace(path)
+        if bridge is not None and bridge.busy:
+            return self._json(409, {"ok": False, "error": "Finish or stop the current turn first"})
+
         if not self.conf.remove_workspace(path):
             return self._json(404, {"ok": False, "error": "Unknown workspace"})
 
         closed = False
-        bridge = self.sessions.find_by_workspace(path)
-        if bridge is not None and not bridge.primary:
-            await self.sessions.close(bridge.bridge_id)
-            closed = True
+        if bridge is not None:
+            if bridge.primary:
+                others = [item for item in self.sessions.sessions.values() if item is not bridge]
+                if others:
+                    others[0].primary = True
+                    bridge.primary = False
+                else:
+                    await bridge.shutdown()
+                    self.sessions.sessions.pop(bridge.bridge_id, None)
+                    if bridge.bridge_id in self.sessions.order:
+                        self.sessions.order.remove(bridge.bridge_id)
+                    if self.sessions.active_id == bridge.bridge_id:
+                        self.sessions.active_id = None
+                    self.sessions.publish_sessions()
+                    closed = True
+            if not closed:
+                await self.sessions.close(bridge.bridge_id)
+                closed = True
+                await self.terminal.close(bridge.bridge_id)
         return self._json(
             200,
             {
@@ -1784,8 +1980,10 @@ class DesktopServer:
         data = self._decode_json(body) if body else {}
         if data is None:
             return self._json(400, {"ok": False, "error": "invalid JSON"})
+        bridge = self.sessions.get(data.get("bridgeId"))
         try:
             await self.sessions.close(data.get("bridgeId"))
+            await self.terminal.close(bridge.bridge_id)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(200, {"ok": True, "sessions": self.sessions.list_sessions()})
@@ -1843,6 +2041,16 @@ class DesktopServer:
                 if not isinstance(action, str) or not isinstance(name, str):
                     return self._json(400, {"ok": False, "error": "action and name are required"})
                 result = await bridge.set_skill(action, name)
+            elif kind == "hooks":
+                if action in (None, "list"):
+                    await bridge.refresh_details()
+                    return self._json(200, {"ok": True, "hooks": bridge.details["hooks"]})
+                if action not in ("load", "remove", "enable", "disable") or not isinstance(
+                    name, str
+                ):
+                    return self._json(400, {"ok": False, "error": "action and name are required"})
+                await bridge.set_hook(action, name)
+                return self._json(200, {"ok": True, "hooks": bridge.details["hooks"]})
             elif kind == "mcp":
                 if action == "list":
                     await bridge.refresh_details()
@@ -2055,6 +2263,233 @@ class DesktopServer:
         self._announce_browser(state)
         return self._json(202, {"ok": True, **state})
 
+    async def _cli_route(self, suffix: str, body: bytes) -> tuple[int, bytes, str]:
+        """Dispatch one POST /api/cli/* control call."""
+        if not self.cli_enabled:
+            return self._json(403, {"ok": False, "error": "cli pane disabled"})
+
+        actions = {"state", "input", "resize", "stop", "close", "stop_all"}
+        if suffix not in actions:
+            return self._json(404, {"ok": False, "error": "not found"})
+
+        data = self._body_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+
+        bridge_id = data.get("bridgeId")
+        if not isinstance(bridge_id, str) or not bridge_id:
+            return self._json(400, {"ok": False, "error": "bridgeId is required"})
+
+        try:
+            bridge = self.sessions.get(bridge_id)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        params = {key: value for key, value in data.items() if key != "bridgeId"}
+        if "cliId" in params and "key" not in params:
+            params["key"] = params.pop("cliId")
+        if isinstance(params.get("key"), str):
+            params["key"] = _normalize_cli_key(bridge.bridge_id, params["key"])
+        terminal_id = params.get("key")
+        if isinstance(terminal_id, str) and terminal_id.startswith("term:"):
+            return await self._cli_terminal(suffix, bridge.bridge_id, terminal_id, params)
+        try:
+            result = await self.cli.call(bridge, suffix, params)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        code = error_code(result)
+        if code is not None:
+            return self._json(code, {"ok": False, **result})
+        if "ok" in result:
+            return self._json(200, result)
+        return self._json(200, {"ok": True, **result})
+
+    async def _serve_cli_stream(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        query: dict[str, list[str]],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """SSE replay + live background output using FIX A offsets.
+
+        Lifecycle events are emitted as first-class ``state`` frames; unknown
+        event names fall back to ``type: "event"`` for client compatibility.
+        """
+        if not self.cli_enabled:
+            await self._write_json(writer, 403, {"ok": False, "error": "cli pane disabled"})
+            return
+
+        bridge_id = _optional_str((query.get("bridgeId") or [None])[0])
+        if not bridge_id:
+            await self._write_json(writer, 400, {"ok": False, "error": "bridgeId is required"})
+            return
+        try:
+            bridge = self.sessions.get(bridge_id)
+        except BridgeError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
+        key = _normalize_cli_key(
+            bridge_id,
+            _optional_str((query.get("cliId") or [None])[0])
+            or _optional_str((query.get("key") or [None])[0]),
+        )
+        since = _optional_int(_optional_str((query.get("since") or [None])[0]))
+        if since is None and headers:
+            since = _optional_int(headers.get("last-event-id"))
+        mirror = self.cli.mirror(bridge.bridge_id)
+        await self.cli.ensure_state(bridge)
+
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/event-stream\r\n"
+            b"Cache-Control: no-cache\r\n"
+            b"Connection: keep-alive\r\n"
+            b"X-Accel-Buffering: no\r\n\r\n"
+            b"retry: 2000\n\n"
+        )
+
+        queue = mirror.subscribe()
+        last_seq = 0
+        try:
+            if key:
+                snap = mirror.snapshot(key, since)
+                last_seq = snap["seq"]
+                if snap["reset"]:
+                    writer.write(
+                        _sse_payload(
+                            {
+                                "type": "reset",
+                                "cliId": key,
+                                "seq": snap["startSeq"],
+                                "startSeq": snap["startSeq"],
+                            }
+                        )
+                    )
+                first = snap["startSeq"]
+                if not snap["reset"] and since is not None:
+                    first = max(since, snap["startSeq"])
+                ready = {
+                    "type": "ready",
+                    "cliId": key,
+                    "kind": "background",
+                    "state": snap["state"],
+                    "seq": first,
+                    "startSeq": snap["startSeq"],
+                }
+                writer.write(_sse_payload(ready))
+                if snap["data"]:
+                    output = {
+                        "type": "output",
+                        "cliId": key,
+                        "seq": snap["seq"],
+                        "data": base64.b64encode(snap["data"]).decode("ascii"),
+                    }
+                    writer.write(_sse_payload(output, snap["seq"]))
+            else:
+                writer.write(_sse_payload({"type": "ready", "seq": 0, "startSeq": 0}))
+            await writer.drain()
+
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    writer.write(b": ping\n\n")
+                    await writer.drain()
+                    continue
+
+                if item.get("type") == "reset":
+                    if key:
+                        snap = mirror.snapshot(key, None)
+                        last_seq = snap["seq"]
+                        reset = {
+                            "type": "reset",
+                            "cliId": key,
+                            "seq": snap["startSeq"],
+                            "startSeq": snap["startSeq"],
+                        }
+                        writer.write(_sse_payload(reset))
+                        if snap["data"]:
+                            output = {
+                                "type": "output",
+                                "cliId": key,
+                                "seq": snap["seq"],
+                                "data": base64.b64encode(snap["data"]).decode("ascii"),
+                            }
+                            writer.write(_sse_payload(output, snap["seq"]))
+                    await writer.drain()
+                    continue
+
+                params = item.get("params") or {}
+                event = params.get("event")
+                event_key = params.get("key")
+                if key and event_key != key:
+                    continue
+                event_id = None
+                if event == "output":
+                    frame = {
+                        "type": "output",
+                        "cliId": event_key,
+                        "seq": params.get("seq"),
+                        "data": params.get("data"),
+                    }
+                    event_id = _optional_int(params.get("seq"))
+                    if event_id is not None:
+                        last_seq = event_id
+                elif event in ("exited", "closed"):
+                    frame = {
+                        "type": "exit",
+                        "cliId": event_key,
+                        "closed": event == "closed",
+                        "code": params.get("code"),
+                        "state": params.get("state"),
+                        "endedAt": params.get("endedAt"),
+                    }
+                    event_id = last_seq
+                    if event == "closed":
+                        writer.write(_sse_payload(frame, event_id))
+                        await writer.drain()
+                        return
+                elif event == "needs_input":
+                    frame = {
+                        "type": "state",
+                        "cliId": event_key,
+                        "key": event_key,
+                        "state": "needs_input",
+                        "needsInput": True,
+                        "lastPrompt": params.get("prompt"),
+                        "entry": params.get("command"),
+                    }
+                elif event in ("started", "state"):
+                    command = params.get("command")
+                    state = params.get("state")
+                    if not state and isinstance(command, dict):
+                        state = command.get("state")
+                    frame = {
+                        "type": "state",
+                        "cliId": event_key,
+                        "key": event_key,
+                        "state": state,
+                        "entry": command,
+                    }
+                else:
+                    frame = {
+                        "type": "event",
+                        "cliId": event_key,
+                        "key": event_key,
+                        "event": event,
+                        "state": params.get("state"),
+                        "entry": params.get("command"),
+                    }
+                writer.write(_sse_payload(frame, event_id))
+                await writer.drain()
+        except (ConnectionError, BrokenPipeError, RuntimeError):
+            return
+        finally:
+            mirror.unsubscribe(queue)
+            await self._close_writer(writer)
+
     async def _background(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
         if data is None:
@@ -2154,6 +2589,353 @@ class DesktopServer:
                 await writer.drain()
         except (ConnectionError, BrokenPipeError, RuntimeError):
             return
+
+    async def _terminal_route(self, suffix: str, body: bytes) -> tuple[int, bytes, str]:
+        """Dispatch one POST /api/terminal/* control call."""
+        if suffix == "start":
+            return await self._terminal_start(body)
+        if suffix == "stop":
+            return await self._terminal_stop(body)
+        if suffix == "input":
+            return await self._terminal_input(body)
+        if suffix == "resize":
+            return await self._terminal_resize(body)
+        return self._json(404, {"ok": False, "error": "not found"})
+
+    async def _terminal_start(self, body: bytes) -> tuple[int, bytes, str]:
+        """Lazily spawn the workspace shell and return its state."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            session = self.terminal.get_or_create(bridge.bridge_id, bridge.workspace)
+            await session.start()
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        except TerminalError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(200, {"ok": True, "terminal": session.state()})
+
+    async def _cli_terminal(
+        self, action: str, bridge_id: str, terminal_id: str, params: dict[str, Any]
+    ) -> tuple[int, bytes, str]:
+        """Dispatch a ``term:`` cliId to the terminal manager instead of ACP."""
+        if not terminal_id.startswith(f"term:{bridge_id}:"):
+            return self._json(404, {"ok": False, "error": "not_found"})
+        session = self.terminal.get_by_id(terminal_id)
+        if session is None:
+            return self._json(404, {"ok": False, "error": "not_found"})
+
+        try:
+            if action == "input":
+                payload = params.get("data")
+                if isinstance(payload, str):
+                    raw = payload.encode("utf-8")
+                elif isinstance(params.get("base64"), str):
+                    raw = base64.b64decode(params["base64"], validate=True)
+                else:
+                    raise TerminalError(400, "data is required")
+                await session.write_async(raw)
+            elif action == "resize":
+                session.resize(params.get("cols"), params.get("rows"))
+            elif action == "stop":
+                await self.terminal.stop_by_id(terminal_id)
+            elif action == "close":
+                await self.terminal.close_by_id(terminal_id)
+            elif action != "state":
+                return self._json(404, {"ok": False, "error": "not found"})
+        except TerminalError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        except ValueError as err:
+            return self._json(400, {"ok": False, "error": str(err)})
+
+        return self._json(200, {"ok": True, "cliId": terminal_id, "terminal": session.state()})
+
+    async def _terminal_stop(self, body: bytes) -> tuple[int, bytes, str]:
+        """Terminate the shell while retaining its ring and exit metadata."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            await self.terminal.stop(bridge.bridge_id)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
+
+    async def _terminal_input(self, body: bytes) -> tuple[int, bytes, str]:
+        """Write bytes to the PTY without ever logging them."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            session = self.terminal.get(bridge.bridge_id)
+            if session is None or not session.running:
+                raise TerminalError(409, "terminal is not running")
+            payload = data.get("data")
+            if isinstance(payload, str):
+                raw = payload.encode("utf-8")
+            elif isinstance(data.get("base64"), str):
+                raw = base64.b64decode(data["base64"], validate=True)
+            else:
+                raise TerminalError(400, "data is required")
+            await session.write_async(raw)
+        except (BridgeError, TerminalError, ValueError) as err:
+            status = getattr(err, "status", 400)
+            return self._json(status, {"ok": False, "error": str(err)})
+        return self._json(200, {"ok": True})
+
+    async def _terminal_resize(self, body: bytes) -> tuple[int, bytes, str]:
+        """Resize the PTY window."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            session = self.terminal.get(bridge.bridge_id)
+            if session is None or not session.running:
+                raise TerminalError(409, "terminal is not running")
+            session.resize(data.get("cols"), data.get("rows"))
+        except (BridgeError, TerminalError) as err:
+            status = getattr(err, "status", 400)
+            return self._json(status, {"ok": False, "error": str(err)})
+        return self._json(200, {"ok": True, "cols": session.cols, "rows": session.rows})
+
+    async def _serve_terminal_websocket(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        headers: dict[str, str],
+        query: dict[str, list[str]],
+    ) -> None:
+        """Stream raw PTY bytes and accept input over one WebSocket."""
+        key = (headers.get("sec-websocket-key") or "").strip()
+        version = (headers.get("sec-websocket-version") or "").strip()
+        protocols = [
+            item.strip()
+            for item in (headers.get("sec-websocket-protocol") or "").split(",")
+            if item.strip()
+        ]
+        if not key or version != "13":
+            await self._write_json(writer, 400, {"ok": False, "error": "bad handshake"})
+            return
+        if self.token and f"token.{self.token}" not in protocols:
+            await self._write_json(writer, 403, {"ok": False, "error": "bad token"})
+            return
+        if not self.terminal.enabled:
+            await self._write_json(writer, 403, {"ok": False, "error": "terminal disabled"})
+            return
+
+        try:
+            data = self._body_json(query_body(query))
+            bridge = self.sessions.get(data.get("bridgeId"))
+        except BridgeError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
+        session = self.terminal.get(bridge.bridge_id)
+        if session is None:
+            await self._write_json(writer, 409, {"ok": False, "error": "terminal is not running"})
+            return
+
+        since = _optional_int(query_body(query).get("since"))
+        accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode(
+            "ascii"
+        )
+        selected = next(
+            (item for item in protocols if item == WS_SUBPROTOCOL or item.startswith("cecli.")),
+            WS_SUBPROTOCOL,
+        )
+        writer.write(
+            (
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                f"Sec-WebSocket-Accept: {accept}\r\n"
+                f"Sec-WebSocket-Protocol: {selected}\r\n\r\n"
+            ).encode("latin-1")
+        )
+        await writer.drain()
+
+        queue = session.subscribe()
+        writer_task: asyncio.Task[Any] | None = None
+        try:
+            seq, output, reset = session.buffer.snapshot(since)
+            start = seq - len(output)
+            first = start if reset or since is None else max(int(since), start)
+            if reset:
+                await self._ws_write(
+                    writer, 0x1, json.dumps({"type": "reset", "seq": start}).encode("utf-8")
+                )
+            await self._ws_write(
+                writer,
+                0x1,
+                json.dumps(
+                    {
+                        "type": "ready",
+                        "seq": first,
+                        "cols": session.cols,
+                        "rows": session.rows,
+                        "pid": session.pid,
+                    },
+                    separators=(",", ":"),
+                ).encode("utf-8"),
+            )
+            if output:
+                await self._ws_write(writer, 0x2, struct.pack("!Q", seq) + output)
+            if not session.running:
+                exit_event = {"type": "exit", "code": getattr(session, "exit_code", None)}
+                await self._ws_write(
+                    writer,
+                    0x1,
+                    json.dumps(exit_event, separators=(",", ":")).encode("utf-8"),
+                )
+                return
+            writer_task = asyncio.create_task(self._terminal_ws_writer(writer, queue))
+            await self._terminal_ws_reader(reader, session)
+        except (ConnectionError, RuntimeError):
+            return
+        finally:
+            session.unsubscribe(queue)
+            if writer_task is not None:
+                writer_task.cancel()
+                await asyncio.gather(writer_task, return_exceptions=True)
+            await self._close_writer(writer)
+
+    async def _terminal_ws_writer(
+        self, writer: asyncio.StreamWriter, queue: asyncio.Queue[tuple[str, Any]]
+    ) -> None:
+        """Forward PTY output and exit notifications to one peer."""
+        try:
+            while True:
+                kind, payload = await queue.get()
+                if kind == "data":
+                    seq, data = payload
+                    await self._ws_write(writer, 0x2, struct.pack("!Q", seq) + data)
+                elif kind == "exit":
+                    await self._ws_write(
+                        writer,
+                        0x1,
+                        json.dumps({"type": "exit", "code": payload}).encode("utf-8"),
+                    )
+                    return
+        except (ConnectionError, BrokenPipeError, RuntimeError, asyncio.CancelledError):
+            return
+
+    async def _terminal_ws_reader(self, reader: asyncio.StreamReader, session: Any) -> None:
+        """Accept JSON control frames and raw binary input frames."""
+        while True:
+            try:
+                frame = await self._ws_read_frame(reader)
+            except (ConnectionError, asyncio.IncompleteReadError):
+                return
+            if frame is None:
+                return
+            _fin, opcode, payload = frame
+            if opcode == 0x8:
+                return
+            if opcode == 0x9:
+                continue
+            if opcode == 0xA:
+                continue
+            if opcode == 0x2:
+                try:
+                    await session.write_async(payload)
+                except TerminalError:
+                    return
+                continue
+            if opcode != 0x1:
+                continue
+            try:
+                message = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(message, dict):
+                continue
+            kind = message.get("type")
+            if kind == "input":
+                text = message.get("data")
+                if isinstance(text, str):
+                    try:
+                        await session.write_async(text.encode("utf-8"))
+                    except TerminalError:
+                        return
+            elif kind == "resize":
+                session.resize(message.get("cols"), message.get("rows"))
+
+    async def _serve_terminal_stream(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        query: dict[str, list[str]],
+    ) -> None:
+        """Read-only SSE fallback for terminal replay and live output."""
+        if not self.terminal.enabled:
+            await self._write_json(writer, 403, {"ok": False, "error": "terminal disabled"})
+            return
+        try:
+            bridge = self.sessions.get(_optional_str(query.get("bridgeId")))
+        except BridgeError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
+        session = self.terminal.get(bridge.bridge_id)
+        if session is None:
+            await self._write_json(writer, 404, {"ok": False, "error": "terminal is not running"})
+            return
+
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/event-stream\r\n"
+            b"Cache-Control: no-cache\r\n"
+            b"Connection: keep-alive\r\n"
+            b"X-Accel-Buffering: no\r\n\r\n"
+            b"retry: 2000\n\n"
+        )
+        since = _optional_int(_optional_str((query.get("since") or [None])[0]))
+        seq, output, reset = session.buffer.snapshot(since)
+        replay_start, first = replay_offsets(seq, len(output), since, reset)
+        if reset:
+            writer.write(f"data: {json.dumps({'type': 'reset', 'seq': replay_start})}\n\n".encode())
+        writer.write(f"data: {json.dumps({'type': 'ready', 'seq': first})}\n\n".encode())
+        if output:
+            event = {
+                "type": "output",
+                "seq": seq,
+                "data": base64.b64encode(output).decode("ascii"),
+            }
+            writer.write(f"data: {json.dumps(event)}\n\n".encode())
+        await writer.drain()
+
+        if not session.running:
+            writer.write(
+                f"data: {json.dumps({'type': 'exit', 'code': session.exit_code})}\n\n".encode()
+            )
+            await writer.drain()
+            await self._close_writer(writer)
+            return
+
+        queue = session.subscribe()
+        try:
+            while True:
+                try:
+                    kind, payload = await asyncio.wait_for(queue.get(), HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    writer.write(b": ping\n\n")
+                    await writer.drain()
+                    continue
+                if kind == "data":
+                    seq, data = payload
+                    event = {
+                        "type": "output",
+                        "seq": seq,
+                        "data": base64.b64encode(data).decode("ascii"),
+                    }
+                    writer.write(f"data: {json.dumps(event)}\n\n".encode())
+                elif kind == "exit":
+                    writer.write(
+                        f"data: {json.dumps({'type': 'exit', 'code': payload})}\n\n".encode()
+                    )
+                    await writer.drain()
+                    return
+                await writer.drain()
+        except (ConnectionError, BrokenPipeError, RuntimeError):
+            return
+        finally:
+            session.unsubscribe(queue)
+            await self._close_writer(writer)
 
     async def _serve_websocket(
         self,
@@ -2444,6 +3226,11 @@ class DesktopServer:
         if command == "workflows.list":
             await bridge.refresh_details()
             return bridge.details["workflows"]
+        if command == "hooks.list":
+            await bridge.refresh_details()
+            return bridge.details["hooks"]
+        if command in ("hooks.load", "hooks.remove", "hooks.enable", "hooks.disable"):
+            return await bridge.set_hook(command.split(".", 1)[1], str(params.get("name")))
         if command in ("skills.load", "skills.remove", "skills.include", "skills.exclude"):
             return await bridge.set_skill(command.split(".", 1)[1], str(params.get("name")))
         if command in ("mcp.connect", "mcp.disconnect"):
@@ -2617,6 +3404,16 @@ class DesktopServer:
         names.add(self.host.strip("[]"))
         return names
 
+    def _body_json(self, body: bytes | dict[str, Any]) -> dict[str, Any]:
+        """Decode a JSON request body or raise a 400 for malformed input."""
+
+        if isinstance(body, dict):
+            return body
+        data = self._decode_json(body)
+        if data is None:
+            raise BridgeError(400, "invalid JSON body")
+        return data
+
     def _decode_json(self, body: bytes) -> dict[str, Any] | None:
         if not body:
             return {}
@@ -2698,6 +3495,8 @@ class ServerConfig:
         open_browser: bool,
         token: str = "",
         max_sessions: int = MAX_SESSIONS,
+        terminal_enabled: bool = False,
+        terminal_shell: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -2707,6 +3506,8 @@ class ServerConfig:
         self.open_browser = open_browser
         self.token = token
         self.max_sessions = max_sessions
+        self.terminal_enabled = terminal_enabled
+        self.terminal_shell = terminal_shell
 
 
 def parse_args(argv: list[str]) -> ServerConfig:
@@ -2724,6 +3525,16 @@ def parse_args(argv: list[str]) -> ServerConfig:
     parser.add_argument("--cecli", default=None, help="cecli executable")
     parser.add_argument("--open", action="store_true", help="open the UI in a browser")
     parser.add_argument(
+        "--no-terminal",
+        action="store_true",
+        help="disable the interactive terminal panel",
+    )
+    parser.add_argument(
+        "--terminal-shell",
+        default=os.environ.get("CECLI_DESKTOP_TERMINAL_SHELL") or None,
+        help="shell used for the interactive terminal",
+    )
+    parser.add_argument(
         "--token",
         default=os.environ.get("CECLI_DESKTOP_TOKEN") or secrets.token_urlsafe(24),
         help="WebSocket bearer token (generated per run by default)",
@@ -2735,6 +3546,13 @@ def parse_args(argv: list[str]) -> ServerConfig:
         help="maximum number of concurrent parent sessions",
     )
     args = parser.parse_args(argv)
+    terminal_disabled = os.environ.get("CECLI_DESKTOP_TERMINAL", "").lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    terminal_enabled = not (args.no_terminal or terminal_disabled)
 
     suffix = ".exe" if os.name == "nt" else ""
     sibling = Path(sys.executable).with_name(f"cecli{suffix}")
@@ -2755,6 +3573,8 @@ def parse_args(argv: list[str]) -> ServerConfig:
         args.open,
         args.token,
         max(1, args.max_sessions),
+        terminal_enabled,
+        args.terminal_shell,
     )
 
 
@@ -2771,6 +3591,10 @@ async def run_server(config: ServerConfig) -> None:
     conf = ConfStore(config.workspace)
     onboarding = OnboardingService(manager, conf)
     browser = BrowserBridge()
+    terminal = TerminalManager(
+        enabled=config.terminal_enabled and is_loopback_host(config.host),
+        shell=config.terminal_shell,
+    )
     app = DesktopServer(
         manager,
         root,
@@ -2779,6 +3603,9 @@ async def run_server(config: ServerConfig) -> None:
         browser=browser,
         conf=conf,
         onboarding=onboarding,
+        terminal=terminal,
+        cli_enabled=os.environ.get("CECLI_DESKTOP_CLI_PANE", "").lower()
+        not in ("0", "false", "no", "off"),
     )
     server = await asyncio.start_server(app.handle_connection, config.host, config.port)
     port = server.sockets[0].getsockname()[1] if server.sockets else config.port
@@ -2798,7 +3625,9 @@ async def run_server(config: ServerConfig) -> None:
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+        if sig is None:
+            continue
         try:
             loop.add_signal_handler(sig, stop.set)
         except (NotImplementedError, RuntimeError):
@@ -2813,6 +3642,8 @@ async def run_server(config: ServerConfig) -> None:
             )
             continue
         manager.allow_root(entry["path"])
+        if not entry.get("enable_on_startup", True):
+            continue
         try:
             manager.create(entry["path"], entry["name"])
         except BridgeError as err:
@@ -2834,6 +3665,7 @@ async def run_server(config: ServerConfig) -> None:
         )
     if config.open_browser:
         asyncio.create_task(_open_browser(url))
+    terminal_reaper = asyncio.create_task(_terminal_reaper_loop(terminal))
 
     try:
         await stop.wait()
@@ -2846,7 +3678,22 @@ async def run_server(config: ServerConfig) -> None:
         try:
             await manager.shutdown()
         finally:
-            await browser.shutdown()
+            try:
+                await terminal.shutdown()
+            finally:
+                terminal_reaper.cancel()
+                await asyncio.gather(terminal_reaper, return_exceptions=True)
+                await browser.shutdown()
+
+
+async def _terminal_reaper_loop(terminal: TerminalManager) -> None:
+    """Drop exited terminal generations after their retention TTL."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await terminal.reap()
+        except Exception:
+            pass
 
 
 async def _open_browser(url: str) -> None:
@@ -2890,6 +3737,39 @@ def _sanitize_extra_args(args: list[str]) -> list[str]:
     return cleaned
 
 
+def _sse_payload(payload: dict[str, Any], event_id: int | None = None) -> bytes:
+    """Encode one SSE frame, optionally carrying a resume cursor."""
+    prefix = f"id: {event_id}\n" if event_id is not None else ""
+    body = json.dumps(payload, separators=(",", ":"))
+    return f"{prefix}data: {body}\n\n".encode()
+
+
+def query_body(query: dict[str, list[str]]) -> dict[str, str]:
+    """Flatten a parsed query string to its first value per key."""
+
+    return {key: values[0] for key, values in query.items() if values}
+
+
+def _normalize_cli_key(bridge_id: str, value: Any) -> Any:
+    """Accept UI tab ids of the form ``bg:<bridge>:<command key>``."""
+    if not isinstance(value, str):
+        return value
+
+    prefix = f"bg:{bridge_id}:"
+    return value[len(prefix) :] if value.startswith(prefix) else value
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:
     """Signal the child's process group on POSIX, or the child elsewhere."""
     if os.name == "posix":
@@ -2924,6 +3804,7 @@ def _authority_host(authority: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point used by ``python3 desktop/server.py``."""
+    arm_parent_death()
     config = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         asyncio.run(run_server(config))
