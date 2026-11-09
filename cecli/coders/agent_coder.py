@@ -1070,6 +1070,18 @@ class AgentCoder(Coder):
 
         return self.main_model
 
+    async def generate(self, user_message, preproc):
+        """Run generation, then reap sub-agents once this agent is done.
+
+        Reaping here instead of inside the ``Yield`` tool keeps a sub-agent's
+        output container alive until after the turn's output has been emitted,
+        so late output is not routed to the primary agent's panel.
+        """
+        try:
+            return await super().generate(user_message, preproc)
+        finally:
+            await self._reap_finished_sub_agents()
+
     async def reply_completed(self):
         """Process the completed response from the LLM.
 
@@ -1083,15 +1095,9 @@ class AgentCoder(Coder):
         content = self.partial_response_content
         tool_calls_found = bool(self.partial_response_tool_calls)
 
-        # Reap all finished sub-agents with auto_reap enabled
-        try:
-            service = AgentService.get_instance(self)
-            await service.reap_all_finished_agents(parent=service.get_parent(self))
-        except Exception:
-            logger.warning("Failed to reap finished sub-agents", exc_info=True)
-
         # 1. Handle Tool Execution Follow-up (Reflection)
         if self.agent_finished:
+            await self._reap_finished_sub_agents()
             self.tool_usage_history = []
             self.tool_call_vectors = []
             self.reflected_message = None
@@ -2180,3 +2186,11 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             self.context_blocks_cache = {}
             self.tokens_calculated = False
         return True
+
+    async def _reap_finished_sub_agents(self):
+        """Reap finished sub-agents that have ``auto_reap`` enabled."""
+        try:
+            service = AgentService.get_instance(self)
+            await service.reap_all_finished_agents(parent=service.get_parent(self))
+        except Exception:
+            logger.warning("Failed to reap finished sub-agents", exc_info=True)
