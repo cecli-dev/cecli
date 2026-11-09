@@ -820,11 +820,6 @@ class AgentCoder(Coder):
             result += f"- Current date: {current_date}\n"
             result += f"- Platform: {platform_info}\n"
             result += f"- Shell: {get_shell_info()}\n"
-            if platform.system() == "Windows":
-                result += (
-                    "- Shell syntax: Do not assume a POSIX/Linux shell; use commands supported"
-                    " by this environment.\n"
-                )
             result += f"- Language preference: {language}\n"
 
             # Agent identity so the model can recognise itself and the primary
