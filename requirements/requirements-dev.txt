@@ -267,7 +267,6 @@ typer==0.20.0
 typing-extensions==4.15.0
     # via
     #   -c requirements/common-constraints.txt
-    #   pytest-asyncio
     #   textual
     #   typer
 tzdata==2025.2

@@ -84,6 +84,9 @@ textual>=8.2.8
 # server utilities
 blinker>=1.9.0
 websockets>=16.1.1
+# uvloop has no Windows or PyPy support; uvicorn pulls it in elsewhere, but pin it here so
+# requirements.txt keeps the platform guard instead of forcing it on unsupported targets
+uvloop>=0.22.1 ; platform_python_implementation != "PyPy" and sys_platform != "cygwin" and sys_platform != "win32"
 
 # file system lookup aids (OPTIONAL: only used for fuzzy model-name search; imported lazily in cecli/models.py)
 # TODO: split into a `[search]` extra (requirements-search.in) - safe because imports are lazy

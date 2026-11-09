@@ -327,9 +327,6 @@ typer==0.20.0
 typing-extensions==4.15.0
     # via
     #   -c requirements/common-constraints.txt
-    #   aiohttp
-    #   aiosignal
-    #   anyio
     #   chromadb
     #   grpcio
     #   huggingface-hub
@@ -339,7 +336,6 @@ typing-extensions==4.15.0
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
-    #   referencing
     #   typer
     #   typing-inspection
 typing-inspection==0.4.2
