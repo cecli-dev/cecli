@@ -449,6 +449,25 @@ def handle_history(request_id: Any) -> None:
     result(request_id, {"messages": messages, "subagents": subagents, "diffs": diffs})
 
 
+def handle_steer(request_id: Any, params: dict[str, Any]) -> None:
+    """Inject a user message into the turn that is currently running."""
+    text = _prompt_text(params)
+    if _pending_prompt is None:
+        error(request_id, -32000, "not prompting")
+        return
+
+    result(request_id, {"ok": True, "steered": True})
+    update(
+        {
+            "sessionUpdate": "session_message",
+            "userMessage": True,
+            "senderSessionId": SESSION_ID,
+            "recipientSessionId": SESSION_ID,
+            "content": [{"type": "text", "text": text}],
+        }
+    )
+
+
 def handle_subagent_message(request_id: Any, params: dict[str, Any]) -> None:
     """Echo a user message into a child session, like the real agent does."""
     session_id = params.get("sessionId")
@@ -563,6 +582,8 @@ def dispatch(message: dict[str, Any]) -> None:
         handle_history(request_id)
     elif method == "cecli/background":
         handle_background(request_id, params)
+    elif method == "cecli/steer":
+        handle_steer(request_id, params)
     elif method == "cecli/subagent/message":
         handle_subagent_message(request_id, params)
     elif method in ("cecli/skill", "cecli/mcp", "cecli/context"):

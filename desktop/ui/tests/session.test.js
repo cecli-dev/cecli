@@ -43,6 +43,22 @@ test('send_prompt appends the user turn and marks the session busy', async () =>
   });
 });
 
+test('send_prompt steers while the session is busy', async () => {
+  await with_fast_timers(async () => {
+    const store = new Store(create_initial_state());
+    store.set_sessions([{ bridgeId: 'b1', status: 'ready', busy: true }], 8);
+    store.update((state) => ({ ...state, status: 'ready', busy: true }));
+    const session = new Session(store);
+    globalThis.fetch = async () => response({ ok: true, steered: true }, true, 202);
+
+    assert.equal(await session.send_prompt('more'), true);
+    assert.equal(store.state.busy, true);
+    assert.equal(store.state.transcript.length, 0);
+    assert.equal(store.state.last_prompt, 'more');
+    assert.equal(store.state.retry_available, false);
+  });
+});
+
 test('a rejected prompt preserves retry state without adding a turn', async () => {
   await with_fast_timers(async () => {
     const store = new Store(create_initial_state());

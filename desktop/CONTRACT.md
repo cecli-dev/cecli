@@ -47,6 +47,10 @@ the session/new response is deferred until the coder is ready and contains
 5. `session/set_config_option` request `{"sessionId": "...", "configId": "mode", "value": "..."}`
    Config options look like `{"id", "name", "category", "type": "select",
    "currentValue", "options": [{"value", "name", "description"} | {"group", "name", "options": [...]}]}`.
+   While a turn runs, a `cecli/steer` request with the same `sessionId` and `prompt`
+   injects the text into that turn instead of starting another. It returns
+   `{"ok": true, "steered": true}` and emits a `session_message` update with
+   `userMessage: true`.
 
 Server-to-client requests: `session/request_permission` with
 `{"sessionId", "toolCall": {"toolCallId", "content": [...]}, "options": [{"optionId", "name", "kind"}]}`.
@@ -97,7 +101,7 @@ All responses are JSON unless noted. Unknown paths return 404.
 | GET    | `/api/health`     | -                                      | `{"ok": true, "status": "..."}` |
 | GET    | `/api/state`      | -                                      | snapshot, see below |
 | GET    | `/api/events`     | -                                      | SSE stream, see below |
-| POST   | `/api/prompt`     | `{"text": "..."}`                     | 202 `{"ok": true}`; 409 if busy/not ready; 400 if empty |
+| POST   | `/api/prompt`     | `{"text": "..."}`                     | 202 `{"ok": true, "steered": bool}`; a busy prompt steers the running turn; 409 if not ready; 400 if empty |
 | POST   | `/api/cancel`     | -                                      | 202 `{"ok": true}` |
 | POST   | `/api/new_session`| `{"cwd": "..."}` optional              | 202; 409 if busy |
 | POST   | `/api/permission` | `{"requestId": 7, "optionId": "y"}` or `{"requestId": 7, "optionId": null}` | 200 `{"ok": true}`; 404 unknown requestId |
@@ -186,8 +190,9 @@ report the truth.
   cursor while busy), collapsible thoughts, tool cards with status chips and
   expandable output, plan checklist, permission cards with option buttons,
   error notices. Auto-scroll unless the user scrolled up.
-- Composer: Enter sends, Shift+Enter newlines, disabled while busy; send button
-  becomes Stop while a turn runs. Show stop/retry affordances.
+- Composer: Enter sends or steers the running turn when busy, Shift+Enter
+  newlines; the send button becomes Stop when the composer is empty while a turn
+  runs. Show stop/retry affordances.
 - Render a safe subset of markdown: fenced code, inline code, bold, italic,
   headings, links (http/https only), ordered/unordered lists, blockquotes.
   Always escape HTML first.

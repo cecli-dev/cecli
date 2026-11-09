@@ -371,6 +371,45 @@ async def test_turn_lifecycle(tmp_path):
     waiting.cancel()
 
 
+async def test_steer_injects_into_the_running_turn(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    coder.wrap_user_input = lambda text: f"wrapped:{text}"
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "cecli/steer",
+            "params": {"sessionId": "s1", "prompt": [{"type": "text", "text": "more"}]},
+        }
+    )
+    await settle()
+
+    assert transport.results()[7]["result"] == {"ok": True, "steered": True}
+    assert queued[0]["message_dict"]["content"] == "wrapped:more"
+    steer_updates = [
+        update for update in transport.updates() if update.get("sessionUpdate") == "session_message"
+    ]
+    assert steer_updates[-1]["content"][0]["text"] == "more"
+
+
 async def test_cancel_interrupts_coder(tmp_path):
     agent, transport = await ready_agent(tmp_path)
     coder = make_coder(tmp_path)

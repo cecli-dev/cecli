@@ -319,6 +319,7 @@ class AcpAgent:
             "cecli/mcp": self._on_cecli_mcp,
             "cecli/workflow": self._on_cecli_workflow,
             "cecli/context": self._on_cecli_context,
+            "cecli/steer": self._on_cecli_steer,
             "cecli/complete": self._on_cecli_complete,
             "cecli/background": self._on_cecli_background,
             "cecli/browser": self._on_cecli_browser,
@@ -397,6 +398,42 @@ class AcpAgent:
 
         self._inputs.put_nowait(_Turn(text, on_finish=finish, request_id=request_id, paths=paths))
         return _DEFERRED
+
+    def _on_cecli_steer(self, params: dict, request_id: Any) -> dict:
+        """Inject a prompt into the running turn instead of queueing a new one."""
+        from cecli.helpers.conversation.service import ConversationService
+        from cecli.helpers.conversation.tags import MessageTag
+
+        self._require_session(params.get("sessionId"))
+        text, paths = prompt_to_text(params.get("prompt"), self.cwd or os.getcwd())
+        if not text:
+            raise AcpError(INVALID_PARAMS, "text is required")
+
+        if not self.in_prompt():
+            return {"ok": True, "steered": False}
+
+        coder = self._require_coder()
+        if paths:
+            _add_mentions(coder, paths)
+
+        ConversationService.get_manager(coder).queue_message(
+            message_dict={"role": "user", "content": coder.wrap_user_input(text)},
+            tag=MessageTag.CUR,
+            hash_key=("steer", str(coder.uuid), str(time.monotonic_ns())),
+        )
+
+        self._message_count += 1
+        self.send_update(
+            {
+                "sessionUpdate": "session_message",
+                "userMessage": True,
+                "messageId": f"cecli-message-{self._message_count}",
+                "senderSessionId": self.session_id,
+                "recipientSessionId": self.session_id,
+                "content": [{"type": "text", "text": text}],
+            }
+        )
+        return {"ok": True, "steered": True}
 
     def _on_session_cancel(self, params: dict, request_id: Any) -> None:
         if params.get("sessionId") != self.session_id:

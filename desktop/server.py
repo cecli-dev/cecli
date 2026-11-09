@@ -223,16 +223,40 @@ class AcpBridge:
             "clients": len(self.clients),
         }
 
-    async def prompt(self, text: str) -> None:
-        """Start a turn, or raise ``BridgeError`` when the bridge is unavailable."""
+    async def prompt(self, text: str) -> bool:
+        """Start a turn, or steer the running one, when the bridge is ready."""
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
-        if self.busy or self._session_pending:
+        if self._session_pending:
             raise BridgeError(409, "The agent is busy")
+        if self.busy:
+            await self.steer(text)
+            return True
         self.busy = True
         self.activity = "running"
         self.last_activity = time.time()
         self._prompt_task = asyncio.create_task(self._run_prompt(text))
+        return False
+
+    async def steer(self, text: str) -> None:
+        """Inject a prompt into the current turn without starting another."""
+        if self.status != "ready" or self.session_id is None:
+            raise BridgeError(409, "The agent is not ready")
+        try:
+            result = await self._request(
+                "cecli/steer",
+                {
+                    "sessionId": self.session_id,
+                    "prompt": [{"type": "text", "text": text}],
+                },
+                timeout=30.0,
+            )
+        except (AcpError, asyncio.TimeoutError) as err:
+            raise BridgeError(502, str(err)) from err
+
+        if not (isinstance(result, dict) and result.get("steered")):
+            raise BridgeError(409, "The agent is not ready to steer")
+        self.last_activity = time.time()
 
     async def cancel(self) -> None:
         """Send the cancellation notification for the current turn."""
@@ -2085,10 +2109,10 @@ class DesktopServer:
         if not isinstance(text, str) or not text.strip():
             return self._json(400, {"ok": False, "error": "text is required"})
         try:
-            await self.sessions.get_mutation(data.get("bridgeId")).prompt(text)
+            steered = await self.sessions.get_mutation(data.get("bridgeId")).prompt(text)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(202, {"ok": True})
+        return self._json(202, {"ok": True, "steered": steered})
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body) if body else {}

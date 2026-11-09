@@ -387,8 +387,9 @@ class BridgeTest(unittest.TestCase):
         )
 
         status, body = self.request("POST", "/api/prompt", {"text": "again"})
-        self.assertEqual(status, 409)
-        self.assertFalse(body["ok"])
+        self.assertEqual(status, 202)
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["steered"])
 
         status, body = self.request(
             "POST",
@@ -404,11 +405,19 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(resolved[0]["optionId"], "y")
         self.assertEqual(finished[-1]["stopReason"], "end_turn")
 
+        steered = [
+            event
+            for event in finished
+            if event.get("type") == "update"
+            and event["update"].get("sessionUpdate") == "session_message"
+        ]
+        self.assertEqual(steered[-1]["update"]["content"][0]["text"], "again")
+
         state = self.wait_state(lambda snapshot: snapshot.get("busy") is False)
         self.assertFalse(state["busy"])
         self.assertEqual(state["permissions"], [])
 
-    def test_prompt_while_busy_is_conflict(self) -> None:
+    def test_prompt_while_busy_steers(self) -> None:
         self.wait_ready()
         reader = self.open_events()
         reader.drain()
@@ -419,8 +428,17 @@ class BridgeTest(unittest.TestCase):
         self.assertTrue(permission_batch)
 
         status, body = self.request("POST", "/api/prompt", {"text": "second"})
-        self.assertEqual(status, 409)
-        self.assertFalse(body["ok"])
+        self.assertEqual(status, 202)
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["steered"])
+
+        events = reader.collect_until(
+            lambda event: event.get("type") == "update"
+            and event["update"].get("sessionUpdate") == "session_message"
+        )
+        self.assertEqual(events[-1]["update"]["content"][0]["text"], "second")
+        state = self.wait_state(lambda snapshot: snapshot.get("busy") is True)
+        self.assertTrue(state["busy"])
 
         self.request("POST", "/api/cancel")
         reader.collect_until(lambda event: event.get("type") == "prompt_done", timeout=6.0)

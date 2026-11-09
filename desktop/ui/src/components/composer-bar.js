@@ -53,7 +53,10 @@ export class ComposerBar extends LitElement {
     const active_agent = selectors.active_agent(state);
     const busy = active_agent ? Boolean(active_agent.running) : state.busy;
     const retry_visible = selectors.retry_visible(state);
-    const disabled = !busy && (this._sending || state.status !== 'ready' || !this._has_text);
+    const show_stop = busy && !this._has_text;
+    const disabled = show_stop
+      ? false
+      : this._sending || state.status !== 'ready' || !this._has_text;
 
     return html`
       <footer class="composer">
@@ -76,14 +79,16 @@ export class ComposerBar extends LitElement {
           <button
             class="send-btn"
             type="button"
-            data-mode=${busy ? 'stop' : 'send'}
-            aria-label=${busy ? 'Stop this turn' : 'Send message'}
+            data-mode=${show_stop ? 'stop' : 'send'}
+            aria-label=${show_stop ? 'Stop this turn' : 'Send message'}
             ?disabled=${disabled}
             @click=${this._on_send_click}
-          >${busy ? STOP_ICON : SEND_ICON}</button>
+          >${show_stop ? STOP_ICON : SEND_ICON}</button>
         </div>
         <div class="composer-meta">
-          <span class="hint">Enter to send · Shift+Enter for newline · Esc to stop</span>
+          <span class="hint">${busy
+            ? 'Enter to steer · Shift+Enter for newline · Esc to stop'
+            : 'Enter to send · Shift+Enter for newline · Esc to stop'}</span>
           <div class="composer-state">
             <button
               class="retry-btn"
@@ -151,11 +156,11 @@ export class ComposerBar extends LitElement {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
 
     event.preventDefault();
-    if (!this._is_busy()) this._submit();
+    this._submit();
   }
 
   _on_send_click() {
-    if (this._is_busy()) {
+    if (this._is_busy() && !this._has_text) {
       session.cancel_turn();
       return;
     }
@@ -168,7 +173,7 @@ export class ComposerBar extends LitElement {
     if (!textarea || this._sending) return;
 
     const text = textarea.value.trim();
-    if (!text || (!store.state.active_agent_session_id && store.state.busy)) return;
+    if (!text) return;
 
     this._sending = true;
     this.requestUpdate();
