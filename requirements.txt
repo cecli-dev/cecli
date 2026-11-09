@@ -566,6 +566,7 @@ tqdm==4.67.1
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
     #   tree-sitter-language-pack
+    #   tree-sitter-languages
 tree-sitter-c-sharp==0.23.5
     # via
     #   -c requirements/common-constraints.txt
@@ -575,6 +576,10 @@ tree-sitter-embedded-template==0.25.0
     #   -c requirements/common-constraints.txt
     #   tree-sitter-language-pack
 tree-sitter-language-pack==0.13.0
+    # via
+    #   -c requirements/common-constraints.txt
+    #   -r requirements/requirements.in
+tree-sitter-languages==1.10.2 ; python_full_version < '3.13'
     # via
     #   -c requirements/common-constraints.txt
     #   -r requirements/requirements.in
@@ -593,6 +598,9 @@ typer==0.20.0
 typing-extensions==4.15.0
     # via
     #   -c requirements/common-constraints.txt
+    #   aiohttp
+    #   aiosignal
+    #   anyio
     #   beautifulsoup4
     #   cdp-use
     #   chromadb
@@ -605,6 +613,8 @@ typing-extensions==4.15.0
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
+    #   referencing
+    #   starlette
     #   textual
     #   typer
     #   typing-inspection

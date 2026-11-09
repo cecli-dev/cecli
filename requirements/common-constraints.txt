@@ -463,11 +463,14 @@ tree-sitter==0.25.2
     # via
     #   -r requirements/requirements.in
     #   tree-sitter-language-pack
+    #   tree-sitter-languages
 tree-sitter-c-sharp==0.23.5
     # via tree-sitter-language-pack
 tree-sitter-embedded-template==0.25.0
     # via tree-sitter-language-pack
 tree-sitter-language-pack==0.13.0
+    # via -r requirements/requirements.in
+tree-sitter-languages==1.10.2
     # via -r requirements/requirements.in
 tree-sitter-yaml==0.7.2
     # via tree-sitter-language-pack
@@ -479,6 +482,9 @@ typer==0.20.0
     #   chromadb
 typing-extensions==4.15.0
     # via
+    #   aiohttp
+    #   aiosignal
+    #   anyio
     #   beautifulsoup4
     #   cdp-use
     #   chromadb
@@ -491,6 +497,9 @@ typing-extensions==4.15.0
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
+    #   pytest-asyncio
+    #   referencing
+    #   starlette
     #   textual
     #   typer
     #   typing-inspection
