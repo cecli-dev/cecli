@@ -1037,17 +1037,17 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
             `)}
         </ul>
       </article>
-    `}};customElements.define(`plan-card`,ku);var Au=class extends A{static properties={item:{attribute:!1},agentId:{type:String}};constructor(){super(),this._open_id=null}createRenderRoot(){return this}render(){let e=this.item.parts.filter(Wt),t=this.item.parts.filter(e=>!Wt(e));return O`
+    `}};customElements.define(`plan-card`,ku);var Au=class extends A{static properties={item:{attribute:!1},agentId:{type:String}};constructor(){super(),this._open_ids=new Set}willUpdate(){let e=new Set(this.item.parts.map(e=>e.id));for(let t of this._open_ids)e.has(t)||this._open_ids.delete(t)}createRenderRoot(){return this}render(){let e=this.item.parts.filter(Wt),t=this.item.parts.filter(e=>!Wt(e));return O`
       <div class="msg msg--assistant" data-turn=${this.item.turn}>
         <div class="msg-body">
           ${e.length?O`<div class="assistant-pills">
                 ${Xe(e,e=>e.id,e=>this._render_pill(e))}
               </div>`:k}
-          ${this._render_panel(e.find(e=>e.id===this._open_id))}
+          ${Xe(e.filter(e=>this._open_ids.has(e.id)),e=>`${e.id}-panel`,e=>this._render_panel(e))}
           ${Xe(t,e=>e.id,e=>this._render_part(e))}
         </div>
       </div>
-    `}_render_pill(e){let t=e.id===this._open_id;if(e.type===`thought`)return O`
+    `}_render_pill(e){let t=this._open_ids.has(e.id);if(e.type===`thought`)return O`
         <button
           type="button"
           class="assistant-pill"
@@ -1093,11 +1093,15 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
       </button>
     `}_render_panel(e){if(!e)return k;if(e.type===`thought`)return O`
         <div class="assistant-pill-panel">
+          <div class="pill-panel-head"><span>Thinking</span></div>
           <div class="pill-panel-body thought-panel-text">${e.text}</div>
         </div>
       `;if(e.type===`diff`)return O`
-        <div class="assistant-pill-panel diff-panel">
-          ${Xe(Gt(e.diff),(t,n)=>`${e.id}-${n}`,e=>O`<span class="diff-line ${e.kind}">${e.text||` `}</span>`)}
+        <div class="assistant-pill-panel">
+          <div class="pill-panel-head"><span>Edited ${e.file}</span></div>
+          <div class="diff-panel">
+            ${Xe(Gt(e.diff),(t,n)=>`${e.id}-${n}`,e=>O`<span class="diff-line ${e.kind}">${e.text||` `}</span>`)}
+          </div>
         </div>
       `;let t=Pt(e.content_text),n=(e.locations||[]).filter(e=>e&&e.path);return O`
       <div class="assistant-pill-panel">
@@ -1109,7 +1113,7 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         </div>
         ${t?O`<pre><code>${t}</code></pre>`:O`<p class="pill-panel-empty">No output yet.</p>`}
       </div>
-    `}_toggle(e){let t=this._open_id!==e;this._open_id=t?e:null,this.requestUpdate(),t&&this.dispatchEvent(new CustomEvent(`transcript-layout`,{bubbles:!0,composed:!0}))}_render_part(e){return e.type===`text`?O`<markdown-view
+    `}_toggle(e){let t=!this._open_ids.has(e);t?this._open_ids.add(e):this._open_ids.delete(e),this.requestUpdate(),t&&this.dispatchEvent(new CustomEvent(`transcript-layout`,{bubbles:!0,composed:!0}))}_render_part(e){return e.type===`text`?O`<markdown-view
         .text=${e.text}
         .streaming=${e.streaming}
       ></markdown-view>`:e.type===`plan`?O`<plan-card .part=${e}></plan-card>`:O``}};customElements.define(`assistant-turn`,Au);var ju=class extends A{static properties={item:{attribute:!1}};createRenderRoot(){return this}render(){let e=String(this.item.text||``),t=e.split(`

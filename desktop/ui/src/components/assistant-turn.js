@@ -20,7 +20,15 @@ export class AssistantTurn extends LitElement {
 
   constructor() {
     super();
-    this._open_id = null;
+    this._open_ids = new Set();
+  }
+
+  willUpdate() {
+    const known_ids = new Set(this.item.parts.map((part) => part.id));
+
+    for (const part_id of this._open_ids) {
+      if (!known_ids.has(part_id)) this._open_ids.delete(part_id);
+    }
   }
 
   createRenderRoot() {
@@ -43,7 +51,11 @@ export class AssistantTurn extends LitElement {
                 )}
               </div>`
             : nothing}
-          ${this._render_panel(pills.find((part) => part.id === this._open_id))}
+          ${repeat(
+            pills.filter((part) => this._open_ids.has(part.id)),
+            (part) => `${part.id}-panel`,
+            (part) => this._render_panel(part),
+          )}
           ${repeat(
             content,
             (part) => part.id,
@@ -55,7 +67,7 @@ export class AssistantTurn extends LitElement {
   }
 
   _render_pill(part) {
-    const active = part.id === this._open_id;
+    const active = this._open_ids.has(part.id);
 
     if (part.type === 'thought') {
       return html`
@@ -120,6 +132,7 @@ export class AssistantTurn extends LitElement {
     if (part.type === 'thought') {
       return html`
         <div class="assistant-pill-panel">
+          <div class="pill-panel-head"><span>Thinking</span></div>
           <div class="pill-panel-body thought-panel-text">${part.text}</div>
         </div>
       `;
@@ -127,12 +140,15 @@ export class AssistantTurn extends LitElement {
 
     if (part.type === 'diff') {
       return html`
-        <div class="assistant-pill-panel diff-panel">
-          ${repeat(
-            diff_lines(part.diff),
-            (line, index) => `${part.id}-${index}`,
-            (line) => html`<span class="diff-line ${line.kind}">${line.text || ' '}</span>`,
-          )}
+        <div class="assistant-pill-panel">
+          <div class="pill-panel-head"><span>Edited ${part.file}</span></div>
+          <div class="diff-panel">
+            ${repeat(
+              diff_lines(part.diff),
+              (line, index) => `${part.id}-${index}`,
+              (line) => html`<span class="diff-line ${line.kind}">${line.text || ' '}</span>`,
+            )}
+          </div>
         </div>
       `;
     }
@@ -160,8 +176,14 @@ export class AssistantTurn extends LitElement {
   }
 
   _toggle(part_id) {
-    const opening = this._open_id !== part_id;
-    this._open_id = opening ? part_id : null;
+    const opening = !this._open_ids.has(part_id);
+
+    if (opening) {
+      this._open_ids.add(part_id);
+    } else {
+      this._open_ids.delete(part_id);
+    }
+
     this.requestUpdate();
 
     if (opening) {
