@@ -68,6 +68,16 @@ export async function get_history(bridge_id) {
   return response.json();
 }
 
+/** GET one bridge's persisted prompt history, oldest entry first. */
+export async function get_prompt_history(bridge_id) {
+  const query = bridge_id ? `?bridgeId=${encodeURIComponent(bridge_id)}` : '';
+  const response = await fetch(`/api/prompt-history${query}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`prompt history request failed (${response.status})`);
+  return response.json();
+}
+
 /** GET JSON, surfacing bridge error bodies as thrown messages. */
 export async function get_json(path) {
   let response;

@@ -295,6 +295,29 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("/help", body["suggestions"])
         self.assertEqual(body["descriptions"]["/help"], "Show help")
 
+    def test_prompt_history_is_persisted_and_replayed(self) -> None:
+        self.wait_ready()
+        history_file = self.workspace / ".cecli" / "input.history"
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        history_file.write_text(
+            "\n# 2026-01-01 00:00:00\n+earlier prompt\n" "\n# 2026-01-02 00:00:00\n+multi\n+line\n",
+            encoding="utf-8",
+        )
+
+        status, body = self.request("GET", "/api/prompt-history")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["history"], ["earlier prompt", "multi\nline"])
+
+        status, _ = self.request("POST", "/api/prompt", {"text": "remember me"})
+
+        self.assertEqual(status, 202)
+        status, body = self.request("GET", "/api/prompt-history")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["history"][-1], "remember me")
+        self.assertIn("+remember me", history_file.read_text(encoding="utf-8"))
+
     def test_history_replays_the_conversation_stream(self) -> None:
         self.wait_ready()
 

@@ -16,6 +16,9 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 struct BridgeState(Mutex<Option<Child>>);
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    configure_webkit();
+
     let app = match tauri::Builder::default()
         .setup(|app| {
             let workspace = resolve_workspace();
@@ -58,6 +61,14 @@ fn main() {
             }
         }
     });
+}
+
+/// Force WebKitGTK's software rendering paths, which avoid blank or flickering
+/// windows under some Linux and WSL GPU stacks.
+#[cfg(target_os = "linux")]
+fn configure_webkit() {
+    env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
 }
 
 /// Resolve the workspace from the env override, first non-flag argument, or cwd.

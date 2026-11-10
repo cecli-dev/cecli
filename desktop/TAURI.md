@@ -218,6 +218,17 @@ first run, which takes several minutes and needs network access for crates.
 Later runs are incremental. The first build also fails early if the WebKitGTK
 development package is missing.
 
+`npm run dev` and `npm run build` launch the Tauri CLI through
+`scripts/run_tauri.mjs`. On Node 22.15+, 23.9+, or 24+ the wrapper adds
+`--use-system-ca` to `NODE_OPTIONS`, so the CLI and its `beforeDevCommand` /
+`beforeBuildCommand` children trust the system certificate store.
+
+On Linux the Rust shell sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` before Tauri starts, so direct and packaged
+launches get the same workaround; the dev/build wrapper also sets them under
+WSL. Both avoid blank or flickering WebKit views on common WSL/GPU-driver
+setups.
+
 Point the app at a project and a cecli build with environment variables:
 
 ```bash
@@ -415,10 +426,11 @@ implemented or attempted here.
 - **`ModuleNotFoundError` or a Python stack trace on startup.** The shell picked
   the wrong interpreter. Set `CECLI_PYTHON` to the Python 3.10+ you use for
   cecli, or fix `PATH`.
-- **Blank or flickering WebKit view under WSL.** Try
-  `WEBKIT_DISABLE_COMPOSITING_MODE=1` or `WEBKIT_DISABLE_DMABUF_RENDERER=1` when
-  launching; both are common WSL/GPU-driver workarounds. Confirm WSLg is
-  available (`ls /mnt/wslg`) and that a simple GUI app can open a window.
+- **Blank or flickering WebKit view under WSL.** `npm run dev` already forces
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+  there, so confirm WSLg is available (`ls /mnt/wslg`) and that a simple GUI app
+  can open a window. When launching the binary directly, set both variables
+  yourself.
 - **Icons missing during `npm run build`.** Run `npm run gen:icons` first, or
   point the bundler at a generated icon set.
 - **`npm install` cannot reach the registry.** The build needs the Tauri CLI

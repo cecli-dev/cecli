@@ -440,6 +440,7 @@ required (400 otherwise). Relevant additions:
 | POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
 | POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
 | GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
+| GET | `/api/prompt-history?bridgeId=...` | - | `{history}` composer recall entries, oldest first |
 | POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
 | POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |
 | POST | `/api/subagent/cancel` | `{bridgeId, sessionId}` | 202 |

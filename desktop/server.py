@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import datetime
 import hashlib
 import ipaddress
 import json
@@ -63,6 +64,7 @@ INITIALIZE_TIMEOUT = 20.0
 SESSION_TIMEOUT = 300.0
 SHUTDOWN_TIMEOUT = 5.0
 SYNC_SECONDS = 5.0
+PROMPT_HISTORY_LIMIT = 500
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -1602,6 +1604,16 @@ class DesktopServer:
                 return self._json(err.status, {"ok": False, "error": str(err)})
             return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
 
+        if method == "GET" and path == "/api/prompt-history":
+            bridge = self.sessions.get(self._query_bridge(query))
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "history": _read_prompt_history(bridge.workspace),
+                },
+            )
+
         if method == "GET" and path == "/api/history":
             bridge = self.sessions.get(self._query_bridge(query))
             try:
@@ -2046,6 +2058,8 @@ class DesktopServer:
             result = await bridge.send_subagent_message(session_id, text)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
+
+        _append_prompt_history(bridge.workspace, text.strip())
         return self._json(200, {"ok": True, "result": result})
 
     async def _subagent_cancel(self, body: bytes) -> tuple[int, bytes, str]:
@@ -2115,9 +2129,12 @@ class DesktopServer:
         if not isinstance(text, str) or not text.strip():
             return self._json(400, {"ok": False, "error": "text is required"})
         try:
-            steered = await self.sessions.get_mutation(data.get("bridgeId")).prompt(text)
+            bridge = self.sessions.get_mutation(data.get("bridgeId"))
+            steered = await bridge.prompt(text)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
+
+        _append_prompt_history(bridge.workspace, text.strip())
         return self._json(202, {"ok": True, "steered": steered})
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
@@ -3798,6 +3815,69 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _history_root(workspace: str) -> Path:
+    """The nearest git root for ``workspace``, or the workspace itself."""
+    root = Path(os.path.abspath(os.path.expanduser(workspace)))
+
+    for candidate in (root, *root.parents):
+        if (candidate / ".git").exists():
+            return candidate
+
+    return root
+
+
+def _prompt_history_path(workspace: str) -> Path:
+    """The workspace input history file, matching the CLI default location."""
+    override = os.environ.get("CECLI_DESKTOP_PROMPT_HISTORY")
+    if override:
+        return Path(override).expanduser()
+
+    return _history_root(workspace) / ".cecli" / "input.history"
+
+
+def _read_prompt_history(workspace: str, limit: int = PROMPT_HISTORY_LIMIT) -> list[str]:
+    """Load prompts oldest-first from a prompt_toolkit formatted history file."""
+    path = _prompt_history_path(workspace)
+
+    try:
+        with path.open("rb") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return []
+
+    entries: list[str] = []
+    current: list[str] = []
+
+    for raw in lines:
+        line = raw.decode("utf-8", errors="replace")
+        if line.startswith("+"):
+            current.append(line[1:])
+            continue
+
+        if current:
+            entries.append("".join(current)[:-1])
+            current = []
+
+    if current:
+        entries.append("".join(current)[:-1])
+
+    return entries[-limit:]
+
+
+def _append_prompt_history(workspace: str, text: str) -> None:
+    """Append one prompt to the workspace history, ignoring write failures."""
+    path = _prompt_history_path(workspace)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("ab") as handle:
+            handle.write(f"\n# {datetime.datetime.now()}\n".encode("utf-8"))
+            for line in text.split("\n"):
+                handle.write(f"+{line}\n".encode("utf-8"))
+    except OSError:
+        pass
 
 
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:

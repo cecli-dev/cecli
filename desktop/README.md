@@ -69,6 +69,10 @@ root); set
 `CECLI_DESKTOP_WORKSPACE` to choose a project, and `CECLI_DESKTOP_CECLI` to
 pick a specific cecli executable.
 
+On Node 22.15+, 23.9+, or 24+, the dev and build scripts run Node with the
+system certificate store. On Linux the app also forces the WebKit rendering
+workarounds described in [TAURI.md](TAURI.md).
+
 ## What the UI gives you
 
 - Streaming assistant text and collapsible reasoning, rendered as safe markdown.

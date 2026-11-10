@@ -5,9 +5,9 @@
   "description": "Tauri v2 shell for the cecli desktop bridge and UI",
   "type": "module",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build",
+    "tauri": "node scripts/run_tauri.mjs",
+    "dev": "node scripts/run_tauri.mjs dev",
+    "build": "node scripts/run_tauri.mjs build",
     "ui:dev": "vite --config ui/vite.config.js",
     "ui:build": "vite build --config ui/vite.config.js",
     "ui:watch": "vite build --config ui/vite.config.js --watch",
