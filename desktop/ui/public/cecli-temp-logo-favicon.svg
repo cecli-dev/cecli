@@ -13,7 +13,7 @@
     <style>
         .icon-text {
             font-family: 'Segoe UI', Tahoma, sans-serif;
-            font-size: 20px;
+            font-size: 24px;
             font-weight: bold;
             fill: url(#textGradient);
         }
@@ -28,8 +28,8 @@
     <text x="24" y="24"
         class="icon-text"
         text-anchor="middle"
-        dominant-baseline="central"
+        dominant-baseline="middle"
     >
-        CE_
+        ce_
     </text>
 </svg>
