@@ -424,6 +424,8 @@ class AcpAgent:
             return {"ok": True, "steered": False}
 
         coder = self._require_coder()
+        _log_user_input(coder, text)
+
         if paths:
             _add_mentions(coder, paths)
 
@@ -879,6 +881,8 @@ class AcpAgent:
         info = service.sub_agents.get(subagent.agent_uuid)
         if info is None:
             raise AcpError(INVALID_PARAMS, "the sub-agent is no longer tracked")
+
+        _log_user_input(info.coder, text)
 
         if subagent.running:
             from cecli.helpers.conversation.service import ConversationService
@@ -1888,6 +1892,14 @@ def _require_cwd(params: dict) -> str:
 
 def _new_session_id() -> str:
     return uuid.uuid4().hex
+
+
+def _log_user_input(coder: Any, text: str) -> None:
+    """Record a client prompt in the same chat history the TUI writes."""
+    user_input = getattr(getattr(coder, "io", None), "user_input", None)
+
+    if callable(user_input):
+        user_input(text)
 
 
 def _add_mentions(coder: Any, paths: list[str]) -> None:

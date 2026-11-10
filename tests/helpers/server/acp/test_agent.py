@@ -285,7 +285,13 @@ class StubCoder:
         self.root = str(root)
         self.abs_fnames = set()
         self.abs_read_only_fnames = set()
-        self.io = SimpleNamespace(output_task=None, yes=None, tool_output=lambda *a, **k: None)
+        self.user_inputs = []
+        self.io = SimpleNamespace(
+            output_task=None,
+            yes=None,
+            tool_output=lambda *a, **k: None,
+            user_input=self.user_inputs.append,
+        )
         self.interrupt_event = threading.Event()
         self.main_model = model or StubModel("gpt-x")
         self.agent_model = None
@@ -455,6 +461,7 @@ async def test_steer_injects_into_the_running_turn(tmp_path, monkeypatch):
 
     assert transport.results()[7]["result"] == {"ok": True, "steered": True}
     assert queued[0]["message_dict"]["content"] == "wrapped:more"
+    assert coder.user_inputs == ["more"]
     steer_updates = [
         update for update in transport.updates() if update.get("sessionUpdate") == "session_message"
     ]
