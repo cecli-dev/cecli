@@ -296,7 +296,7 @@ async def test_scrolled_render_uses_absolute_virtual_lines():
         for i in range(40):
             log.write(f"{i:02d}-line")
         await pilot.pause()
-
+        await pilot.pause()
         log.scroll_to(y=5, animate=False, immediate=True)
         await pilot.pause()
 
