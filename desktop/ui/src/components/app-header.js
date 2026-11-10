@@ -19,6 +19,15 @@ const PANE_ICONS = {
   </svg>`,
 };
 
+const BRAND_PHRASES = [
+  "control everything _",
+  "compete everywhere _",
+  "create everyday _",
+  "continue evolving _"
+];
+
+const BRAND_PHRASE = BRAND_PHRASES[Math.floor(Math.random() * BRAND_PHRASES.length)];
+
 export class AppHeader extends LitElement {
   static properties = {
     chatCollapsed: { type: Boolean },
@@ -45,7 +54,7 @@ export class AppHeader extends LitElement {
       <header class="topbar">
         <div class="brand">
           <img class="brand-mark" src=${logo_url} alt="" aria-hidden="true" />
-          <span class="brand-name">control everything _</span>
+          <span class="brand-context">${BRAND_PHRASE}</span>
         </div>
         ${location
           ? html`<span class="brand-context" title=${location}>• ${location}</span>`

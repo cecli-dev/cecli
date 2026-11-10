@@ -1,10 +1,12 @@
 import { LitElement, html } from 'lit';
 
-const BRAND_ART = ` ▒▒▒▒▒╗ ▒▒▒▒▒╗
+const BRAND_ART = `
+ ▒▒▒▒▒╗ ▒▒▒▒▒╗
 ▒▒╔═══╝▒▒▓▓▓▒║
 ▒▒║    ▒▒╔═══╝
 ╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒▒▒▒╗
- ╚════╝ ╚════╝╚════╝`;
+ ╚════╝ ╚════╝╚════╝
+`.replace(/^\n|\n[ \t]*$/g, '');;
 
 export class BrandLogo extends LitElement {
   createRenderRoot() {
