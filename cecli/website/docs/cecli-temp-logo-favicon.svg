@@ -9,29 +9,27 @@
             <stop offset="100%" stop-color="#FFFFFF" />
         </linearGradient>
     </defs>
-  
+
     <style>
         .icon-text {
             font-family: 'Segoe UI', Tahoma, sans-serif;
-            font-size: 20px; /* Adjusted for square fit */
+            font-size: 24px;
             font-weight: bold;
             fill: url(#textGradient);
         }
         .icon-bg {
-            fill: #222; /* Dark background to make neon colors pop */
-            rx: 8;      /* Rounded corners */
+            fill: #222;
+            rx: 8;
         }
     </style>
 
-    <!-- 1. The Square Background -->
     <rect width="48" height="48" class="icon-bg" />
 
-    <!-- 2. The Centered Text -->
-    <text x="24" y="24" 
-        class="icon-text" 
-        text-anchor="middle" 
-        dominant-baseline="central"
+    <text x="24" y="24"
+        class="icon-text"
+        text-anchor="middle"
+        dominant-baseline="middle"
     >
-        CE_
+        ce_
     </text>
 </svg>
