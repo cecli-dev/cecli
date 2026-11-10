@@ -55,7 +55,7 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
       <header class="topbar">
         <div class="brand">
           <img class="brand-mark" src=${`/static/cecli-temp-logo-favicon.svg`} alt="" aria-hidden="true" />
-          <span class="brand-name">cecli</span>
+          <span class="brand-name">control everything _</span>
         </div>
         ${e?O`<span class="brand-context" title=${e}>• ${e}</span>`:``}
 
@@ -1123,12 +1123,11 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         </summary>
         <div class="context-message-body">${e}</div>
       </details>
-    `}};customElements.define(`context-message`,ju);var Mu=`                     ▒▒╗▒▒╗
- ▒▒▒▒▒╗ ▒▒▒▒▒╗ ▒▒▒▒▒╗▒▒║╚═╝
-▒▒╔═══╝▒▒▓▓▓▒║▒▒╔═══╝▒▒║▒▒╗
-▒▒║    ▒▒╔═══╝▒▒║    ▒▒║▒▒║
-╚▒▒▒▒▒╗╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒║▒▒║
- ╚════╝ ╚════╝ ╚════╝╚═╝╚═╝`,Nu=class extends A{createRenderRoot(){return this}render(){return O`<pre class="cecli-logo" role="img" aria-label="cecli">${Mu}</pre>`}};customElements.define(`brand-logo`,Nu);var Pu=[{prompt:`Explain the structure of this repository and where I should start reading.`,title:`Explain this repo`},{prompt:`Find a likely bug in the current changes and explain how to fix it.`,title:`Find a bug`},{prompt:`Run the test suite and summarise any failures with likely causes.`,title:`Run the tests`}],Fu=class extends A{createRenderRoot(){return this}render(){return O`
+    `}};customElements.define(`context-message`,ju);var Mu=` ▒▒▒▒▒╗ ▒▒▒▒▒╗
+▒▒╔═══╝▒▒▓▓▓▒║
+▒▒║    ▒▒╔═══╝
+╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒▒▒▒╗
+ ╚════╝ ╚════╝╚════╝`,Nu=class extends A{createRenderRoot(){return this}render(){return O`<pre class="cecli-logo" role="img" aria-label="ce_">${Mu}</pre>`}};customElements.define(`brand-logo`,Nu);var Pu=[{prompt:`Explain the structure of this repository and where I should start reading.`,title:`Explain this repo`},{prompt:`Find a likely bug in the current changes and explain how to fix it.`,title:`Find a bug`},{prompt:`Run the test suite and summarise any failures with likely causes.`,title:`Run the tests`}],Fu=class extends A{createRenderRoot(){return this}render(){return O`
       <section class="empty-state">
         <brand-logo></brand-logo>
         <h1>What do you need help with?</h1>

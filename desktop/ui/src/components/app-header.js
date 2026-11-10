@@ -45,7 +45,7 @@ export class AppHeader extends LitElement {
       <header class="topbar">
         <div class="brand">
           <img class="brand-mark" src=${logo_url} alt="" aria-hidden="true" />
-          <span class="brand-name">cecli</span>
+          <span class="brand-name">control everything _</span>
         </div>
         ${location
           ? html`<span class="brand-context" title=${location}>• ${location}</span>`
