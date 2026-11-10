@@ -1166,10 +1166,13 @@ class AgentCoder(Coder):
         # If a model forgets a tool call, replay the request instead of stopping early
         if self.tool_call_vectors:
             if content and not tool_calls_found and self.num_reflections < self.max_reflections:
-                self.reflected_message = (
-                    "Continue with your task. If you have completed it, call the `Yield` tool."
-                )
-                return True
+                # A text-only response with every todo item checked off is a
+                # conclusion, so let the turn end instead of prompting for more work.
+                if not self._todo_list_is_complete():
+                    self.reflected_message = (
+                        "Continue with your task. If you have completed it, call the `Yield` tool."
+                    )
+                    return True
 
         if tool_calls_found and self.num_reflections < self.max_reflections:
             self.tool_call_count = 0
@@ -2188,6 +2191,24 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             self.context_blocks_cache = {}
             self.tokens_calculated = False
         return True
+
+    def _todo_list_is_complete(self):
+        """Return True when a todo list exists and has no unfinished tasks."""
+        try:
+            todo_path = self.abs_root_path(self.local_agent_folder("todo.txt"))
+
+            if not os.path.isfile(todo_path):
+                return False
+
+            content = self.io.read_text(todo_path) or ""
+        except Exception:
+            return False
+
+        task_lines = [line.strip() for line in content.splitlines() if line.strip()]
+        has_tasks = any(line.startswith(("✓ ", "○ ", "→ ")) for line in task_lines)
+        has_remaining = any(line.startswith(("○ ", "→ ")) for line in task_lines)
+
+        return has_tasks and not has_remaining
 
     async def _reap_finished_sub_agents(self):
         """Reap finished sub-agents that have ``auto_reap`` enabled."""
