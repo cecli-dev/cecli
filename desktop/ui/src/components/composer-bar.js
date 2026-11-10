@@ -19,6 +19,7 @@ export class ComposerBar extends LitElement {
     this._completion_index = 0;
     this._completion_start = 0;
     this._completion_seq = 0;
+    this._completion_scroll_key = null;
     this._completion_timer = null;
     this._prompt_history = [];
     this._history_index = null;
@@ -42,6 +43,7 @@ export class ComposerBar extends LitElement {
   }
 
   updated() {
+    this._scroll_active_completion();
     const state = this._store.state;
     this._sync_prompt_history(state.bridge_id);
     if (state.draft_revision === this._applied_revision) return;
@@ -151,7 +153,7 @@ export class ComposerBar extends LitElement {
         return;
       }
 
-      if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey && !event.isComposing) {
+      if ((event.key === 'Tab' || event.key === 'ArrowRight') && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         this._accept_completion();
         return;
@@ -337,6 +339,24 @@ export class ComposerBar extends LitElement {
     this._completion_descriptions = {};
     this._completion_index = 0;
     this.requestUpdate();
+  }
+
+  _scroll_active_completion() {
+    const list = this.querySelector('.completion-list');
+    const active = this.querySelector('.completion-item[data-active="true"]');
+    if (!list || !active) return;
+
+    const scroll_key = `${this._completion_seq}:${this._completion_index}`;
+    if (scroll_key === this._completion_scroll_key) return;
+
+    this._completion_scroll_key = scroll_key;
+    const list_rect = list.getBoundingClientRect();
+    const active_rect = active.getBoundingClientRect();
+    if (active_rect.top < list_rect.top) {
+      list.scrollTop += active_rect.top - list_rect.top;
+    } else if (active_rect.bottom > list_rect.bottom) {
+      list.scrollTop += active_rect.bottom - list_rect.bottom;
+    }
   }
 
   _sync_prompt_history(bridge_id) {

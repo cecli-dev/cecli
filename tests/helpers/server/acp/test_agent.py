@@ -1138,3 +1138,24 @@ async def test_get_input_logs_prompt_while_confirmation_is_pending(tmp_path):
 
     assert await io.get_input(None, None, None, None) == "first prompt"
     assert "#### first prompt" in history.read_text(encoding="utf-8")
+
+
+def test_path_completions_preserve_ranked_order():
+    from cecli.helpers.server.acp.agent.agent import _complete
+
+    class RankedFs:
+        trie = False
+
+        def search(self, prefix, threshold):
+            return ["src/zero.py", "src/zebra.py"]
+
+    coder = SimpleNamespace(
+        fs=RankedFs(),
+        root="/repo",
+        commands=None,
+        get_inchat_relative_files=lambda: [],
+    )
+
+    result = _complete(coder, "@ze")
+
+    assert result["suggestions"] == ["src/zero.py", "src/zebra.py"]

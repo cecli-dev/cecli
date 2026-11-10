@@ -212,7 +212,8 @@ report the truth.
   reasoning-effort selector. Mode changes are refused by the bridge, and effort
   stays under the agent's control (`/reasoning-effort` still works).
 - The composer offers bridge completion candidates for `/` commands, command
-  arguments, `@` mentions and paths; Arrow keys move, Tab/Enter accept, Esc closes.
+  arguments, `@` mentions and paths; Up/Down move, Tab/Right accept, Esc closes,
+  and Enter still sends the prompt.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards

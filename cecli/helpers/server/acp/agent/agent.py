@@ -1851,7 +1851,7 @@ def _path_completions(coder: Any, prefix: str) -> list[str]:
             if not matches:
                 matches = fs.search(prefix, threshold=0.1)
             if matches:
-                return sorted(matches)
+                return matches
     except Exception:
         pass
 
