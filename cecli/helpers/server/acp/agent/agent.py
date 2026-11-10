@@ -35,6 +35,17 @@ from cecli.helpers.server.acp.agent.transport import (
     result_message,
 )
 from cecli.helpers.server.acp.agent.updates import CONSOLE_FENCE, UpdateEmitter
+from cecli.helpers.server.acp.events import (
+    SCOPE_CONTEXT,
+    SCOPE_HOOKS,
+    SCOPE_MCP,
+    SCOPE_SKILLS,
+    SCOPE_WORKFLOWS,
+    STATE_IDLE,
+    STATE_REQUIRES_ACTION,
+    STATE_RUNNING,
+    state_update,
+)
 
 PROTOCOL_VERSION = 1
 
@@ -560,6 +571,7 @@ class AcpAgent:
         except Exception as err:
             raise AcpError(INTERNAL_ERROR, str(err)) from err
 
+        self._emit_state(scope=SCOPE_SKILLS)
         return {"result": result, "skills": self._skills_state(coder)}
 
     def _on_cecli_hook(self, params: dict, request_id: Any) -> dict:
@@ -596,6 +608,7 @@ class AcpAgent:
         except Exception as err:
             raise AcpError(INTERNAL_ERROR, str(err)) from err
 
+        self._emit_state(scope=SCOPE_HOOKS)
         return {"result": bool(changed), "hooks": self._hooks_state(coder)}
 
     def _on_cecli_mcp(self, params: dict, request_id: Any) -> Any:
@@ -623,6 +636,7 @@ class AcpAgent:
             payload: dict[str, Any] = {"mcpServers": self._mcp_state(coder)}
             if error:
                 payload["error"] = error
+            self._emit_state(scope=SCOPE_MCP)
             self.transport.send(result_message(request_id, payload))
 
         asyncio.run_coroutine_threadsafe(run(), self._loop)
@@ -656,6 +670,7 @@ class AcpAgent:
                 }
             except Exception as err:
                 payload = {"error": str(err), "workflows": self._workflow_state(coder)}
+            self._emit_state(scope=SCOPE_WORKFLOWS)
             self.transport.send(result_message(request_id, payload))
 
         asyncio.run_coroutine_threadsafe(run(), self._loop)
@@ -680,6 +695,7 @@ class AcpAgent:
             coder.abs_fnames.discard(absolute)
             coder.abs_read_only_fnames.discard(absolute)
 
+        self._emit_state(scope=SCOPE_CONTEXT)
         return {"contextFiles": self._context_state(coder)}
 
     def _on_cecli_complete(self, params: dict, request_id: Any) -> dict:
@@ -938,6 +954,8 @@ class AcpAgent:
         self.turn = turn
         if turn.paths and coder is not None:
             _add_mentions(coder, turn.paths)
+        if turn.request_id is not None:
+            self._emit_state(state=STATE_RUNNING)
         return turn.text
 
     async def _sync_mcp(self, coder: Any) -> None:
@@ -955,8 +973,9 @@ class AcpAgent:
     def _finish_turn(self) -> None:
         turn = self.turn
         if turn is not None and turn.request_id is not None:
-            # Flush while the turn is still current so the updates go out
             self.emitter.finish_turn(cancelled=turn.cancelled)
+            stop_reason = "cancelled" if turn.cancelled else "end_turn"
+            self._emit_state(state=STATE_IDLE, stop_reason=stop_reason)
             self._sync_config()
         else:
             self.emitter.reset()
@@ -981,9 +1000,10 @@ class AcpAgent:
     # ── Outbound ────────────────────────────────────────────────
 
     def _send_turn_update(self, update: dict) -> None:
-        if self.in_prompt():
+        kind = update.get("sessionUpdate")
+        if self.in_prompt() or kind == "state_update":
             self.send_update(update)
-        elif update.get("sessionUpdate") == "agent_message_chunk":
+        elif kind == "agent_message_chunk":
             # Output outside a prompt (startup, internal commands) is only logged,
             # so startup failures still explain themselves in the client's logs
             text = update["content"]["text"].replace(CONSOLE_FENCE + "\n", "")
@@ -998,6 +1018,17 @@ class AcpAgent:
                 "params": {"sessionId": session_id or self.session_id, "update": update},
             }
         )
+
+    def _emit_state(
+        self,
+        state: str | None = None,
+        scope: str | None = None,
+        stop_reason: str | None = None,
+    ) -> None:
+        """Push the session activity, plus the changed detail scope when there is one."""
+        if state is None:
+            state = STATE_RUNNING if self.in_prompt() else STATE_IDLE
+        self.emitter.emit(state_update(state, stop_reason=stop_reason, scope=scope))
 
     def _current_options(self) -> list[dict]:
         """The config options as they now stand, remembered as what the client has."""
@@ -1158,6 +1189,7 @@ class AcpAgent:
             return None
         else:
             emitter, session_id = self.emitter, self.session_id
+            self._emit_state(state=STATE_REQUIRES_ACTION)
 
         tool_call_id, synthetic = emitter.permission_target(question, subject)
         result = await self.request(
@@ -1170,6 +1202,8 @@ class AcpAgent:
         )
         if subagent is not None and subagent.running and not subagent.cancelled:
             self._send_subagent_state(subagent, {"state": "running"})
+        elif subagent is None and self.in_prompt() and not self.turn.cancelled:
+            self._emit_state(state=STATE_RUNNING)
         outcome = (result or {}).get("outcome") or {}
         choice = outcome.get("optionId") if outcome.get("outcome") == "selected" else None
 

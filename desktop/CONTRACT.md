@@ -70,7 +70,9 @@ Notifications: `session/update` with `{"sessionId", "update": {...}}`. Update ki
 - `usage_update` `{used, size, cost?: {amount, currency}}`
 - `config_option_update` `{configOptions}`
 - `current_mode_update` `{currentModeId}`
-- `state_update` `{state, stopReason?}` where state is `running` | `idle` | `requires_action`
+- `state_update` `{state, stopReason?, scope?}` where state is `running` | `idle` |
+  `requires_action`; `scope` names the cached detail that changed (`skills`, `hooks`,
+  `mcp`, `workflows`, `context`), so the client can refresh it without polling
 - others (`session_message`, `subagent_update`, ...) must be ignored gracefully.
 
 Tool `content` entries look like `{"type": "content", "content": {"type": "text", "text": "```\n...\n```"}}`.

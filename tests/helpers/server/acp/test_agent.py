@@ -124,6 +124,14 @@ def test_model_text_settles_running_tools():
     } in updates
 
 
+def test_emit_sends_a_prebuilt_event():
+    emitter, updates = make_emitter()
+    emitter.emit({"sessionUpdate": "state_update", "state": "idle", "scope": "mcp"})
+    emitter.emit({})
+
+    assert updates == [{"sessionUpdate": "state_update", "state": "idle", "scope": "mcp"}]
+
+
 def test_finish_turn_fails_open_tools_when_cancelled():
     emitter, updates = make_emitter()
     emitter.tool_event("t1", "pending", name="Command", arguments="{}")
@@ -367,8 +375,51 @@ async def test_turn_lifecycle(tmp_path):
     # The turn's updates all precede its response
     kinds = [m.get("method") or m.get("id") for m in transport.sent]
     assert kinds[-2:] == ["session/update", 4]
-    assert transport.updates()[-1]["content"]["text"] == "Hi there."
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn",
+    }
+    assert texts(transport.updates(), "agent_message_chunk") == "Hi there."
     waiting.cancel()
+
+
+async def test_state_updates_bracket_a_turn(tmp_path):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "running",
+    }
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn",
+    }
+    waiting.cancel()
+
+
+async def test_state_scope_pushes_after_context_change(tmp_path):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    agent._coder_ref = lambda: coder
+
+    result = agent._on_cecli_context({"action": "add", "path": "a.py"}, 7)
+
+    assert result["contextFiles"][0]["path"] == "a.py"
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "scope": "context",
+    }
 
 
 async def test_steer_injects_into_the_running_turn(tmp_path, monkeypatch):

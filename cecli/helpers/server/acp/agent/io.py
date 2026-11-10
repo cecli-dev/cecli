@@ -181,6 +181,9 @@ class AcpInputOutput(InputOutput):
             console.print(*messages, markup=False, soft_wrap=True)
         self.agent.emitter_for(kwargs.get("coder_uuid")).block(strip_ansi(capture.get()))
 
+    def emit(self, event, coder_uuid=None, **kwargs):
+        self.agent.emitter_for(coder_uuid).emit(event)
+
     def tool_call_event(self, tool_call_id, status, coder_uuid=None, **kwargs):
         self.agent.emitter_for(coder_uuid).tool_event(tool_call_id, status, **kwargs)
 

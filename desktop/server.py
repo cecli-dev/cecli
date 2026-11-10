@@ -46,6 +46,10 @@ except ImportError:  # pragma: no cover - the server also runs as a script
 MAX_BODY = 1024 * 1024
 DIRECTORY_LIMIT = 50
 SSE_QUEUE_SIZE = 512
+
+# State scopes whose payload lives in the details snapshot (kept in sync with
+# ``cecli.helpers.server.acp.events.DETAIL_SCOPES``)
+DETAIL_SCOPES = frozenset({"skills", "hooks", "mcp", "workflows", "context"})
 MAX_LINE_BYTES = 32 * 1024 * 1024
 STREAM_LIMIT = 10 * 1024 * 1024
 HEARTBEAT_SECONDS = 15.0
@@ -711,6 +715,8 @@ class AcpBridge:
                 self.activity = str(state)
                 if state == "idle":
                     self.activity_detail = ""
+            if update.get("scope") in DETAIL_SCOPES:
+                self._schedule_details_refresh()
         elif kind == "subagent_update":
             self._track_subagent(params.get("sessionId"), update)
             await self._broadcast(self._subagents_event())

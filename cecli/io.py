@@ -1601,6 +1601,16 @@ class InputOutput:
 
         self.stream_print(*messages, style=style, **kwargs)
 
+    def emit(self, event, **kwargs):
+        """Structured GUI event, for front ends that render richer state than text.
+
+        ``event`` is an ACP-style ``session/update`` payload (see
+        ``cecli.helpers.server.acp.events``). Terminal output already renders
+        the same information as text, so this is a no-op here; the ACP adapter
+        forwards events to its client.
+        """
+        pass
+
     def tool_call_event(self, tool_call_id, status, **kwargs):
         """Structured tool call progress, for front ends that render tool calls natively.
 

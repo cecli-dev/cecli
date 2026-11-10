@@ -131,6 +131,12 @@ class IOProxy(Generic[T]):
             kwargs["coder_uuid"] = self._coder_uuid
         return self._target.assistant_output(message=message, pretty=pretty, **kwargs)
 
+    def emit(self, event: dict, **kwargs: Any) -> Any:
+        """Forward a structured GUI event with coder_uuid injected."""
+        if "coder_uuid" not in kwargs:
+            kwargs["coder_uuid"] = self._coder_uuid
+        return self._target.emit(event, **kwargs)
+
     def tool_call_event(self, tool_call_id: str, status: str, **kwargs: Any) -> Any:
         """Forward tool_call_event with coder_uuid injected."""
         if "coder_uuid" not in kwargs:
