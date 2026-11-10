@@ -34,7 +34,7 @@ class Tool(BaseTool):
                     "add": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of file paths to add to context.",
+                        "description": "List of file paths to add to context/view imge files.",
                     },
                     "read_only": {
                         "type": "array",
