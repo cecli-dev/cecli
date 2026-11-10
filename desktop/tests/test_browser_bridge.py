@@ -9,6 +9,7 @@ browser. Pure helpers and the JSON routes are checked directly.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import struct
@@ -29,11 +30,15 @@ from browser_bridge import (  # noqa: E402
     BrowserBridge,
     BrowserError,
     _CdpSession,
+    _ime_params,
+    _int_value,
     _key_params,
     _launch_args,
     _modifier_bits,
     _mouse_params,
+    _normalize_upload_files,
     _resolve_window_mode,
+    _safe_filename,
     _wheel_params,
     _window_flags,
     find_browser,
@@ -503,6 +508,28 @@ class TabTests(unittest.IsolatedAsyncioTestCase):
         event = queue.get_nowait()
         self.assertEqual(event["state"]["scroll"]["maxY"], 300)
 
+    async def test_publish_event_evicts_oldest_when_queue_full(self) -> None:
+        bridge = BrowserBridge()
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=1)
+        bridge._subscribers.add(queue)
+        queue.put_nowait({"type": "stale"})
+
+        bridge._publish_event({"type": "dialog"})
+
+        self.assertEqual(queue.get_nowait(), {"type": "dialog"})
+        self.assertTrue(queue.empty())
+
+    async def test_start_idle_poll_schedules_and_seeds_clock(self) -> None:
+        bridge = BrowserBridge()
+        bridge._browser_running = lambda: False
+
+        bridge._start_idle_poll()
+
+        self.assertIsNotNone(bridge._idle_task)
+        self.assertGreater(bridge._last_input_at, 0.0)
+        bridge._idle_task.cancel()
+        await asyncio.gather(bridge._idle_task, return_exceptions=True)
+
 
 class CdpSessionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -580,6 +607,30 @@ class StubBrowser:
 
     async def close_tab(self, tab_id: str) -> dict[str, Any]:
         self.calls.append(("tab/close", tab_id))
+        return self.snapshot()
+
+    async def handle_dialog(self, accept: bool = True, prompt_text: str = "") -> dict[str, Any]:
+        self.calls.append(("dialog", (accept, prompt_text)))
+        return self.snapshot()
+
+    async def upload_files(self, files: Any) -> dict[str, Any]:
+        self.calls.append(("files", files))
+        return self.snapshot()
+
+    async def cancel_file_chooser(self) -> dict[str, Any]:
+        self.calls.append(("files/cancel", None))
+        return self.snapshot()
+
+    async def open_download(self, download_id: str) -> dict[str, Any]:
+        self.calls.append(("download", download_id))
+        return self.snapshot()
+
+    async def open_external(self, url: str | None = None) -> dict[str, Any]:
+        self.calls.append(("external", url))
+        return {"url": url or "https://example.com/"}
+
+    async def drop_files(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append(("drop", payload))
         return self.snapshot()
 
     async def set_viewport(self, width: int, height: int, dpr: float = 1.0) -> None:
@@ -689,6 +740,48 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(status, 202)
         self.assertEqual(self.browser.calls[-1], ("tab/close", "abc"))
 
+    def test_dialog_and_file_chooser_routes(self) -> None:
+        status, body, _ = self.route("POST", "/api/browser/dialog", {"accept": "yes"})
+        self.assertEqual(status, 400)
+        self.assertFalse(body["ok"])
+
+        status, _, _ = self.route(
+            "POST", "/api/browser/dialog", {"accept": True, "promptText": "hi"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.browser.calls[-1], ("dialog", (True, "hi")))
+
+        status, body, _ = self.route("POST", "/api/browser/file-chooser", {})
+        self.assertEqual(status, 400)
+
+        files = [{"name": "a.txt", "data": "aGk="}]
+        status, _, _ = self.route("POST", "/api/browser/file-chooser", {"files": files})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.browser.calls[-1], ("files", files))
+
+        status, _, _ = self.route("POST", "/api/browser/file-chooser", {"cancel": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.browser.calls[-1], ("files/cancel", None))
+
+    def test_download_external_and_drop_routes(self) -> None:
+        status, body, _ = self.route("POST", "/api/browser/download", {"action": "open"})
+        self.assertEqual(status, 400)
+        self.assertFalse(body["ok"])
+
+        status, _, _ = self.route("POST", "/api/browser/download", {"action": "open", "id": "g1"})
+        self.assertEqual(status, 202)
+        self.assertEqual(self.browser.calls[-1], ("download", "g1"))
+
+        status, body, _ = self.route("POST", "/api/browser/external", {"url": "example.com"})
+        self.assertEqual(status, 202)
+        self.assertEqual(body["url"], "example.com")
+        self.assertEqual(self.browser.calls[-1], ("external", "example.com"))
+
+        payload = {"x": 4, "y": 8, "text": "hello"}
+        status, _, _ = self.route("POST", "/api/browser/drop", payload)
+        self.assertEqual(status, 202)
+        self.assertEqual(self.browser.calls[-1], ("drop", payload))
+
     def test_background_list_and_output(self) -> None:
         status, body, _ = self.route("POST", "/api/background", {"action": "list"})
         self.assertEqual(status, 200)
@@ -701,6 +794,172 @@ class RouteTests(unittest.TestCase):
 
         status, _, _ = self.route("POST", "/api/background", {"action": "output"})
         self.assertEqual(status, 400)
+
+
+class ExtendedInputTests(unittest.TestCase):
+    def test_ime_composition_and_commit(self) -> None:
+        params, method = _ime_params({"type": "composition", "text": "ni"})
+        self.assertEqual(method, "Input.imeSetComposition")
+        self.assertEqual(params["text"], "ni")
+        self.assertEqual(params["selectionStart"], 2)
+
+        params, method = _ime_params({"type": "commit", "text": "ninhon"})
+        self.assertEqual(method, "Input.insertText")
+        self.assertEqual(params["text"], "ninhon")
+
+        with self.assertRaises(BrowserError):
+            _ime_params({"type": "bogus", "text": "x"})
+
+    def test_upload_normalization_strips_paths_and_validates(self) -> None:
+        files = _normalize_upload_files(
+            [{"name": "../secret.txt", "type": "text/plain", "data": "aGk="}]
+        )
+        self.assertEqual(files[0]["name"], "secret.txt")
+        self.assertEqual(files[0]["data"], "aGk=")
+        self.assertEqual(files[0]["type"], "text/plain")
+
+        with self.assertRaises(BrowserError):
+            _normalize_upload_files("not-a-list")
+        with self.assertRaises(BrowserError):
+            _normalize_upload_files([{"name": "a", "data": "!!!"}])
+        with self.assertRaises(BrowserError):
+            _normalize_upload_files([{"name": "a"}])
+
+    def test_safe_filename_and_int_value(self) -> None:
+        self.assertEqual(_safe_filename("..\\evil/../../x?.txt", 0), "x_.txt")
+        self.assertEqual(_safe_filename("", 2), "file-3")
+        self.assertEqual(_int_value("-3"), 0)
+        self.assertEqual(_int_value("4.8"), 4)
+
+
+class BrowserEventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dialog_events_publish_and_clear(self) -> None:
+        bridge = BrowserBridge()
+        queue = bridge.subscribe()
+
+        bridge._on_dialog_opening(
+            {
+                "url": "https://example.com/",
+                "message": "Continue?",
+                "type": "confirm",
+                "hasBrowserHandler": True,
+            }
+        )
+        event = queue.get_nowait()
+        self.assertEqual(event["type"], "dialog")
+        self.assertEqual(event["dialog"]["type"], "confirm")
+        self.assertEqual(bridge.snapshot()["dialog"]["message"], "Continue?")
+
+        bridge._on_dialog_closed({"result": False})
+        events = [queue.get_nowait(), queue.get_nowait()]
+        self.assertIn("dialog", [item["type"] for item in events])
+        self.assertIsNone(bridge.snapshot()["dialog"])
+
+    async def test_download_progress_tracks_one_record(self) -> None:
+        bridge = BrowserBridge()
+        bridge._on_download_begin(
+            {"guid": "g1", "url": "https://x/file.zip", "suggestedFilename": "file.zip"}
+        )
+        bridge._on_download_progress(
+            {"guid": "g1", "receivedBytes": 5, "totalBytes": 10, "state": "inProgress"}
+        )
+        bridge._on_download_progress(
+            {
+                "guid": "g1",
+                "receivedBytes": 10,
+                "totalBytes": 10,
+                "state": "completed",
+                "filePath": "/tmp/file.zip",
+            }
+        )
+        self.assertEqual(len(bridge._downloads), 1)
+        record = bridge._downloads[0]
+        self.assertEqual(record["state"], "completed")
+        self.assertEqual(record["path"], "/tmp/file.zip")
+        self.assertEqual(bridge.snapshot()["downloads"][0]["filename"], "file.zip")
+
+    async def test_bindings_publish_cursor_and_clipboard(self) -> None:
+        bridge = BrowserBridge()
+        queue = bridge.subscribe()
+
+        bridge._on_binding_called({"name": "cecliCursor", "payload": "pointer"})
+        self.assertEqual(queue.get_nowait(), {"type": "cursor", "cursor": "pointer"})
+
+        bridge._on_binding_called(
+            {"name": "cecliClipboard", "payload": json.dumps({"action": "copy", "text": "hi"})}
+        )
+        self.assertEqual(queue.get_nowait(), {"type": "clipboard", "action": "copy", "text": "hi"})
+
+
+class TabOrderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refresh_tabs_keeps_insertion_order(self) -> None:
+        bridge = BrowserBridge()
+
+        def page(tab_id: str) -> dict[str, Any]:
+            return {
+                "id": tab_id,
+                "type": "page",
+                "title": tab_id.upper(),
+                "url": f"https://{tab_id}.example/",
+                "webSocketDebuggerUrl": f"ws://x/{tab_id}",
+            }
+
+        bridge._list_pages = mock.AsyncMock(
+            side_effect=[
+                [page("a"), page("b"), page("c")],
+                [page("c"), page("b"), page("a")],
+                [page("c"), page("b"), page("a"), page("d")],
+            ]
+        )
+
+        first = await bridge._refresh_tabs()
+        self.assertEqual([tab["id"] for tab in first], ["a", "b", "c"])
+        second = await bridge._refresh_tabs()
+        self.assertEqual([tab["id"] for tab in second], ["a", "b", "c"])
+        third = await bridge._refresh_tabs()
+        self.assertEqual([tab["id"] for tab in third], ["a", "b", "c", "d"])
+
+
+class BrowserWsWriterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_writer_sends_binary_frames_and_text_events(self) -> None:
+        class FakeWriter:
+            def __init__(self) -> None:
+                self.chunks: list[bytes] = []
+
+            def write(self, chunk: bytes) -> None:
+                self.chunks.append(chunk)
+
+            async def drain(self) -> None:
+                return
+
+        app = server.DesktopServer(None, ROOT, browser=StubBrowser())
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        writer = FakeWriter()
+        task = asyncio.create_task(app._browser_ws_writer(queue, writer))
+
+        await queue.put(
+            {"type": "frame", "data": base64.b64encode(b"jpeg").decode(), "meta": {"w": 2}}
+        )
+        await queue.put({"type": "state", "state": {"running": True}})
+
+        for _ in range(100):
+            if len(writer.chunks) >= 2:
+                break
+            await asyncio.sleep(0.01)
+
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+        self.assertEqual(len(writer.chunks), 2)
+        binary = writer.chunks[0]
+        self.assertEqual(binary[0] & 0x0F, 0x2)
+        meta_len = struct.unpack("!I", binary[2:6])[0]
+        self.assertEqual(json.loads(binary[6 : 6 + meta_len].decode("utf-8")), {"w": 2})
+        self.assertEqual(binary[6 + meta_len :], b"jpeg")
+
+        text = writer.chunks[1]
+        self.assertEqual(text[0] & 0x0F, 0x1)
+        self.assertEqual(json.loads(text[2:].decode("utf-8"))["type"], "state")
 
 
 if __name__ == "__main__":

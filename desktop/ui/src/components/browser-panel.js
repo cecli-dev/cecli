@@ -3,9 +3,15 @@ import { LitElement, html, nothing } from 'lit';
 import { CHEVRON_ICON } from '../core/constants.js';
 
 import {
-  get_browser_state,
+  answer_browser_dialog,
+  cancel_browser_file_chooser,
   close_browser_tab,
+  drop_browser_files,
+  get_browser_state,
   new_browser_tab,
+  open_browser_download,
+  open_browser_external,
+  open_browser_sse,
   open_browser_stream,
   open_browser_url,
   select_browser_tab,
@@ -13,6 +19,7 @@ import {
   send_browser_input,
   set_browser_viewport,
   start_browser,
+  upload_browser_files,
 } from '../core/browser-api.js';
 
 const SPECIAL_KEYS = new Set([
@@ -89,6 +96,21 @@ export class BrowserPanel extends LitElement {
     this._collapsed = false;
     this._scroll = { x: 0, y: 0, maxX: 0, maxY: 0 };
     this._scroll_known = false;
+    this._dialog = null;
+    this._dialog_input = '';
+    this._dialog_sending = false;
+    this._file_chooser = null;
+    this._file_uploading = false;
+    this._downloads = [];
+    this._cursor = '';
+    this._notice = '';
+    this._notice_timer = null;
+    this._ime_input = null;
+    this._composing = false;
+    this._suppress_key_until = 0;
+    this._dragging = false;
+    this._stream_is_socket = false;
+    this._sse_only = false;
 
     this._canvas = null;
     this._viewport_el = null;
@@ -157,6 +179,10 @@ export class BrowserPanel extends LitElement {
     clearTimeout(this._viewport_send_timer);
     this._viewport_send_timer = null;
     clearTimeout(this._navigating_timer);
+    clearTimeout(this._notice_timer);
+    this._notice_timer = null;
+    this._dragging = false;
+    this._composing = false;
     this._navigating_timer = null;
 
     if (this._resize_observer) {
@@ -261,6 +287,14 @@ export class BrowserPanel extends LitElement {
             ?disabled=${!running}
             @click=${this._open_url}
           >Go</button>
+          <button
+            type="button"
+            class="browser-icon-btn browser-external"
+            title="Open this page in your default browser"
+            aria-label="Open this page in your default browser"
+            ?disabled=${!running}
+            @click=${this._open_external}
+          >\u2197</button>
         </div>
 
         ${this._error
@@ -278,13 +312,34 @@ export class BrowserPanel extends LitElement {
             `
           : nothing}
         ${this._render_tabs()}
+        ${this._render_downloads()}
 
-        <div class="browser-viewport">
+        <div
+          class="browser-viewport"
+          @dragenter=${this._on_drag_enter}
+          @dragover=${this._on_dialog_drag}
+          @dragleave=${this._on_drag_leave}
+          @drop=${this._on_drop}
+        >
+          <textarea
+            class="browser-ime"
+            @input=${this._on_ime_input}
+            @blur=${this._on_canvas_blur}
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            @keydown=${this._on_canvas_keydown}
+            @keyup=${this._on_canvas_keyup}
+            @compositionstart=${this._on_composition_start}
+            @compositionupdate=${this._on_composition_update}
+            @compositionend=${this._on_composition_end}
+          ></textarea>
           <div class="browser-stage">
           <canvas
             class="browser-canvas"
             tabindex="0"
-            aria-label="Browser page viewport"
+            aria-label=${this._title ? `Browser page: ${this._title}` : 'Browser page viewport'}
+            style=${this._cursor ? `cursor: ${css_cursor(this._cursor)}` : ''}
             @pointerdown=${this._on_pointerdown}
             @pointermove=${this._on_pointermove}
             @pointerup=${this._on_pointerup}
@@ -294,9 +349,14 @@ export class BrowserPanel extends LitElement {
             @keyup=${this._on_canvas_keyup}
             @paste=${this._on_paste}
             @blur=${this._on_canvas_blur}
+            @focus=${this._focus_canvas}
           ></canvas>
           </div>
           ${this._render_overlay()}
+          ${this._render_dialog()}
+          ${this._render_file_chooser()}
+          ${this._render_drop_overlay()}
+          ${this._render_notice()}
         </div>
 
         <footer class="browser-foot">
@@ -410,6 +470,154 @@ export class BrowserPanel extends LitElement {
     });
   }
 
+  _render_downloads() {
+    if (!this._downloads.length) return nothing;
+
+    const items = this._downloads.slice(-4).reverse();
+    return html`
+      <div class="browser-downloads" role="list" aria-label="Downloads">
+        ${items.map(
+          (download) => html`
+            <div class="browser-download" role="listitem">
+              <span class="browser-download-name" title=${download.filename}
+                >${download.filename}</span
+              >
+              <span class="browser-download-state" data-state=${download.state}
+                >${download_label(download)}</span
+              >
+              ${download.state === 'completed'
+                ? html`<button
+                    type="button"
+                    class="browser-download-open"
+                    @click=${() => this._open_download(download.id)}
+                  >Open</button>`
+                : nothing}
+            </div>
+          `,
+        )}
+      </div>
+    `;
+  }
+
+  _render_dialog() {
+    const dialog = this._dialog;
+    if (!dialog) return nothing;
+
+    const type = dialog.type || 'alert';
+    return html`
+      <div class="browser-modal" role="presentation">
+        <div
+          class="browser-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="browser-dialog-title"
+          @keydown=${this._on_modal_keydown}
+        >
+          <h3 id="browser-dialog-title" class="browser-dialog-title">${dialog_title(type)}</h3>
+          <p class="browser-dialog-message">
+            ${dialog.message || 'This page opened a dialog.'}
+          </p>
+          ${type === 'prompt'
+            ? html`<input
+                class="browser-dialog-input"
+                autofocus
+                type="text"
+                .value=${this._dialog_input}
+                ?disabled=${this._dialog_sending}
+                aria-label="Prompt response"
+                @input=${this._on_dialog_input}
+                @keydown=${this._on_dialog_keydown}
+              />`
+            : nothing}
+          <div class="browser-dialog-actions">
+            ${type === 'alert'
+              ? html`<button
+                  type="button"
+                  class="browser-btn browser-btn--primary"
+                  autofocus
+                  ?disabled=${this._dialog_sending}
+                  @click=${() => this._respond_dialog(true)}
+                >OK</button>`
+              : html`
+                  <button
+                    type="button"
+                    class="browser-btn"
+                    ?disabled=${this._dialog_sending}
+                    @click=${() => this._respond_dialog(false)}
+                  >${type === 'beforeunload' ? 'Stay' : 'Cancel'}</button>
+                  <button
+                    type="button"
+                    class="browser-btn browser-btn--primary"
+                    ?autofocus=${type !== 'prompt'}
+                    ?disabled=${this._dialog_sending}
+                    @click=${() => this._respond_dialog(true)}
+                  >${type === 'beforeunload' ? 'Leave' : 'OK'}</button>
+                `}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _render_file_chooser() {
+    const chooser = this._file_chooser;
+    if (!chooser) return nothing;
+
+    return html`
+      <div class="browser-modal" role="presentation">
+        <div
+          class="browser-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="browser-upload-title"
+          @keydown=${this._on_modal_keydown}
+        >
+          <h3 id="browser-upload-title" class="browser-dialog-title">Upload files</h3>
+          <p class="browser-dialog-message">
+            This page is asking you to choose
+            ${chooser.mode === 'selectMultiple' ? 'one or more files' : 'a file'}.
+          </p>
+          <input
+            class="browser-file-input"
+            type="file"
+            ?multiple=${chooser.mode === 'selectMultiple'}
+            ?disabled=${this._file_uploading}
+            @change=${this._on_files_selected}
+          />
+          <div class="browser-dialog-actions">
+            <button
+              type="button"
+              class="browser-btn"
+              ?disabled=${this._file_uploading}
+              @click=${this._cancel_file_chooser}
+            >Cancel</button>
+            <button
+              type="button"
+              class="browser-btn browser-btn--primary browser-file-choose"
+              ?disabled=${this._file_uploading}
+              autofocus
+              @click=${this._choose_files}
+            >${this._file_uploading ? 'Uploading\u2026' : 'Choose files'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _render_drop_overlay() {
+    if (!this._dragging) return nothing;
+
+    return html`<div class="browser-drop" role="status">
+      Drop files or text to send them to the page
+    </div>`;
+  }
+
+  _render_notice() {
+    if (!this._notice) return nothing;
+
+    return html`<div class="browser-notice" role="status" aria-live="polite">${this._notice}</div>`;
+  }
+
   _empty_state({ icon, title, description, actions }) {
     return html`
       <div class="browser-empty" role="status">
@@ -501,6 +709,12 @@ export class BrowserPanel extends LitElement {
   _toggle_collapsed(event) {
     if (event) event.stopPropagation();
     this._collapsed = !this._collapsed;
+    if (this._collapsed) {
+      this._close_stream();
+    } else if (!document.hidden) {
+      this._connect_stream();
+    }
+
     this.requestUpdate();
   }
 
@@ -557,6 +771,208 @@ export class BrowserPanel extends LitElement {
       this._switching_tab = false;
       this.requestUpdate();
     }
+  }
+
+  _on_modal_keydown(event) {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (this._file_chooser) this._cancel_file_chooser();
+    else this._respond_dialog(false);
+  }
+
+  _on_dialog_input(event) {
+    this._dialog_input = event.target.value;
+  }
+
+  _on_dialog_keydown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this._respond_dialog(true);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this._respond_dialog(false);
+    }
+  }
+
+  async _respond_dialog(accept) {
+    if (!this._dialog || this._dialog_sending) return;
+
+    const prompt_text = this._dialog.type === 'prompt' ? this._dialog_input : '';
+    this._dialog_sending = true;
+    this.requestUpdate();
+
+    try {
+      const data = await answer_browser_dialog(Boolean(accept), prompt_text);
+      if (data && typeof data === 'object') this._apply_state(data);
+      this._dialog = null;
+      this._dialog_input = '';
+    } catch (error) {
+      this._set_error(error);
+    } finally {
+      this._dialog_sending = false;
+      this.requestUpdate();
+    }
+  }
+
+  _choose_files() {
+    const input = this.querySelector('.browser-file-input');
+    if (input) input.click();
+  }
+
+  async _cancel_file_chooser() {
+    this._file_chooser = null;
+    this.requestUpdate();
+    try {
+      const data = await cancel_browser_file_chooser();
+      if (data && typeof data === 'object') this._apply_state(data);
+    } catch (error) {
+      this._set_error(error);
+    }
+  }
+
+  async _on_files_selected(event) {
+    const input = event.target;
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length) return;
+
+    this._file_uploading = true;
+    this.requestUpdate();
+
+    try {
+      const payload = [];
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        payload.push({
+          name: file.name,
+          type: file.type || '',
+          data: bytes_to_base64(new Uint8Array(buffer)),
+        });
+      }
+      const data = await upload_browser_files(payload);
+      if (data && typeof data === 'object') this._apply_state(data);
+      this._file_chooser = null;
+      this._show_notice('Files attached to the page');
+    } catch (error) {
+      this._set_error(error);
+    } finally {
+      this._file_uploading = false;
+      this.requestUpdate();
+    }
+  }
+
+  async _open_download(id) {
+    try {
+      const data = await open_browser_download(id);
+      if (data && typeof data === 'object') this._apply_state(data);
+    } catch (error) {
+      this._set_error(error);
+    }
+  }
+
+  async _open_external() {
+    try {
+      const data = await open_browser_external(this._url || null);
+      this._show_notice(
+        data && data.url ? `Opened ${data.url} in your browser` : 'Opened in your browser',
+      );
+    } catch (error) {
+      this._set_error(error);
+    }
+  }
+
+  _on_drag_enter(event) {
+    if (!this._running) return;
+    event.preventDefault();
+    this._dragging = true;
+    this.requestUpdate();
+  }
+
+  _on_dialog_drag(event) {
+    if (!this._running) return;
+    event.preventDefault();
+    if (!this._dragging) {
+      this._dragging = true;
+      this.requestUpdate();
+    }
+  }
+
+  _on_drag_leave(event) {
+    if (!this._dragging) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && this._viewport_el?.contains(related)) return;
+    this._dragging = false;
+    this.requestUpdate();
+  }
+
+  async _on_drop(event) {
+    event.preventDefault();
+    this._dragging = false;
+    this.requestUpdate();
+    if (!this._running || this._dialog || this._file_chooser) return;
+
+    const point = this._point_to_frame(event.clientX, event.clientY, true);
+    if (!point) return;
+
+    const transfer = event.dataTransfer;
+    const files = [];
+    if (transfer?.files?.length) {
+      for (const file of Array.from(transfer.files)) {
+        const buffer = await file.arrayBuffer();
+        files.push({
+          name: file.name,
+          type: file.type || '',
+          data: bytes_to_base64(new Uint8Array(buffer)),
+        });
+      }
+    }
+    const text = transfer ? transfer.getData('text/plain') : '';
+    if (!files.length && !text) return;
+
+    try {
+      const data = await drop_browser_files({ x: point.x, y: point.y, files, text });
+      if (data && typeof data === 'object') this._apply_state(data);
+      this._show_notice(files.length ? 'Dropped files onto the page' : 'Dropped text onto the page');
+    } catch (error) {
+      this._set_error(error);
+    }
+  }
+
+  _on_composition_start() {
+    if (!this._running) return;
+    this._composing = true;
+  }
+
+  _on_composition_update(event) {
+    if (!this._running || !this._composing) return;
+    this._queue_input({ kind: 'ime', type: 'composition', text: event.data || '' });
+  }
+
+  _on_composition_end(event) {
+    if (!this._composing) return;
+    this._composing = false;
+    this._suppress_key_until = performance.now() + 80;
+    const text = event.data || '';
+    if (text) this._queue_input({ kind: 'ime', type: 'commit', text });
+    if (this._ime_input) this._ime_input.value = '';
+  }
+
+  _on_ime_input(event) {
+    if (!this._ime_input) return;
+    if (this._composing || event.isComposing) return;
+    this._ime_input.value = '';
+  }
+
+  _show_notice(message) {
+    this._notice = String(message || '');
+    clearTimeout(this._notice_timer);
+    this._notice_timer = setTimeout(() => {
+      this._notice = '';
+      this._notice_timer = null;
+      this.requestUpdate();
+    }, 3200);
+    this.requestUpdate();
   }
 
   _zoom_in() {
@@ -710,6 +1126,7 @@ export class BrowserPanel extends LitElement {
 
   _retry() {
     this._available = null;
+    this._sse_only = false;
     this._error = '';
     this.requestUpdate();
     this._connect_stream();
@@ -775,6 +1192,33 @@ export class BrowserPanel extends LitElement {
     if ('activeTabId' in raw) {
       this._active_tab_id = typeof raw.activeTabId === 'string' ? raw.activeTabId : null;
     }
+    if ('dialog' in raw) {
+      const dialog = raw.dialog && typeof raw.dialog === 'object' ? raw.dialog : null;
+      if (dialog && (!this._dialog || dialog.type !== this._dialog.type)) {
+        this._dialog_input = typeof dialog.defaultPrompt === 'string' ? dialog.defaultPrompt : '';
+      }
+      this._dialog = dialog;
+    }
+
+    if ('fileChooser' in raw) {
+      this._apply_file_chooser(raw.fileChooser);
+    }
+
+    if (Array.isArray(raw.downloads)) {
+      this._downloads = raw.downloads
+        .filter((item) => item && typeof item.id === 'string')
+        .map((item) => ({
+          id: item.id,
+          filename: typeof item.filename === 'string' ? item.filename : 'download',
+          url: typeof item.url === 'string' ? item.url : '',
+          state: typeof item.state === 'string' ? item.state : 'inProgress',
+          receivedBytes: Number(item.receivedBytes) || 0,
+          totalBytes: Number(item.totalBytes) || 0,
+          path: typeof item.path === 'string' ? item.path : null,
+        }));
+    }
+
+    if (typeof raw.cursor === 'string') this._cursor = raw.cursor;
 
     if (raw.viewport && typeof raw.viewport === 'object') {
       this._viewport = {
@@ -797,6 +1241,9 @@ export class BrowserPanel extends LitElement {
       this._set_navigating(false);
       this._tabs = [];
       this._active_tab_id = null;
+      this._dialog = null;
+      this._file_chooser = null;
+      this._cursor = '';
     }
 
     this.requestUpdate();
@@ -811,14 +1258,25 @@ export class BrowserPanel extends LitElement {
     this._stream_status = 'connecting';
     this.requestUpdate();
 
-    let source;
-    try {
-      source = open_browser_stream();
-    } catch (error) {
-      this._stream_status = 'retrying';
-      this.requestUpdate();
-      this._schedule_reconnect();
-      return;
+    let source = null;
+    this._stream_is_socket = false;
+    if (!this._sse_only) {
+      try {
+        source = open_browser_stream();
+        this._stream_is_socket = true;
+      } catch (error) {
+        this._sse_only = true;
+      }
+    }
+    if (!source) {
+      try {
+        source = open_browser_sse();
+      } catch (error) {
+        this._stream_status = 'retrying';
+        this.requestUpdate();
+        this._schedule_reconnect();
+        return;
+      }
     }
 
     this._stream = source;
@@ -831,13 +1289,16 @@ export class BrowserPanel extends LitElement {
       this._queue_viewport_send(0);
     };
     source.onmessage = (event) => this._handle_stream_message(event);
-    source.onerror = () => {
+    const handle_close = () => {
       if (this._stream !== source) return;
+      if (this._stream_is_socket && this._stream_status !== 'open') this._sse_only = true;
       this._close_stream();
       this._stream_status = 'retrying';
       this.requestUpdate();
       this._schedule_reconnect();
     };
+    source.onerror = handle_close;
+    if (this._stream_is_socket) source.onclose = handle_close;
   }
 
   _close_stream() {
@@ -850,6 +1311,7 @@ export class BrowserPanel extends LitElement {
     }
 
     this._stream = null;
+    this._stream_is_socket = false;
   }
 
   _schedule_reconnect() {
@@ -878,6 +1340,11 @@ export class BrowserPanel extends LitElement {
   }
 
   _handle_stream_message(event) {
+    if (typeof event.data !== 'string') {
+      this._handle_binary_frame(event.data);
+      return;
+    }
+
     let message;
     try {
       message = JSON.parse(event.data);
@@ -890,6 +1357,90 @@ export class BrowserPanel extends LitElement {
     if (message.type === 'state') this._apply_state(message.state);
     else if (message.type === 'frame') this._handle_frame(message);
     else if (message.type === 'error') this._set_error(message.message || 'Browser stream error');
+    else if (message.type === 'dialog') this._apply_dialog(message.dialog);
+    else if (message.type === 'fileChooser') this._apply_file_chooser(message.chooser);
+    else if (message.type === 'download') this._apply_download(message.download);
+    else if (message.type === 'cursor') this._apply_cursor(message.cursor);
+    else if (message.type === 'clipboard') this._apply_clipboard(message);
+    else if (message.type === 'notice') this._show_notice(message.message || '');
+  }
+
+  _handle_binary_frame(buffer) {
+    if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 4) return;
+    const view = new DataView(buffer);
+    const meta_length = view.getUint32(0, false);
+    if (meta_length > buffer.byteLength - 4) return;
+
+    let meta = {};
+    try {
+      const text = new TextDecoder().decode(new Uint8Array(buffer, 4, meta_length));
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') meta = parsed;
+    } catch (error) {
+      meta = {};
+    }
+
+    if (document.hidden || !this.isConnected) return;
+    this._enqueue_frame(new Uint8Array(buffer, 4 + meta_length), meta);
+  }
+
+  _apply_dialog(dialog) {
+    const next = dialog && typeof dialog === 'object' ? dialog : null;
+    if (next && (!this._dialog || next.type !== this._dialog.type)) {
+      this._dialog_input = typeof next.defaultPrompt === 'string' ? next.defaultPrompt : '';
+    }
+    this._dialog = next;
+    this.requestUpdate();
+  }
+
+  _apply_file_chooser(chooser) {
+    this._file_chooser = chooser && typeof chooser === 'object' ? chooser : null;
+    this.requestUpdate();
+
+    if (this._file_chooser) {
+      this.updateComplete.then(() => {
+        const button = this.querySelector('.browser-file-choose');
+        if (button) button.focus();
+      });
+    }
+  }
+
+  _apply_download(download) {
+    if (!download || typeof download.id !== 'string') return;
+    const record = {
+      id: download.id,
+      filename: typeof download.filename === 'string' ? download.filename : 'download',
+      url: typeof download.url === 'string' ? download.url : '',
+      state: typeof download.state === 'string' ? download.state : 'inProgress',
+      receivedBytes: Number(download.receivedBytes) || 0,
+      totalBytes: Number(download.totalBytes) || 0,
+      path: typeof download.path === 'string' ? download.path : null,
+    };
+    const index = this._downloads.findIndex((item) => item.id === record.id);
+    const previous = index === -1 ? null : this._downloads[index];
+    if (index === -1) this._downloads.push(record);
+    else this._downloads[index] = record;
+    while (this._downloads.length > 20) this._downloads.shift();
+    if (record.state === 'completed' && previous?.state !== 'completed') {
+      this._show_notice(`${record.filename} downloaded`);
+    }
+    this.requestUpdate();
+  }
+
+  _apply_cursor(cursor) {
+    this._cursor = typeof cursor === 'string' ? cursor : '';
+    this.requestUpdate();
+  }
+
+  _apply_clipboard(message) {
+    const text = typeof message.text === 'string' ? message.text : '';
+    if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+      return;
+    }
+    navigator.clipboard
+      .writeText(text)
+      .then(() => this._show_notice('Copied to clipboard'))
+      .catch(() => {});
   }
 
   _handle_frame(message) {
@@ -948,7 +1499,11 @@ export class BrowserPanel extends LitElement {
   }
 
   async _decode_frame(data) {
-    const blob = base64_to_blob(data);
+    // createImageBitmap decodes off the main thread; the binary path skips atob.
+    const blob =
+      data instanceof Uint8Array
+        ? new Blob([data], { type: 'image/jpeg' })
+        : base64_to_blob(data);
 
     if (typeof createImageBitmap === 'function') {
       try {
@@ -1050,6 +1605,7 @@ export class BrowserPanel extends LitElement {
     if (!this._viewport_el) this._viewport_el = this.querySelector('.browser-viewport');
     if (!this._stage_el) this._stage_el = this.querySelector('.browser-stage');
     if (!this._url_input) this._url_input = this.querySelector('.browser-url');
+    if (!this._ime_input) this._ime_input = this.querySelector('.browser-ime');
   }
 
   _setup_resize_observer() {
@@ -1277,7 +1833,11 @@ export class BrowserPanel extends LitElement {
 
   _on_canvas_keydown(event) {
     if (event.key === 'Escape') event.stopPropagation();
-    if (event.isComposing) return;
+    if (this._composing || event.isComposing) return;
+    if (this._suppress_key_until && performance.now() < this._suppress_key_until) {
+      event.preventDefault();
+      return;
+    }
     if (!this._running) return;
 
     const key = event.key;
@@ -1416,13 +1976,15 @@ export class BrowserPanel extends LitElement {
     return { width: 1, height: 1 };
   }
 
-  _focus_canvas() {
-    if (!this._canvas) return;
+  _focus_canvas(event) {
+    const target = this._ime_input || this._canvas;
+    if (!target) return;
+    if (event && event.target === target) return;
 
     try {
-      this._canvas.focus({ preventScroll: true });
+      target.focus({ preventScroll: true });
     } catch (error) {
-      this._canvas.focus();
+      target.focus();
     }
   }
 
@@ -1439,7 +2001,7 @@ export class BrowserPanel extends LitElement {
   }
 
   _queue_input(event) {
-    if (!this._running || this._disconnected) return;
+    if (!this._running || this._disconnected || this._dialog || this._file_chooser) return;
 
     if (event.kind === 'mouse' && event.type === 'mouseMoved') {
       const last = this._input_queue[this._input_queue.length - 1];
@@ -1470,7 +2032,7 @@ export class BrowserPanel extends LitElement {
       const event = this._input_queue.shift();
 
       try {
-        await send_browser_input(event);
+        if (!this._send_input_now(event)) await send_browser_input(event);
       } catch (error) {
         if (error && error.status === 503) {
           this._set_error(error);
@@ -1478,9 +2040,20 @@ export class BrowserPanel extends LitElement {
           break;
         }
       }
-    }
 
+    }
     this._input_flushing = false;
+  }
+
+  _send_input_now(event) {
+    const socket = this._stream;
+    if (!this._stream_is_socket || !socket || socket.readyState !== 1) return false;
+    try {
+      socket.send(JSON.stringify({ type: 'input', event }));
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   _set_navigating(value) {
@@ -1534,6 +2107,79 @@ function navigation_url(value) {
   if (!/\s/.test(text) && looks_like_host) return text;
 
   return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
+}
+
+function bytes_to_base64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+function dialog_title(type) {
+  switch (type) {
+    case 'confirm':
+      return 'Confirm';
+    case 'prompt':
+      return 'Enter a value';
+    case 'beforeunload':
+      return 'Leave this page?';
+    default:
+      return 'Page message';
+  }
+}
+
+function download_label(download) {
+  if (download.state === 'completed') return 'Done';
+  if (download.state === 'canceled') return 'Canceled';
+  if (download.totalBytes > 0) {
+    return `${Math.round((download.receivedBytes / download.totalBytes) * 100)}%`;
+  }
+  return 'Downloading\u2026';
+}
+
+const SIMPLE_CURSORS = new Set([
+  'default',
+  'pointer',
+  'text',
+  'crosshair',
+  'move',
+  'grab',
+  'grabbing',
+  'wait',
+  'progress',
+  'help',
+  'not-allowed',
+  'zoom-in',
+  'zoom-out',
+  'context-menu',
+  'cell',
+  'vertical-text',
+  'alias',
+  'copy',
+  'no-drop',
+  'all-scroll',
+  'col-resize',
+  'row-resize',
+  'n-resize',
+  'e-resize',
+  's-resize',
+  'w-resize',
+  'ne-resize',
+  'nw-resize',
+  'se-resize',
+  'sw-resize',
+  'ew-resize',
+  'ns-resize',
+  'nesw-resize',
+  'nwse-resize',
+]);
+
+function css_cursor(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return SIMPLE_CURSORS.has(text) ? text : 'default';
 }
 
 function base64_to_blob(data) {

@@ -1,4 +1,6 @@
-/** HTTP and SSE helpers for the in-app browser panel. */
+import { get_desktop_token } from './token.js';
+
+/** HTTP, WebSocket and SSE helpers for the in-app browser panel. */
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -55,9 +57,53 @@ export function send_browser_input(event) {
   return post_json('/api/browser/input', { event });
 }
 
-/** Open the server-sent frame/state stream. */
+/** Open the binary WebSocket frame/state stream. */
 export function open_browser_stream() {
+  const token = get_desktop_token();
+  const protocols = ['cecli.browser.v1'];
+  if (token) protocols.push(`token.${token}`);
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const socket = new WebSocket(
+    `${scheme}://${window.location.host}/api/browser/ws`,
+    protocols,
+  );
+  socket.binaryType = 'arraybuffer';
+  return socket;
+}
+
+/** Open the legacy server-sent frame/state stream. */
+export function open_browser_sse() {
   return new EventSource('/api/browser/stream');
+}
+
+/** Answer the open JavaScript dialog. */
+export function answer_browser_dialog(accept, prompt_text = '') {
+  return post_json('/api/browser/dialog', { accept, promptText: prompt_text });
+}
+
+/** Attach files to the intercepted file input. */
+export function upload_browser_files(files) {
+  return post_json('/api/browser/file-chooser', { files }, 30000);
+}
+
+/** Dismiss an intercepted file chooser. */
+export function cancel_browser_file_chooser() {
+  return post_json('/api/browser/file-chooser', { cancel: true });
+}
+
+/** Open a completed download. */
+export function open_browser_download(id) {
+  return post_json('/api/browser/download', { action: 'open', id });
+}
+
+/** Open the current page in the user's default browser. */
+export function open_browser_external(url = null) {
+  return post_json('/api/browser/external', url ? { url } : {});
+}
+
+/** Dispatch a dropped file or text selection onto the page. */
+export function drop_browser_files(payload) {
+  return post_json('/api/browser/drop', payload, 30000);
 }
 
 async function request_json(path, options) {

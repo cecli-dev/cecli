@@ -101,6 +101,11 @@ workarounds described in [TAURI.md](TAURI.md).
   their sections when clicked. Chat and the workbench split the remaining width,
   header toggles collapse the sidebar, chat, or workbench, and the emulated page
   fills the pane up to a 1920x1080 viewport.
+- The browser preview handles JavaScript dialogs, file pickers, downloads,
+  promptable permissions, IME composition, cursor feedback, clipboard copy, and
+  file/text drops. Frames stream over a binary WebSocket (with the SSE endpoint
+  as a fallback), and an "Open in default browser" action provides the
+  screen-reader-accessible escape hatch from the canvas preview.
 - A registry panel at the bottom of the sidebar for toggling skills and MCP
   servers and running workflows.
 
