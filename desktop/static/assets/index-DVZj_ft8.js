@@ -101,8 +101,8 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
           <textarea
             id="composer-input"
             rows="1"
-            placeholder="Ask cecli anything…"
-            aria-label="Message cecli"
+            placeholder="Type your message…"
+            aria-label="Type Message"
             autocomplete="off"
             spellcheck="true"
             @input=${this._on_input}
