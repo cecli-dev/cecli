@@ -20,6 +20,7 @@ fn main() {
     configure_webkit();
 
     let app = match tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let workspace = resolve_workspace();
             eprintln!("cecli desktop workspace: {}", workspace.display());
