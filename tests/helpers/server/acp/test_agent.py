@@ -22,6 +22,7 @@ from cecli.helpers.server.acp.agent.transport import (
     METHOD_NOT_FOUND,
 )
 from cecli.helpers.server.acp.agent.updates import UpdateEmitter
+from cecli.io import InputOutput
 from cecli.reasoning_tags import REASONING_END, REASONING_START
 
 
@@ -290,6 +291,7 @@ class StubCoder:
             output_task=None,
             yes=None,
             tool_output=lambda *a, **k: None,
+            log_user_input=self.user_inputs.append,
             user_input=self.user_inputs.append,
         )
         self.interrupt_event = threading.Event()
@@ -1105,3 +1107,34 @@ async def test_session_new_connects_client_mcp_servers_first(tmp_path):
     assert coder.mcp_manager.calls == [("add", "github", "McpServer")]
     assert transport.results()[2]["result"]["sessionId"] == "s1"
     waiting.cancel()
+
+
+def test_log_user_input_writes_while_confirmation_is_pending(tmp_path):
+    history = tmp_path / "chat.history"
+    io = InputOutput(chat_history_file=history)
+    io.confirmation_in_progress_event.clear()
+
+    io.user_input("dropped while confirming")
+    io.log_user_input("first prompt")
+
+    text = history.read_text(encoding="utf-8")
+    assert "first prompt" in text
+    assert "dropped while confirming" not in text
+
+
+async def test_get_input_logs_prompt_while_confirmation_is_pending(tmp_path):
+    history = tmp_path / "chat.history"
+
+    async def next_input(_coder):
+        return "first prompt"
+
+    agent = SimpleNamespace(
+        emitter=SimpleNamespace(root=None),
+        next_input=next_input,
+        in_prompt=lambda: True,
+    )
+    io = AcpInputOutput(chat_history_file=history, agent=agent)
+    io.confirmation_in_progress_event.clear()
+
+    assert await io.get_input(None, None, None, None) == "first prompt"
+    assert "#### first prompt" in history.read_text(encoding="utf-8")

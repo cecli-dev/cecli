@@ -1896,7 +1896,14 @@ def _new_session_id() -> str:
 
 def _log_user_input(coder: Any, text: str) -> None:
     """Record a client prompt in the same chat history the TUI writes."""
-    user_input = getattr(getattr(coder, "io", None), "user_input", None)
+    io = getattr(coder, "io", None)
+    log = getattr(io, "log_user_input", None)
+
+    if callable(log):
+        log(text)
+        return
+
+    user_input = getattr(io, "user_input", None)
 
     if callable(user_input):
         user_input(text)

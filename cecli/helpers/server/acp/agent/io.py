@@ -50,7 +50,13 @@ class AcpInputOutput(InputOutput):
     ):
         self.agent.emitter.root = root
         text = await self.agent.next_input(getattr(commands, "coder", None))
-        self.user_input(text)
+
+        in_prompt = getattr(self.agent, "in_prompt", None)
+
+        if callable(in_prompt) and in_prompt():
+            self.log_user_input(text)
+        else:
+            self.user_input(text)
         return text
 
     async def _confirm_ask(

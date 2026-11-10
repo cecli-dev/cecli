@@ -1239,6 +1239,10 @@ class InputOutput:
         ):
             return
 
+        self.log_user_input(inp)
+
+    def log_user_input(self, inp):
+        """Append one prompt to the chat history without confirmation gating."""
         prefix = "####"
         if inp:
             hist = inp.splitlines()
@@ -1249,7 +1253,7 @@ class InputOutput:
 
         hist = f"""
 {prefix} {hist}"""
-        self.append_chat_history(hist, linebreak=True)
+        self._write_chat_history(hist, linebreak=True)
 
     # OUTPUT
 
@@ -1959,6 +1963,9 @@ class InputOutput:
         ):
             return
 
+        self._write_chat_history(text, linebreak=linebreak, blockquote=blockquote, strip=strip)
+
+    def _write_chat_history(self, text, linebreak=False, blockquote=False, strip=True):
         if blockquote:
             if strip:
                 text = text.strip()
