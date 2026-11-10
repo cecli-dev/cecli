@@ -6,6 +6,7 @@ from cecli.helpers.hashline import (
     UNIQUE_HASH_DELIMITER,
     ContentHashError,
     apply_hashline_operations,
+    get_hashline_content_diff,
     get_hashline_diff,
     resolve_content_to_hashline_ids,
     strip_hashline,
@@ -472,6 +473,8 @@ class Tool(BaseTool):
                         change_id,
                     )
 
+                    cls._emit_diff_event(coder, rel_path, original_content, new_content)
+
                     coder.files_edited_by_tools.add(rel_path)
                     if getattr(coder, "uuid", None):
                         ConversationService.get_chunks(coder).notify_file_edited(abs_path)
@@ -825,3 +828,25 @@ class Tool(BaseTool):
 
         # Stop masking unknown errors; return them directly
         return f"Edit Failed: {error_msg}"
+
+    @classmethod
+    def _emit_diff_event(cls, coder, rel_path, original_content, new_content):
+        """Send a display-only diff for this edit.
+
+        Both in-context and out-of-context edits emit from here so the client
+        receives the pill at edit time. The DIFFS message path still records
+        in-context changes for the model and for history replay.
+        """
+        io = getattr(coder, "io", None)
+        if io is None or not hasattr(io, "diff_event"):
+            return
+
+        diff = get_hashline_content_diff(
+            old_content=original_content,
+            new_content=new_content,
+            fromfile=rel_path,
+            tofile=rel_path,
+            context_lines=3,
+        )
+        if diff.strip():
+            io.diff_event(rel_path, diff)
