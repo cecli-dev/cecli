@@ -22,7 +22,7 @@ const PANE_ICONS = {
 const BRAND_PHRASES = [
   "control everything _",
   "compete everywhere _",
-  "create everyday _",
+  "create elegantly _",
   "continue evolving _"
 ];
 
