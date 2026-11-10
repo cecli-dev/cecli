@@ -20,9 +20,10 @@ const PANE_ICONS = {
 };
 
 const BRAND_PHRASES = [
-  "control everything _",
-  "compete everywhere _",
-  "create elegantly _",
+  // "control everything _",
+  "complete everything _",
+  "control everywhere _",
+  "create efficiently _",
   "continue evolving _"
 ];
 
