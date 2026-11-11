@@ -85,6 +85,7 @@ async def acompletion(
     # the coercer cannot re-inject a field the transform just stripped.
     resolved["_echo_reasoning_content"] = getattr(provider, "echoes_reasoning_content", True)
     messages = provider.transform_messages(messages)
+    messages = _null_content_to_empty(messages)
 
     if stream:
         gen = _stream_family(family, resolved, messages, tools, key, headers, kwargs)
@@ -166,6 +167,28 @@ async def _apply_normalize(
     """Yield each stream chunk through the provider's ``normalize`` hook."""
     async for chunk in gen:
         yield provider.normalize(family, chunk, resolved)
+
+
+def _null_content_to_empty(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Replace a null message ``content`` with an empty string.
+
+    Some OpenAI-compatible endpoints reject ``content: null`` outright, which is
+    how tool-call-only assistant turns and missing tool results arrive from other
+    providers. Normalize at the wire boundary instead of sending null. Only
+    ``None`` is replaced -- string and multimodal list content pass through.
+    Copies messages before changing them so the conversation store is untouched.
+    """
+    normalized: List[Dict[str, Any]] = []
+    changed = False
+
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("content") is None:
+            msg = {**msg, "content": ""}
+            changed = True
+
+        normalized.append(msg)
+
+    return normalized if changed else messages
 
 
 __all__ = ["acompletion"]
