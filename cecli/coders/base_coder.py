@@ -261,6 +261,8 @@ class Coder(metaclass=UsageMeta):
     num_tool_calls = 0
     max_tool_calls = 25
     turn_count = 0
+    max_consecutive_duplicate_tool_calls = 3
+    max_duplicate_tool_loop_abort = 5
     edit_format = None
     file_diffs = True
     hashlines = False
@@ -595,6 +597,14 @@ class Coder(metaclass=UsageMeta):
 
         self.max_reflections = nested.getter(self.args, "max_reflections", 3)
         self.max_tool_calls = nested.getter(self.args, "max_tool_calls", 25)
+        self.max_consecutive_duplicate_tool_calls = nested.getter(
+            self.args, "max_consecutive_duplicate_tool_calls", 3
+        )
+        self.max_duplicate_tool_loop_abort = nested.getter(
+            self.args, "max_duplicate_tool_loop_abort", 5
+        )
+        self._last_tool_signatures = None
+        self._consecutive_duplicate_tool_rounds = 0
 
         if not fnames:
             fnames = []
@@ -1660,6 +1670,8 @@ class Coder(metaclass=UsageMeta):
         self.test_outcome = None
         self.shell_commands = []
         self.message_cost = 0
+        self._last_tool_signatures = None
+        self._consecutive_duplicate_tool_rounds = 0
 
         if self.repo:
             self.commit_before_message.append(self.repo.get_head_commit_sha())
@@ -3524,6 +3536,18 @@ class Coder(metaclass=UsageMeta):
 
         return await session.call_tool(name=name, arguments=arguments)
 
+    @staticmethod
+    def _normalize_tool_call_sig(name, args_str):
+        name_clean = str(name or "").lower().replace("local--", "")
+        if not args_str:
+            return (name_clean, "")
+        try:
+            parsed = json.loads(args_str)
+            norm_args = json.dumps(parsed, sort_keys=True)
+        except Exception:
+            norm_args = str(args_str).strip()
+        return (name_clean, norm_args)
+
     async def process_tool_calls(self, tool_call_response):
         """Simplified main entry point."""
         # Check if max tool calls exceeded
@@ -3535,6 +3559,77 @@ class Coder(metaclass=UsageMeta):
         prepared_calls = self._extract_and_prepare_tool_calls(tool_call_response)
         if not prepared_calls:
             return False
+
+        # Duplicate tool call loop detection
+        round_signatures = tuple(
+            sorted(
+                self._normalize_tool_call_sig(
+                    tc.function.name, getattr(tc.function, "arguments", "")
+                )
+                for tc in prepared_calls
+                if tc.function.name.lower().replace("local--", "") not in ("yield",)
+            )
+        )
+        if round_signatures:
+            if round_signatures == getattr(self, "_last_tool_signatures", None):
+                self._consecutive_duplicate_tool_rounds = (
+                    getattr(self, "_consecutive_duplicate_tool_rounds", 0) + 1
+                )
+            else:
+                self._last_tool_signatures = round_signatures
+                self._consecutive_duplicate_tool_rounds = 1
+        else:
+            self._consecutive_duplicate_tool_rounds = 0
+            self._last_tool_signatures = None
+
+        if self._consecutive_duplicate_tool_rounds >= getattr(
+            self, "max_duplicate_tool_loop_abort", 5
+        ):
+            self.io.tool_warning(
+                f"Aborting loop: identical tool call(s) executed {self._consecutive_duplicate_tool_rounds} times consecutively."
+            )
+            self.agent_finished = True
+            self.reflected_message = None
+            for tc in prepared_calls:
+                call_id = getattr(tc, "id", None) or f"call_{time.monotonic_ns()}"
+                msg = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": "Error: Execution stopped due to infinite repetitive tool call loop.",
+                }
+                self.io.tool_call_event(call_id, "completed", result=msg["content"])
+                ConversationService.get_manager(self).add_message(
+                    message_dict=msg,
+                    tag=MessageTag.CUR,
+                    hash_key=(call_id, str(time.monotonic_ns())),
+                )
+            return True
+
+        if self._consecutive_duplicate_tool_rounds >= getattr(
+            self, "max_consecutive_duplicate_tool_calls", 3
+        ):
+            tool_names = ", ".join(f"'{tc.function.name}'" for tc in prepared_calls)
+            self.io.tool_warning(
+                f"Repetitive tool call loop detected: {tool_names} called {self._consecutive_duplicate_tool_rounds} times consecutively with identical arguments. Intercepted."
+            )
+            for tc in prepared_calls:
+                call_id = getattr(tc, "id", None) or f"call_{time.monotonic_ns()}"
+                msg = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": (
+                        f"Error: Repetitive tool call loop detected. You have called '{tc.function.name}' "
+                        f"with identical parameters {self._consecutive_duplicate_tool_rounds} times in a row without making progress. "
+                        "Do not repeat this tool call with the same arguments. Proceed to the next step, take an alternative action, or call Yield if complete."
+                    ),
+                }
+                self.io.tool_call_event(call_id, "completed", result=msg["content"])
+                ConversationService.get_manager(self).add_message(
+                    message_dict=msg,
+                    tag=MessageTag.CUR,
+                    hash_key=(call_id, str(time.monotonic_ns())),
+                )
+            return True
 
         # 2. Group by executor
         tool_groups = self._group_tools_by_executor(prepared_calls)
