@@ -87,9 +87,13 @@ async def _strip_null_content_hook(request: Any) -> None:
                 payload = json.loads(content)
                 modified = False
                 for msg in payload.get("messages", []):
-                    if isinstance(msg, dict) and msg.get("content") is None:
-                        msg["content"] = ""
-                        modified = True
+                    if isinstance(msg, dict):
+                        if msg.get("content") is None:
+                            msg["content"] = ""
+                            modified = True
+                        if "reasoning_content" in msg and msg.get("reasoning_content") is None:
+                            msg["reasoning_content"] = ""
+                            modified = True
                 if modified:
                     new_body = json.dumps(payload).encode("utf-8")
                     request.stream = httpx.ByteStream(new_body)

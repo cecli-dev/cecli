@@ -44,6 +44,11 @@ class TestAddReasoningContent:
         result = add_reasoning_content(msgs)
         assert result == [{"role": "assistant", "content": "hello", "reasoning_content": ""}]
 
+    def test_assistant_null_reasoning_content_replaced_with_empty_string(self):
+        msgs = [{"role": "assistant", "content": "hello", "reasoning_content": None}]
+        result = add_reasoning_content(msgs)
+        assert result == [{"role": "assistant", "content": "hello", "reasoning_content": ""}]
+
     def test_removes_reasoning_content_from_provider_specific_fields(self):
         msgs = [
             {
@@ -964,4 +969,21 @@ class TestSanitizeNullContent:
         asyncio.run(_strip_null_content_hook(request))
         modified_payload = json.loads(request.content)
         assert modified_payload["messages"][0]["content"] == ""
+
+    def test_chat_payload_coerces_null_reasoning_content_by_default(self):
+        from cecli.helpers.llms.domains.chat import chat_payload
+
+        resolved = {"route": "gemma-4-12b-mtp", "model": "openai/gemma-4-12b-mtp"}
+        msgs = [
+            {
+                "role": "assistant",
+                "content": None,
+                "reasoning_content": None,
+                "tool_calls": [{"id": "c1", "function": {"name": "fn", "arguments": "{}"}}],
+            }
+        ]
+
+        payload = chat_payload(resolved, msgs, tools=None, stream=False, kwargs={})
+        assert payload["messages"][0]["reasoning_content"] == ""
+
 

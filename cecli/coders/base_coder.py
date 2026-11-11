@@ -3831,8 +3831,8 @@ class Coder(metaclass=UsageMeta):
         elif self.partial_response_function_call:
             msg["function_call"] = _function_call_to_dict(self.partial_response_function_call)
 
-        if "reasoning_content" not in msg:
-            msg["reasoning_content"] = self.partial_response_reasoning_content
+        if not msg.get("reasoning_content"):
+            msg["reasoning_content"] = self.partial_response_reasoning_content or ""
 
         # Only add a message if it's not empty.
         if msg is not None and (

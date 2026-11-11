@@ -11,7 +11,7 @@ def add_reasoning_content(messages):
         List of messages with reasoning content added to assistant messages
     """
     for msg in messages:
-        if msg.get("role") == "assistant" and "reasoning_content" not in msg:
+        if msg.get("role") == "assistant" and msg.get("reasoning_content") is None:
             msg["reasoning_content"] = ""
 
         if msg.get("provider_specific_fields", None):
@@ -49,7 +49,7 @@ def add_reasoning_content(messages):
 
 
 def sanitize_null_content(messages):
-    """Replace null content with an empty string in messages.
+    """Replace null content (and null reasoning_content) with an empty string in messages.
 
     Args:
         messages: List of message dictionaries
@@ -58,8 +58,11 @@ def sanitize_null_content(messages):
         List of messages with null content replaced with empty string
     """
     for msg in messages:
-        if isinstance(msg, dict) and msg.get("content") is None:
-            msg["content"] = ""
+        if isinstance(msg, dict):
+            if msg.get("content") is None:
+                msg["content"] = ""
+            if "reasoning_content" in msg and msg.get("reasoning_content") is None:
+                msg["reasoning_content"] = ""
     return messages
 
 

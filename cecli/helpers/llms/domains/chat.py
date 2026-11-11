@@ -376,25 +376,31 @@ def _usage_from_raw(usage_raw: Optional[Dict[str, Any]]) -> Optional[Usage]:
 def _coerce_reasoning_content(
     messages: List[Dict[str, Any]], api_block: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
-    """Ensure assistant messages carry ``reasoning_content`` for thinking-mode chat.
+    """Ensure assistant messages carry ``reasoning_content`` as a string.
 
     DeepSeek (and other OpenAI-compatible providers in thinking mode) require
     the ``reasoning_content`` of a prior assistant turn to be echoed back when
     that message is replayed; a missing/``None`` value is rejected with ``The
     reasoning_content in the thinking mode must be passed back to the API``.
+    Likewise, llama.cpp / Lemonade servers reject ``"reasoning_content": null``
+    with ``[json.exception.type_error.302] type must be string, but is null``.
     Messages produced by other providers (gemini / anthropic / copilot) do not
     carry it, so we loosely map any captured reasoning (anthropic thinking
     blocks, gemini thought parts) into ``reasoning_content`` and otherwise send
-    an empty string, which DeepSeek accepts.
+    an empty string.
     """
-    if not (api_block.get("reasoning_effort") or api_block.get("thinking")):
-        return messages
+    thinking_enabled = bool(api_block.get("reasoning_effort") or api_block.get("thinking"))
 
     out: List[Dict[str, Any]] = []
     changed = False
 
     for msg in messages:
-        if msg.get("role") == "assistant" and msg.get("reasoning_content") is None:
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") == "assistant"
+            and msg.get("reasoning_content") is None
+            and (thinking_enabled or "reasoning_content" in msg)
+        ):
             copied = dict(msg)
             copied["reasoning_content"] = _map_reasoning_content(msg) or ""
             out.append(copied)
@@ -428,19 +434,25 @@ def _map_reasoning_content(msg: Dict[str, Any]) -> str:
 
 
 def _sanitize_null_content(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Ensure no message carries content=None before serialization.
+    """Ensure no message carries content=None or reasoning_content=None before serialization.
 
     Many OpenAI-compatible endpoints (e.g., vLLM, Aphrodite, LM Studio, Ollama,
-    Lemonade) reject assistant turns where content is null, even when tool_calls
-    are present. Replaces null content with an empty string.
+    Lemonade / llama.cpp) reject assistant turns where content or
+    reasoning_content is null. Replaces null values with an empty string.
     """
     out: List[Dict[str, Any]] = []
     changed = False
 
     for msg in messages:
-        if isinstance(msg, dict) and msg.get("content") is None:
+        if isinstance(msg, dict) and (
+            msg.get("content") is None
+            or ("reasoning_content" in msg and msg.get("reasoning_content") is None)
+        ):
             copied = dict(msg)
-            copied["content"] = ""
+            if copied.get("content") is None:
+                copied["content"] = ""
+            if "reasoning_content" in copied and copied.get("reasoning_content") is None:
+                copied["reasoning_content"] = ""
             out.append(copied)
             changed = True
         else:
