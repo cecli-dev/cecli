@@ -518,6 +518,26 @@ class TestSubAgentEvents:
         assert result["sender_uuid"] == "child-uuid" and "all good" in result["text"]
         assert idle == {"stop_reason": "end_turn", "error": None}
 
+    async def test_invoke_injects_result_without_yield(self, service):
+        """A sub-agent that ends its turn without yielding still reaches the parent."""
+
+        async def finish(user_message, **kwargs):
+            pass
+
+        sub_coder = make_sub_coder(service, finish)
+        sub_coder.partial_response_content = "the final answer"
+        self.MockCoder.create = AsyncMock(return_value=sub_coder)
+
+        assert await service.invoke("reviewer", "review this") == "the final answer"
+        assert service.sub_agents["child-uuid"].status == SubAgentStatus.FINISHED
+
+        events = self.events(service)
+        parent_messages = [
+            kwargs for uuid, event, kwargs in events if uuid == "parent-uuid" and event == "message"
+        ]
+        assert len(parent_messages) == 1
+        assert "the final answer" in parent_messages[0]["text"]
+
     def start_work(self, service, absorb):
         """Invoke a sub-agent that works until cancelled; returns (invoking task, started)."""
         started = asyncio.Event()

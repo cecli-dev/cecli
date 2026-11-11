@@ -1951,28 +1951,34 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 return None
 
             result = '<context name="sub_agent_states" from="agent">\n'
-            result += "## Active Sub-Agent Instances\n\n"
-            result += f"Found {len(dependent_children) + len(independent_agents)} active sub-agent(s):\n\n"
+            result += f"Found {len(dependent_children) + len(independent_agents)} existing sub-agent(s):\n\n"
 
             if dependent_children:
+                result += "## Child Sub-Agent Instances\n"
+
                 for info in dependent_children:
                     line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
                     if info.error:
                         line += f" - Error: {info.error}"
                     result += line + "\n"
 
+                result += "\n"
+
             if independent_agents:
                 result += "## Independent Sub-Agent Instances\n"
-                result += (
-                    "Communicate bi-directionally with these sub-agents using the "
-                    "`Broadcast` tool:\n\n"
-                )
 
                 for info in independent_agents:
                     line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
                     if info.error:
                         line += f" - Error: {info.error}"
                     result += line + "\n"
+
+                result += "\n"
+
+            result += (
+                "Communicate bi-directionally with these sub-agents using the "
+                "`Broadcast` tool:\n\n"
+            )
 
             result += "</context>"
             return result

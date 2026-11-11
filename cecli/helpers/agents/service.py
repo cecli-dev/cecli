@@ -1099,10 +1099,10 @@ class AgentService:
                 if _was_cancelled(info):
                     stop_reason = "cancelled"
                     info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
-                await self._inject_sub_agent_result(info)
                 if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
-                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
+                    info.summary = info.summary or self._fallback_summary(info)
+                await self._inject_sub_agent_result(info)
 
                 if info.auto_reap and info.independent:
 
@@ -1122,9 +1122,9 @@ class AgentService:
 
             except asyncio.CancelledError:
                 stop_reason = "cancelled"
-                await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.FINISHED
                 info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
+                await self._inject_sub_agent_result(info)
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
             except SwitchCoderSignal as switch:
@@ -1134,15 +1134,15 @@ class AgentService:
                 # sub-agent. The switch also drains any prompts staged behind
                 # the command, mirroring run_one()'s post-command drain.
                 await self.switch_sub_agent_coder(info, switch, preproc=True)
-                await self._inject_sub_agent_result(info)
                 if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
-                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
+                    info.summary = info.summary or self._fallback_summary(info)
+                await self._inject_sub_agent_result(info)
             except Exception as exc:
                 stop_reason, error = "error", str(exc) or exc.__class__.__name__
-                await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.ERROR
                 info.error = str(exc)
+                await self._inject_sub_agent_result(info)
                 logger.error(
                     "Sub-agent %s generate failed: %s",
                     info.name,
@@ -1254,8 +1254,8 @@ class AgentService:
                 header = f"The **{info.name}** agent (`{coder_uuid}`) was interrupted:"
             else:
                 header = (
-                    f"The **{info.name}** agent (`{coder_uuid}`) completed with the following"
-                    " summary:"
+                    f"The **{info.name}** agent (`{coder_uuid}`) yielded with the following"
+                    " message:"
                 )
             body = info.summary or DEFAULT_SUMMARY_COMPLETED
         else:
@@ -1279,6 +1279,19 @@ class AgentService:
         _subagent_event(
             parent_coder, parent_coder.uuid, "message", sender_uuid=coder_uuid, text=user_content
         )
+
+    @staticmethod
+    def _fallback_summary(info: SubAgentInfo) -> str:
+        """Return the sub-agent's final response text, or a generic placeholder.
+
+        Used when a sub-agent ends its turn without calling ``Yield`` and so
+        never supplied an explicit summary.
+        """
+        content = getattr(info.coder, "partial_response_content", None)
+        if content and content.strip():
+            return content.strip()
+
+        return DEFAULT_SUMMARY_COMPLETED
 
     async def invoke(
         self,
