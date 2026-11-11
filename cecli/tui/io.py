@@ -129,6 +129,19 @@ class TextualInputOutput(InputOutput):
         coder_uuid = kwargs.pop("coder_uuid", None)
         kwargs.pop("type", None)
 
+        # If a single Rich renderable object (like Panel) is passed, route
+        # it directly as a renderable to let Textual fit it to widget width
+        if len(messages) == 1 and not isinstance(messages[0], (str, bytes)):
+            msg = {
+                "type": "renderable",
+                "renderable": messages[0],
+                "task_id": self.current_task_id,
+            }
+            if coder_uuid:
+                msg["coder_uuid"] = coder_uuid
+            self.output_queue.put(msg)
+            return
+
         # Capture Rich rendering with forced ANSI output
         console = self._get_tui_console()
         with console.capture() as capture:

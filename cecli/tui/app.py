@@ -562,6 +562,9 @@ class TUI(App):
         if msg_type == "output":
             container = self._get_output_container(msg)
             container.add_output(msg["text"], msg.get("task_id"))
+        elif msg_type == "renderable":
+            container = self._get_output_container(msg)
+            container.output(msg["renderable"])
         elif msg_type == "tool_call":
             # Render tool call with styled panel
             container = self._get_output_container(msg)

@@ -6,6 +6,7 @@ import textwrap
 from rich.markdown import Markdown
 from rich.markup import escape
 from rich.padding import Padding
+from rich.panel import Panel
 from rich.style import Style as RichStyle
 from rich.text import Text
 from textual import events, on
@@ -314,6 +315,9 @@ class OutputContainer(SelectableRichLog):
         if isinstance(text, Markdown):
             # Markdown objects expose their source through the markup attribute
             return text.markup if hasattr(text, "markup") else str(text)
+
+        if isinstance(text, Panel):
+            return OutputContainer._plain_text(text.renderable)
 
         if isinstance(text, Padding):
             # Recurse into Padding so we track the actual content rather than
