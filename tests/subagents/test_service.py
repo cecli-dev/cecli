@@ -1533,3 +1533,129 @@ class TestWorktreeRoots:
             service._cleanup_sub_agent("agent")
 
         assert "agent" not in service.sub_agents
+
+
+# ================================================================== #
+# Sub-agent result lifecycle & error injection
+# ================================================================== #
+
+
+class TestSubAgentResultLifecycle:
+    """Sub-agent completions and errors must reliably inject context into the parent."""
+
+    @pytest.mark.asyncio
+    async def test_generate_error_injects_error_into_parent(self, service, mock_coder):
+        import weakref
+
+        service._uuid_coder_map["parent-uuid"] = weakref.ref(mock_coder)
+        child = MagicMock()
+        child.uuid = "child-uuid"
+        child.generate = AsyncMock(side_effect=RuntimeError("API quota exceeded"))
+
+        info = SubAgentInfo(
+            name="worker",
+            coder=child,
+            parent_uuid="parent-uuid",
+        )
+        service.sub_agents["worker"] = info
+
+        with patch(
+            "cecli.helpers.conversation.service.ConversationService.get_manager"
+        ) as get_manager:
+            task = service.start_generate_task(info, "do task")
+            with pytest.raises(RuntimeError, match="API quota exceeded"):
+                await task
+
+        assert info.status == SubAgentStatus.ERROR
+        assert "API quota exceeded" in info.error
+
+        add_message = get_manager.return_value.add_message
+        assert add_message.call_count == 1
+        msg = add_message.call_args.kwargs["message_dict"]
+        assert msg["role"] == "user"
+        assert '<context name="sub_agent_result" from="agent">' in msg["content"]
+        assert "encountered an error:" in msg["content"]
+        assert "API quota exceeded" in msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_generate_without_yield_extracts_assistant_reply(self, service, mock_coder):
+        import weakref
+
+        service._uuid_coder_map["parent-uuid"] = weakref.ref(mock_coder)
+        child = MagicMock()
+        child.uuid = "child-uuid"
+        child.generate = AsyncMock(return_value=None)
+
+        info = SubAgentInfo(
+            name="worker",
+            coder=child,
+            parent_uuid="parent-uuid",
+        )
+        service.sub_agents["worker"] = info
+
+        # Mock child conversation manager to return an assistant message
+        mock_child_manager = MagicMock()
+        mock_child_manager.get_messages_dict.return_value = [
+            {"role": "user", "content": "do task"},
+            {"role": "assistant", "content": "I finished writing the documentation."},
+        ]
+
+        with patch(
+            "cecli.helpers.conversation.service.ConversationService.get_manager"
+        ) as get_manager:
+            def side_effect(coder):
+                if coder == child:
+                    return mock_child_manager
+                return mock_coder.manager
+            get_manager.side_effect = side_effect
+
+            task = service.start_generate_task(info, "do task")
+            await task
+
+        assert info.status == SubAgentStatus.FINISHED
+        assert info.summary == "I finished writing the documentation."
+
+        add_message = mock_coder.manager.add_message
+        assert add_message.call_count == 1
+        msg = add_message.call_args.kwargs["message_dict"]
+        assert '<context name="sub_agent_result" from="agent">' in msg["content"]
+        assert "completed with the following summary:" in msg["content"]
+        assert "I finished writing the documentation." in msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_wait_with_failing_task_returns_summaries_without_crashing(self, service):
+        import asyncio
+
+        parent_coder = MagicMock()
+        parent_coder.uuid = "parent-uuid"
+
+        child1 = MagicMock()
+        child1.uuid = "child1-uuid"
+        info1 = SubAgentInfo(
+            name="ok_agent",
+            coder=child1,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.FINISHED,
+            summary="all good",
+        )
+        info1.generate_task = asyncio.create_task(asyncio.sleep(0.01))
+
+        child2 = MagicMock()
+        child2.uuid = "child2-uuid"
+        info2 = SubAgentInfo(
+            name="bad_agent",
+            coder=child2,
+            parent_uuid="parent-uuid",
+            status=SubAgentStatus.ERROR,
+            error="boom",
+            summary=None,
+        )
+        async def failing():
+            raise RuntimeError("boom")
+        info2.generate_task = asyncio.create_task(failing())
+
+        service.sub_agents["ok_agent"] = info1
+        service.sub_agents["bad_agent"] = info2
+
+        result = await service.wait(parent_coder)
+        assert result == ["all good", None]

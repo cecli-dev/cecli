@@ -63,9 +63,34 @@ def is_path_within_root(path, root) -> bool:
         return False
 
 
+def sanitize_file_path(file_path: str) -> str:
+    """Sanitize a file path by stripping enclosing quotes and removing leaked model tokens."""
+    if not isinstance(file_path, str):
+        return file_path
+
+    file_path = file_path.strip().strip("'\"`")
+
+    # Model hallucinated tool call delimiters or special tokens
+    leak_markers = (
+        "}<tool_call",
+        "<tool_call",
+        "<|tool_call",
+        "<|channel",
+        "<|im_start",
+        "</tool_call>",
+        "<|endoftext|>",
+    )
+    for marker in leak_markers:
+        if marker in file_path:
+            file_path = file_path.split(marker)[0].strip().rstrip("}").strip().strip("'\"`")
+
+    return file_path
+
+
 def resolve_paths(coder, file_path):
     """Resolves absolute and relative paths for a given file path."""
     try:
+        file_path = sanitize_file_path(file_path)
         file_path = os.path.expanduser(file_path)
         abs_path = coder.abs_root_path(file_path)
         rel_path = coder.get_rel_fname(abs_path)

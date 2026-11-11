@@ -1092,17 +1092,23 @@ class AgentService:
         async def _run_generate():
             info.status = SubAgentStatus.RUNNING
             info.cancel_requested = False
+            info.result_injected = False
             _subagent_event(info.coder, info.coder.uuid, "running")
             stop_reason, error = "end_turn", None
             try:
                 await info.coder.generate(user_message=user_message, preproc=True)
                 if _was_cancelled(info):
                     stop_reason = "cancelled"
-                    info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
-                await self._inject_sub_agent_result(info)
-                if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
-                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
+                    info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
+                else:
+                    if info.status == SubAgentStatus.RUNNING:
+                        info.status = SubAgentStatus.FINISHED
+                    if not info.summary:
+                        info.summary = (
+                            self._extract_sub_agent_summary(info) or DEFAULT_SUMMARY_COMPLETED
+                        )
+                await self._inject_sub_agent_result(info)
 
                 if info.auto_reap and info.independent:
 
@@ -1122,9 +1128,9 @@ class AgentService:
 
             except asyncio.CancelledError:
                 stop_reason = "cancelled"
-                await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.FINISHED
                 info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
+                await self._inject_sub_agent_result(info)
                 logger.debug("Sub-agent %s generate cancelled (interrupted)", info.name)
                 raise
             except SwitchCoderSignal as switch:
@@ -1134,15 +1140,18 @@ class AgentService:
                 # sub-agent. The switch also drains any prompts staged behind
                 # the command, mirroring run_one()'s post-command drain.
                 await self.switch_sub_agent_coder(info, switch, preproc=True)
-                await self._inject_sub_agent_result(info)
                 if info.status == SubAgentStatus.RUNNING:
                     info.status = SubAgentStatus.FINISHED
-                    info.summary = info.summary or DEFAULT_SUMMARY_COMPLETED
+                if not info.summary:
+                    info.summary = (
+                        self._extract_sub_agent_summary(info) or DEFAULT_SUMMARY_COMPLETED
+                    )
+                await self._inject_sub_agent_result(info)
             except Exception as exc:
                 stop_reason, error = "error", str(exc) or exc.__class__.__name__
-                await self._inject_sub_agent_result(info)
                 info.status = SubAgentStatus.ERROR
-                info.error = str(exc)
+                info.error = str(exc) or exc.__class__.__name__
+                await self._inject_sub_agent_result(info)
                 logger.error(
                     "Sub-agent %s generate failed: %s",
                     info.name,
@@ -1219,6 +1228,33 @@ class AgentService:
 
         return "started"
 
+    def _extract_sub_agent_summary(self, info: SubAgentInfo) -> Optional[str]:
+        """Attempt to extract the last assistant reply text from the sub-agent if no explicit summary was given."""
+        if not info.coder:
+            return None
+        try:
+            from cecli.helpers.conversation.service import ConversationService
+
+            manager = ConversationService.get_manager(info.coder)
+            messages = manager.get_messages_dict()
+            for msg in reversed(messages):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content")
+                    if content and isinstance(content, str) and content.strip():
+                        return content.strip()
+                    elif isinstance(content, list):
+                        texts = [
+                            block.get("text", "")
+                            for block in content
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        ]
+                        joined = "\n".join(t for t in texts if t).strip()
+                        if joined:
+                            return joined
+        except Exception as e:
+            logger.debug("Failed to extract sub-agent summary from conversation: %s", e)
+        return None
+
     async def _inject_sub_agent_result(self, info: SubAgentInfo) -> None:
         """Inject the sub-agent's result (summary/error) into the parent's conversation.
 
@@ -1232,6 +1268,9 @@ class AgentService:
         from cecli.helpers.conversation.tags import MessageTag
 
         if info.detached:
+            return
+
+        if getattr(info, "result_injected", False):
             return
 
         # Capture coder UUID early in case the sub-agent is cleaned up before
@@ -1248,7 +1287,7 @@ class AgentService:
 
         if info.status == SubAgentStatus.ERROR:
             header = f"The **{info.name}** agent (`{coder_uuid}`) encountered an error:"
-            body = str(info.error)
+            body = str(info.error or "Unknown error")
         elif info.status == SubAgentStatus.FINISHED:
             if info.summary == DEFAULT_SUMMARY_INTERRUPTED:
                 header = f"The **{info.name}** agent (`{coder_uuid}`) was interrupted:"
@@ -1260,6 +1299,8 @@ class AgentService:
             body = info.summary or DEFAULT_SUMMARY_COMPLETED
         else:
             return
+
+        info.result_injected = True
 
         user_content = (
             '<context name="sub_agent_result" from="agent">\n'
@@ -1405,7 +1446,7 @@ class AgentService:
 
         if tasks:
             logger.debug("wait(%s): awaiting %d generate task(s)", uid, len(tasks))
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         return [info.summary for info in children]
 
