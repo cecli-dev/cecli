@@ -837,6 +837,7 @@ class _LiteLLMFacade:
                 "extra_body",
                 "prompt_cache_key",
                 "stream_options",
+                "sanitize_null_content",
             ):
                 if kwargs.get(key) is not None:
                     passthrough[key] = kwargs[key]

@@ -20,6 +20,7 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from .. import runtime
 from ..runtime import VERIFY_SSL, make_client
 from ..types import (
     Choice,
@@ -50,6 +51,13 @@ def chat_payload(
 
     if resolved.get("_echo_reasoning_content", True):
         messages = _coerce_reasoning_content(messages, api_block)
+
+    if (
+        runtime.SANITIZE_NULL_CONTENT
+        or resolved.get("sanitize_null_content")
+        or kwargs.get("sanitize_null_content")
+    ):
+        messages = _sanitize_null_content(messages)
 
     payload: Dict[str, Any] = {
         "model": resolved["route"],
@@ -417,6 +425,28 @@ def _map_reasoning_content(msg: Dict[str, Any]) -> str:
             texts.append(value)
 
     return "\n".join(texts)
+
+
+def _sanitize_null_content(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ensure no message carries content=None before serialization.
+
+    Many OpenAI-compatible endpoints (e.g., vLLM, Aphrodite, LM Studio, Ollama,
+    Lemonade) reject assistant turns where content is null, even when tool_calls
+    are present. Replaces null content with an empty string.
+    """
+    out: List[Dict[str, Any]] = []
+    changed = False
+
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("content") is None:
+            copied = dict(msg)
+            copied["content"] = ""
+            out.append(copied)
+            changed = True
+        else:
+            out.append(msg)
+
+    return out if changed else messages
 
 
 def _openai_env_override() -> Optional[Tuple[str, Optional[str]]]:

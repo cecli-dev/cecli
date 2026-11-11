@@ -48,6 +48,21 @@ def add_reasoning_content(messages):
     return messages
 
 
+def sanitize_null_content(messages):
+    """Replace null content with an empty string in messages.
+
+    Args:
+        messages: List of message dictionaries
+
+    Returns:
+        List of messages with null content replaced with empty string
+    """
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("content") is None:
+            msg["content"] = ""
+    return messages
+
+
 def remove_empty_tool_calls(messages):
     """Remove messages with tool_calls that are empty arrays.
 
@@ -225,6 +240,8 @@ def model_request_parser(model, messages, tools):
     messages = add_reasoning_content(messages)
     messages = add_continue_for_no_prefill(model, messages, tools)
     messages = prevent_consecutive_assistant_messages(messages)
+    if getattr(model, "sanitize_null_content", False):
+        messages = sanitize_null_content(messages)
     return messages
 
 

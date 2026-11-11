@@ -143,6 +143,7 @@ class ModelSettings:
     retry_timeout: float = 30
     request_timeout: int = request_timeout
     debug: bool = False
+    sanitize_null_content: bool = False
 
 
 MODEL_SETTINGS = []
@@ -562,6 +563,8 @@ class Model(ModelSettings):
         self.get_agent_model(agent_model)
 
         self.debug = debug
+        if "sanitize_null_content" in kwargs:
+            self.sanitize_null_content = bool(kwargs["sanitize_null_content"])
 
         if editor_model is False:
             self.editor_model_name = None
@@ -1336,6 +1339,8 @@ class Model(ModelSettings):
         kwargs = dict(model=self.name, stream=stream)
 
         kwargs["drop_params"] = True
+        if self.sanitize_null_content:
+            kwargs["sanitize_null_content"] = True
 
         if kwargs["stream"]:
             kwargs["stream_options"] = {"include_usage": True}

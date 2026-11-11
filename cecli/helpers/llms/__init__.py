@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from .config import get_api_key, resolve_model_config
 from .pipeline import acompletion
-from .runtime import set_verify_ssl
+from .runtime import SANITIZE_NULL_CONTENT, set_sanitize_null_content, set_verify_ssl
 from .types import CompletionChunk, CompletionResponse, ToolCall
 
 __all__ = [
@@ -31,5 +31,7 @@ __all__ = [
     "CompletionResponse",
     "CompletionChunk",
     "ToolCall",
+    "SANITIZE_NULL_CONTENT",
+    "set_sanitize_null_content",
     "set_verify_ssl",
 ]

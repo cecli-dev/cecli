@@ -918,6 +918,10 @@ async def main_async(
 
         set_verify_ssl(False)
         models.model_info_manager.set_verify_ssl(False)
+    if getattr(args, "sanitize_null_content", False):
+        from cecli.helpers.llms import set_sanitize_null_content
+
+        set_sanitize_null_content(True)
     if args.timeout:
         models.request_timeout = args.timeout
     if args.dark_mode:
@@ -1198,6 +1202,8 @@ async def main_async(
     if args.model_overrides:
         models.ModelOverrides.load_from_string(args.model_overrides, io)
 
+    sanitize_null = getattr(args, "sanitize_null_content", False)
+
     weak_model_obj = None
     if args.weak_model:
         weak_model_obj = models.Model(
@@ -1208,6 +1214,7 @@ async def main_async(
             io=io,
             retries=args.retries,
             debug=args.debug,
+            sanitize_null_content=sanitize_null,
         )
 
     editor_model_obj = None
@@ -1220,6 +1227,7 @@ async def main_async(
             io=io,
             retries=args.retries,
             debug=args.debug,
+            sanitize_null_content=sanitize_null,
         )
 
     agent_model_obj = None
@@ -1232,6 +1240,7 @@ async def main_async(
             io=io,
             retries=args.retries,
             debug=args.debug,
+            sanitize_null_content=sanitize_null,
         )
 
     if args.model.startswith("openrouter/") and not os.environ.get("OPENROUTER_API_KEY"):
@@ -1268,6 +1277,7 @@ async def main_async(
         io=io,
         retries=args.retries,
         debug=args.debug,
+        sanitize_null_content=sanitize_null,
     )
 
     if args.copy_paste and main_model.copy_paste_transport == "api":

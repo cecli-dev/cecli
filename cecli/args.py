@@ -243,6 +243,15 @@ def get_parser(default_config_files, git_root):
         help="Verify the SSL cert when connecting to models (default: True)",
     )
     group.add_argument(
+        "--sanitize-null-content",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Replace null message content with empty strings in outbound requests to"
+            " OpenAI-compatible endpoints (default: False)"
+        ),
+    )
+    group.add_argument(
         "--timeout",
         type=float,
         default=None,

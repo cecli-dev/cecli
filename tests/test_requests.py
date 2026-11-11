@@ -6,6 +6,7 @@ from cecli.helpers.requests import (
     model_request_parser,
     prevent_consecutive_assistant_messages,
     remove_empty_tool_calls,
+    sanitize_null_content,
     thought_signature,
 )
 from cecli.sendchat import ensure_alternating_roles
@@ -847,3 +848,120 @@ class TestEnsureAlternatingRoles:
         # Orphaned tool message should be removed
         tool_msgs = [m for m in result if m.get("role") == "tool"]
         assert len(tool_msgs) == 0
+
+
+# ---------------------------------------------------------------------------
+# sanitize_null_content
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeNullContent:
+    def test_empty_messages(self):
+        assert sanitize_null_content([]) == []
+
+    def test_replaces_null_content_with_empty_string(self):
+        msgs = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "local--ReadFile", "arguments": "{}"},
+                    }
+                ],
+            }
+        ]
+        result = sanitize_null_content(msgs)
+        assert result[0]["content"] == ""
+
+    def test_preserves_existing_content(self):
+        msgs = [
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "world"},
+        ]
+        result = sanitize_null_content(msgs)
+        assert result[0]["content"] == "hello"
+        assert result[1]["content"] == "world"
+
+    def test_model_request_parser_honors_flag(self):
+        model_enabled = _MockModel()
+        model_enabled.sanitize_null_content = True
+
+        model_disabled = _MockModel()
+        model_disabled.sanitize_null_content = False
+
+        msgs = [
+            {"role": "user", "content": "do tool"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "c1", "function": {"name": "test", "arguments": "{}"}}],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "result"},
+            {"role": "user", "content": "next"},
+        ]
+
+        # Enabled: assistant content replaced with ""
+        res_enabled = model_request_parser(model_enabled, msgs, tools=[])
+        asst_enabled = [m for m in res_enabled if m["role"] == "assistant"][0]
+        assert asst_enabled["content"] == ""
+
+        # Disabled: assistant content left as None
+        res_disabled = model_request_parser(model_disabled, msgs, tools=[])
+        asst_disabled = [m for m in res_disabled if m["role"] == "assistant"][0]
+        assert asst_disabled["content"] is None
+
+    def test_chat_payload_sanitizes_null_content(self):
+        from cecli.helpers.llms.domains.chat import chat_payload
+        from cecli.helpers.llms.runtime import set_sanitize_null_content
+
+        resolved = {"route": "gpt-4o", "model": "gpt-4o"}
+        msgs = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "c1", "function": {"name": "fn", "arguments": "{}"}}],
+            }
+        ]
+
+        # Explicit kwarg sanitize_null_content=True
+        payload = chat_payload(resolved, msgs, tools=None, stream=False, kwargs={"sanitize_null_content": True})
+        assert payload["messages"][0]["content"] == ""
+
+        # Global runtime setting
+        try:
+            set_sanitize_null_content(True)
+            payload_global = chat_payload(resolved, msgs, tools=None, stream=False, kwargs={})
+            assert payload_global["messages"][0]["content"] == ""
+        finally:
+            set_sanitize_null_content(False)
+
+    def test_httpx_request_hook_sanitizes_null_content(self):
+        import asyncio
+        import json
+        from cecli.http import httpx
+        from cecli.helpers.llms.runtime import _strip_null_content_hook
+
+        body = json.dumps({
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{"id": "c1", "function": {"name": "test", "arguments": "{}"}}],
+                }
+            ]
+        }).encode("utf-8")
+
+        request = httpx.Request(
+            "POST",
+            "http://localhost:13305/api/v1/chat/completions",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+
+        asyncio.run(_strip_null_content_hook(request))
+        modified_payload = json.loads(request.content)
+        assert modified_payload["messages"][0]["content"] == ""
+

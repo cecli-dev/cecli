@@ -11,6 +11,7 @@ so failed provider requests stay diagnosable after the fact.
 
 from __future__ import annotations
 
+import json
 import os
 import ssl
 import threading
@@ -21,6 +22,9 @@ from cecli.http import httpx
 
 #: Global TLS verification flag; set False for ``--no-verify-ssl``.
 VERIFY_SSL = True
+
+#: Global flag to replace null message content with "" in outbound chat requests.
+SANITIZE_NULL_CONTENT = False
 
 #: Append-only destination for 4xx/5xx response bodies.
 ERROR_LOG_PATH = ".cecli/logs/requests-errors.log"
@@ -39,6 +43,13 @@ def set_verify_ssl(verify: bool) -> None:
     VERIFY_SSL = bool(verify)
 
 
+def set_sanitize_null_content(sanitize: bool) -> None:
+    """Set whether outbound chat requests replace null message content with empty strings."""
+    global SANITIZE_NULL_CONTENT
+
+    SANITIZE_NULL_CONTENT = bool(sanitize)
+
+
 def make_client(timeout: float, **kwargs: Any) -> httpx.AsyncClient:
     """Create an httpx AsyncClient, retrying once on the OpenSSL first-init flake.
 
@@ -51,15 +62,42 @@ def make_client(timeout: float, **kwargs: Any) -> httpx.AsyncClient:
 
     A response hook is always attached so 4xx/5xx bodies land in
     :data:`ERROR_LOG_PATH`; caller-supplied ``event_hooks`` are preserved.
+    When ``SANITIZE_NULL_CONTENT`` is enabled, a request hook replaces null
+    message contents on ``/chat/completions`` with empty strings.
     """
     hooks = dict(kwargs.pop("event_hooks", None) or {})
     hooks["response"] = [*hooks.get("response", []), _log_error_response]
+    if SANITIZE_NULL_CONTENT:
+        hooks["request"] = [*hooks.get("request", []), _strip_null_content_hook]
 
     try:
         return httpx.AsyncClient(timeout=timeout, event_hooks=hooks, **kwargs)
 
     except ssl.SSLError:
         return httpx.AsyncClient(timeout=timeout, event_hooks=hooks, **kwargs)
+
+
+async def _strip_null_content_hook(request: Any) -> None:
+    """Async httpx request hook: replace null 'content' in chat completion messages."""
+    url = getattr(request, "url", None)
+    if url and url.path.endswith("/chat/completions"):
+        content = getattr(request, "content", None)
+        if content:
+            try:
+                payload = json.loads(content)
+                modified = False
+                for msg in payload.get("messages", []):
+                    if isinstance(msg, dict) and msg.get("content") is None:
+                        msg["content"] = ""
+                        modified = True
+                if modified:
+                    new_body = json.dumps(payload).encode("utf-8")
+                    request.stream = httpx.ByteStream(new_body)
+                    if hasattr(request, "_content"):
+                        request._content = new_body
+                    request.headers["content-length"] = str(len(new_body))
+            except Exception:
+                pass
 
 
 def log_error_response(response: Any) -> None:
@@ -126,8 +164,10 @@ def _append_error_record(response: Any, body: str) -> None:
 
 __all__ = [
     "ERROR_LOG_PATH",
+    "SANITIZE_NULL_CONTENT",
     "VERIFY_SSL",
     "log_error_response",
     "make_client",
+    "set_sanitize_null_content",
     "set_verify_ssl",
 ]
