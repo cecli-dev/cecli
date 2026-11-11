@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from rich.markdown import Markdown
+from rich.panel import Panel
+
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.helpers.conversation import ConversationService, MessageTag
 
@@ -53,7 +56,7 @@ class BtwCommand(BaseCommand):
             "You are a concise technical assistant answering a quick side-question ('by the way') "
             "for a developer working in a terminal coding session.",
             "Rules:",
-            "- Answer directly and concisely.",
+            "- Answer directly and concisely using clean Markdown.",
             "- Do NOT attempt to run tools, write files, or generate tool call tags.",
             "- Focus only on answering the developer's question.",
         ]
@@ -121,7 +124,7 @@ class BtwCommand(BaseCommand):
                 "role": "system",
                 "content": (
                     "You are a helpful and concise technical assistant. "
-                    "Answer the user's question directly without extraneous filler."
+                    "Answer the user's question directly and concisely using clean Markdown."
                 ),
             })
         else:
@@ -135,9 +138,6 @@ class BtwCommand(BaseCommand):
         # Final user side-question
         messages.append({"role": "user", "content": query})
 
-        # Display query banner
-        io.tool_output(f"\n💬 [bold cyan]/btw[/bold cyan] [dim]{'(isolated)' if no_context else '(context-aware)'}[/dim]: {query}\n")
-
         try:
             # Query model directly without adding to conversation manager
             response, _ = await model.simple_send_with_retries(messages)
@@ -145,9 +145,24 @@ class BtwCommand(BaseCommand):
                 io.tool_error("Model returned an empty response.")
                 return "Error: Empty response"
 
-            # Print response to console/TUI
-            io.tool_output(str(response).strip())
-            io.tool_output("")
+            response_text = str(response).strip()
+
+            # Render as Rich Markdown wrapped in a clean, styled border panel
+            md = Markdown(response_text)
+            mode_tag = "[dim](isolated)[/]" if no_context else "[dim](context-aware)[/]"
+            title = f"[bold cyan]💬 /btw:[/] [bold]{query}[/] {mode_tag}"
+            panel = Panel(
+                md,
+                title=title,
+                border_style="cyan",
+                padding=(0, 1),
+            )
+
+            if hasattr(io, "stream_print"):
+                io.stream_print(panel)
+            else:
+                io.tool_output(response_text)
+
             return "Successfully executed /btw."
 
         except Exception as e:
