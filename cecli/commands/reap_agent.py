@@ -13,13 +13,15 @@ class ReapAgentCommand(BaseCommand):
     DESCRIPTION = "Force destroy the active sub-agent"
 
     @classmethod
-    async def execute(cls, io, coder, args, **kwargs):
+    async def execute(cls, io, coder, args, target_agent_uuid=None, **kwargs):
         """Destroy a sub-agent and clean up its resources.
 
         If an agent identifier is provided, looks up the sub-agent by
         name or UUID prefix (matching switch-agent semantics).  Without
-        an argument the currently-active sub-agent (from the TUI) is
-        reaped.
+        an argument the currently-active sub-agent is reaped: the visible
+        one in the TUI, or the foreground agent for clients without a TUI
+        (the desktop app).  Running the command inside a sub-agent reaps
+        that sub-agent.
         """
         agent_identifier = args.strip() if args else ""
 
@@ -69,31 +71,19 @@ class ReapAgentCommand(BaseCommand):
                 return
 
         else:
-            # Original behaviour: reap the active sub-agent from the TUI
-            active_uuid = None
-
-            # Use _get_tui logic (same as AgentService._get_tui) to safely
-            # dereference the TUI weakref. The TUI stores itself on coders
-            # as a weakref.ref, so we must call it to get the live object.
-            tui_ref = getattr(coder, "tui", None)
-            if tui_ref is not None:
-                if isinstance(tui_ref, weakref.ref):
-                    tui_instance = tui_ref()
-                else:
-                    tui_instance = tui_ref
-                if tui_instance is not None:
-                    active_uuid = tui_instance._get_visible_coder().uuid
+            # Reap whichever sub-agent the user is acting on
+            agent_service = AgentService.get_instance(coder)
+            active_uuid = target_agent_uuid or cls._active_sub_agent_uuid(coder, agent_service)
 
             if not active_uuid:
                 io.tool_error("No active sub-agent to reap.")
                 return
 
             # Find the sub-agent info by UUID
-            agent_service = AgentService.get_instance(coder)
-            for name, info in list(agent_service.sub_agents.items()):
+            for info in agent_service.sub_agents.values():
                 if info.coder.uuid == active_uuid:
                     agent_uuid = active_uuid
-                    target_name = name
+                    target_name = info.name
                     break
             else:
                 io.tool_error("Could not find sub-agent for the active container.")
@@ -157,3 +147,25 @@ class ReapAgentCommand(BaseCommand):
         help_text += "  /reap-agent reviewer\n"
         help_text += "  /reap-agent abc\n"
         return help_text
+
+    @classmethod
+    def _active_sub_agent_uuid(cls, coder, agent_service) -> str | None:
+        """The UUID of the sub-agent the caller is acting on.
+
+        The TUI tracks a visible container.  Without one, prefer the
+        sub-agent whose coder is running the command, then the service's
+        foreground agent.
+        """
+        tui_ref = getattr(coder, "tui", None)
+        if tui_ref is not None:
+            tui = tui_ref() if isinstance(tui_ref, weakref.ref) else tui_ref
+            if tui is not None:
+                try:
+                    return tui._get_visible_coder().uuid
+                except (AttributeError, RuntimeError):
+                    pass
+
+        if getattr(coder, "parent_uuid", None):
+            return str(coder.uuid)
+
+        return agent_service.foreground_uuid

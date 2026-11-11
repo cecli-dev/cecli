@@ -470,6 +470,52 @@ async def test_steer_injects_into_the_running_turn(tmp_path, monkeypatch):
     assert steer_updates[-1]["content"][0]["text"] == "more"
 
 
+async def test_steer_runs_reap_agent_instead_of_queueing(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder))
+
+    coder.commands = Commands()
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "cecli/steer",
+            "params": {
+                "sessionId": "s1",
+                "prompt": [{"type": "text", "text": "/reap-agent"}],
+            },
+        }
+    )
+    await settle()
+
+    assert transport.results()[7]["result"] == {"ok": True, "steered": True}
+    assert ran == [("/reap-agent", coder)]
+    assert queued == []
+    assert coder.user_inputs == []
+
+
 async def test_cancel_interrupts_coder(tmp_path):
     agent, transport = await ready_agent(tmp_path)
     coder = make_coder(tmp_path)
@@ -773,6 +819,43 @@ async def test_cancelling_a_subagent_leaves_the_rest_running(tmp_path, monkeypat
     await settle()
     assert cancelled == ["w1"]
     assert await asking is False
+
+
+async def test_subagent_message_runs_reap_agent_while_running(tmp_path, monkeypatch):
+    from cecli.helpers.agents.service import AgentService
+
+    agent, transport, io, _coder = await delegating_agent(tmp_path)
+    io.subagent_event("w1", "created", parent_uuid="primary", name="worker")
+    io.subagent_event("w1", "running")
+    child = agent.subagents["w1"].session_id
+
+    sub_coder = make_coder(tmp_path)
+    sub_coder.uuid = "w1"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder, kwargs["target_agent_uuid"]))
+
+    sub_coder.commands = Commands()
+    service = SimpleNamespace(
+        sub_agents={"w1": SimpleNamespace(coder=sub_coder)},
+        start_generate_task=lambda *args: pytest.fail("the command should not be queued"),
+    )
+    monkeypatch.setattr(AgentService, "get_instance", staticmethod(lambda coder: service))
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "cecli/subagent/message",
+            "params": {"sessionId": child, "text": "/reap-agent"},
+        }
+    )
+    await settle()
+
+    assert transport.results()[9]["result"] == {"ok": True, "running": True}
+    assert ran == [("/reap-agent", sub_coder, "w1")]
 
 
 # ── Config options ─────────────────────────────────────────────

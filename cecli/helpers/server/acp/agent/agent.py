@@ -61,6 +61,10 @@ HIDDEN_COMMANDS = {
     "voice",
 }
 
+# Commands safe to run without waiting for the current turn to finish.
+# Steering them would hand the text to the model instead of executing it.
+MID_TURN_COMMANDS = {"reap-agent"}
+
 _DEFERRED = object()
 
 
@@ -410,6 +414,36 @@ class AcpAgent:
         self._inputs.put_nowait(_Turn(text, on_finish=finish, request_id=request_id, paths=paths))
         return _DEFERRED
 
+    def _run_mid_turn_command(
+        self, coder: Any, text: str, target_agent_uuid: str | None = None
+    ) -> bool:
+        """Run a command now instead of queueing it into the running turn."""
+        if self._loop is None or not text.startswith("/"):
+            return False
+
+        commands = getattr(coder, "commands", None)
+        if commands is None:
+            return False
+
+        from cecli.commands.utils.registry import CommandRegistry
+
+        name = text.strip().split()[0][1:]
+        alias = CommandRegistry.resolve_alias(name)
+        if (alias[0] if alias else name) not in MID_TURN_COMMANDS:
+            return False
+
+        self._loop.create_task(self._run_command(coder, text, target_agent_uuid))
+        return True
+
+    async def _run_command(
+        self, coder: Any, text: str, target_agent_uuid: str | None = None
+    ) -> None:
+        """Run a command outside the turn loop, logging any failure."""
+        try:
+            await coder.commands.run(text, coder=coder, target_agent_uuid=target_agent_uuid)
+        except Exception as err:
+            log(f"could not run command {text.split()[0]}: {err!r}")
+
     def _on_cecli_steer(self, params: dict, request_id: Any) -> dict:
         """Inject a prompt into the running turn instead of queueing a new one."""
         from cecli.helpers.conversation.service import ConversationService
@@ -424,16 +458,19 @@ class AcpAgent:
             return {"ok": True, "steered": False}
 
         coder = self._require_coder()
-        _log_user_input(coder, text)
+        is_command = self._run_mid_turn_command(coder, text)
 
-        if paths:
-            _add_mentions(coder, paths)
+        if not is_command:
+            _log_user_input(coder, text)
 
-        ConversationService.get_manager(coder).queue_message(
-            message_dict={"role": "user", "content": coder.wrap_user_input(text)},
-            tag=MessageTag.CUR,
-            hash_key=("steer", str(coder.uuid), str(time.monotonic_ns())),
-        )
+            if paths:
+                _add_mentions(coder, paths)
+
+            ConversationService.get_manager(coder).queue_message(
+                message_dict={"role": "user", "content": coder.wrap_user_input(text)},
+                tag=MessageTag.CUR,
+                hash_key=("steer", str(coder.uuid), str(time.monotonic_ns())),
+            )
 
         self._message_count += 1
         self.send_update(
@@ -882,26 +919,25 @@ class AcpAgent:
         if info is None:
             raise AcpError(INVALID_PARAMS, "the sub-agent is no longer tracked")
 
-        _log_user_input(info.coder, text)
+        if not self._run_mid_turn_command(info.coder, text, target_agent_uuid=subagent.agent_uuid):
+            if subagent.running:
+                from cecli.helpers.conversation.service import ConversationService
+                from cecli.helpers.conversation.tags import MessageTag
 
-        if subagent.running:
-            from cecli.helpers.conversation.service import ConversationService
-            from cecli.helpers.conversation.tags import MessageTag
-
-            with service._get_lock(service._conversation_locks, info.coder.uuid):
-                ConversationService.get_manager(info.coder).add_message(
-                    message_dict={"role": "user", "content": text},
-                    tag=MessageTag.CUR,
-                    hash_key=(
-                        "desktop_message",
-                        "user",
-                        info.coder.uuid,
-                        str(time.monotonic_ns()),
-                    ),
-                    force=True,
-                )
-        else:
-            service.start_generate_task(info, text)
+                with service._get_lock(service._conversation_locks, info.coder.uuid):
+                    ConversationService.get_manager(info.coder).add_message(
+                        message_dict={"role": "user", "content": text},
+                        tag=MessageTag.CUR,
+                        hash_key=(
+                            "desktop_message",
+                            "user",
+                            info.coder.uuid,
+                            str(time.monotonic_ns()),
+                        ),
+                        force=True,
+                    )
+            else:
+                service.start_generate_task(info, text)
 
         self._message_count += 1
         self.send_update(

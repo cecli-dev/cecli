@@ -51,7 +51,7 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
   </svg>`,workbench:O`<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true">
     <rect x="1.5" y="2" width="13" height="12" rx="2"></rect>
     <path d="M10.5 2v12"></path>
-  </svg>`},wr=[`complete everything _`,`control everywhere _`,`create efficiently _`,`continue evolving _`],Tr=wr[Math.floor(Math.random()*wr.length)],Er=class extends A{static properties={chatCollapsed:{type:Boolean},sidebarCollapsed:{type:Boolean},workbenchCollapsed:{type:Boolean}};constructor(){super(),this._store=new yr(this,j),this.chatCollapsed=!1,this.sidebarCollapsed=!1,this.workbenchCollapsed=!1}createRenderRoot(){return this}render(){let e=Ut(this._store.state);return O`
+  </svg>`},wr=[`control everything _`],Tr=wr[Math.floor(Math.random()*wr.length)],Er=class extends A{static properties={chatCollapsed:{type:Boolean},sidebarCollapsed:{type:Boolean},workbenchCollapsed:{type:Boolean}};constructor(){super(),this._store=new yr(this,j),this.chatCollapsed=!1,this.sidebarCollapsed=!1,this.workbenchCollapsed=!1}createRenderRoot(){return this}render(){let e=Ut(this._store.state);return O`
       <header class="topbar">
         <div class="brand">
           <img class="brand-mark" src=${`/static/cecli-temp-logo-favicon.svg`} alt="" aria-hidden="true" />

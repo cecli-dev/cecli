@@ -20,11 +20,11 @@ const PANE_ICONS = {
 };
 
 const BRAND_PHRASES = [
-  // "control everything _",
-  "complete everything _",
-  "control everywhere _",
-  "create efficiently _",
-  "continue evolving _"
+  "control everything _",
+  // "complete everything _",
+  // "control everywhere _",
+  // "create efficiently _",
+  // "continue evolving _"
 ];
 
 const BRAND_PHRASE = BRAND_PHRASES[Math.floor(Math.random() * BRAND_PHRASES.length)];
