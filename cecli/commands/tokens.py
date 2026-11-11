@@ -173,20 +173,19 @@ class TokensCommand(BaseCommand):
         # Calculate context block tokens (they are part of STATIC messages)
         context_block_total = 0
 
-        # Enhanced context blocks (only for agent mode)
-        if hasattr(coder, "use_enhanced_context") and coder.use_enhanced_context:
-            # Force token calculation if it hasn't been done yet
-            if hasattr(coder, "_calculate_context_block_tokens"):
-                if not hasattr(coder, "tokens_calculated") or not coder.tokens_calculated:
-                    coder._calculate_context_block_tokens()
+        # Context blocks
+        # Force token calculation if it hasn't been done yet
+        if hasattr(coder, "_calculate_context_block_tokens"):
+            if not hasattr(coder, "tokens_calculated") or not coder.tokens_calculated:
+                coder._calculate_context_block_tokens()
 
-            # Calculate total context block tokens
-            if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
-                context_block_total = sum(coder.context_block_tokens.values())
+        # Calculate total context block tokens
+        if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
+            context_block_total = sum(coder.context_block_tokens.values())
 
-                # Subtract context block tokens from system token count
-                # Context blocks are part of STATIC messages, so we need to subtract them
-                system_tokens = max(0, system_tokens - context_block_total)
+            # Subtract context block tokens from system token count
+            # Context blocks are part of STATIC messages, so we need to subtract them
+            system_tokens = max(0, system_tokens - context_block_total)
 
         res.append((system_tokens, "system messages", ""))
 
@@ -244,16 +243,13 @@ class TokensCommand(BaseCommand):
             )
             res.append((tokens, "repository map", "use --map-tokens to resize"))
 
-        # Display enhanced context blocks (only for agent mode)
+        # Display context blocks
         # Note: Context block tokens were already calculated and subtracted from system messages
-        if hasattr(coder, "use_enhanced_context") and coder.use_enhanced_context:
-            if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
-                for block_name, tokens in coder.context_block_tokens.items():
-                    # Format the block name more nicely
-                    display_name = block_name.replace("_", " ").title()
-                    res.append(
-                        (tokens, f"{display_name} context block", "/context-blocks to toggle")
-                    )
+        if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
+            for block_name, tokens in coder.context_block_tokens.items():
+                # Format the block name more nicely
+                display_name = block_name.replace("_", " ").title()
+                res.append((tokens, f"{display_name} context block", "/context-blocks to view"))
 
         file_res = []
 

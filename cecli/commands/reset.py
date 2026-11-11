@@ -34,9 +34,8 @@ class ResetCommand(BaseCommand):
                 io.tool_output("All files dropped and chat history cleared.")
 
             # Recalculate context block tokens after dropping all files
-            if hasattr(coder, "use_enhanced_context") and coder.use_enhanced_context:
-                if hasattr(coder, "_calculate_context_block_tokens"):
-                    coder._calculate_context_block_tokens()
+            if hasattr(coder, "_calculate_context_block_tokens"):
+                coder._calculate_context_block_tokens()
 
             return format_command_result(io, "reset", "Dropped all files and cleared chat history")
 

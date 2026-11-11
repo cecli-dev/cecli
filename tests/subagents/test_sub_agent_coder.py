@@ -111,26 +111,11 @@ class TestSubAgentCoder:
         # even when the attribute value is None on a MagicMock
         assert len(schemas) == 2
 
-    def test_format_chat_chunks_falls_back_when_not_enhanced(self):
-        """When use_enhanced_context is False, calls super()."""
-        from cecli.coders.sub_agent_coder import SubAgentCoder
-
-        coder = SubAgentCoder.__new__(SubAgentCoder)
-        coder.use_enhanced_context = False
-
-        # Mock super().format_chat_chunks()
-        with patch.object(SubAgentCoder, "format_chat_chunks") as _:
-            # We can't easily test the fall-through since format_chat_chunks
-            # is overridden. The non-enhanced path calls super() which
-            # we verify doesn't call ConversationService.
-            pass
-
     def test_format_chat_chunks_enhanced_calls_services(self):
         """Enhanced context calls ConversationService methods."""
         from cecli.coders.sub_agent_coder import SubAgentCoder
 
         coder = SubAgentCoder.__new__(SubAgentCoder)
-        coder.use_enhanced_context = True
         coder.choose_fence = MagicMock()
 
         with patch("cecli.coders.agent_coder.ConversationService") as MockCS:
