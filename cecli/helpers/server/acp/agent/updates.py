@@ -40,6 +40,7 @@ _TOOL_KINDS = {
     "explorecode": "search",
     "searchfacts": "search",
     "editfile": "edit",
+    "writefile": "edit",
     "manageextensions": "edit",
     "undochange": "edit",
     "replacefacts": "edit",
