@@ -407,7 +407,7 @@ def handle_history(request_id: Any) -> None:
     messages = [
         {
             "role": "user",
-            "content": '<context name="user_input" from="agent">\nHello there\n</context>',
+            "content": '<context name="user_input" from="harness">\nHello there\n</context>',
         },
         {"role": "assistant", "content": "Hi, I can help."},
         {

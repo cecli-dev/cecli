@@ -775,7 +775,7 @@ class TestDetachedAgents:
 
         message_dict = add_message.call_args.kwargs["message_dict"]
         assert message_dict["role"] == "user"
-        assert '<context name="sub_agent_result" from="agent">' in message_dict["content"]
+        assert '<context name="sub_agent_result" from="harness">' in message_dict["content"]
         assert "all done" in message_dict["content"]
 
     @pytest.mark.asyncio

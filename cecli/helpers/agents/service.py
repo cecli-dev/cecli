@@ -1262,7 +1262,7 @@ class AgentService:
             return
 
         user_content = (
-            '<context name="sub_agent_result" from="agent">\n'
+            '<context name="sub_agent_result" from="harness">\n'
             f"{header}\n"
             f"{body}\n"
             "</context>"

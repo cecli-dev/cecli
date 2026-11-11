@@ -532,7 +532,11 @@ class ConversationChunks:
             # Create user message
             user_msg = {
                 "role": "user",
-                "content": f"Rules defined in {rel_fname}:\n\n{content}",
+                "content": (
+                    f'<context name="user_rules" from="harness" source="{rel_fname}">\n'
+                    f"{content}"
+                    "\n</context>"
+                ),
             }
 
             # Add to ConversationManager with RULES tag
