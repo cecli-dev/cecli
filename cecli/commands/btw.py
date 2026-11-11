@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from rich.markdown import Markdown
-from rich.panel import Panel
-
 from cecli.commands.utils.base_command import BaseCommand
 from cecli.helpers.conversation import ConversationService, MessageTag
 
@@ -147,21 +144,14 @@ class BtwCommand(BaseCommand):
 
             response_text = str(response).strip()
 
-            # Render as Rich Markdown wrapped in a clean, styled border panel
-            md = Markdown(response_text)
-            mode_tag = "[dim](isolated)[/]" if no_context else "[dim](context-aware)[/]"
-            title = f"[bold cyan]💬 /btw:[/] [bold]{query}[/] {mode_tag}"
-            panel = Panel(
-                md,
-                title=title,
-                border_style="cyan",
-                padding=(0, 1),
-            )
+            mode_tag = "(isolated)" if no_context else "(context-aware)"
+            header = f"💬 /btw: {query} {mode_tag}"
+            io.tool_output(header)
 
-            if hasattr(io, "stream_print"):
-                io.stream_print(panel)
-            else:
-                io.tool_output(response_text)
+            # Route through assistant_output so both CLI and Textual TUI
+            # format the response natively as formatted Markdown without breaking
+            coder_uuid = getattr(coder, "uuid", None)
+            io.assistant_output(response_text, coder_uuid=coder_uuid)
 
             return "Successfully executed /btw."
 
