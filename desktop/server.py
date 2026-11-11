@@ -3775,6 +3775,7 @@ class ServerConfig:
         max_sessions: int = MAX_SESSIONS,
         terminal_enabled: bool = False,
         terminal_shell: str | None = None,
+        static_root: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -3786,6 +3787,7 @@ class ServerConfig:
         self.max_sessions = max_sessions
         self.terminal_enabled = terminal_enabled
         self.terminal_shell = terminal_shell
+        self.static_root = static_root
 
 
 def parse_args(argv: list[str]) -> ServerConfig:
@@ -3823,6 +3825,11 @@ def parse_args(argv: list[str]) -> ServerConfig:
         default=MAX_SESSIONS,
         help="maximum number of concurrent parent sessions",
     )
+    parser.add_argument(
+        "--static-root",
+        default=os.environ.get("CECLI_DESKTOP_STATIC") or None,
+        help="directory holding the built static UI (defaults to this file's directory)",
+    )
     args = parser.parse_args(argv)
     terminal_disabled = os.environ.get("CECLI_DESKTOP_TERMINAL", "").lower() in (
         "0",
@@ -3833,14 +3840,8 @@ def parse_args(argv: list[str]) -> ServerConfig:
     terminal_enabled = not (args.no_terminal or terminal_disabled)
 
     suffix = ".exe" if os.name == "nt" else ""
-    sibling = Path(sys.executable).with_name(f"cecli{suffix}")
-    cecli = (
-        args.cecli
-        or os.environ.get("CECLI_BIN")
-        or (str(sibling) if sibling.is_file() else None)
-        or shutil.which("cecli")
-        or "cecli"
-    )
+    sibling = default_cecli(suffix)
+    cecli = args.cecli or os.environ.get("CECLI_BIN") or sibling or shutil.which("cecli") or "cecli"
     workspace = os.path.abspath(os.path.expanduser(args.workspace))
     return ServerConfig(
         args.host,
@@ -3853,12 +3854,17 @@ def parse_args(argv: list[str]) -> ServerConfig:
         max(1, args.max_sessions),
         terminal_enabled,
         args.terminal_shell,
+        args.static_root,
     )
 
 
 async def run_server(config: ServerConfig) -> None:
     """Bind the HTTP server, spawn the default session and serve until signalled."""
-    root = Path(__file__).resolve().parent
+    root = (
+        Path(config.static_root).resolve()
+        if config.static_root
+        else Path(__file__).resolve().parent
+    )
     manager = SessionManager(
         config.cecli,
         config.extra_args,
@@ -4152,6 +4158,21 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 0
     return 0
+
+
+def default_cecli(suffix: str) -> str | None:
+    """Return a ``cecli`` binary next to the interpreter or bridge script, if any."""
+    candidates = [Path(sys.executable).with_name(f"cecli{suffix}")]
+
+    if sys.argv and sys.argv[0]:
+        # A frozen bridge sets sys.executable to its extraction interpreter.
+        candidates.append(Path(sys.argv[0]).resolve().with_name(f"cecli{suffix}"))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    return None
 
 
 if __name__ == "__main__":

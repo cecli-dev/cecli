@@ -2,5 +2,7 @@ node_modules/
 __pycache__/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/binaries/
+src-tauri/tauri.version.conf.json
 dist/
 *.log

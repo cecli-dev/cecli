@@ -109,8 +109,12 @@ terminal, rather than opening a blank window.
 
 The `_up_` directory is how Tauri preserves references to files outside
 `src-tauri/` when bundling resources. The lookup order is
-`CECLI_DESKTOP_SERVER`, the dev path, `resource_dir/server.py`, then
-`resource_dir/_up_/server.py`. Because the dev path is compiled in, a packaged
+The managed runtime (bundled `uv` plus `resource_dir/server.py`) is chosen
+first. Otherwise the order is `CECLI_DESKTOP_SERVER`, the dev path,
+`resource_dir/server.py`, then `resource_dir/_up_/server.py`. The bundle ships
+`../*.py` and `../static/**/*` as resources, so `server.py` keeps its sibling
+modules (`browser_bridge`, `terminal`, `conf_store`, ...). Because the dev path is
+compiled in, a packaged
 build made on a development machine will prefer the checkout whenever it still
 exists; that is convenient during development and surprising in a release
 test. Static assets are resolved by `server.py` relative to its own file, so
@@ -188,7 +192,7 @@ console script) into it. The Rust shell prefers that interpreter, and
 `server.py` prefers the sibling `cecli` executable, so no global cecli is
 needed. The runtime is build-host state: it is gitignored and not bundled, so a
 packaged app still falls back to system Python and `PATH` unless you ship a
-frozen sidecar.
+release bundle with uv.
 
 ## Setup, build, run
 
@@ -244,7 +248,11 @@ npm run dev
 | `CECLI_DESKTOP_WORKSPACE` | Project directory the agent edits (passed as `--workspace`) | First non-flag argument, then the current directory; debug builds under `src-tauri` walk up to the repo root |
 | `CECLI_DESKTOP_PORT` | Pin the loopback port | An ephemeral `127.0.0.1` port, reserved at startup |
 | `CECLI_DESKTOP_SERVER` | Explicit path to `server.py` | Dev path, then bundled resource path |
-| `CECLI_DESKTOP_CECLI` | cecli executable (passed as `--cecli`) | Bridge falls back to `CECLI_BIN`, then `cecli` on `PATH` |
+| `CECLI_DESKTOP_UV` | Explicit path to the bundled `uv` binary | Next to the app executable, then the resource directory; never `PATH` |
+| `CECLI_DESKTOP_RUNTIME` | Writable directory holding uv's CPython and the provisioned venv | `app_local_data_dir()/runtime` |
+| `CECLI_DESKTOP_RUNTIME_SPEC` | Package spec installed on first launch (overrides the compiled-in value) | `cecli-dev` at build time, pinned to `cecli-dev==<version>` for tagged releases |
+| `CECLI_DESKTOP_CECLI` | cecli executable (passed as `--cecli`) | The `cecli` shipped next to the app, then `CECLI_BIN`, then `cecli` on `PATH` |
+| `CECLI_DESKTOP_STATIC` | Directory holding the built UI | Directory of the running `server.py` |
 | `CECLI_PYTHON` | Python interpreter used to run the bridge | `desktop/.runtime/venv`, then `python3` on Unix; `python` then `python3` on Windows |
 | `CECLI_DESKTOP_TERMINAL` | Enable the terminal panel | Enabled on loopback; `--no-terminal` or `0/false/no/off` disables; forced off for non-loopback binds |
 | `CECLI_DESKTOP_TERMINAL_SHELL` | Shell used by the terminal panel | `$SHELL`/`/bin/sh` on POSIX; `%COMSPEC%`/`cmd.exe` on Windows |
@@ -319,63 +327,127 @@ agent's process group.
 
 ## Packaging the Python side
 
-Three options, from least to most work:
+Release bundles do not embed Python. They ship the static `uv` binary plus the
+plain `server.py` and `static/` resources; on first launch uv provisions
+CPython 3.12 and `cecli-dev` into a per-user runtime directory.
 
-### 0. Build-time runtime install
-
-`npm run runtime:install` creates `desktop/.runtime/venv` with `venv` and runs
-`pip install -e <repo>`. The Rust shell looks for that interpreter before
-falling back to `python3`. This is the lightest way to make the app run
-internally in development: no system cecli on `PATH`, no hand-built sidecar.
-The venv is build-host state (gitignored, not in `bundle.resources`) because
-`pip install -e` and `bin/python` contain absolute paths and are not
-relocatable. For distribution, use a frozen sidecar (option 2) or a native ACP
-client (option 3).
-
-### 1. Current: system Python + repo checkout
-
-The bundle ships `server.py` and `static/`, and expects `python3`, a `cecli`
-installation, and the user's API keys to exist on the machine. This is fine for
-developers and for building from a checkout, and it is what the scaffold
-targets. It is not a self-contained installer: the app fails to start the
-bridge if Python 3.10+ or cecli is missing.
-
-### 2. Recommended distribution: PyInstaller sidecar
-
-Freeze the bridge into one executable and ship it as a Tauri sidecar, so the
-app no longer depends on a system Python for the bridge:
+### Stage uv
 
 ```bash
-pyinstaller --onefile --name cecli-desktop-bridge \
-  --add-data "desktop/static:static" desktop/server.py
+cd desktop
+python3 scripts/fetch_uv.py            # writes src-tauri/binaries/uv-<triple>
 ```
 
-PyInstaller's one-file mode unpacks to a temporary directory and sets
-`__file__` there, so `Path(__file__).resolve().parent / "static"` continues to
-resolve when `static` is added beside `server.py`.
+`fetch_uv.py` accepts `--triple` (defaults to `rustc --print host-tuple`) and
+`--version` (an uv tag such as `0.13.7`, or `latest`). Tauri strips the target
+triple while copying `externalBin`, so the bundle ends up with `uv` (or
+`uv.exe`) next to the app executable: `Contents/MacOS` on macOS, `usr/bin` in
+the AppImage, the install root on Windows.
 
-Tauri requires the sidecar filename to carry the Rust target triple, for
-example `cecli-desktop-bridge-x86_64-unknown-linux-gnu`, placed under
-`src-tauri/binaries/`. Then:
+### Build the bundle
 
-```json
-{
-  "bundle": {
-    "externalBin": ["binaries/cecli-desktop-bridge"]
-  }
-}
+```bash
+npm run fetch-uv        # uv -> src-tauri/binaries/uv-<triple>
+npm run build:bundled   # tauri build with the release config overlay
 ```
 
-`externalBin` paths are relative to `src-tauri/` and must not contain `..`.
-Launch it from Rust with the shell plugin's sidecar API
-(`app.shell().sidecar("cecli-desktop-bridge")`) and grant only the sidecar
-execute/spawn permission needed, not unrestricted shell access. See the
-[sidecar guide](https://v2.tauri.app/develop/sidecar/).
+`src-tauri/tauri.release.conf.json` adds `binaries/uv` to `externalBin` without
+touching the dev config, so `npm run dev` still works with no staged binaries.
 
-Important: this removes the Python requirement for the *bridge*, not for
-`cecli`. cecli is itself a Python application. You still need to ship it (a
-frozen cecli binary or a bundled virtualenv) or point `CECLI_DESKTOP_CECLI` at
-an existing installation.
+### Pre-release tags
+
+The workflow accepts `v1.2.3` and PEP 440 pre-release tags such as `v1.2.3rc1`,
+`v1.2.3b1`, `v1.2.3a1` and `v1.2.3.dev0`:
+
+| tag | `CECLI_RUNTIME_SPEC` | app version |
+| --- | --- | --- |
+| `v1.12.2` | `cecli-dev==1.12.2` | `1.12.2` |
+| `v1.12.2rc3` | `cecli-dev==1.12.2rc3` | `1.12.2-rc3` |
+| `v2.0.0.dev0` | `cecli-dev==2.0.0.dev0` | `2.0.0-dev0` |
+
+`CECLI_RUNTIME_SPEC` keeps the PyPI spelling; the app version is normalised to
+semver and written to `src-tauri/tauri.version.conf.json`, which is merged as a
+second `--config`, so installers carry the tag version. The release job marks
+`a`, `b` and `rc` tags as GitHub pre-releases.
+
+Before building, the workflow resolves the spec with `uv pip compile --quiet`,
+so a tag whose version is not on PyPI fails CI instead of failing on a user's
+first launch.
+
+The tag pins only the shell, bridge and UI. The `cecli` agent itself comes from
+PyPI, so an rc build needs the matching `cecli-dev` rc published first.
+
+### First launch
+
+1. `locate_bridge` picks `Bridge::Managed` when both uv and the bundled
+   `server.py` are present; `CECLI_DESKTOP_UV` overrides the uv path.
+2. `ensure_runtime` provisions `<runtime>/<spec>/` when `.cecli-ready` is
+   missing or names a different spec: `uv venv --python 3.12 --managed-python`
+   followed by `uv pip install --python <venv>/bin/python <spec>`.
+   `UV_PYTHON_INSTALL_DIR` points at `<runtime>/python`, so deleting the
+   runtime directory also removes CPython.
+3. The bridge runs from the provisioned interpreter with
+   `--cecli <venv>/bin/cecli`. The socket probe allows 15 minutes instead of
+   30 seconds so a cold install is not mistaken for a crash.
+
+`CECLI_RUNTIME_SPEC` is compiled in by `build.rs` (default `cecli-dev`,
+overridden at runtime by `CECLI_DESKTOP_RUNTIME_SPEC`). Tagged releases pin
+`cecli-dev==<version>`; `desktop-release.yml` derives it from the tag.
+
+### Sizes and tradeoffs
+
+Measured on Linux with `cecli-dev1.12.1`: the AppImage drops from177 MB to
+about100 MB (WebKit libraries plus the36 MB uv binary) and the deb is23 MB.
+The first launch downloads ~100 MB of wheels plus ~33 MB of CPython, and the
+runtime occupies ~930 MB (`~824 MB` venv, `~104 MB` CPython).
+The install needs network access; there is no offline path.
+
+The AppImage's AppRun exports `PYTHONHOME`/`PYTHONPATH` for its own layout, so
+the shell removes both variables from the provisioned interpreter and from uv
+before spawning them.
+The install needs network access; there is no offline path.
+
+The runtime lives under `app_local_data_dir()/runtime`, so upgrades reuse it
+while the pinned spec is unchanged and replace it when the spec changes.
+
+macOS signing uses `src-tauri/entitlements.plist`, which allows unsigned
+library loading: the provisioned CPython loads `.so`/`.dylib` wheels that are
+not signed with the app, and the hardened runtime rejects them without
+`disable-library-validation`.
+
+### Exercising CI locally with act
+
+`act` runs the Linux jobs in Docker; it cannot emulate Windows or macOS
+runners (they are skipped as unsupported platforms).
+
+```bash
+act -l -W .github/workflows/desktop-release.yml
+act workflow_dispatch -j linux -W .github/workflows/desktop-release.yml --dryrun
+act workflow_dispatch -j linux -W .github/workflows/desktop-release.yml \
+  --artifact-server-path /tmp/act-artifacts
+```
+
+When the host resolver cannot resolve `archive.ubuntu.com`, give the container
+its own resolver (`--container-options "--dns 1.1.1.1"`); otherwise `apt-get`
+finds no packages and the job stops at the dependency step.
+
+To exercise the tag path locally, pass the tag ref explicitly:
+
+```bash
+act push -j linux -W .github/workflows/desktop-release.yml \
+  --env GITHUB_REF=refs/tags/v1.8.1rc3 \
+  --env GITHUB_REF_NAME=v1.8.1rc3 \
+  --env GITHUB_REF_TYPE=tag
+```
+
+The repo `.actrc` maps `ubuntu-latest`/`ubuntu-22.04` to
+`ghcr.io/catthehacker/ubuntu:act-22.04`. `--artifact-server-path` cannot live in
+the project `.actrc` (act only trusts an allowlist there), so pass it on the
+command line as above; `upload-artifact@v4` otherwise fails with a missing
+`ACTIONS_RUNTIME_TOKEN`.
+
+The `release` job is gated on `startsWith(github.ref, 'refs/tags/')`, so it is
+naturally skipped locally. Do not pass a real GitHub token to `act`.
 
 ### 3. Future: native Rust bridge
 

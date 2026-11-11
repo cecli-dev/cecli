@@ -69,6 +69,22 @@ root); set
 `CECLI_DESKTOP_WORKSPACE` to choose a project, and `CECLI_DESKTOP_CECLI` to
 pick a specific cecli executable.
 
+`npm run dev` and `npm run build` start `server.py` with the system Python, which
+is the right loop for development. Release builds instead ship the static `uv`
+binary and let it provision CPython and `cecli-dev` on first launch, so the
+installed app needs no system Python (but does need network access once):
+
+```bash
+cd desktop
+npm run fetch-uv        # uv -> src-tauri/binaries/uv-<triple>
+npm run build:bundled   # tauri build with the release config overlay
+```
+
+`.github/workflows/desktop-release.yml` builds that bundle for Linux (AppImage
+and deb), Windows (NSIS) and macOS (Intel and Apple Silicon). See
+[Packaging the Python side](TAURI.md#packaging-the-python-side) for runtime
+size and first-launch details.
+
 On Node 22.15+, 23.9+, or 24+, the dev and build scripts run Node with the
 system certificate store. On Linux the app also forces the WebKit rendering
 workarounds described in [TAURI.md](TAURI.md).

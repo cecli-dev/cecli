@@ -1,0 +1,8 @@
+# Local GitHub Actions runs (nektos/act).
+#
+# act only emulates Linux; windows-latest and macos-latest jobs are skipped.
+# Use `act -j linux -W .github/workflows/desktop-release.yml` for the Linux leg.
+-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-22.04
+-P ubuntu-22.04=ghcr.io/catthehacker/ubuntu:act-22.04
+--container-architecture=linux/amd64
+--pull=false
