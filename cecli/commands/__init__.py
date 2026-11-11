@@ -14,6 +14,7 @@ from .agent_tree import AgentTreeCommand
 from .architect import ArchitectCommand
 from .ask import AskCommand
 from .auto_memory import AutoMemoryCommand
+from .btw import BtwCommand
 from .clear import ClearCommand
 from .code import CodeCommand
 from .command_prefix import CommandPrefixCommand
@@ -98,6 +99,7 @@ CommandRegistry.register(AgentTreeCommand)
 CommandRegistry.register(ArchitectCommand)
 CommandRegistry.register(AskCommand)
 CommandRegistry.register(AutoMemoryCommand)
+CommandRegistry.register(BtwCommand)
 CommandRegistry.register(ClearCommand)
 CommandRegistry.register(CodeCommand)
 CommandRegistry.register(CommandPrefixCommand)
