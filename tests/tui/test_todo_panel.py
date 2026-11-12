@@ -23,12 +23,14 @@ def _make_coder(coder_uuid, todo_path, todo_text):
 
 def _build_app(tmp_path):
     primary_todo = tmp_path / "primary-todo.txt"
-    primary_todo.write_text("Done:\n✓ setup\n\nRemaining:\n→ primary task")
+    primary_todo.write_text("Done:\n✓ setup\n\nRemaining:\n→ primary task", encoding="utf-8")
     sub_todo = tmp_path / "sub-todo.txt"
-    sub_todo.write_text("Remaining:\n→ sub task")
+    sub_todo.write_text("Remaining:\n→ sub task", encoding="utf-8")
 
-    primary_coder = _make_coder(PRIMARY_UUID, primary_todo, primary_todo.read_text())
-    sub_coder = _make_coder(SUB_UUID, sub_todo, sub_todo.read_text())
+    primary_coder = _make_coder(
+        PRIMARY_UUID, primary_todo, primary_todo.read_text(encoding="utf-8")
+    )
+    sub_coder = _make_coder(SUB_UUID, sub_todo, sub_todo.read_text(encoding="utf-8"))
     info = SubAgentInfo(
         name="worker",
         coder=sub_coder,
