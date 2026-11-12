@@ -170,21 +170,27 @@ async def _apply_normalize(
 
 
 def _null_content_to_empty(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Replace a null message ``content`` with an empty string.
+    """Replace null message ``content`` and assistant ``reasoning_content`` with empty strings.
 
-    Some OpenAI-compatible endpoints reject ``content: null`` outright, which is
-    how tool-call-only assistant turns and missing tool results arrive from other
-    providers. Normalize at the wire boundary instead of sending null. Only
-    ``None`` is replaced -- string and multimodal list content pass through.
-    Copies messages before changing them so the conversation store is untouched.
+    Only ``None`` is replaced, and absent ``reasoning_content`` keys stay absent
+    so strict providers (Mistral) do not get it re-added. Copies before mutating.
     """
     normalized: List[Dict[str, Any]] = []
     changed = False
 
     for msg in messages:
-        if isinstance(msg, dict) and msg.get("content") is None:
-            msg = {**msg, "content": ""}
-            changed = True
+        if isinstance(msg, dict):
+            if msg.get("content") is None:
+                msg = {**msg, "content": ""}
+                changed = True
+
+            if (
+                msg.get("role") == "assistant"
+                and "reasoning_content" in msg
+                and msg["reasoning_content"] is None
+            ):
+                msg = {**msg, "reasoning_content": ""}
+                changed = True
 
         normalized.append(msg)
 

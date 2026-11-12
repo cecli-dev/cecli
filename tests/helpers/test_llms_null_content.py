@@ -50,6 +50,31 @@ def test_pipeline_replaces_null_content(monkeypatch):
     assert messages[2]["content"] is None
 
 
+def test_pipeline_replaces_null_reasoning_content(monkeypatch):
+    captured = {}
+
+    async def fake_chat_complete(resolved, messages, tools, key, headers, kwargs):
+        captured["messages"] = messages
+        return _fake_response(resolved["model"])
+
+    monkeypatch.setattr(pipeline, "chat_complete", fake_chat_complete)
+
+    messages = [
+        {"role": "assistant", "content": "hi", "reasoning_content": None},
+        {"role": "assistant", "content": "yo"},
+        {"role": "user", "content": "q", "reasoning_content": None},
+    ]
+
+    asyncio.run(pipeline.acompletion(model=MODEL, messages=messages))
+
+    assert captured["messages"][0]["reasoning_content"] == ""
+    # Absent keys stay absent.
+    assert "reasoning_content" not in captured["messages"][1]
+    assert captured["messages"][2]["reasoning_content"] is None
+    # The caller's stored messages are not touched.
+    assert messages[0]["reasoning_content"] is None
+
+
 def test_pipeline_leaves_non_null_content_alone(monkeypatch):
     captured = {}
 
