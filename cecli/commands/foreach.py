@@ -40,6 +40,8 @@ class ForeachCommand(BaseCommand):
                             help="Show matching items and evaluated prompts without executing them.")
         parser.add_argument("--delay", dest="delay", type=float, default=0.0,
                             help="Delay in seconds between iterations.")
+        parser.add_argument("--allow-truncation", dest="no_truncation", action="store_false", default=True,
+                            help="Allow context management to truncate large files during batch iteration (default: False/never truncate).")
         parser.add_argument("pattern", nargs="?", default=None,
                             help="Glob pattern or directory path matching target files.")
         return parser
@@ -175,64 +177,80 @@ class ForeachCommand(BaseCommand):
         completed_count = 0
         interrupted = False
 
-        for idx, item in enumerate(candidates, start=1):
-            # Check interrupt signals
-            interrupt_event = getattr(coder, "interrupt_event", None)
-            if interrupt_event and interrupt_event.is_set():
-                io.tool_warning(f"Loop interrupted at item {idx}/{total_items}.")
-                interrupted = True
-                break
+        orig_context_mgmt = getattr(coder, "context_management_enabled", None)
+        orig_threshold = getattr(coder, "large_file_token_threshold", None)
 
-            item_vars = dict(item, index=idx, total=total_items)
-            prompt = safe_substitute(template, item_vars)
+        if getattr(parsed, "no_truncation", True):
+            if hasattr(coder, "large_file_token_threshold"):
+                max_tokens = getattr(getattr(coder, "main_model", None), "max_context_tokens", None) or 87552
+                coder.large_file_token_threshold = max(32768, max_tokens // 2)
+            if hasattr(coder, "context_management_enabled"):
+                coder.context_management_enabled = False
 
-            # Clear context between iterations if requested
-            if parsed.clear:
+        try:
+            for idx, item in enumerate(candidates, start=1):
+                # Check interrupt signals
+                interrupt_event = getattr(coder, "interrupt_event", None)
+                if interrupt_event and interrupt_event.is_set():
+                    io.tool_warning(f"Loop interrupted at item {idx}/{total_items}.")
+                    interrupted = True
+                    break
+
+                item_vars = dict(item, index=idx, total=total_items)
+                prompt = safe_substitute(template, item_vars)
+
+                # Clear context between iterations if requested
+                if parsed.clear:
+                    try:
+                        manager = ConversationService.get_manager(coder)
+                        for tag in (
+                            MessageTag.CUR,
+                            MessageTag.DONE,
+                            MessageTag.DIFFS,
+                            MessageTag.FILE_CONTEXTS,
+                            MessageTag.READONLY_FILES,
+                            MessageTag.CHAT_FILES,
+                            MessageTag.EDIT_FILES,
+                            MessageTag.LINT,
+                        ):
+                            try:
+                                manager.clear_tag(tag)
+                            except Exception:
+                                pass
+                        ConversationService.get_files(coder).reset()
+                        # Also drop all read-only and editable files to prevent prompt token accumulation
+                        if hasattr(coder, "abs_fnames"):
+                            coder.abs_fnames = set()
+                        if hasattr(coder, "abs_read_only_fnames"):
+                            coder.abs_read_only_fnames = set()
+                        if hasattr(coder, "abs_read_only_stubs_fnames"):
+                            coder.abs_read_only_stubs_fnames = set()
+                        if hasattr(coder, "files_added_in_exploration"):
+                            coder.files_added_in_exploration = set()
+                        ConversationService.get_chunks(coder).flush_removals()
+                    except Exception as clear_err:
+                        io.tool_warning(f"Context clear warning: {clear_err}")
+
+                io.tool_output(f"\n▶ [{idx}/{total_items}] {item['filename']}")
+
                 try:
-                    manager = ConversationService.get_manager(coder)
-                    for tag in (
-                        MessageTag.CUR,
-                        MessageTag.DONE,
-                        MessageTag.DIFFS,
-                        MessageTag.FILE_CONTEXTS,
-                        MessageTag.READONLY_FILES,
-                        MessageTag.CHAT_FILES,
-                        MessageTag.EDIT_FILES,
-                        MessageTag.LINT,
-                    ):
-                        try:
-                            manager.clear_tag(tag)
-                        except Exception:
-                            pass
-                    ConversationService.get_files(coder).reset()
-                    # Also drop all read-only and editable files to prevent prompt token accumulation
-                    if hasattr(coder, "abs_fnames"):
-                        coder.abs_fnames = set()
-                    if hasattr(coder, "abs_read_only_fnames"):
-                        coder.abs_read_only_fnames = set()
-                    if hasattr(coder, "abs_read_only_stubs_fnames"):
-                        coder.abs_read_only_stubs_fnames = set()
-                    if hasattr(coder, "files_added_in_exploration"):
-                        coder.files_added_in_exploration = set()
-                    ConversationService.get_chunks(coder).flush_removals()
-                except Exception as clear_err:
-                    io.tool_warning(f"Context clear warning: {clear_err}")
+                    await coder.run_one(prompt, preproc=True)
+                    completed_count += 1
+                except KeyboardInterrupt:
+                    io.tool_warning(f"\nLoop interrupted by user at item {idx}/{total_items}.")
+                    interrupted = True
+                    break
+                except Exception as e:
+                    io.tool_error(f"Error processing {item['filename']}: {e}")
+                    # Continue with next item rather than aborting entire batch
 
-            io.tool_output(f"\n▶ [{idx}/{total_items}] {item['filename']}")
-
-            try:
-                await coder.run_one(prompt, preproc=True)
-                completed_count += 1
-            except KeyboardInterrupt:
-                io.tool_warning(f"\nLoop interrupted by user at item {idx}/{total_items}.")
-                interrupted = True
-                break
-            except Exception as e:
-                io.tool_error(f"Error processing {item['filename']}: {e}")
-                # Continue with next item rather than aborting entire batch
-
-            if parsed.delay > 0 and idx < total_items:
-                await asyncio.sleep(parsed.delay)
+                if parsed.delay > 0 and idx < total_items:
+                    await asyncio.sleep(parsed.delay)
+        finally:
+            if orig_context_mgmt is not None and hasattr(coder, "context_management_enabled"):
+                coder.context_management_enabled = orig_context_mgmt
+            if orig_threshold is not None and hasattr(coder, "large_file_token_threshold"):
+                coder.large_file_token_threshold = orig_threshold
 
         status_msg = (
             f"Processed {completed_count}/{total_items} item(s) "
