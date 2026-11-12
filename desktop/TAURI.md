@@ -370,8 +370,11 @@ semver and written to `src-tauri/tauri.version.conf.json`, which is merged as a
 second `--config`, so installers carry the tag version. The release job marks
 `a`, `b` and `rc` tags as GitHub pre-releases.
 
-Before building, the workflow resolves the spec with `uv pip compile --quiet`,
-so a tag whose version is not on PyPI fails CI instead of failing on a user's
+Before building, tagged builds wait for the matching `cecli-dev` release to appear
+on PyPI, then resolve the spec with `uv pip compile --quiet`. The compile passes
+`--exclude-newer-package "cecli-dev=0 days"` so the repo-wide
+`exclude-newer = "2 days"` cooldown does not filter the freshly published version.
+A tag whose version never appears on PyPI fails CI instead of failing on a user's
 first launch.
 
 The tag pins only the shell, bridge and UI. The `cecli` agent itself comes from

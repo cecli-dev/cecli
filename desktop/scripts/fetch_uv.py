@@ -84,16 +84,22 @@ def fetch(url: str, destination: Path) -> None:
 
 
 def extract(archive: Path, name: str, temp_dir: str) -> Path:
+    """Extract the ``name`` entry from a uv release archive.
+
+    Windows releases are zips with flat entries such as ``uv.exe`` while unix
+    releases are tarballs nested under ``uv-<triple>/``, so members are matched
+    on their basename instead of requiring a directory prefix.
+    """
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as bundle:
-            member = next(item for item in bundle.namelist() if item.endswith(f"/{name}"))
+            member = find_member(bundle.namelist(), name)
             bundle.extract(member, temp_dir)
             return Path(temp_dir) / member
 
     with tarfile.open(archive) as bundle:
-        member = next(item for item in bundle.getmembers() if item.name.endswith(f"/{name}"))
-        bundle.extract(member, temp_dir, filter="data")
-        return Path(temp_dir) / member.name
+        member = find_member(bundle.getnames(), name)
+        bundle.extract(bundle.getmember(member), temp_dir, filter="data")
+        return Path(temp_dir) / member
 
 
 def host_triple() -> str:
@@ -110,6 +116,21 @@ def host_triple() -> str:
             return line.split(":", 1)[1].strip()
 
     raise SystemExit("could not determine the Rust host triple; pass --triple")
+
+
+def find_member(members: list[str], name: str) -> str:
+    """Return the archive member whose basename matches ``name``.
+
+    Raises FileNotFoundError listing the available members when nothing
+    matches, so a bad release layout fails with a readable message instead of
+    a bare StopIteration.
+    """
+    for member in members:
+        if Path(member).name == name:
+            return member
+
+    listing = "\n".join(f"  {member}" for member in members)
+    raise FileNotFoundError(f"{name} not found in uv archive; members:\n{listing}")
 
 
 if __name__ == "__main__":

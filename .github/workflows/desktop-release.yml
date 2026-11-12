@@ -20,8 +20,7 @@ jobs:
 
       - name: Install Linux bundling dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bash .github/scripts/apt-install.sh \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev patchelf libxdo-dev zlib1g-dev build-essential
 
@@ -62,12 +61,17 @@ jobs:
         shell: bash
         run: python3 desktop/scripts/fetch_uv.py
 
+      - name: Wait for PyPI release
+        uses: ./.github/actions/wait-for-pypi
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Verify runtime spec resolves
         shell: bash
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-unknown-linux-gnu \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header > /dev/null
+            pip compile /tmp/runtime-spec.txt --quiet --no-header \
+              --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
         working-directory: desktop
@@ -132,12 +136,17 @@ jobs:
         shell: bash
         run: python desktop/scripts/fetch_uv.py
 
+      - name: Wait for PyPI release
+        uses: ./.github/actions/wait-for-pypi
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Verify runtime spec resolves
         shell: bash
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe \
-            pip compile runtime-spec.txt --quiet --no-header > /dev/null
+            pip compile runtime-spec.txt --quiet --no-header \
+              --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
         working-directory: desktop
@@ -159,7 +168,7 @@ jobs:
 
   macos-x64:
     name: macOS (x64)
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
 
@@ -200,12 +209,17 @@ jobs:
         shell: bash
         run: python3 desktop/scripts/fetch_uv.py
 
+      - name: Wait for PyPI release
+        uses: ./.github/actions/wait-for-pypi
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Verify runtime spec resolves
         shell: bash
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header > /dev/null
+            pip compile /tmp/runtime-spec.txt --quiet --no-header \
+              --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
         working-directory: desktop
@@ -268,12 +282,17 @@ jobs:
         shell: bash
         run: python3 desktop/scripts/fetch_uv.py
 
+      - name: Wait for PyPI release
+        uses: ./.github/actions/wait-for-pypi
+        if: startsWith(github.ref, 'refs/tags/')
+
       - name: Verify runtime spec resolves
         shell: bash
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-aarch64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header > /dev/null
+            pip compile /tmp/runtime-spec.txt --quiet --no-header \
+              --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
         working-directory: desktop
