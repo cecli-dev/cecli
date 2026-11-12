@@ -10,6 +10,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

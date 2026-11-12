@@ -1702,7 +1702,7 @@ This command will print 'Hello, World!' to the console."""
         with GitTemporaryDirectory():
             io = InputOutput(yes=False)
             coder = await Coder.create(self.GPT35, "diff", io=io)
-            coder.write_tools = {"editfile"}
+            coder.write_tools = {"writefile"}
 
             local_server = LocalServer({"name": "Local"})
             external_server = MagicMock()
@@ -1711,7 +1711,7 @@ This command will print 'Hello, World!' to the console."""
             read_call.function.name = "readfile"
 
             write_call = MagicMock()
-            write_call.function.name = "editfile"
+            write_call.function.name = "writefile"
 
             assert not coder._tool_calls_need_confirmation({local_server: [read_call]})
             assert coder._tool_calls_need_confirmation({local_server: [write_call]})

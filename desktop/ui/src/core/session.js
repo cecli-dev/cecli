@@ -502,11 +502,21 @@ export class Session {
       }
     }
 
-    if (this.store.state.busy) return false;
-
     try {
-      await post_json('/api/prompt', bridge_id ? { bridgeId: bridge_id, text } : { text });
+      const result = await post_json(
+        '/api/prompt',
+        bridge_id ? { bridgeId: bridge_id, text } : { text },
+      );
+      const steered = Boolean(result?.steered);
       this.store.update((current) => {
+        if (steered) {
+          return {
+            ...current,
+            last_prompt: text,
+            retry_available: false,
+          };
+        }
+
         const with_user = append_user_message(current, text);
         const begun = begin_assistant_turn(with_user);
         return {

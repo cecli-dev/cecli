@@ -22,7 +22,7 @@
     "shortDescription": "Native desktop shell for the cecli web UI",
     "longDescription": "cecli desktop wraps the local cecli bridge in a native window, serving the UI and SSE stream from a single loopback origin.",
     "resources": [
-      "../server.py",
+      "../*.py",
       "../static/**/*"
     ],
     "icon": [

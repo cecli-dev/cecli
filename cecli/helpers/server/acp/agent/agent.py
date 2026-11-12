@@ -35,6 +35,17 @@ from cecli.helpers.server.acp.agent.transport import (
     result_message,
 )
 from cecli.helpers.server.acp.agent.updates import CONSOLE_FENCE, UpdateEmitter
+from cecli.helpers.server.acp.events import (
+    SCOPE_CONTEXT,
+    SCOPE_HOOKS,
+    SCOPE_MCP,
+    SCOPE_SKILLS,
+    SCOPE_WORKFLOWS,
+    STATE_IDLE,
+    STATE_REQUIRES_ACTION,
+    STATE_RUNNING,
+    state_update,
+)
 
 PROTOCOL_VERSION = 1
 
@@ -49,6 +60,10 @@ HIDDEN_COMMANDS = {
     "terminal-setup",
     "voice",
 }
+
+# Commands safe to run without waiting for the current turn to finish.
+# Steering them would hand the text to the model instead of executing it.
+MID_TURN_COMMANDS = {"reap-agent"}
 
 _DEFERRED = object()
 
@@ -319,6 +334,7 @@ class AcpAgent:
             "cecli/mcp": self._on_cecli_mcp,
             "cecli/workflow": self._on_cecli_workflow,
             "cecli/context": self._on_cecli_context,
+            "cecli/steer": self._on_cecli_steer,
             "cecli/complete": self._on_cecli_complete,
             "cecli/background": self._on_cecli_background,
             "cecli/browser": self._on_cecli_browser,
@@ -397,6 +413,77 @@ class AcpAgent:
 
         self._inputs.put_nowait(_Turn(text, on_finish=finish, request_id=request_id, paths=paths))
         return _DEFERRED
+
+    def _run_mid_turn_command(
+        self, coder: Any, text: str, target_agent_uuid: str | None = None
+    ) -> bool:
+        """Run a command now instead of queueing it into the running turn."""
+        if self._loop is None or not text.startswith("/"):
+            return False
+
+        commands = getattr(coder, "commands", None)
+        if commands is None:
+            return False
+
+        from cecli.commands.utils.registry import CommandRegistry
+
+        name = text.strip().split()[0][1:]
+        alias = CommandRegistry.resolve_alias(name)
+        if (alias[0] if alias else name) not in MID_TURN_COMMANDS:
+            return False
+
+        self._loop.create_task(self._run_command(coder, text, target_agent_uuid))
+        return True
+
+    async def _run_command(
+        self, coder: Any, text: str, target_agent_uuid: str | None = None
+    ) -> None:
+        """Run a command outside the turn loop, logging any failure."""
+        try:
+            await coder.commands.run(text, coder=coder, target_agent_uuid=target_agent_uuid)
+        except Exception as err:
+            log(f"could not run command {text.split()[0]}: {err!r}")
+
+    def _on_cecli_steer(self, params: dict, request_id: Any) -> dict:
+        """Inject a prompt into the running turn instead of queueing a new one."""
+        from cecli.helpers.conversation.service import ConversationService
+        from cecli.helpers.conversation.tags import MessageTag
+
+        self._require_session(params.get("sessionId"))
+        text, paths = prompt_to_text(params.get("prompt"), self.cwd or os.getcwd())
+        if not text:
+            raise AcpError(INVALID_PARAMS, "text is required")
+
+        if not self.in_prompt():
+            return {"ok": True, "steered": False}
+
+        coder = self._require_coder()
+        is_command = self._run_mid_turn_command(coder, text)
+
+        if not is_command:
+            _log_user_input(coder, text)
+
+            if paths:
+                _add_mentions(coder, paths)
+
+            ConversationService.get_manager(coder).queue_message(
+                message_dict={"role": "user", "content": coder.wrap_user_input(text)},
+                tag=MessageTag.CUR,
+                hash_key=("steer", str(coder.uuid), str(time.monotonic_ns())),
+            )
+
+        self._message_count += 1
+        self.send_update(
+            {
+                "sessionUpdate": "session_message",
+                "userMessage": True,
+                "messageId": f"cecli-message-{self._message_count}",
+                "senderSessionId": self.session_id,
+                "recipientSessionId": self.session_id,
+                "content": [{"type": "text", "text": text}],
+            }
+        )
+        return {"ok": True, "steered": True}
 
     def _on_session_cancel(self, params: dict, request_id: Any) -> None:
         if params.get("sessionId") != self.session_id:
@@ -523,6 +610,7 @@ class AcpAgent:
         except Exception as err:
             raise AcpError(INTERNAL_ERROR, str(err)) from err
 
+        self._emit_state(scope=SCOPE_SKILLS)
         return {"result": result, "skills": self._skills_state(coder)}
 
     def _on_cecli_hook(self, params: dict, request_id: Any) -> dict:
@@ -559,6 +647,7 @@ class AcpAgent:
         except Exception as err:
             raise AcpError(INTERNAL_ERROR, str(err)) from err
 
+        self._emit_state(scope=SCOPE_HOOKS)
         return {"result": bool(changed), "hooks": self._hooks_state(coder)}
 
     def _on_cecli_mcp(self, params: dict, request_id: Any) -> Any:
@@ -586,6 +675,7 @@ class AcpAgent:
             payload: dict[str, Any] = {"mcpServers": self._mcp_state(coder)}
             if error:
                 payload["error"] = error
+            self._emit_state(scope=SCOPE_MCP)
             self.transport.send(result_message(request_id, payload))
 
         asyncio.run_coroutine_threadsafe(run(), self._loop)
@@ -619,6 +709,7 @@ class AcpAgent:
                 }
             except Exception as err:
                 payload = {"error": str(err), "workflows": self._workflow_state(coder)}
+            self._emit_state(scope=SCOPE_WORKFLOWS)
             self.transport.send(result_message(request_id, payload))
 
         asyncio.run_coroutine_threadsafe(run(), self._loop)
@@ -643,6 +734,7 @@ class AcpAgent:
             coder.abs_fnames.discard(absolute)
             coder.abs_read_only_fnames.discard(absolute)
 
+        self._emit_state(scope=SCOPE_CONTEXT)
         return {"contextFiles": self._context_state(coder)}
 
     def _on_cecli_complete(self, params: dict, request_id: Any) -> dict:
@@ -827,24 +919,25 @@ class AcpAgent:
         if info is None:
             raise AcpError(INVALID_PARAMS, "the sub-agent is no longer tracked")
 
-        if subagent.running:
-            from cecli.helpers.conversation.service import ConversationService
-            from cecli.helpers.conversation.tags import MessageTag
+        if not self._run_mid_turn_command(info.coder, text, target_agent_uuid=subagent.agent_uuid):
+            if subagent.running:
+                from cecli.helpers.conversation.service import ConversationService
+                from cecli.helpers.conversation.tags import MessageTag
 
-            with service._get_lock(service._conversation_locks, info.coder.uuid):
-                ConversationService.get_manager(info.coder).add_message(
-                    message_dict={"role": "user", "content": text},
-                    tag=MessageTag.CUR,
-                    hash_key=(
-                        "desktop_message",
-                        "user",
-                        info.coder.uuid,
-                        str(time.monotonic_ns()),
-                    ),
-                    force=True,
-                )
-        else:
-            service.start_generate_task(info, text)
+                with service._get_lock(service._conversation_locks, info.coder.uuid):
+                    ConversationService.get_manager(info.coder).add_message(
+                        message_dict={"role": "user", "content": text},
+                        tag=MessageTag.CUR,
+                        hash_key=(
+                            "desktop_message",
+                            "user",
+                            info.coder.uuid,
+                            str(time.monotonic_ns()),
+                        ),
+                        force=True,
+                    )
+            else:
+                service.start_generate_task(info, text)
 
         self._message_count += 1
         self.send_update(
@@ -901,6 +994,8 @@ class AcpAgent:
         self.turn = turn
         if turn.paths and coder is not None:
             _add_mentions(coder, turn.paths)
+        if turn.request_id is not None:
+            self._emit_state(state=STATE_RUNNING)
         return turn.text
 
     async def _sync_mcp(self, coder: Any) -> None:
@@ -918,8 +1013,9 @@ class AcpAgent:
     def _finish_turn(self) -> None:
         turn = self.turn
         if turn is not None and turn.request_id is not None:
-            # Flush while the turn is still current so the updates go out
             self.emitter.finish_turn(cancelled=turn.cancelled)
+            stop_reason = "cancelled" if turn.cancelled else "end_turn"
+            self._emit_state(state=STATE_IDLE, stop_reason=stop_reason)
             self._sync_config()
         else:
             self.emitter.reset()
@@ -944,9 +1040,10 @@ class AcpAgent:
     # ── Outbound ────────────────────────────────────────────────
 
     def _send_turn_update(self, update: dict) -> None:
-        if self.in_prompt():
+        kind = update.get("sessionUpdate")
+        if self.in_prompt() or kind == "state_update":
             self.send_update(update)
-        elif update.get("sessionUpdate") == "agent_message_chunk":
+        elif kind == "agent_message_chunk":
             # Output outside a prompt (startup, internal commands) is only logged,
             # so startup failures still explain themselves in the client's logs
             text = update["content"]["text"].replace(CONSOLE_FENCE + "\n", "")
@@ -961,6 +1058,17 @@ class AcpAgent:
                 "params": {"sessionId": session_id or self.session_id, "update": update},
             }
         )
+
+    def _emit_state(
+        self,
+        state: str | None = None,
+        scope: str | None = None,
+        stop_reason: str | None = None,
+    ) -> None:
+        """Push the session activity, plus the changed detail scope when there is one."""
+        if state is None:
+            state = STATE_RUNNING if self.in_prompt() else STATE_IDLE
+        self.emitter.emit(state_update(state, stop_reason=stop_reason, scope=scope))
 
     def _current_options(self) -> list[dict]:
         """The config options as they now stand, remembered as what the client has."""
@@ -1121,6 +1229,7 @@ class AcpAgent:
             return None
         else:
             emitter, session_id = self.emitter, self.session_id
+            self._emit_state(state=STATE_REQUIRES_ACTION)
 
         tool_call_id, synthetic = emitter.permission_target(question, subject)
         result = await self.request(
@@ -1133,6 +1242,8 @@ class AcpAgent:
         )
         if subagent is not None and subagent.running and not subagent.cancelled:
             self._send_subagent_state(subagent, {"state": "running"})
+        elif subagent is None and self.in_prompt() and not self.turn.cancelled:
+            self._emit_state(state=STATE_RUNNING)
         outcome = (result or {}).get("outcome") or {}
         choice = outcome.get("optionId") if outcome.get("outcome") == "selected" else None
 
@@ -1776,7 +1887,7 @@ def _path_completions(coder: Any, prefix: str) -> list[str]:
             if not matches:
                 matches = fs.search(prefix, threshold=0.1)
             if matches:
-                return sorted(matches)
+                return matches
     except Exception:
         pass
 
@@ -1817,6 +1928,21 @@ def _require_cwd(params: dict) -> str:
 
 def _new_session_id() -> str:
     return uuid.uuid4().hex
+
+
+def _log_user_input(coder: Any, text: str) -> None:
+    """Record a client prompt in the same chat history the TUI writes."""
+    io = getattr(coder, "io", None)
+    log = getattr(io, "log_user_input", None)
+
+    if callable(log):
+        log(text)
+        return
+
+    user_input = getattr(io, "user_input", None)
+
+    if callable(user_input):
+        user_input(text)
 
 
 def _add_mentions(coder: Any, paths: list[str]) -> None:

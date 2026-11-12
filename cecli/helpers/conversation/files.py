@@ -326,13 +326,6 @@ class ConversationFiles:
                 hash_key=("file_diff_user", rel_fname, content_hash),
             )
 
-            io = getattr(coder, "io", None)
-            if io is not None and hasattr(io, "diff_event"):
-                try:
-                    io.diff_event(rel_fname, diff)
-                except Exception:
-                    pass
-
         return diff
 
     def get_file_stub(self, fname: str) -> str:

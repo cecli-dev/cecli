@@ -20,6 +20,7 @@ uv pip compile \
 uv pip compile \
     $VERBOSITY \
     --no-strip-extras \
+    --universal \
     --constraint=requirements/common-constraints.txt \
     --output-file=tmp.requirements.txt \
     requirements/requirements.in \

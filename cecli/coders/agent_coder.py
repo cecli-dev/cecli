@@ -29,6 +29,7 @@ from cecli.helpers.similarity import (
 from cecli.helpers.skills import SkillsManager
 from cecli.hooks import HookIntegration
 from cecli.mcp import LocalServer, McpServerManager
+from cecli.run_cmd import get_shell_info
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import copy_tool_call, tool_call_to_dict
@@ -73,7 +74,7 @@ class AgentCoder(Coder):
         }
         self.write_tools = {
             "shell",
-            "editfile",
+            "writefile",
             "undochange",
             "replacefacts",
         }
@@ -87,7 +88,6 @@ class AgentCoder(Coder):
         self.file_read_cache = set()
         self.tool_call_count = 0
         self.turn_count = 0
-        self.use_enhanced_context = True
         self._last_edited_file = None
         self._cur_message_divider = None
         self.allowed_context_blocks = set()
@@ -494,8 +494,6 @@ class AgentCoder(Coder):
         self.context_block_tokens = {}
         if not hasattr(self, "context_blocks_cache"):
             self.context_blocks_cache = {}
-        if not self.use_enhanced_context:
-            return
         try:
             self.context_blocks_cache = {}
             block_types = [
@@ -575,10 +573,10 @@ class AgentCoder(Coder):
         Generate a symbol outline for files currently in context using Tree-sitter,
         bypassing the cache for freshness.
         """
-        if not self.use_enhanced_context or not self.repo_map:
+        if not self.repo_map:
             return None
         try:
-            result = '<context name="symbol_outline" from="agent">\n'
+            result = '<context name="symbol_outline" from="harness">\n'
             result += "## Symbol Outline (Current Context)\n\n"
             result += (
                 "Code definitions (classes, functions, methods, etc.) found in files currently in"
@@ -645,9 +643,6 @@ class AgentCoder(Coder):
 
         This approach preserves prefix caching while providing fresh context information.
         """
-        if not self.use_enhanced_context:
-            # Use parent's implementation which may use conversation system if flag is enabled
-            return super().format_chat_chunks()
 
         # Choose appropriate fence based on file content
         self.choose_fence()
@@ -717,14 +712,12 @@ class AgentCoder(Coder):
         Generate a summary of the current context, including file content tokens and additional context blocks,
         with an accurate total token count.
         """
-        if not self.use_enhanced_context:
-            return None
         if hasattr(self, "context_blocks_cache") and "context_summary" in self.context_blocks_cache:
             return self.context_blocks_cache["context_summary"]
         try:
             if not hasattr(self, "context_block_tokens") or not self.context_block_tokens:
                 self._calculate_context_block_tokens()
-            result = '<context name="context_summary" from="agent">\n'
+            result = '<context name="context_summary" from="harness">\n'
             result += "## Current Context Overview\n\n"
             max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 0
             if max_input_tokens:
@@ -807,17 +800,16 @@ class AgentCoder(Coder):
         Returns formatted string with working directory, platform, date, and other relevant environment details,
         including the agent's own identity and the primary agent's UUID.
         """
-        if not self.use_enhanced_context:
-            return None
         try:
             current_date = datetime.now().strftime("%Y-%m-%d")
             platform_info = platform.platform()
             language = self.get_user_language() or "English"
-            result = '<context name="environment_info" from="agent">\n'
+            result = '<context name="environment_info" from="harness">\n'
             result += "## Environment Information\n\n"
             result += f"- Working directory: {self.root}\n"
             result += f"- Current date: {current_date}\n"
             result += f"- Platform: {platform_info}\n"
+            result += f"- Shell: {get_shell_info()}\n"
             result += f"- Language preference: {language}\n"
 
             # Agent identity so the model can recognise itself and the primary
@@ -1034,7 +1026,7 @@ class AgentCoder(Coder):
                         message_dict=dict(
                             role="user",
                             content=(
-                                '<context name="linting_confirmation" from="agent">'
+                                '<context name="linting_confirmation" from="harness">'
                                 "All linting errors resolved."
                                 "</context>"
                             ),
@@ -1070,6 +1062,18 @@ class AgentCoder(Coder):
 
         return self.main_model
 
+    async def generate(self, user_message, preproc):
+        """Run generation, then reap sub-agents once this agent is done.
+
+        Reaping here instead of inside the ``Yield`` tool keeps a sub-agent's
+        output container alive until after the turn's output has been emitted,
+        so late output is not routed to the primary agent's panel.
+        """
+        try:
+            return await super().generate(user_message, preproc)
+        finally:
+            await self._reap_finished_sub_agents()
+
     async def reply_completed(self):
         """Process the completed response from the LLM.
 
@@ -1083,15 +1087,9 @@ class AgentCoder(Coder):
         content = self.partial_response_content
         tool_calls_found = bool(self.partial_response_tool_calls)
 
-        # Reap all finished sub-agents with auto_reap enabled
-        try:
-            service = AgentService.get_instance(self)
-            await service.reap_all_finished_agents(parent=service.get_parent(self))
-        except Exception:
-            logger.warning("Failed to reap finished sub-agents", exc_info=True)
-
         # 1. Handle Tool Execution Follow-up (Reflection)
         if self.agent_finished:
+            await self._reap_finished_sub_agents()
             self.tool_usage_history = []
             self.tool_call_vectors = []
             self.reflected_message = None
@@ -1158,10 +1156,13 @@ class AgentCoder(Coder):
         # If a model forgets a tool call, replay the request instead of stopping early
         if self.tool_call_vectors:
             if content and not tool_calls_found and self.num_reflections < self.max_reflections:
-                self.reflected_message = (
-                    "Continue with your task. If you have completed it, call the `Yield` tool."
-                )
-                return True
+                # A text-only response with every todo item checked off is a
+                # conclusion, so let the turn end instead of prompting for more work.
+                if not self._todo_list_is_complete():
+                    self.reflected_message = (
+                        "Continue with your task. If you have completed it, call the `Yield` tool."
+                    )
+                    return True
 
         if tool_calls_found and self.num_reflections < self.max_reflections:
             self.tool_call_count = 0
@@ -1304,7 +1305,7 @@ class AgentCoder(Coder):
             self._last_repetitive_warning_turn = 0
             self._last_repetitive_warning_severity = 0
 
-        context_parts = ['<context name="tool_usage_history" from="agent">']
+        context_parts = ['<context name="tool_usage_history" from="harness">']
         context_parts.append("## Turn and Tool Call Statistics")
         context_parts.append(f"- Current turn: {self.turn_count + 1}")
         context_parts.append(f"- Total tool calls this turn: {self.num_tool_calls}")
@@ -1459,7 +1460,7 @@ class AgentCoder(Coder):
             )
             if last_round_has_write:
                 context_parts = [
-                    '<context name="tool_usage_history" from="agent">',
+                    '<context name="tool_usage_history" from="harness">',
                     "A file was just edited.",
                     "Review the diff to make sure that something of value was done.",
                     "Do not just leave placeholder content or partial implementations.",
@@ -1547,8 +1548,8 @@ class AgentCoder(Coder):
         return inp
 
     def wrap_user_input(self, inp):
-        if inp and not inp.startswith('<context name="user_input" from="agent">'):
-            inp = f'<context name="user_input" from="agent">\n{inp}\n</context>'
+        if inp and not inp.startswith('<context name="user_input" from="harness">'):
+            inp = f'<context name="user_input" from="harness">\n{inp}\n</context>'
 
         return inp
 
@@ -1557,10 +1558,8 @@ class AgentCoder(Coder):
         Generate a structured directory listing of the project file structure.
         Returns a formatted string representation of the directory tree.
         """
-        if not self.use_enhanced_context:
-            return None
         try:
-            result = '<context name="directoryStructure" from="agent">\n'
+            result = '<context name="directoryStructure" from="harness">\n'
             result += "## Project File Structure\n\n"
             result += (
                 "Below is a snapshot of this project's file structure at the current time. "
@@ -1637,14 +1636,14 @@ class AgentCoder(Coder):
             import os
 
             if not os.path.isfile(abs_path):
-                return """<context name="todo_list" from="agent">
+                return """<context name="todo_list" from="harness">
 Todo list does not exist. Please update it with the `UpdateTodoList` tool.</context>"""
             content = self.io.read_text(abs_path)
             if content is None or not content.strip():
                 return None
 
             current_tasks = "\n".join(self.current_tasks)
-            result = '<context name="todo_list" from="agent">\n'
+            result = '<context name="todo_list" from="harness">\n'
             result += "## Current Active Tasks\n\n"
             result += f"```{current_tasks}```\n"
             result += "</context>"
@@ -1662,9 +1661,6 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         """
         from cecli.helpers.creator import requirements
 
-        if not self.use_enhanced_context:
-            return None
-
         config = getattr(self, "agent_config", {}) or {}
         if not (config.get("creator_mode") or config.get("allow_external_paths")):
             return None
@@ -1675,7 +1671,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
         environment, packages = discovery
 
-        result = '<context name="creator_requirements" from="agent">\n'
+        result = '<context name="creator_requirements" from="harness">\n'
         result += "## Available Python Packages\n\n"
         result += (
             f"Top-level modules installed in the {environment} environment running cecli "
@@ -1695,7 +1691,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         Returns:
             Formatted context block string or None if no skills available
         """
-        if not self.use_enhanced_context or not self.skills_manager:
+        if not self.skills_manager:
             return None
         try:
             return self.skills_manager.get_skills_context()
@@ -1710,7 +1706,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         Returns:
             Formatted context block string with skill contents or None if no skills available
         """
-        if not self.use_enhanced_context or not self.skills_manager:
+        if not self.skills_manager:
             return None
         try:
             return self.skills_manager.get_skills_content()
@@ -1726,10 +1722,10 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         """
         from cecli.helpers.browser import is_browser_harness_available
 
-        if not self.use_enhanced_context or not is_browser_harness_available():
+        if not is_browser_harness_available():
             return None
 
-        result = '<context name="browser_automation" from="agent">\n'
+        result = '<context name="browser_automation" from="harness">\n'
         result += "## Browser Automation\n\n"
         result += (
             "`browser-harness` drives a real Chrome/Chromium browser. Run it with a heredoc;"
@@ -1756,8 +1752,6 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         Returns:
             Formatted context block string or None if no servers available
         """
-        if not self.use_enhanced_context:
-            return None
         try:
             if not self.mcp_manager:
                 return None
@@ -1789,7 +1783,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 server.name for server in all_servers if server.name not in connected_server_names
             ]
 
-            result = '<context name="servers" from="agent">\n'
+            result = '<context name="servers" from="harness">\n'
             result += "## Connected MCP Servers\n\n"
 
             if active_servers:
@@ -1825,8 +1819,6 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
         Only returns content if ``allow_orchestration`` is enabled in the agent config.
         """
-        if not self.use_enhanced_context:
-            return None
 
         try:
             from cecli.helpers.orchestration import build_orchestration_context_block
@@ -1845,8 +1837,6 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             Formatted context block string with sub-agent names and descriptions,
             or None if no sub-agents are registered or if called from a sub-agent.
         """
-        if not self.use_enhanced_context:
-            return None
         if hasattr(self, "parent_uuid") and self.parent_uuid:
             return None
         try:
@@ -1859,7 +1849,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             if not registry:
                 return None
 
-            result = '<context name="sub_agents" from="agent">\n'
+            result = '<context name="sub_agents" from="harness">\n'
             result += "## Available Sub-Agents\n\n"
             result += f"Found {len(registry)} registered sub-agent(s) types:\n\n"
 
@@ -1900,8 +1890,6 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         This is used by ConversationChunks.add_sub_agent_states() to provide
         the model with visibility into active sub-agent states.
         """
-        if not self.use_enhanced_context:
-            return None
 
         # Sub-agents should only see sub-agent states when nested delegation is enabled
         if hasattr(self, "parent_uuid") and self.parent_uuid:
@@ -1962,29 +1950,35 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             if not dependent_children and not independent_agents:
                 return None
 
-            result = '<context name="sub_agent_states" from="agent">\n'
-            result += "## Active Sub-Agent Instances\n\n"
-            result += f"Found {len(dependent_children) + len(independent_agents)} active sub-agent(s):\n\n"
+            result = '<context name="sub_agent_states" from="harness">\n'
+            result += f"Found {len(dependent_children) + len(independent_agents)} existing sub-agent(s):\n\n"
 
             if dependent_children:
+                result += "## Child Sub-Agent Instances\n"
+
                 for info in dependent_children:
                     line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
                     if info.error:
                         line += f" - Error: {info.error}"
                     result += line + "\n"
 
+                result += "\n"
+
             if independent_agents:
                 result += "## Independent Sub-Agent Instances\n"
-                result += (
-                    "Communicate bi-directionally with these sub-agents using the "
-                    "`Broadcast` tool:\n\n"
-                )
 
                 for info in independent_agents:
                     line = f"- {info.name} ({info.coder.uuid}, {info.status.value})"
                     if info.error:
                         line += f" - Error: {info.error}"
                     result += line + "\n"
+
+                result += "\n"
+
+            result += (
+                "Communicate bi-directionally with these sub-agents using the "
+                "`Broadcast` tool:\n\n"
+            )
 
             result += "</context>"
             return result
@@ -2071,10 +2065,10 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         Generate a git status context block for repository information.
         Returns a formatted string with git branch, status, and recent commits.
         """
-        if not self.use_enhanced_context or not self.repo:
+        if not self.repo:
             return None
         try:
-            result = '<context name="gitStatus" from="agent">\n'
+            result = '<context name="gitStatus" from="harness">\n'
             result += "## Git Repository Status\n\n"
             result += "This is a snapshot of the git status at the current time.\n"
             try:
@@ -2159,24 +2153,28 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             self.io.tool_error(f"Error generating git status: {str(e)}")
             return None
 
-    def cmd_context_blocks(self, args=""):
-        """
-        Toggle enhanced context blocks feature.
-        """
-        self.use_enhanced_context = not self.use_enhanced_context
-        if self.use_enhanced_context:
-            self.io.tool_output(
-                "Enhanced context blocks are now ON - directory structure and git status will be"
-                " included."
-            )
-            self.tokens_calculated = False
-            self.context_blocks_cache = {}
-        else:
-            self.io.tool_output(
-                "Enhanced context blocks are now OFF - directory structure and git status will not"
-                " be included."
-            )
-            self.context_block_tokens = {}
-            self.context_blocks_cache = {}
-            self.tokens_calculated = False
-        return True
+    def _todo_list_is_complete(self):
+        """Return True when a todo list exists and has no unfinished tasks."""
+        try:
+            todo_path = self.abs_root_path(self.local_agent_folder("todo.txt"))
+
+            if not os.path.isfile(todo_path):
+                return False
+
+            content = self.io.read_text(todo_path) or ""
+        except Exception:
+            return False
+
+        task_lines = [line.strip() for line in content.splitlines() if line.strip()]
+        has_tasks = any(line.startswith(("✓ ", "○ ", "→ ")) for line in task_lines)
+        has_remaining = any(line.startswith(("○ ", "→ ")) for line in task_lines)
+
+        return has_tasks and not has_remaining
+
+    async def _reap_finished_sub_agents(self):
+        """Reap finished sub-agents that have ``auto_reap`` enabled."""
+        try:
+            service = AgentService.get_instance(self)
+            await service.reap_all_finished_agents(parent=service.get_parent(self))
+        except Exception:
+            logger.warning("Failed to reap finished sub-agents", exc_info=True)

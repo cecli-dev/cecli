@@ -3,7 +3,7 @@
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   width: 100%;
   max-width: none;
   margin: 0;
@@ -83,18 +83,13 @@
 }
 
 .brand-context {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 40ch;
+  max-width: none;
   overflow: hidden;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.2;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-@media (max-width: 940px) {
-  .brand-context {
-    max-width: 22ch;
-  }
 }

@@ -159,9 +159,8 @@ class AddCommand(BaseCommand):
                     coder.check_added_files()
 
                     # Recalculate context block tokens if using agent mode
-                    if hasattr(coder, "use_enhanced_context") and coder.use_enhanced_context:
-                        if hasattr(coder, "_calculate_context_block_tokens"):
-                            coder._calculate_context_block_tokens()
+                    if hasattr(coder, "_calculate_context_block_tokens"):
+                        coder._calculate_context_block_tokens()
 
         if coder.repo_map:
             map_tokens = coder.repo_map.max_map_tokens

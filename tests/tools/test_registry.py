@@ -70,13 +70,13 @@ class TestToolRegistry:
 
     def test_build_registry_with_includelist(self):
         """Test filtering with tools_includelist"""
-        config = {"tools_includelist": ["manageresources", "editfile"]}
+        config = {"tools_includelist": ["manageresources", "writefile"]}
         registry = ToolRegistry.build_registry(config)
 
         # Should only include tools from includelist, plus essential tools
         assert len(registry) == 3, "Should include 2 from list + 1 essential"
         assert "manageresources" in registry
-        assert "editfile" in registry
+        assert "writefile" in registry
         assert "yield" in registry  # Essential
         assert "shell" not in registry, "Should not include tools not in includelist"
 
@@ -104,7 +104,7 @@ class TestToolRegistry:
     def test_build_registry_combined_filters(self):
         """Test combined filtering with includelist and excludelist"""
         config = {
-            "tools_includelist": ["manageresources", "editfile", "shell"],
+            "tools_includelist": ["manageresources", "writefile", "shell"],
             "tools_excludelist": ["commandinteractive"],
         }
         registry = ToolRegistry.build_registry(config)
@@ -112,36 +112,36 @@ class TestToolRegistry:
         # Should respect all filters
         assert len(registry) == 4, "Should include exactly 4 tools (3 from list + yield)"
         assert "manageresources" in registry
-        assert "editfile" in registry
+        assert "writefile" in registry
         assert "yield" in registry
         assert "shell" in registry
         assert "commandinteractive" not in registry
 
     def test_get_filtered_tools(self):
         """Test get_filtered_tools method"""
-        config = {"tools_includelist": ["manageresources", "editfile"]}
+        config = {"tools_includelist": ["manageresources", "writefile"]}
         ToolRegistry.build_registry(config)
         tool_names = ToolRegistry.get_registered_tools()
 
         # Should return list of tool names
         assert isinstance(tool_names, list)
-        # Should include manageresources, editfile, and yield (essentials)
+        # Should include manageresources, writefile, and yield (essentials)
         assert len(tool_names) == 3
         assert "manageresources" in tool_names
-        assert "editfile" in tool_names
+        assert "writefile" in tool_names
         assert "yield" in tool_names  # Essential tool always included
 
     def test_legacy_config_names(self):
         """Test backward compatibility with legacy config names (whitelist/blacklist)"""
         config = {
-            "tools_whitelist": ["manageresources", "editfile"],
+            "tools_whitelist": ["manageresources", "writefile"],
             "tools_blacklist": ["shell"],
         }
         registry = ToolRegistry.build_registry(config)
 
         # Should work with legacy names
         assert "manageresources" in registry
-        assert "editfile" in registry
+        assert "writefile" in registry
         assert "shell" not in registry
 
     def test_config_precedence(self):
@@ -164,7 +164,7 @@ class TestToolRegistry:
 
     def test_registry_consistency(self):
         """Test that registry methods return consistent results"""
-        config = {"tools_includelist": ["manageresources", "editfile"]}
+        config = {"tools_includelist": ["manageresources", "writefile"]}
 
         # build_registry should return consistent results
         registry = ToolRegistry.build_registry(config)

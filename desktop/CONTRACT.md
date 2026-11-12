@@ -47,6 +47,10 @@ the session/new response is deferred until the coder is ready and contains
 5. `session/set_config_option` request `{"sessionId": "...", "configId": "mode", "value": "..."}`
    Config options look like `{"id", "name", "category", "type": "select",
    "currentValue", "options": [{"value", "name", "description"} | {"group", "name", "options": [...]}]}`.
+   While a turn runs, a `cecli/steer` request with the same `sessionId` and `prompt`
+   injects the text into that turn instead of starting another. It returns
+   `{"ok": true, "steered": true}` and emits a `session_message` update with
+   `userMessage: true`.
 
 Server-to-client requests: `session/request_permission` with
 `{"sessionId", "toolCall": {"toolCallId", "content": [...]}, "options": [{"optionId", "name", "kind"}]}`.
@@ -66,7 +70,9 @@ Notifications: `session/update` with `{"sessionId", "update": {...}}`. Update ki
 - `usage_update` `{used, size, cost?: {amount, currency}}`
 - `config_option_update` `{configOptions}`
 - `current_mode_update` `{currentModeId}`
-- `state_update` `{state, stopReason?}` where state is `running` | `idle` | `requires_action`
+- `state_update` `{state, stopReason?, scope?}` where state is `running` | `idle` |
+  `requires_action`; `scope` names the cached detail that changed (`skills`, `hooks`,
+  `mcp`, `workflows`, `context`), so the client can refresh it without polling
 - others (`session_message`, `subagent_update`, ...) must be ignored gracefully.
 
 Tool `content` entries look like `{"type": "content", "content": {"type": "text", "text": "```\n...\n```"}}`.
@@ -97,7 +103,7 @@ All responses are JSON unless noted. Unknown paths return 404.
 | GET    | `/api/health`     | -                                      | `{"ok": true, "status": "..."}` |
 | GET    | `/api/state`      | -                                      | snapshot, see below |
 | GET    | `/api/events`     | -                                      | SSE stream, see below |
-| POST   | `/api/prompt`     | `{"text": "..."}`                     | 202 `{"ok": true}`; 409 if busy/not ready; 400 if empty |
+| POST   | `/api/prompt`     | `{"text": "..."}`                     | 202 `{"ok": true, "steered": bool}`; a busy prompt steers the running turn; 409 if not ready; 400 if empty |
 | POST   | `/api/cancel`     | -                                      | 202 `{"ok": true}` |
 | POST   | `/api/new_session`| `{"cwd": "..."}` optional              | 202; 409 if busy |
 | POST   | `/api/permission` | `{"requestId": 7, "optionId": "y"}` or `{"requestId": 7, "optionId": null}` | 200 `{"ok": true}`; 404 unknown requestId |
@@ -186,8 +192,9 @@ report the truth.
   cursor while busy), collapsible thoughts, tool cards with status chips and
   expandable output, plan checklist, permission cards with option buttons,
   error notices. Auto-scroll unless the user scrolled up.
-- Composer: Enter sends, Shift+Enter newlines, disabled while busy; send button
-  becomes Stop while a turn runs. Show stop/retry affordances.
+- Composer: Enter sends or steers the running turn when busy, Shift+Enter
+  newlines; the send button becomes Stop when the composer is empty while a turn
+  runs. Show stop/retry affordances.
 - Render a safe subset of markdown: fenced code, inline code, bold, italic,
   headings, links (http/https only), ordered/unordered lists, blockquotes.
   Always escape HTML first.
@@ -205,7 +212,8 @@ report the truth.
   reasoning-effort selector. Mode changes are refused by the bridge, and effort
   stays under the agent's control (`/reasoning-effort` still works).
 - The composer offers bridge completion candidates for `/` commands, command
-  arguments, `@` mentions and paths; Arrow keys move, Tab/Enter accept, Esc closes.
+  arguments, `@` mentions and paths; Up/Down move, Tab/Right accept, Esc closes,
+  and Enter still sends the prompt.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards
@@ -274,38 +282,83 @@ loopback.
 | POST | `/api/browser/action` | `{action: "back"|"forward"|"reload"|"stop"}` | 202 `{ok}`; 400 unknown action |
 | POST | `/api/browser/viewport` | `{width, height, dpr}` | 202 `{ok}`; 400 bad values |
 | POST | `/api/browser/input` | `{event}` | 202 `{ok}`; 400 bad event |
+| POST | `/api/browser/dialog` | `{accept, promptText?}` | 200 `{ok, ...snapshot}`; answers a JS dialog |
+| POST | `/api/browser/file-chooser` | `{files}` or `{cancel: true}` | 200 `{ok, ...snapshot}`; attaches or dismisses an intercepted chooser |
+| POST | `/api/browser/download` | `{action: "open", id}` | 202 `{ok, ...snapshot}`; 404 unknown, 409 not-ready |
+| POST | `/api/browser/external` | `{url?}` | 202 `{ok, url}`; opens the system browser |
+| POST | `/api/browser/drop` | `{x, y, files?, text?}` | 202 `{ok, ...snapshot}`; dispatches a drag/drop |
 | POST | `/api/browser/tab/new` | `{url?}` | 202 `{ok, ...snapshot}`; 400 bad url |
 | POST | `/api/browser/tab/close` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
 | POST | `/api/browser/tab` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
-| GET | `/api/browser/stream` | - | SSE frame stream |
+| GET | `/api/browser/stream` | - | SSE frame stream (legacy fallback) |
+| GET | `/api/browser/ws` | - | WebSocket: JSON state events, binary JPEG frames, and input messages |
 
 `viewport` is `{width, height, dpr}`. Bare domains become `https://`; `http(s)`,
 `localhost`, loopback and `about:` addresses are preserved.
 
-Snapshots include `tabs` (`[{id, title, url, active}]`), `activeTabId`, and the
-page `scroll` metrics (`{x, y, maxX, maxY}`) used for wheel chaining. The bridge
-polls the debugger every 1.5 seconds while it runs, so tabs opened by
-browser-harness or the user appear without a reload; `POST /api/browser/tab`
-switches the shared screencast to one of them. The desktop canvas can also be
-zoomed client-side without changing the emulated page viewport.
+Snapshots include `tabs` (`[{id, title, url, active}]`), `activeTabId`, the
+page `scroll` metrics (`{x, y, maxX, maxY}`) used for wheel chaining, and the
+live `dialog`, `fileChooser`, `downloads` and `cursor` fields. Tab order is the
+order tabs were first observed, not the browser's active/MRU order, so the list
+stays stable when the active tab changes. The bridge polls the debugger every
+1.5 seconds while it runs, so tabs opened by browser-harness or the user appear
+without a reload; `POST /api/browser/tab` switches the shared screencast to one
+of them. The desktop canvas can also be zoomed client-side without changing the
+emulated page viewport.
 
-Input events accepted by `POST /api/browser/input`:
+Input events accepted by `POST /api/browser/input` (and by the WebSocket as
+`{type: "input", event}`):
 
 - `{kind: "mouse", type: "mousePressed"|"mouseReleased"|"mouseMoved", x, y, button, clickCount, buttons}`
 - `{kind: "wheel", x, y, deltaX, deltaY}`
 - `{kind: "text", text}`
 - `{kind: "key", type: "keyDown"|"keyUp", key, code, modifiers, text}`
+- `{kind: "ime", type: "composition"|"commit", text}`
 
 Modifiers may be a bitmask or a list of `alt`, `ctrl`, `meta` and `shift`
-(Alt=1, Ctrl=2, Meta=4, Shift=8).
+(Alt=1, Ctrl=2, Meta=4, Shift=8). IME composition maps to
+`Input.imeSetComposition`, and commit maps to `Input.insertText`.
 
-`GET /api/browser/stream` uses `Content-Type: text/event-stream`,
-`Cache-Control: no-cache`, keep-alive and `retry: 2000`. On connect it sends
-`data: {"type":"state","state":{...snapshot}}`, then
-`data: {"type":"frame","data":"<base64 jpeg>","meta":{...}}`, and
-`data: {"type":"error","message":"..."}` on failures. A `: ping` comment goes
-out every 15 seconds. The subscriber is removed when the connection closes, and
-the final subscriber stops the shared screencast.
+JavaScript dialogs are intercepted: `alert`, `confirm`, `prompt` and
+`beforeunload` appear as a `dialog` state/event and are answered through
+`POST /api/browser/dialog`. File inputs are intercepted through
+`Page.setInterceptFileChooserDialog`; uploads carry base64 file data and are
+installed with `DOM.setFileInputFiles` on local hosts, falling back to a
+`DataTransfer` in the page when the browser runs on another host (WSL), so a
+Windows browser under WSL works. Requests are capped at 64 MB of decoded file
+data (96 MB of base64 JSON). Downloads go to
+`<profile>/Downloads` with `Browser.setDownloadBehavior`, emit `download`
+events, and can be opened with `POST /api/browser/download`. Common promptable
+permissions (`notifications`, geolocation, clipboard read/write, audio/video
+capture, pointer lock, MIDI, local fonts, idle detection, background sync and
+durable storage) are granted for the dedicated profile because a mirrored page
+cannot show a permission prompt. Fullscreen stays gesture-gated by Chrome and is
+not granted.
+
+The page receives small injected hooks that report the hovered element's CSS
+cursor and page-initiated clipboard writes over `Runtime.addBinding`. The panel
+uses the cursor for canvas feedback and mirrors copied text to the system
+clipboard. Dropped files and text are written under `<profile>/drops` and
+dispatched with `Input.dispatchDragEvent`.
+
+`GET /api/browser/ws` is the primary transport. It speaks WebSocket subprotocol
+`cecli.browser.v1` (plus `token.<token>` when a token is configured), sends
+JSON state/event messages as text frames, and sends each JPEG frame as a binary
+frame with a 4-byte big-endian metadata length, the JSON metadata, then the JPEG
+bytes. Input events can be sent over the same socket, avoiding one HTTP request
+per pointer move. `GET /api/browser/stream` remains as the SSE fallback and uses
+`Content-Type: text/event-stream`, keep-alive and `retry: 2000`; it sends
+`data: {"type":"state",...}`, `data: {"type":"frame","data":"<base64 jpeg>",...}`
+and `data: {"type":"error",...}`. A `: ping` comment goes out every 15 seconds.
+The subscriber is removed when the connection closes, and the final subscriber
+stops the shared screencast. Screencast acks are coalesced and slow to about
+3 fps after 12 seconds without input; the next input restores quality 70 and
+about 25 fps.
+
+The panel includes an "Open in default browser" button
+(`POST /api/browser/external`) as the accessibility escape hatch: the canvas is
+not readable by screen readers, so the same page can be opened in the user's
+regular browser.
 
 `POST /api/background` with `{bridgeId?, action: "list"}` returns
 `{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns
@@ -433,6 +486,7 @@ required (400 otherwise). Relevant additions:
 | POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
 | POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
 | GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
+| GET | `/api/prompt-history?bridgeId=...` | - | `{history}` composer recall entries, oldest first |
 | POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
 | POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |
 | POST | `/api/subagent/cancel` | `{bridgeId, sessionId}` | 202 |

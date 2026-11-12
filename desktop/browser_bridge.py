@@ -4,8 +4,10 @@ Most sites refuse to be framed or drop their cookies inside a cross-site
 iframe, so the desktop UI cannot embed them directly. This module launches (or
 attaches to) a real Chrome, Edge, Chromium or Brave with a dedicated profile,
 speaks the DevTools Protocol over a standard-library asyncio WebSocket, and
-fans one shared screencast out to any number of SSE subscribers. Pointer, wheel,
-text and key events from the UI are forwarded as CDP input commands.
+fans one shared screencast out to any number of WebSocket or SSE subscribers.
+Pointer, wheel, text, key and IME events from the UI are forwarded as CDP input
+commands, and page hooks surface dialogs, file choosers, downloads, cursor
+shape and clipboard writes.
 
 Only the Python standard library is used, and all diagnostic HTTP/WebSocket
 traffic stays on loopback (or the Windows host loopback under WSL).
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 import os
 import re
@@ -22,9 +25,11 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
@@ -45,11 +50,20 @@ MAX_CAST_HEIGHT = 2048
 MAX_FRAME_QUEUE = 4
 TAB_POLL_SECONDS = 1.5
 SCROLL_POLL_SECONDS = 0.4
+IDLE_AFTER_SECONDS = 12.0
+IDLE_FRAME_QUALITY = 45
+IDLE_EVERY_NTH_FRAME = 2
+IDLE_ACK_INTERVAL = 0.35
+MAX_DOWNLOADS = 20
+MAX_UPLOAD_FILES = 20
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 HEALTH_TIMEOUT = 1.5
 LAUNCH_TIMEOUT = 30.0
 CDP_TIMEOUT = 30.0
 DEFAULT_VIEWPORT = {"width": 1280, "height": 900, "dpr": 1.0}
-
+DOWNLOAD_DIR_NAME = "Downloads"
+UPLOAD_DIR_NAME = "uploads"
+DROP_DIR_NAME = "drops"
 ALLOWED_SCHEMES = ("http", "https", "about", "file", "chrome", "data")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
@@ -107,6 +121,95 @@ WINDOW_MODE_ENV = "CECLI_BROWSER_WINDOW_MODE"
 WINDOW_MODES = ("auto", "offscreen", "minimized", "headless", "hidden", "visible")
 WINDOW_SIZE_FLAG = "--window-size=1280,900"
 OFFSCREEN_POSITION_FLAG = "--window-position=-32000,-32000"
+
+GRANTED_PERMISSIONS = (
+    "notifications",
+    "geolocation",
+    "clipboardReadWrite",
+    "clipboardSanitizedWrite",
+    "audioCapture",
+    "videoCapture",
+    "pointerLock",
+    "midi",
+    "midiSysex",
+    "localFonts",
+    "idleDetection",
+    "backgroundSync",
+    "durableStorage",
+)
+
+PAGE_HOOK_SCRIPT = r"""
+(() => {
+  if (window.__cecliHooksInstalled) return;
+  window.__cecliHooksInstalled = true;
+
+  const notifyCursor = (value) => {
+    try {
+      if (typeof window.cecliCursor === 'function') window.cecliCursor(String(value || ''));
+    } catch (error) {}
+  };
+  let lastCursor = '';
+  const trackCursor = (event) => {
+    const target = event.target;
+    if (!target || target.nodeType !== 1) return;
+    let cursor = '';
+    try {
+      cursor = window.getComputedStyle(target).cursor || '';
+    } catch (error) {
+      cursor = '';
+    }
+    if (cursor && cursor !== lastCursor) {
+      lastCursor = cursor;
+      notifyCursor(cursor);
+    }
+  };
+  document.addEventListener('mousemove', trackCursor, { passive: true, capture: true });
+  document.addEventListener('mousedown', trackCursor, { passive: true, capture: true });
+
+  const notifyClipboard = (payload) => {
+    try {
+      if (typeof window.cecliClipboard === 'function') {
+        window.cecliClipboard(JSON.stringify(payload));
+      }
+    } catch (error) {}
+  };
+  const readSelection = () => {
+    try {
+      return String(document.getSelection ? document.getSelection() : '');
+    } catch (error) {
+      return '';
+    }
+  };
+  document.addEventListener('copy', () => {
+    const text = readSelection();
+    if (text) notifyClipboard({ action: 'copy', text });
+  }, true);
+  document.addEventListener('cut', () => {
+    const text = readSelection();
+    if (text) notifyClipboard({ action: 'cut', text });
+  }, true);
+
+})();
+"""
+
+UPLOAD_FUNCTION = """
+function (files) {
+  const input = this;
+  const data = new DataTransfer();
+  for (const item of files) {
+    const binary = atob(item.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    data.items.add(new File([bytes], item.name, { type: item.type || '' }));
+  }
+  input.files = data.files;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  return input.files.length;
+}
+"""
 
 LAUNCH_FLAGS = (
     "--no-first-run",
@@ -465,11 +568,21 @@ class BrowserBridge:
         self._cast_running = False
         self._cast_session: _CdpSession | None = None
         self._cast_unsubs: list[Callable[[], None]] = []
-        self._next_ack_at = 0.0
-        self._ack_tasks: set[asyncio.Task[Any]] = set()
+        self._cast_quality = FRAME_QUALITY
+        self._cast_every_nth = 1
+        self._cast_idle = False
+        self._last_input_at = 0.0
+        self._ack_task: asyncio.Task[Any] | None = None
+        self._pending_ack_id: Any = None
+        self._idle_task: asyncio.Task[Any] | None = None
         self._session_lock: asyncio.Lock | None = None
         self._cast_lock: asyncio.Lock | None = None
         self._tab_lock: asyncio.Lock | None = None
+        self._tab_order: list[str] = []
+        self._dialog: dict[str, Any] | None = None
+        self._file_chooser: dict[str, Any] | None = None
+        self._downloads: list[dict[str, Any]] = []
+        self._cursor = ""
 
     def snapshot(self) -> dict[str, Any]:
         """Cheap, never-raising state for the UI."""
@@ -504,6 +617,10 @@ class BrowserBridge:
                 "subscribers": len(self._subscribers),
                 "tabs": [dict(item) for item in self._tabs],
                 "activeTabId": self._target_id,
+                "dialog": dict(self._dialog) if self._dialog else None,
+                "fileChooser": dict(self._file_chooser) if self._file_chooser else None,
+                "downloads": [dict(item) for item in self._downloads],
+                "cursor": self._cursor,
                 "scroll": dict(self._scroll) if self._scroll_known else None,
             }
         except Exception as err:
@@ -524,6 +641,10 @@ class BrowserBridge:
                 "subscribers": len(self._subscribers),
                 "tabs": [dict(item) for item in self._tabs],
                 "activeTabId": self._target_id,
+                "dialog": dict(self._dialog) if self._dialog else None,
+                "fileChooser": dict(self._file_chooser) if self._file_chooser else None,
+                "downloads": [dict(item) for item in self._downloads],
+                "cursor": self._cursor,
                 "scroll": dict(self._scroll) if self._scroll_known else None,
             }
 
@@ -677,6 +798,14 @@ class BrowserBridge:
                 }
             )
 
+        tab_ids = [tab["id"] for tab in tabs]
+        for tab_id in tab_ids:
+            if tab_id not in self._tab_order:
+                self._tab_order.append(tab_id)
+        self._tab_order = [tab_id for tab_id in self._tab_order if tab_id in tab_ids]
+        order = {tab_id: index for index, tab_id in enumerate(self._tab_order)}
+        tabs.sort(key=lambda tab: order.get(tab["id"], len(order)))
+
         signature = tuple((item["id"], item["title"], item["url"]) for item in tabs)
         if tabs != self._tabs or signature != self._tabs_signature:
             self._tabs = tabs
@@ -745,6 +874,7 @@ class BrowserBridge:
 
         if not isinstance(event, dict):
             raise BrowserError("event must be an object", 400)
+        self._touch_activity()
         kind = str(event.get("kind") or "").strip().lower()
         params: dict[str, Any] | None = None
         if kind == "mouse":
@@ -762,13 +892,177 @@ class BrowserBridge:
         elif kind == "key":
             params = _key_params(event)
             method = "Input.dispatchKeyEvent"
+        elif kind == "ime":
+            params, method = _ime_params(event)
         else:
             raise BrowserError(f"unsupported input kind: {kind}", 400)
 
         if kind == "text" and not params["text"]:
             return
         session = await self._ensure_session()
-        await session.send(method, params, timeout=10.0)
+        try:
+            await session.send(method, params, timeout=2.0)
+        except BrowserError as err:
+            if "timed out" not in str(err):
+                raise
+
+    async def handle_dialog(
+        self, accept: bool = True, prompt_text: str | None = None
+    ) -> dict[str, Any]:
+        """Answer the open JavaScript dialog and return the refreshed state."""
+
+        session = await self._ensure_session()
+        params: dict[str, Any] = {"accept": bool(accept)}
+        if prompt_text is not None:
+            params["promptText"] = str(prompt_text)
+        await session.send("Page.handleJavaScriptDialog", params, timeout=10.0)
+        self._dialog = None
+        self._publish_event({"type": "dialog", "dialog": None})
+        await asyncio.sleep(0.1)
+        await self._refresh_meta()
+        self._publish_state()
+        return self.snapshot()
+
+    async def upload_files(self, files: Any) -> dict[str, Any]:
+        """Attach one or more uploaded files to the intercepted file input."""
+
+        chooser = self._file_chooser
+        if not chooser:
+            raise BrowserError("no file chooser is open", 409)
+        items = _normalize_upload_files(files)
+        session = await self._ensure_session()
+        if not _needs_browser_paths(self._executable):
+            try:
+                paths = self._write_upload_files(items)
+                await session.send(
+                    "DOM.setFileInputFiles",
+                    {"files": paths, "backendNodeId": chooser["backendNodeId"]},
+                    timeout=30.0,
+                )
+                self._clear_file_chooser()
+                return self.snapshot()
+            except (BrowserError, OSError):
+                pass
+
+        resolved = await session.send(
+            "DOM.resolveNode",
+            {"backendNodeId": chooser["backendNodeId"], "objectGroup": "cecli-upload"},
+            timeout=5.0,
+        )
+        object_id = (resolved.get("object") or {}).get("objectId")
+        if not isinstance(object_id, str):
+            raise BrowserError("the file input is no longer available", 409)
+        try:
+            await session.send(
+                "Runtime.callFunctionOn",
+                {
+                    "objectId": object_id,
+                    "functionDeclaration": UPLOAD_FUNCTION,
+                    "arguments": [{"value": items}],
+                    "returnByValue": True,
+                },
+                timeout=30.0,
+            )
+        finally:
+            await self._safe_send(session, "Runtime.releaseObject", {"objectId": object_id})
+        self._clear_file_chooser()
+        return self.snapshot()
+
+    async def cancel_file_chooser(self) -> dict[str, Any]:
+        """Dismiss an intercepted file chooser without selecting files."""
+
+        session = self._session
+        if session is not None and not session.closed:
+            await self._safe_send(
+                session,
+                "Page.setInterceptFileChooserDialog",
+                {"enabled": True, "cancel": True},
+            )
+            await self._safe_send(session, "Page.setInterceptFileChooserDialog", {"enabled": True})
+        self._clear_file_chooser()
+        return self.snapshot()
+
+    async def open_download(self, download_id: str) -> dict[str, Any]:
+        """Open one completed download with the desktop's default handler."""
+
+        value = str(download_id or "").strip()
+        if not value:
+            raise BrowserError("download id is required", 400)
+        record = next((item for item in self._downloads if item.get("id") == value), None)
+        if record is None:
+            raise BrowserError("unknown download", 404)
+        if record.get("state") != "completed":
+            raise BrowserError("the download is not complete yet", 409)
+        filename = _safe_filename(record.get("filename"), 0)
+        raw_path = record.get("path") or str(self._download_dir / filename)
+        path = _local_path(raw_path, self._executable)
+        if not path or not os.path.exists(path):
+            fallback = self._download_dir / filename
+            if fallback.exists():
+                path = str(fallback)
+            else:
+                raise BrowserError("the downloaded file was not found", 404)
+        if not await asyncio.to_thread(_open_path, path, self._executable):
+            raise BrowserError("could not open the downloaded file")
+        return self.snapshot()
+
+    async def open_external(self, url: str | None = None) -> dict[str, Any]:
+        """Open the current page in the user's default browser."""
+
+        target = normalize_url(url) if url else self._url
+        if not target or target == "about:blank":
+            raise BrowserError("no page is loaded", 400)
+        if not await asyncio.to_thread(_open_external_url, target, self._executable):
+            raise BrowserError("could not open the system browser")
+        return {"url": target}
+
+    async def drop_files(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch a file or text drop onto the page at one point."""
+
+        if not isinstance(payload, dict):
+            raise BrowserError("drop must be an object", 400)
+        x = _number(payload.get("x", 0), "x")
+        y = _number(payload.get("y", 0), "y")
+        files = _normalize_upload_files(payload.get("files") or [])
+        text = payload.get("text")
+        text_value = text if isinstance(text, str) else ""
+        items: list[dict[str, Any]] = []
+        paths: list[str] = []
+        uris: list[str] = []
+        if text_value:
+            items.append({"mimeType": "text/plain", "data": text_value})
+        if files:
+            drop_dir = self._profile / DROP_DIR_NAME
+            try:
+                drop_dir.mkdir(parents=True, exist_ok=True)
+                _prune_directory(drop_dir)
+            except OSError as err:
+                raise BrowserError(f"could not prepare dropped files: {err}") from err
+            for index, item in enumerate(files):
+                name = _safe_filename(item["name"], index)
+                path = drop_dir / name
+                try:
+                    path.write_bytes(base64.b64decode(item["data"]))
+                except (OSError, ValueError) as err:
+                    raise BrowserError(f"could not store a dropped file: {err}") from err
+                paths.append(_browser_path(path, self._executable))
+                uris.append(_file_uri(path, self._executable))
+        if not items and not paths:
+            raise BrowserError("drop requires files or text", 400)
+        if uris:
+            items.append({"mimeType": "text/uri-list", "data": "\r\n".join(uris)})
+        data: dict[str, Any] = {"items": items, "dragOperationsMask": 1}
+        if paths:
+            data["files"] = paths
+        session = await self._ensure_session()
+        for event_type in ("dragEnter", "dragOver", "drop"):
+            await session.send(
+                "Input.dispatchDragEvent",
+                {"type": event_type, "x": x, "y": y, "data": data},
+                timeout=10.0,
+            )
+        self._touch_activity()
+        return self.snapshot()
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         """Attach one frame queue; a running browser then streams frames."""
@@ -795,6 +1089,11 @@ class BrowserBridge:
         self._stop_tab_poll()
         self._stop_scroll_poll()
         self._stop_hidden_watch()
+        self._stop_idle_poll()
+        self._dialog = None
+        self._file_chooser = None
+        self._cursor = ""
+        self._tab_order = []
         for queue in list(self._subscribers):
             self._subscribers.discard(queue)
         session = self._session
@@ -893,11 +1192,23 @@ class BrowserBridge:
                 session.on("Page.frameNavigated", self._on_frame_navigated),
                 session.on("Page.loadEventFired", self._on_load_event),
                 session.on("Page.navigatedWithinDocument", self._on_navigated_within_document),
+                session.on("Page.javascriptDialogOpening", self._on_dialog_opening),
+                session.on("Page.javascriptDialogClosed", self._on_dialog_closed),
+                session.on("Page.fileChooserOpened", self._on_file_chooser_opened),
+                session.on("Runtime.bindingCalled", self._on_binding_called),
+                session.on("Browser.downloadWillBegin", self._on_download_begin),
+                session.on("Browser.downloadProgress", self._on_download_progress),
+                session.on("Page.downloadWillBegin", self._on_download_begin),
+                session.on("Page.downloadProgress", self._on_download_progress),
             ]
             session.on_close(lambda: self._on_session_closed(session))
+            await self._install_page_hooks(session)
+            await self._configure_downloads(session)
+            await self._grant_permissions(session)
             await self._refresh_meta()
             self._start_tab_poll()
             self._start_scroll_poll()
+            self._start_idle_poll()
             return session
 
     async def _ensure_browser(self) -> None:
@@ -1138,9 +1449,19 @@ class BrowserBridge:
         frame = params.get("frame")
         if not isinstance(frame, dict) or frame.get("parentId"):
             return
+        had_chooser = self._file_chooser is not None
+        had_cursor = bool(self._cursor)
+        self._file_chooser = None
+        self._cursor = ""
+        if had_chooser:
+            self._publish_event({"type": "fileChooser", "chooser": None})
+        if had_cursor:
+            self._publish_event({"type": "cursor", "cursor": ""})
         url = frame.get("url")
         if isinstance(url, str) and url and url != self._url:
             self._url = url
+            self._publish_state()
+        elif had_chooser or had_cursor:
             self._publish_state()
 
     def _on_navigated_within_document(self, params: dict[str, Any]) -> None:
@@ -1152,6 +1473,241 @@ class BrowserBridge:
     def _on_load_event(self, _params: dict[str, Any]) -> None:
         self._task(self._refresh_meta())
 
+    async def _install_page_hooks(self, session: _CdpSession) -> None:
+        """Install dialog, file, clipboard and cursor hooks on one page."""
+
+        for name in ("cecliCursor", "cecliClipboard"):
+            await self._safe_send(session, "Runtime.addBinding", {"name": name})
+        await self._safe_send(session, "DOM.enable")
+        await self._safe_send(session, "Page.setInterceptFileChooserDialog", {"enabled": True})
+        await self._safe_send(
+            session,
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": PAGE_HOOK_SCRIPT},
+        )
+        await self._safe_send(session, "Runtime.evaluate", {"expression": PAGE_HOOK_SCRIPT})
+
+    async def _configure_downloads(self, session: _CdpSession) -> None:
+        """Send downloads to the profile and ask for progress events."""
+
+        path = self._download_dir
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        native = _browser_path(path, self._executable)
+        await self._safe_send(
+            session,
+            "Browser.setDownloadBehavior",
+            {"behavior": "allow", "downloadPath": native, "eventsEnabled": True},
+        )
+        await self._safe_send(
+            session,
+            "Page.setDownloadBehavior",
+            {"behavior": "allow", "downloadPath": native},
+        )
+
+    async def _grant_permissions(self, session: _CdpSession) -> None:
+        """Grant the permissions a mirrored page cannot prompt for."""
+
+        granted = await self._safe_send(
+            session,
+            "Browser.grantPermissions",
+            {"permissions": list(GRANTED_PERMISSIONS)},
+        )
+        if not granted:
+            self._publish_event(
+                {"type": "notice", "message": "Some browser permissions were not granted"}
+            )
+
+    def _write_upload_files(self, items: list[dict[str, Any]]) -> list[str]:
+        """Write uploaded payloads under the profile for a local file input."""
+
+        directory = self._profile / UPLOAD_DIR_NAME
+        directory.mkdir(parents=True, exist_ok=True)
+        _prune_directory(directory)
+        paths: list[str] = []
+        for index, item in enumerate(items):
+            path = directory / _safe_filename(item["name"], index)
+            path.write_bytes(base64.b64decode(item["data"]))
+            paths.append(str(path))
+        return paths
+
+    def _clear_file_chooser(self) -> None:
+        self._file_chooser = None
+        self._publish_event({"type": "fileChooser", "chooser": None})
+        self._publish_state()
+
+    async def _safe_send(
+        self, session: _CdpSession, method: str, params: dict[str, Any] | None = None
+    ) -> bool:
+        """Send an optional CDP command, ignoring browsers that reject it."""
+
+        try:
+            await session.send(method, params, timeout=5.0)
+            return True
+        except BrowserError:
+            return False
+
+    def _on_dialog_opening(self, params: dict[str, Any]) -> None:
+        self._dialog = {
+            "url": str(params.get("url") or ""),
+            "message": str(params.get("message") or ""),
+            "type": str(params.get("type") or "alert"),
+            "hasBrowserHandler": bool(params.get("hasBrowserHandler")),
+            "defaultPrompt": str(params.get("defaultPrompt") or ""),
+        }
+        self._publish_event({"type": "dialog", "dialog": dict(self._dialog)})
+        self._publish_state()
+
+    def _on_dialog_closed(self, _params: dict[str, Any]) -> None:
+        self._dialog = None
+        self._publish_event({"type": "dialog", "dialog": None})
+        self._publish_state()
+
+    def _on_file_chooser_opened(self, params: dict[str, Any]) -> None:
+        backend_node_id = params.get("backendNodeId")
+        if not isinstance(backend_node_id, int):
+            self._file_chooser = None
+            self._publish_event({"type": "fileChooser", "chooser": None})
+            self._publish_state()
+            return
+        self._file_chooser = {
+            "backendNodeId": backend_node_id,
+            "mode": str(params.get("mode") or "selectSingle"),
+        }
+        self._publish_event({"type": "fileChooser", "chooser": dict(self._file_chooser)})
+        self._publish_state()
+
+    def _on_binding_called(self, params: dict[str, Any]) -> None:
+        name = params.get("name")
+        payload = params.get("payload")
+        if not isinstance(payload, str):
+            return
+        if name == "cecliCursor":
+            self._cursor = payload[:64]
+            self._publish_event({"type": "cursor", "cursor": self._cursor})
+            return
+        if name != "cecliClipboard":
+            return
+        try:
+            message = json.loads(payload)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(message, dict):
+            return
+        action = message.get("action")
+        text = message.get("text")
+        if isinstance(action, str) and isinstance(text, str):
+            self._publish_event({"type": "clipboard", "action": action, "text": text[:200000]})
+
+    def _on_download_begin(self, params: dict[str, Any]) -> None:
+        guid = params.get("guid")
+        if not isinstance(guid, str) or not guid:
+            return
+        if any(item.get("id") == guid for item in self._downloads):
+            return
+        record = {
+            "id": guid,
+            "url": str(params.get("url") or ""),
+            "filename": str(params.get("suggestedFilename") or "download"),
+            "state": "inProgress",
+            "receivedBytes": 0,
+            "totalBytes": 0,
+            "path": None,
+        }
+        self._downloads.append(record)
+        del self._downloads[:-MAX_DOWNLOADS]
+        self._publish_event({"type": "download", "download": dict(record)})
+        self._publish_state()
+
+    def _on_download_progress(self, params: dict[str, Any]) -> None:
+        guid = params.get("guid")
+        if not isinstance(guid, str):
+            return
+        record = next((item for item in self._downloads if item.get("id") == guid), None)
+        if record is None:
+            self._on_download_begin(params)
+            record = next((item for item in self._downloads if item.get("id") == guid), None)
+        if record is None:
+            return
+        record["receivedBytes"] = _int_value(params.get("receivedBytes"))
+        record["totalBytes"] = _int_value(params.get("totalBytes"))
+        state = params.get("state")
+        if isinstance(state, str) and state:
+            record["state"] = state
+        path = params.get("filePath")
+        if isinstance(path, str) and path:
+            record["path"] = path
+        elif record.get("state") == "completed" and not record.get("path"):
+            record["path"] = str(self._download_dir / _safe_filename(record.get("filename"), 0))
+        self._publish_event({"type": "download", "download": dict(record)})
+        if record.get("state") in ("completed", "canceled"):
+            self._publish_state()
+
+    def _touch_activity(self) -> None:
+        """Record user activity and leave the idle screencast profile."""
+
+        try:
+            self._last_input_at = asyncio.get_running_loop().time()
+        except RuntimeError:
+            self._last_input_at = 0.0
+        if self._cast_idle:
+            self._cast_idle = False
+            self._cast_quality = FRAME_QUALITY
+            self._cast_every_nth = 1
+            if self._cast_running:
+                self._task(self._restart_cast_for_profile())
+
+    def _start_idle_poll(self) -> None:
+        if self._idle_task is not None and not self._idle_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            if not self._last_input_at:
+                self._last_input_at = loop.time()
+            self._idle_task = loop.create_task(self._poll_idle())
+        except RuntimeError:
+            return
+
+    async def _poll_idle(self) -> None:
+        try:
+            while self._browser_running():
+                await asyncio.sleep(2.0)
+                if not self._browser_running():
+                    return
+                now = asyncio.get_running_loop().time()
+                idle = not self._last_input_at or now - self._last_input_at > IDLE_AFTER_SECONDS
+                if idle == self._cast_idle:
+                    continue
+                self._cast_idle = idle
+                self._cast_quality = IDLE_FRAME_QUALITY if idle else FRAME_QUALITY
+                self._cast_every_nth = IDLE_EVERY_NTH_FRAME if idle else 1
+                if self._cast_running:
+                    await self._restart_cast_for_profile()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self._idle_task is asyncio.current_task():
+                self._idle_task = None
+
+    def _stop_idle_poll(self) -> None:
+        task = self._idle_task
+        self._idle_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _restart_cast_for_profile(self) -> None:
+        if not self._cast_running:
+            return
+        await self._stop_screencast(force=True)
+        if self._subscribers:
+            await self._ensure_screencast()
+
+    @property
+    def _download_dir(self) -> Path:
+        return self._profile / DOWNLOAD_DIR_NAME
+
     def _on_session_closed(self, session: _CdpSession) -> None:
         if session is not self._session:
             return
@@ -1159,6 +1715,10 @@ class BrowserBridge:
         self._target_id = None
         self._cast_running = False
         self._cast_session = None
+        self._dialog = None
+        self._file_chooser = None
+        self._cursor = ""
+        self._drop_ack()
         self._publish_event({"type": "error", "message": "the browser connection closed"})
         if self._subscribers:
             self._task(self._restart_screencast_later())
@@ -1183,9 +1743,9 @@ class BrowserBridge:
                     "Page.startScreencast",
                     {
                         "format": "jpeg",
-                        "quality": FRAME_QUALITY,
+                        "quality": self._cast_quality,
                         **self._cast_size(),
-                        "everyNthFrame": 1,
+                        "everyNthFrame": self._cast_every_nth,
                     },
                 )
             except BrowserError as err:
@@ -1202,6 +1762,7 @@ class BrowserBridge:
         if not force and self._subscribers:
             return
         self._cast_running = False
+        self._drop_ack()
         session = self._cast_session
         self._cast_session = None
         self._drop_cast_listeners()
@@ -1246,37 +1807,62 @@ class BrowserBridge:
             try:
                 queue.put_nowait(frame)
             except asyncio.QueueFull:
-                try:
-                    queue.get_nowait()
-                    queue.put_nowait(frame)
-                except (asyncio.QueueEmpty, asyncio.QueueFull):
-                    continue
+                continue
         self._schedule_ack(params.get("sessionId"))
 
     def _schedule_ack(self, session_id: Any) -> None:
+        """Ack the latest frame at the active or idle frame rate."""
+
         if session_id is None:
             return
         session = self._cast_session
         if session is None or session.closed:
             return
+        self._pending_ack_id = session_id
+        if self._ack_task is not None:
+            return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        now = loop.time()
-        slot = max(now, self._next_ack_at + FRAME_INTERVAL)
-        self._next_ack_at = slot
-        task = loop.create_task(self._ack_later(session, session_id, max(0.0, slot - now)))
-        self._ack_tasks.add(task)
-        task.add_done_callback(self._ack_tasks.discard)
+        self._ack_task = loop.create_task(self._ack_loop(session))
 
-    async def _ack_later(self, session: _CdpSession, session_id: Any, delay: float) -> None:
-        if delay:
-            await asyncio.sleep(delay)
+    async def _ack_loop(self, session: _CdpSession) -> None:
+        """Coalesce frame acks so an idle page cannot build a backlog."""
+
         try:
-            await session.send("Page.screencastFrameAck", {"sessionId": session_id}, timeout=5.0)
-        except BrowserError:
-            return
+            while self._pending_ack_id is not None:
+                session_id = self._pending_ack_id
+                self._pending_ack_id = None
+                interval = IDLE_ACK_INTERVAL if self._cast_idle else FRAME_INTERVAL
+                await asyncio.sleep(interval)
+                if session.closed or not self._cast_running:
+                    break
+                try:
+                    await session.send(
+                        "Page.screencastFrameAck", {"sessionId": session_id}, timeout=5.0
+                    )
+                except BrowserError:
+                    break
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._ack_task = None
+            if self._pending_ack_id is not None and self._cast_running and not session.closed:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                self._ack_task = loop.create_task(self._ack_loop(session))
+
+    def _drop_ack(self) -> None:
+        """Cancel a queued ack when the screencast stops."""
+
+        self._pending_ack_id = None
+        task = self._ack_task
+        self._ack_task = None
+        if task is not None and not task.done():
+            task.cancel()
 
     def _cast_size(self) -> dict[str, int]:
         scale = min(self._viewport["dpr"], MAX_DPR)
@@ -1399,7 +1985,11 @@ class BrowserBridge:
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                continue
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(event)
+                except (asyncio.QueueEmpty, asyncio.QueueFull):
+                    continue
 
     def _task(self, coroutine: Any) -> None:
         try:
@@ -1788,21 +2378,7 @@ def _wsl_nameserver() -> str | None:
 
 
 def _browser_profile_arg(profile: Path, executable: str) -> str:
-    if os.name != "nt" and executable.lower().endswith(".exe") and _is_wsl():
-        try:
-            result = subprocess.run(
-                ["wslpath", "-w", str(profile)],
-                capture_output=True,
-                text=True,
-                timeout=5.0,
-                check=False,
-            )
-            native = result.stdout.strip()
-            if result.returncode == 0 and native:
-                return native
-        except (OSError, subprocess.SubprocessError):
-            pass
-    return str(profile)
+    return _browser_path(profile, executable)
 
 
 def _rewrite_ws_url(url: str, host: str) -> str:
@@ -1917,6 +2493,180 @@ def _key_params(event: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _ime_params(event: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Translate one UI composition or commit event into a CDP command."""
+
+    subtype = str(event.get("type") or "composition").strip().lower()
+    text = event.get("text")
+    if not isinstance(text, str):
+        raise BrowserError("ime input requires a text string", 400)
+    if subtype in ("composition", "compose", "update"):
+        return (
+            {"text": text, "selectionStart": len(text), "selectionEnd": len(text)},
+            "Input.imeSetComposition",
+        )
+    if subtype in ("commit", "text", "insert"):
+        if not text:
+            raise BrowserError("ime commit requires text", 400)
+        return {"text": text}, "Input.insertText"
+    raise BrowserError(f"unsupported ime event type: {subtype}", 400)
+
+
+def _normalize_upload_files(files: Any) -> list[dict[str, Any]]:
+    """Validate and canonicalise base64 file uploads from the UI."""
+
+    if not isinstance(files, (list, tuple)):
+        raise BrowserError("files must be a list", 400)
+    if len(files) > MAX_UPLOAD_FILES:
+        raise BrowserError(f"at most {MAX_UPLOAD_FILES} files can be attached", 400)
+    normalized: list[dict[str, Any]] = []
+    total = 0
+    for index, item in enumerate(files):
+        if not isinstance(item, dict):
+            raise BrowserError("each file must be an object", 400)
+        name = _safe_filename(item.get("name"), index)
+        data = item.get("data")
+        if not isinstance(data, str):
+            raise BrowserError("each file requires base64 data", 400)
+        if data.startswith("data:"):
+            comma = data.find(",")
+            if comma != -1:
+                data = data[comma + 1 :]
+        data = re.sub(r"\s+", "", data)
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError) as err:
+            raise BrowserError(f"invalid base64 data for {name}", 400) from err
+        total += len(raw)
+        if total > MAX_UPLOAD_BYTES:
+            raise BrowserError("uploaded files are too large", 413)
+        normalized.append(
+            {
+                "name": name,
+                "type": str(item.get("type") or ""),
+                "data": base64.b64encode(raw).decode("ascii"),
+            }
+        )
+    return normalized
+
+
+def _safe_filename(name: Any, index: int) -> str:
+    """Reduce a user-supplied filename to one safe basename."""
+
+    raw = str(name or "").replace("\\", "/").split("/")[-1]
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]", "_", raw).strip(" .")
+    return (cleaned or f"file-{index + 1}")[:120]
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _needs_browser_paths(executable: str | None) -> bool:
+    """Whether file paths must be translated for a Windows browser under WSL."""
+
+    return bool(
+        executable and os.name != "nt" and executable.lower().endswith(".exe") and _is_wsl()
+    )
+
+
+def _local_path(path: Path | str, executable: str | None) -> str:
+    """Translate a Windows path reported by the browser back to a local path."""
+
+    value = str(path)
+    if not _needs_browser_paths(executable):
+        return value
+    if len(value) > 1 and value[1] == ":":
+        try:
+            result = subprocess.run(
+                ["wslpath", "-u", value],
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+                check=False,
+            )
+            native = result.stdout.strip()
+            if result.returncode == 0 and native:
+                return native
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return value
+
+
+def _browser_path(path: Path | str, executable: str | None) -> str:
+    """Translate one local path for a Windows browser launched under WSL."""
+
+    value = str(path)
+    if executable and os.name != "nt" and executable.lower().endswith(".exe") and _is_wsl():
+        try:
+            result = subprocess.run(
+                ["wslpath", "-w", value],
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+                check=False,
+            )
+            native = result.stdout.strip()
+            if result.returncode == 0 and native:
+                return native
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return value
+
+
+def _file_uri(path: Path | str, executable: str | None) -> str:
+    """Build a file URI a browser on either side of WSL can resolve."""
+
+    native = _browser_path(path, executable)
+    if len(native) > 1 and native[1] == ":":
+        return "file:///" + native.replace("\\", "/")
+    try:
+        return Path(str(path)).absolute().as_uri()
+    except ValueError:
+        return native
+
+
+def _open_path(path: str, executable: str | None = None) -> bool:
+    """Open one local file with the desktop's default handler."""
+
+    try:
+        if executable and executable.lower().endswith(".exe") and _is_wsl():
+            native = _browser_path(path, executable)
+            result = subprocess.run(
+                ["cmd.exe", "/c", "start", "", native],
+                capture_output=True,
+                timeout=10.0,
+                check=False,
+            )
+            return result.returncode == 0
+        if os.name == "nt":
+            os.startfile(path)  # type: ignore[attr-defined]
+            return True
+        return bool(webbrowser.open(Path(path).absolute().as_uri()))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
+def _open_external_url(url: str, executable: str | None = None) -> bool:
+    """Open one URL in the user's regular desktop browser."""
+
+    try:
+        if executable and executable.lower().endswith(".exe") and _is_wsl():
+            result = subprocess.run(
+                ["cmd.exe", "/c", "start", "", url],
+                capture_output=True,
+                timeout=10.0,
+                check=False,
+            )
+            return result.returncode == 0
+        return bool(webbrowser.open(url, new=2))
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _modifier_bits(value: Any) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value & 15
@@ -1930,3 +2680,15 @@ def _modifier_bits(value: Any) -> int:
     for name in names:
         bits |= MODIFIER_BITS.get(str(name).strip().lower(), 0)
     return bits
+
+
+def _prune_directory(directory: Path, max_age: float = 86400.0) -> None:
+    """Delete stored uploads or drops that are older than the retention window."""
+
+    try:
+        cutoff = time.time() - max_age
+        for path in directory.iterdir():
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+    except OSError:
+        return

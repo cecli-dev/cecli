@@ -112,6 +112,12 @@ Press `alt+o` or run `/open commands` to open the background command panel. It f
 
 `alt+o` cycles through the available panel types. When the last panel type is open, pressing `alt+o` again closes it.
 
+Every overlay panel shows `commands (shift+1) • plans (shift+2) • asides (shift+3)` as its border subtitle. While a panel is focused, press `shift+1`, `shift+2`, or `shift+3` to jump directly to the commands, plans, or asides panel.
+
+Run `/open plans` to open the plans panel. It has one tab per agent (the primary agent plus every tracked sub-agent) and shows that agent's todo list. The tab for the agent currently displayed in the TUI is selected when the panel opens.
+
+Run `/open asides` to open the asides panel, or simply use `/btw <question>`. Each `/btw` exchange is appended to an in-memory list and shown in the panel as `Prompt:` text, a separator, then the raw `Answer:` text. The panel title shows the current position and total (for example `asides 2 of 5`), and the left and right arrow keys move through previous questions and answers. `/btw` uses the same full chat context as the main conversation, so provider prompt caching still applies, and it can be used even while the agent is generating.
+
 #### Customizing Key Bindings
 
 You can customize any key binding by adding a `key_bindings` section to your `tui-config`. For example, to change the quit key to `ctrl+x`:

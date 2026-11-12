@@ -33,9 +33,8 @@ class DropCommand(BaseCommand):
                 cls._drop_all_files(io, coder, kwargs.get("original_read_only_fnames"))
 
                 # Recalculate context block tokens after dropping all files
-                if hasattr(coder, "use_enhanced_context") and coder.use_enhanced_context:
-                    if hasattr(coder, "_calculate_context_block_tokens"):
-                        coder._calculate_context_block_tokens()
+                if hasattr(coder, "_calculate_context_block_tokens"):
+                    coder._calculate_context_block_tokens()
 
                 return format_command_result(io, "drop", "Dropped all files from chat")
 
@@ -78,13 +77,8 @@ class DropCommand(BaseCommand):
                         files_changed = True
 
             # Recalculate context block tokens if any files were changed and using agent mode
-            if (
-                files_changed
-                and hasattr(coder, "use_enhanced_context")
-                and coder.use_enhanced_context
-            ):
-                if hasattr(coder, "_calculate_context_block_tokens"):
-                    coder._calculate_context_block_tokens()
+            if files_changed and hasattr(coder, "_calculate_context_block_tokens"):
+                coder._calculate_context_block_tokens()
 
             return format_command_result(io, "drop", "Removed files from chat")
 

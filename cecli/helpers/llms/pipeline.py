@@ -85,6 +85,7 @@ async def acompletion(
     # the coercer cannot re-inject a field the transform just stripped.
     resolved["_echo_reasoning_content"] = getattr(provider, "echoes_reasoning_content", True)
     messages = provider.transform_messages(messages)
+    messages = _null_content_to_empty(messages)
 
     if stream:
         gen = _stream_family(family, resolved, messages, tools, key, headers, kwargs)
@@ -166,6 +167,34 @@ async def _apply_normalize(
     """Yield each stream chunk through the provider's ``normalize`` hook."""
     async for chunk in gen:
         yield provider.normalize(family, chunk, resolved)
+
+
+def _null_content_to_empty(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Replace null message ``content`` and assistant ``reasoning_content`` with empty strings.
+
+    Only ``None`` is replaced, and absent ``reasoning_content`` keys stay absent
+    so strict providers (Mistral) do not get it re-added. Copies before mutating.
+    """
+    normalized: List[Dict[str, Any]] = []
+    changed = False
+
+    for msg in messages:
+        if isinstance(msg, dict):
+            if msg.get("content") is None:
+                msg = {**msg, "content": ""}
+                changed = True
+
+            if (
+                msg.get("role") == "assistant"
+                and "reasoning_content" in msg
+                and msg["reasoning_content"] is None
+            ):
+                msg = {**msg, "reasoning_content": ""}
+                changed = True
+
+        normalized.append(msg)
+
+    return normalized if changed else messages
 
 
 __all__ = ["acompletion"]

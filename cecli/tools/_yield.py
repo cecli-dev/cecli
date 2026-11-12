@@ -214,7 +214,6 @@ class Tool(BaseTool):
                             except asyncio.CancelledError:
                                 pass
 
-                    await agent_service.reap_all_finished_agents(parent=coder)
                     # Don't mark as finished — the coder should review sub-agent
                     # outputs and decide how to proceed
                     response.append_result(
@@ -224,13 +223,6 @@ class Tool(BaseTool):
                     return response
             except Exception as e:
                 logger.warning("Error awaiting child sub-agents before yield: %s", e)
-
-            # Reap all finished sub-agents with auto_reap enabled
-            try:
-                service = AgentService.get_instance(coder)
-                await service.reap_all_finished_agents(parent=service.get_parent(coder))
-            except Exception:
-                logger.warning("Failed to reap finished sub-agents", exc_info=True)
 
             # Creator agents may have changed extensions on disk; reload them so
             # the new skills, hooks, workflows, tools, commands, and servers are

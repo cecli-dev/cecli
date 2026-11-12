@@ -10,8 +10,10 @@ from textual.widgets import RichLog, Static, Tab, Tabs
 
 from cecli.helpers.background_commands import BackgroundCommandManager
 
+from .overlay import OVERLAY_BINDINGS, OverlayPanelActions, refresh_overlay_subtitles
 
-class BackgroundCommandsPanel(Vertical):
+
+class BackgroundCommandsPanel(OverlayPanelActions, Vertical):
     """Task manager overlay with one tab per active background command.
 
     Tabs are rebuilt from ``BackgroundCommandManager`` on a short interval and
@@ -27,6 +29,7 @@ class BackgroundCommandsPanel(Vertical):
     MAX_TAIL_LINES = 500
 
     BINDINGS = [
+        *OVERLAY_BINDINGS,
         Binding("f", "toggle_follow", "Follow", show=False),
     ]
 
@@ -51,7 +54,7 @@ class BackgroundCommandsPanel(Vertical):
 
     def on_mount(self):
         """Start polling and render the first snapshot."""
-        self.border_title = "background commands"
+        self.border_title = "commands"
         self.set_interval(self.REFRESH_INTERVAL, self.refresh_data)
         self.call_after_refresh(self.refresh_data)
 
@@ -70,9 +73,8 @@ class BackgroundCommandsPanel(Vertical):
             return
 
         commands = self._active_commands()
-        self.border_title = (
-            f"background commands ({len(commands)})" if commands else "background commands"
-        )
+        self.border_title = "commands"
+        refresh_overlay_subtitles(self.app)
 
         if list(commands) != self._keys:
             self._sync_tabs(commands)

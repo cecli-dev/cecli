@@ -24,7 +24,6 @@ class MockCoder:
         self.gpt_prompts.system_reminder = ""
         self.files_edited_by_tools = set()
         self.edit_format = "agent"
-        self.use_enhanced_context = True
 
     def fmt_system_prompt(self, prompt):
         return prompt

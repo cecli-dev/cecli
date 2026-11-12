@@ -89,12 +89,30 @@ def test_sentence_cache_is_bounded_lru():
     """Oldest sentences are evicted so a repeated-in-the-past sentence is fresh."""
     detector = _detector(sentence_limit=2, max_sentences=2)
 
-    detector.push("This is sentence number one.")
-    detector.push("This is sentence number two.")
-    detector.push("This is sentence number three.")  # evicts number one
-    detector.push("This is sentence number one.")  # fresh again, count == 1
+    detector.push("This is sentence number one. ")
+    detector.push("This is sentence number two. ")
+    detector.push("This is sentence number three. ")  # evicts number one
+    detector.push("This is sentence number one. ")  # fresh again, count == 1
 
     assert detector.sentence_counts.get("this is sentence number one.") == 1
+
+
+def test_sentence_boundary_requires_trailing_whitespace():
+    """A terminator glued to the next token (decimals, paths) is not a boundary."""
+    detector = _detector(sentence_limit=2)
+
+    detector.push("The build is3.14 ready.Another sentence starts here.")
+
+    assert detector.sentence_counts == {}
+
+
+def test_decimal_points_do_not_truncate_sentences():
+    """Dotted tokens must not split a sentence at the wrong period."""
+    detector = _detector(sentence_limit=2)
+
+    detector.push("The build is3.14 ready. ")
+
+    assert list(detector.sentence_counts) == ["the build is3.14 ready."]
 
 
 def test_normal_prose_is_not_flagged():

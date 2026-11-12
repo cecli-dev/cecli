@@ -12,6 +12,7 @@
 !/tests
 
 # Specific Files
+!/.actrc
 !/.dockerignore
 !/.flake8
 !/.gitattributes

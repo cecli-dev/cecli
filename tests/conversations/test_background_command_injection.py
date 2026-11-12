@@ -8,7 +8,6 @@ from cecli.helpers.conversation import ConversationService
 class MockCoder:
     def __init__(self):
         self.uuid = str(uuid.uuid4())
-        self.use_enhanced_context = True
         self.turn_count = 0
         self.output_calls = 0
         self.output = "roster"
@@ -51,18 +50,6 @@ def test_background_command_output_replaces_same_hash_key():
     chunks.add_background_command_output(frequency=5)
 
     assert [message["content"] for message in manager.get_messages_dict()] == ["roster v2"]
-
-
-def test_background_command_output_skipped_without_enhanced_context():
-    coder = MockCoder()
-    coder.use_enhanced_context = False
-    chunks, manager = _make_chunks(coder)
-
-    coder.turn_count = 0
-    chunks.add_background_command_output(frequency=5)
-
-    assert coder.output_calls == 0
-    assert manager.get_messages_dict() == []
 
 
 def test_empty_background_command_output_does_not_consume_window():

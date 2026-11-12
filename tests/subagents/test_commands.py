@@ -66,14 +66,21 @@ class TestReapAgentCommand:
 
     @pytest.mark.asyncio
     async def test_no_tui_shows_error(self):
-        """Coder without tui shows 'No active' error."""
+        """No TUI and no active/foreground sub-agent shows the error."""
         from cecli.commands.reap_agent import ReapAgentCommand
+        from cecli.helpers.agents.service import AgentService
 
         io = MagicMock()
         coder = MagicMock()
         coder.tui = None
+        coder.parent_uuid = None
 
-        await ReapAgentCommand.execute(io, coder, "")
+        mock_service = MagicMock()
+        mock_service.foreground_uuid = None
+        mock_service.sub_agents = {}
+
+        with patch.object(AgentService, "get_instance", return_value=mock_service):
+            await ReapAgentCommand.execute(io, coder, "")
 
         io.tool_error.assert_called_once()
         assert "No active" in io.tool_error.call_args[0][0]
@@ -131,3 +138,61 @@ class TestReapAgentCommand:
 
         io.tool_error.assert_called_once()
         assert "Could not find" in io.tool_error.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_tui_uses_foreground_agent(self):
+        """Without a TUI, the service's foreground sub-agent is reaped."""
+        from cecli.commands.reap_agent import ReapAgentCommand
+        from cecli.helpers.agents.service import AgentService
+
+        io = MagicMock()
+        coder = MagicMock()
+        coder.tui = None
+        coder.parent_uuid = None
+
+        mock_info = MagicMock()
+        mock_info.coder.uuid = "sub-uuid"
+        mock_info.name = "tester"
+
+        mock_service = MagicMock()
+        mock_service.foreground_uuid = "sub-uuid"
+        mock_service.sub_agents = {"sub-uuid": mock_info}
+
+        with patch.object(AgentService, "get_instance", return_value=mock_service):
+            with patch(
+                "cecli.helpers.conversation.service.ConversationService.destroy_instances"
+            ) as MockDestroy:
+                await ReapAgentCommand.execute(io, coder, "")
+
+        MockDestroy.assert_called_once_with("sub-uuid")
+        mock_service._cleanup_sub_agent.assert_called_once_with("sub-uuid")
+        assert "tester" in io.tool_output.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_no_tui_inside_sub_agent_reaps_itself(self):
+        """A bare reap run inside a sub-agent targets that sub-agent."""
+        from cecli.commands.reap_agent import ReapAgentCommand
+        from cecli.helpers.agents.service import AgentService
+
+        io = MagicMock()
+        coder = MagicMock()
+        coder.tui = None
+        coder.uuid = "sub-uuid"
+        coder.parent_uuid = "primary-uuid"
+
+        mock_info = MagicMock()
+        mock_info.coder.uuid = "sub-uuid"
+        mock_info.name = "tester"
+
+        mock_service = MagicMock()
+        mock_service.foreground_uuid = None
+        mock_service.sub_agents = {"sub-uuid": mock_info}
+
+        with patch.object(AgentService, "get_instance", return_value=mock_service):
+            with patch(
+                "cecli.helpers.conversation.service.ConversationService.destroy_instances"
+            ) as MockDestroy:
+                await ReapAgentCommand.execute(io, coder, "")
+
+        MockDestroy.assert_called_once_with("sub-uuid")
+        mock_service._cleanup_sub_agent.assert_called_once_with("sub-uuid")

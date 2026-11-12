@@ -6,17 +6,12 @@ from cecli.commands.utils.helpers import format_command_result
 
 class ContextBlocksCommand(BaseCommand):
     NORM_NAME = "context-blocks"
-    DESCRIPTION = "Toggle enhanced context blocks or print a specific block"
+    DESCRIPTION = "Print a specific context block"
     show_completion_notification = False
 
     @classmethod
     async def execute(cls, io, coder, args, **kwargs):
         """Execute the context-blocks command with given parameters."""
-        if not hasattr(coder, "use_enhanced_context"):
-            io.tool_error("Enhanced context blocks are only available in agent mode.")
-            return format_command_result(
-                io, "context-blocks", "Enhanced context blocks only available in agent mode"
-            )
 
         # If an argument is provided, try to print that specific context block
         if args.strip():
@@ -58,35 +53,18 @@ class ContextBlocksCommand(BaseCommand):
                     io, "context-blocks", "Coder doesn't support generating context blocks"
                 )
 
-        # If no argument, toggle the enhanced context setting
-        coder.use_enhanced_context = not coder.use_enhanced_context
+        # If no argument, list available blocks
+        if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
+            available_blocks = list(coder.context_block_tokens.keys())
+            formatted_blocks = [name.replace("_", " ").title() for name in available_blocks]
+            io.tool_output(f"Available blocks: {', '.join(formatted_blocks)}")
 
-        # Report the new state
-        if coder.use_enhanced_context:
-            io.tool_output(
-                "Enhanced context blocks are now ON - directory structure and git status will be"
-                " included."
-            )
-            if hasattr(coder, "context_block_tokens"):
-                available_blocks = list(coder.context_block_tokens.keys())
-                formatted_blocks = [name.replace("_", " ").title() for name in available_blocks]
-                io.tool_output(f"Available blocks: {', '.join(formatted_blocks)}")
-                io.tool_output("Use '/context-blocks [block name]' to view a specific block.")
-            return format_command_result(io, "context-blocks", "Enhanced context blocks are now ON")
-        else:
-            io.tool_output(
-                "Enhanced context blocks are now OFF - directory structure and git status will not"
-                " be included."
-            )
-            return format_command_result(
-                io, "context-blocks", "Enhanced context blocks are now OFF"
-            )
+        io.tool_output("Use '/context-blocks [block name]' to view a specific block.")
+        return format_command_result(io, "context-blocks", "Listed available context blocks")
 
     @classmethod
     def get_completions(cls, io, coder, args) -> List[str]:
         """Return available context block names for auto-completion."""
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
-            return []
 
         # If the coder has context blocks available
         if hasattr(coder, "context_block_tokens") and coder.context_block_tokens:
@@ -110,16 +88,11 @@ class ContextBlocksCommand(BaseCommand):
         """Get help text for the context-blocks command."""
         help_text = super().get_help()
         help_text += "\nUsage:\n"
-        help_text += "  /context-blocks              # Toggle enhanced context blocks\n"
+        help_text += "  /context-blocks              # List available context blocks\n"
         help_text += "  /context-blocks <block-name> # View a specific context block\n"
         help_text += "\nExamples:\n"
-        help_text += "  /context-blocks              # Toggle context blocks on/off\n"
         help_text += "  /context-blocks git status   # View git status context block\n"
         help_text += "  /context-blocks directory structure  # View directory structure block\n"
-        help_text += "\nThis command controls enhanced context blocks in agent mode.\n"
-        help_text += (
-            "When enabled, directory structure, git status, and other context information\n"
-        )
-        help_text += "are automatically included in the chat context.\n"
-        help_text += "You can also view specific context blocks by name.\n"
+        help_text += "\nThis command prints context blocks in agent mode.\n"
+        help_text += "You can view specific context blocks by name.\n"
         return help_text

@@ -1,6 +1,6 @@
 """Generate Tauri app icons from the desktop favicon SVG.
 
-CairoSVG renders the same ``CE_`` artwork the browser uses as its favicon. If
+CairoSVG renders the same ``ce_`` artwork the browser uses as its favicon. If
 CairoSVG is unavailable, a procedural fallback icon keeps the script usable
 with only the Python standard library.
 """

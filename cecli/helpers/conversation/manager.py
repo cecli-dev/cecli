@@ -690,7 +690,7 @@ class ConversationManager:
 
             if isinstance(content, str) and content.strip().startswith("<context"):
                 seen_context = True
-                if not content.strip().startswith('<context name="user_input" from="agent">'):
+                if not content.strip().startswith('<context name="user_input" from="harness">'):
                     continue
                 else:
                     last_message_idx = i

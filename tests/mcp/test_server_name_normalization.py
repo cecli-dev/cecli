@@ -159,7 +159,6 @@ class TestGetServersContextExactMatchFiltering:
 
     def _coder(self, included=None, excluded=None):
         return SimpleNamespace(
-            use_enhanced_context=True,
             io=MagicMock(),
             mcp_manager=_manager_with_servers(),
             registered_servers={

@@ -14,6 +14,7 @@ from typing import Any
 import xxhash
 
 from cecli.helpers.server import signals as server_signals
+from cecli.helpers.server.acp import events as acp_events
 from cecli.helpers.server.acp import protocol as acp_protocol
 from cecli.reasoning_tags import REASONING_END, REASONING_START
 
@@ -198,7 +199,7 @@ class AcpSignalBridge:
 
     def _on_start_response(self, sender: Any, **kw: Any) -> None:
         """start_response → state_update(state="running")."""
-        update = acp_protocol.make_state_update("running")
+        update = acp_events.state_update(acp_events.STATE_RUNNING)
         self._send_update(update)
 
     def _on_stream_chunk(self, sender: Any, **kw: Any) -> None:
@@ -323,8 +324,8 @@ class AcpSignalBridge:
 
     def _on_error(self, sender: Any, **kw: Any) -> None:
         """error → state_update(state="idle", stopReason="refusal")."""
-        update = acp_protocol.make_state_update(
-            "idle",
+        update = acp_events.state_update(
+            acp_events.STATE_IDLE,
             stop_reason="refusal",
         )
         self._send_update(update)

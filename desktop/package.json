@@ -5,9 +5,9 @@
   "description": "Tauri v2 shell for the cecli desktop bridge and UI",
   "type": "module",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build",
+    "tauri": "node scripts/run_tauri.mjs",
+    "dev": "node scripts/run_tauri.mjs dev",
+    "build": "node scripts/run_tauri.mjs build",
     "ui:dev": "vite --config ui/vite.config.js",
     "ui:build": "vite build --config ui/vite.config.js",
     "ui:watch": "vite build --config ui/vite.config.js --watch",
@@ -15,9 +15,13 @@
     "test:ui": "node --test ui/tests/*.test.js",
     "gen:icons": "python3 scripts/gen_icons.py",
     "icon": "tauri icon src-tauri/icons/icon.png",
-    "runtime:install": "python3 scripts/install_runtime.py"
+    "runtime:install": "python3 scripts/install_runtime.py",
+    "fetch-uv": "python3 scripts/fetch_uv.py",
+    "build:bundled": "node scripts/run_tauri.mjs build --config src-tauri/tauri.release.conf.json"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-clipboard-manager": "2.5.0",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/xterm": "5.5.0",
     "katex": "0.19.1",

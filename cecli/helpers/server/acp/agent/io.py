@@ -50,7 +50,13 @@ class AcpInputOutput(InputOutput):
     ):
         self.agent.emitter.root = root
         text = await self.agent.next_input(getattr(commands, "coder", None))
-        self.user_input(text)
+
+        in_prompt = getattr(self.agent, "in_prompt", None)
+
+        if callable(in_prompt) and in_prompt():
+            self.log_user_input(text)
+        else:
+            self.user_input(text)
         return text
 
     async def _confirm_ask(
@@ -180,6 +186,9 @@ class AcpInputOutput(InputOutput):
         with console.capture() as capture:
             console.print(*messages, markup=False, soft_wrap=True)
         self.agent.emitter_for(kwargs.get("coder_uuid")).block(strip_ansi(capture.get()))
+
+    def emit(self, event, coder_uuid=None, **kwargs):
+        self.agent.emitter_for(coder_uuid).emit(event)
 
     def tool_call_event(self, tool_call_id, status, coder_uuid=None, **kwargs):
         self.agent.emitter_for(coder_uuid).tool_event(tool_call_id, status, **kwargs)

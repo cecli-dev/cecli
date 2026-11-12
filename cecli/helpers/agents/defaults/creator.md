@@ -13,7 +13,7 @@ agent-config:
     - local
   tools_excludelist:
     - delegate
-    - editfile
+    - writefile
     - readfile
     - orchestrate
     - undochange

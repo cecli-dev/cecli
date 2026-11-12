@@ -300,6 +300,7 @@ class StateUpdate:
     sessionUpdate: str = "state_update"
     state: str = ""  # "running" | "idle" | "requires_action"
     stopReason: str | None = None
+    scope: str | None = None
     _meta: dict | None = None
 
 

@@ -948,7 +948,7 @@ class SkillsManager:
             if not self._loaded_skills:
                 return None
 
-            result = '<context name="loaded_skills" from="agent">\n'
+            result = '<context name="loaded_skills" from="harness">\n'
             result += "## Loaded Skills Content\n\n"
             result += f"Found {len(self._loaded_skills)} skill(s) in configured directories:\n\n"
 
@@ -1017,7 +1017,7 @@ class SkillsManager:
     def format_active_skill_message(self, skill_content: SkillContent) -> str:
         """Format a single skill's content as a context block message."""
         metadata = skill_content.metadata
-        result = '<context name="active_skill" from="agent">\n'
+        result = '<context name="active_skill" from="harness">\n'
         result += f"### Skill: {metadata.name}\n\n"
         result += f"**Description**: {metadata.description}\n\n"
 
@@ -1074,7 +1074,7 @@ class SkillsManager:
             if not summaries:
                 return None
 
-            result = '<context name="skills" from="agent">\n'
+            result = '<context name="skills" from="harness">\n'
             result += "## Available Skills\n\n"
             result += f"Found {len(summaries)} skill(s) in configured directories:\n\n"
 

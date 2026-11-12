@@ -1,11 +1,12 @@
 import { LitElement, html } from 'lit';
 
-const BRAND_ART = `                     ▒▒╗▒▒╗
- ▒▒▒▒▒╗ ▒▒▒▒▒╗ ▒▒▒▒▒╗▒▒║╚═╝
-▒▒╔═══╝▒▒▓▓▓▒║▒▒╔═══╝▒▒║▒▒╗
-▒▒║    ▒▒╔═══╝▒▒║    ▒▒║▒▒║
-╚▒▒▒▒▒╗╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒║▒▒║
- ╚════╝ ╚════╝ ╚════╝╚═╝╚═╝`;
+const BRAND_ART = `
+ ▒▒▒▒▒╗ ▒▒▒▒▒╗
+▒▒╔═══╝▒▒▓▓▓▒║
+▒▒║    ▒▒╔═══╝
+╚▒▒▒▒▒╗╚▒▒▒▒▒╗▒▒▒▒▒╗
+ ╚════╝ ╚════╝╚════╝
+`.replace(/^\n|\n[ \t]*$/g, '');;
 
 export class BrandLogo extends LitElement {
   createRenderRoot() {
@@ -13,7 +14,7 @@ export class BrandLogo extends LitElement {
   }
 
   render() {
-    return html`<pre class="cecli-logo" role="img" aria-label="cecli">${BRAND_ART}</pre>`;
+    return html`<pre class="cecli-logo" role="img" aria-label="ce_">${BRAND_ART}</pre>`;
   }
 }
 

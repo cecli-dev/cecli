@@ -1,0 +1,61 @@
+name: Wait for PyPI release
+description: Retry uv resolution until the tagged cecli-dev release is installable.
+
+inputs:
+  spec:
+    description: Runtime spec to resolve, for example cecli-dev==1.12.2rc7
+    required: true
+  uv:
+    description: Path to the staged uv binary
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for PyPI release
+      shell: bash
+      env:
+        SPEC: ${{ inputs.spec }}
+        UV_BIN: ${{ inputs.uv }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${SPEC:-}" ]]; then
+          echo "::error::runtime spec is empty" >&2
+          exit 1
+        fi
+
+        spec_file="runtime-spec.txt"
+        printf '%s\n' "$SPEC" > "$spec_file"
+
+        compile() {
+          "$UV_BIN" pip compile "$spec_file" --quiet --no-header \
+            --python-version 3.12 --refresh-package cecli-dev \
+            --exclude-newer-package "cecli-dev=0 days" > /dev/null
+        }
+
+        if [[ "$SPEC" != *"=="* ]]; then
+          compile
+          exit 0
+        fi
+
+        for ((attempt = 1; attempt <= 10; attempt++)); do
+          if output=$(compile 2>&1); then
+            echo "resolved $SPEC on attempt $attempt"
+            exit 0
+          fi
+
+          if [[ "$output" != *"no version of cecli-dev=="* ]]; then
+            echo "$output" >&2
+            exit 1
+          fi
+
+          if ((attempt == 10)); then
+            echo "::error::timed out waiting for $SPEC to become resolvable on PyPI" >&2
+            echo "$output" >&2
+            exit 1
+          fi
+
+          echo "waiting for $SPEC to become resolvable (attempt $attempt/10)"
+          sleep 30
+        done

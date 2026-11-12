@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import binascii
+import datetime
 import hashlib
 import ipaddress
 import json
@@ -44,8 +46,14 @@ except ImportError:  # pragma: no cover - the server also runs as a script
     from terminal import TerminalError, TerminalManager, replay_offsets
 
 MAX_BODY = 1024 * 1024
+MAX_BROWSER_BODY = 96 * 1024 * 1024
+BROWSER_BODY_PATHS = frozenset({"/api/browser/file-chooser", "/api/browser/drop"})
 DIRECTORY_LIMIT = 50
 SSE_QUEUE_SIZE = 512
+
+# State scopes whose payload lives in the details snapshot (kept in sync with
+# ``cecli.helpers.server.acp.events.DETAIL_SCOPES``)
+DETAIL_SCOPES = frozenset({"skills", "hooks", "mcp", "workflows", "context"})
 MAX_LINE_BYTES = 32 * 1024 * 1024
 STREAM_LIMIT = 10 * 1024 * 1024
 HEARTBEAT_SECONDS = 15.0
@@ -59,6 +67,7 @@ INITIALIZE_TIMEOUT = 20.0
 SESSION_TIMEOUT = 300.0
 SHUTDOWN_TIMEOUT = 5.0
 SYNC_SECONDS = 5.0
+PROMPT_HISTORY_LIMIT = 500
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -223,16 +232,40 @@ class AcpBridge:
             "clients": len(self.clients),
         }
 
-    async def prompt(self, text: str) -> None:
-        """Start a turn, or raise ``BridgeError`` when the bridge is unavailable."""
+    async def prompt(self, text: str) -> bool:
+        """Start a turn, or steer the running one, when the bridge is ready."""
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
-        if self.busy or self._session_pending:
+        if self._session_pending:
             raise BridgeError(409, "The agent is busy")
+        if self.busy:
+            await self.steer(text)
+            return True
         self.busy = True
         self.activity = "running"
         self.last_activity = time.time()
         self._prompt_task = asyncio.create_task(self._run_prompt(text))
+        return False
+
+    async def steer(self, text: str) -> None:
+        """Inject a prompt into the current turn without starting another."""
+        if self.status != "ready" or self.session_id is None:
+            raise BridgeError(409, "The agent is not ready")
+        try:
+            result = await self._request(
+                "cecli/steer",
+                {
+                    "sessionId": self.session_id,
+                    "prompt": [{"type": "text", "text": text}],
+                },
+                timeout=30.0,
+            )
+        except (AcpError, asyncio.TimeoutError) as err:
+            raise BridgeError(502, str(err)) from err
+
+        if not (isinstance(result, dict) and result.get("steered")):
+            raise BridgeError(409, "The agent is not ready to steer")
+        self.last_activity = time.time()
 
     async def cancel(self) -> None:
         """Send the cancellation notification for the current turn."""
@@ -687,6 +720,8 @@ class AcpBridge:
                 self.activity = str(state)
                 if state == "idle":
                     self.activity_detail = ""
+            if update.get("scope") in DETAIL_SCOPES:
+                self._schedule_details_refresh()
         elif kind == "subagent_update":
             self._track_subagent(params.get("sessionId"), update)
             await self._broadcast(self._subagents_event())
@@ -1473,7 +1508,8 @@ class DesktopServer:
                         writer, 400, {"ok": False, "error": "bad content-length"}
                     )
                     return
-                if length > MAX_BODY:
+                limit = MAX_BODY if path not in BROWSER_BODY_PATHS else MAX_BROWSER_BODY
+                if length > limit:
                     await self._write_json(
                         writer,
                         413,
@@ -1487,6 +1523,9 @@ class DesktopServer:
                 except asyncio.IncompleteReadError:
                     return
 
+                if method == "GET" and path == "/api/browser/ws":
+                    await self._serve_browser_websocket(reader, writer, headers)
+                    return
                 if method == "GET" and path == "/api/browser/stream":
                     await self._serve_browser_stream(reader, writer)
                     return
@@ -1572,6 +1611,16 @@ class DesktopServer:
                 return self._json(err.status, {"ok": False, "error": str(err)})
             return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
 
+        if method == "GET" and path == "/api/prompt-history":
+            bridge = self.sessions.get(self._query_bridge(query))
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "history": _read_prompt_history(bridge.workspace),
+                },
+            )
+
         if method == "GET" and path == "/api/history":
             bridge = self.sessions.get(self._query_bridge(query))
             try:
@@ -1649,6 +1698,16 @@ class DesktopServer:
                 return await self._browser_viewport(body)
             if suffix == "input":
                 return await self._browser_input(body)
+            if suffix == "dialog":
+                return await self._browser_dialog(body)
+            if suffix == "file-chooser":
+                return await self._browser_file_chooser(body)
+            if suffix == "download":
+                return await self._browser_download(body)
+            if suffix == "external":
+                return await self._browser_external(body)
+            if suffix == "drop":
+                return await self._browser_drop(body)
             if suffix == "tab/close":
                 return await self._browser_close_tab(body)
             if suffix == "tab/new":
@@ -2016,6 +2075,8 @@ class DesktopServer:
             result = await bridge.send_subagent_message(session_id, text)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
+
+        _append_prompt_history(bridge.workspace, text.strip())
         return self._json(200, {"ok": True, "result": result})
 
     async def _subagent_cancel(self, body: bytes) -> tuple[int, bytes, str]:
@@ -2085,10 +2146,13 @@ class DesktopServer:
         if not isinstance(text, str) or not text.strip():
             return self._json(400, {"ok": False, "error": "text is required"})
         try:
-            await self.sessions.get_mutation(data.get("bridgeId")).prompt(text)
+            bridge = self.sessions.get_mutation(data.get("bridgeId"))
+            steered = await bridge.prompt(text)
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(202, {"ok": True})
+
+        _append_prompt_history(bridge.workspace, text.strip())
+        return self._json(202, {"ok": True, "steered": steered})
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body) if body else {}
@@ -2258,6 +2322,80 @@ class DesktopServer:
             return self._json(400, {"ok": False, "error": "tabId is required"})
         try:
             state = await self._browser_bridge().select_tab(tab_id)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(202, {"ok": True, **state})
+
+    async def _browser_dialog(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        accept = data.get("accept", True)
+        if not isinstance(accept, bool):
+            return self._json(400, {"ok": False, "error": "accept must be a boolean"})
+        prompt_text = data.get("promptText")
+        if prompt_text is not None and not isinstance(prompt_text, str):
+            return self._json(400, {"ok": False, "error": "promptText must be a string"})
+        try:
+            state = await self._browser_bridge().handle_dialog(accept, prompt_text)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(200, {"ok": True, **state})
+
+    async def _browser_file_chooser(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        try:
+            if data.get("cancel") is True:
+                state = await self._browser_bridge().cancel_file_chooser()
+            else:
+                files = data.get("files")
+                if not isinstance(files, list):
+                    return self._json(400, {"ok": False, "error": "files are required"})
+                state = await self._browser_bridge().upload_files(files)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        self._announce_browser(state)
+        return self._json(200, {"ok": True, **state})
+
+    async def _browser_download(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        action = data.get("action")
+        if action != "open":
+            return self._json(400, {"ok": False, "error": "unsupported download action"})
+        download_id = data.get("id") or data.get("downloadId")
+        if not isinstance(download_id, str) or not download_id.strip():
+            return self._json(400, {"ok": False, "error": "id is required"})
+        try:
+            state = await self._browser_bridge().open_download(download_id)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(202, {"ok": True, **state})
+
+    async def _browser_external(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        url = data.get("url")
+        if url is not None and not isinstance(url, str):
+            return self._json(400, {"ok": False, "error": "url must be a string"})
+        try:
+            result = await self._browser_bridge().open_external(url or None)
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(202, {"ok": True, **result})
+
+    async def _browser_drop(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        try:
+            state = await self._browser_bridge().drop_files(data)
         except BrowserError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         self._announce_browser(state)
@@ -2589,6 +2727,143 @@ class DesktopServer:
                 await writer.drain()
         except (ConnectionError, BrokenPipeError, RuntimeError):
             return
+
+    async def _serve_browser_websocket(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        headers: dict[str, str],
+    ) -> None:
+        """Stream binary JPEG frames and accept input over one WebSocket."""
+
+        key = (headers.get("sec-websocket-key") or "").strip()
+        version = (headers.get("sec-websocket-version") or "").strip()
+        protocols = [
+            item.strip()
+            for item in (headers.get("sec-websocket-protocol") or "").split(",")
+            if item.strip()
+        ]
+        if not key or version != "13":
+            await self._write_json(writer, 400, {"ok": False, "error": "bad handshake"})
+            return
+        if self.token and f"token.{self.token}" not in protocols:
+            await self._write_json(writer, 403, {"ok": False, "error": "bad token"})
+            return
+        try:
+            browser = self._browser_bridge()
+        except BrowserError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
+
+        accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode(
+            "ascii"
+        )
+        selected = next(
+            (item for item in protocols if item == "cecli.browser.v1"),
+            next(
+                (item for item in protocols if item.startswith("cecli.")),
+                protocols[0] if protocols else WS_SUBPROTOCOL,
+            ),
+        )
+        response = [
+            "HTTP/1.1 101 Switching Protocols",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            f"Sec-WebSocket-Accept: {accept}",
+        ]
+        if protocols:
+            response.append(f"Sec-WebSocket-Protocol: {selected}")
+        writer.write(("\r\n".join(response) + "\r\n\r\n").encode("latin-1"))
+        await writer.drain()
+
+        queue = browser.subscribe()
+        writer_task: asyncio.Task[Any] | None = None
+        try:
+            await self._ws_write(
+                writer,
+                0x1,
+                json.dumps(
+                    {"type": "state", "state": browser.snapshot()}, separators=(",", ":")
+                ).encode("utf-8"),
+            )
+            writer_task = asyncio.create_task(self._browser_ws_writer(queue, writer))
+            await self._browser_ws_reader(reader, browser)
+        except (ConnectionError, RuntimeError):
+            return
+        finally:
+            browser.unsubscribe(queue)
+            if writer_task is not None:
+                writer_task.cancel()
+                await asyncio.gather(writer_task, return_exceptions=True)
+            await self._close_writer(writer)
+
+    async def _browser_ws_writer(
+        self,
+        queue: asyncio.Queue[dict[str, Any]],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Forward state events and binary JPEG frames to one peer."""
+
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), 15.0)
+                except asyncio.TimeoutError:
+                    await self._ws_write(writer, 0x9, b"")
+                    continue
+                if event.get("type") == "frame":
+                    data = event.get("data")
+                    if not isinstance(data, str):
+                        continue
+                    try:
+                        raw = base64.b64decode(data)
+                    except (ValueError, binascii.Error):
+                        continue
+                    meta = json.dumps(
+                        event.get("meta") or {}, separators=(",", ":"), ensure_ascii=False
+                    ).encode("utf-8")
+                    await self._ws_write(writer, 0x2, struct.pack("!I", len(meta)) + meta + raw)
+                    continue
+                await self._ws_write(
+                    writer,
+                    0x1,
+                    json.dumps(event, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+                )
+        except (ConnectionError, BrokenPipeError, RuntimeError, asyncio.CancelledError):
+            return
+
+    async def _browser_ws_reader(
+        self, reader: asyncio.StreamReader, browser: BrowserBridge
+    ) -> None:
+        """Accept input events from the browser panel WebSocket."""
+
+        while True:
+            try:
+                frame = await self._ws_read_frame(reader)
+            except (ConnectionError, asyncio.IncompleteReadError, ValueError):
+                return
+            if frame is None:
+                return
+            _fin, opcode, payload = frame
+            if opcode == 0x8:
+                return
+            if opcode in (0x9, 0xA):
+                continue
+            if opcode != 0x1:
+                continue
+            try:
+                message = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(message, dict) or message.get("type") != "input":
+                continue
+            event = message.get("event")
+            if not isinstance(event, dict):
+                continue
+            try:
+                await browser.send_input(event)
+            except BrowserError:
+                continue
 
     async def _terminal_route(self, suffix: str, body: bytes) -> tuple[int, bytes, str]:
         """Dispatch one POST /api/terminal/* control call."""
@@ -2967,8 +3242,11 @@ class DesktopServer:
             return
 
         selected = next(
-            (item for item in protocols if item == WS_SUBPROTOCOL or item.startswith("cecli.")),
-            WS_SUBPROTOCOL,
+            (item for item in protocols if item == WS_SUBPROTOCOL),
+            next(
+                (item for item in protocols if item.startswith("cecli.")),
+                protocols[0] if protocols else WS_SUBPROTOCOL,
+            ),
         )
         accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode(
             "ascii"
@@ -3497,6 +3775,7 @@ class ServerConfig:
         max_sessions: int = MAX_SESSIONS,
         terminal_enabled: bool = False,
         terminal_shell: str | None = None,
+        static_root: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -3508,6 +3787,7 @@ class ServerConfig:
         self.max_sessions = max_sessions
         self.terminal_enabled = terminal_enabled
         self.terminal_shell = terminal_shell
+        self.static_root = static_root
 
 
 def parse_args(argv: list[str]) -> ServerConfig:
@@ -3545,6 +3825,11 @@ def parse_args(argv: list[str]) -> ServerConfig:
         default=MAX_SESSIONS,
         help="maximum number of concurrent parent sessions",
     )
+    parser.add_argument(
+        "--static-root",
+        default=os.environ.get("CECLI_DESKTOP_STATIC") or None,
+        help="directory holding the built static UI (defaults to this file's directory)",
+    )
     args = parser.parse_args(argv)
     terminal_disabled = os.environ.get("CECLI_DESKTOP_TERMINAL", "").lower() in (
         "0",
@@ -3555,14 +3840,8 @@ def parse_args(argv: list[str]) -> ServerConfig:
     terminal_enabled = not (args.no_terminal or terminal_disabled)
 
     suffix = ".exe" if os.name == "nt" else ""
-    sibling = Path(sys.executable).with_name(f"cecli{suffix}")
-    cecli = (
-        args.cecli
-        or os.environ.get("CECLI_BIN")
-        or (str(sibling) if sibling.is_file() else None)
-        or shutil.which("cecli")
-        or "cecli"
-    )
+    sibling = default_cecli(suffix)
+    cecli = args.cecli or os.environ.get("CECLI_BIN") or sibling or shutil.which("cecli") or "cecli"
     workspace = os.path.abspath(os.path.expanduser(args.workspace))
     return ServerConfig(
         args.host,
@@ -3575,12 +3854,17 @@ def parse_args(argv: list[str]) -> ServerConfig:
         max(1, args.max_sessions),
         terminal_enabled,
         args.terminal_shell,
+        args.static_root,
     )
 
 
 async def run_server(config: ServerConfig) -> None:
     """Bind the HTTP server, spawn the default session and serve until signalled."""
-    root = Path(__file__).resolve().parent
+    root = (
+        Path(config.static_root).resolve()
+        if config.static_root
+        else Path(__file__).resolve().parent
+    )
     manager = SessionManager(
         config.cecli,
         config.extra_args,
@@ -3770,6 +4054,69 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _history_root(workspace: str) -> Path:
+    """The nearest git root for ``workspace``, or the workspace itself."""
+    root = Path(os.path.abspath(os.path.expanduser(workspace)))
+
+    for candidate in (root, *root.parents):
+        if (candidate / ".git").exists():
+            return candidate
+
+    return root
+
+
+def _prompt_history_path(workspace: str) -> Path:
+    """The workspace input history file, matching the CLI default location."""
+    override = os.environ.get("CECLI_DESKTOP_PROMPT_HISTORY")
+    if override:
+        return Path(override).expanduser()
+
+    return _history_root(workspace) / ".cecli" / "input.history"
+
+
+def _read_prompt_history(workspace: str, limit: int = PROMPT_HISTORY_LIMIT) -> list[str]:
+    """Load prompts oldest-first from a prompt_toolkit formatted history file."""
+    path = _prompt_history_path(workspace)
+
+    try:
+        with path.open("rb") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return []
+
+    entries: list[str] = []
+    current: list[str] = []
+
+    for raw in lines:
+        line = raw.decode("utf-8", errors="replace")
+        if line.startswith("+"):
+            current.append(line[1:])
+            continue
+
+        if current:
+            entries.append("".join(current)[:-1])
+            current = []
+
+    if current:
+        entries.append("".join(current)[:-1])
+
+    return entries[-limit:]
+
+
+def _append_prompt_history(workspace: str, text: str) -> None:
+    """Append one prompt to the workspace history, ignoring write failures."""
+    path = _prompt_history_path(workspace)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("ab") as handle:
+            handle.write(f"\n# {datetime.datetime.now()}\n".encode("utf-8"))
+            for line in text.split("\n"):
+                handle.write(f"+{line}\n".encode("utf-8"))
+    except OSError:
+        pass
+
+
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:
     """Signal the child's process group on POSIX, or the child elsewhere."""
     if os.name == "posix":
@@ -3811,6 +4158,21 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 0
     return 0
+
+
+def default_cecli(suffix: str) -> str | None:
+    """Return a ``cecli`` binary next to the interpreter or bridge script, if any."""
+    candidates = [Path(sys.executable).with_name(f"cecli{suffix}")]
+
+    if sys.argv and sys.argv[0]:
+        # A frozen bridge sets sys.executable to its extraction interpreter.
+        candidates.append(Path(sys.argv[0]).resolve().with_name(f"cecli{suffix}"))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    return None
 
 
 if __name__ == "__main__":

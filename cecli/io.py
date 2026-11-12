@@ -1239,6 +1239,10 @@ class InputOutput:
         ):
             return
 
+        self.log_user_input(inp)
+
+    def log_user_input(self, inp):
+        """Append one prompt to the chat history without confirmation gating."""
         prefix = "####"
         if inp:
             hist = inp.splitlines()
@@ -1249,7 +1253,7 @@ class InputOutput:
 
         hist = f"""
 {prefix} {hist}"""
-        self.append_chat_history(hist, linebreak=True)
+        self._write_chat_history(hist, linebreak=True)
 
     # OUTPUT
 
@@ -1601,6 +1605,16 @@ class InputOutput:
 
         self.stream_print(*messages, style=style, **kwargs)
 
+    def emit(self, event, **kwargs):
+        """Structured GUI event, for front ends that render richer state than text.
+
+        ``event`` is an ACP-style ``session/update`` payload (see
+        ``cecli.helpers.server.acp.events``). Terminal output already renders
+        the same information as text, so this is a no-op here; the ACP adapter
+        forwards events to its client.
+        """
+        pass
+
     def tool_call_event(self, tool_call_id, status, **kwargs):
         """Structured tool call progress, for front ends that render tool calls natively.
 
@@ -1949,6 +1963,9 @@ class InputOutput:
         ):
             return
 
+        self._write_chat_history(text, linebreak=linebreak, blockquote=blockquote, strip=strip)
+
+    def _write_chat_history(self, text, linebreak=False, blockquote=False, strip=True):
         if blockquote:
             if strip:
                 text = text.strip()

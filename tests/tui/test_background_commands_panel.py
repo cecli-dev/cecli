@@ -113,7 +113,7 @@ async def _run_panel_checks():
             command_line = panel.query_one("#bg-command-line", Static)
             assert "npm run dev" in str(command_line.render())
 
-            assert panel.border_title == "background commands (3)"
+            assert panel.border_title == "commands"
             assert panel._active_key == "bg_0_1111"
             assert "listening on 5173" in _log_text(panel)
 
@@ -164,7 +164,7 @@ def test_background_commands_panel_empty_state():
                 panel.refresh_data()
                 await pilot.pause()
 
-                assert panel.border_title == "background commands"
+                assert panel.border_title == "commands"
                 assert _tab_ids(panel) == []
                 assert panel.query_one("#bg-command-empty").display is True
 
@@ -175,8 +175,10 @@ def test_open_command_registration_and_completions():
     from cecli.commands.utils.registry import CommandRegistry
 
     assert CommandRegistry.get_command("open") is OpenCommand
-    assert OpenCommand.SUBCOMMANDS == ("commands",)
+    assert OpenCommand.SUBCOMMANDS == ("commands", "plans", "asides")
+    assert OpenCommand.get_completions(None, None, "pla") == ["plans"]
     assert OpenCommand.get_completions(None, None, "com") == ["commands"]
+    assert OpenCommand.get_completions(None, None, "asi") == ["asides"]
 
 
 def test_open_command_routes_to_tui():
@@ -194,8 +196,10 @@ def test_open_command_routes_to_tui():
 
     asyncio.run(OpenCommand.execute(io, coder, "commands"))
     asyncio.run(OpenCommand.execute(io, coder, ""))
+    asyncio.run(OpenCommand.execute(io, coder, "plans"))
+    asyncio.run(OpenCommand.execute(io, coder, "asides"))
 
-    assert calls == ["commands", "commands"]
+    assert calls == ["commands", "commands", "plans", "asides"]
 
 
 def test_tui_panel_open_and_close_wiring():

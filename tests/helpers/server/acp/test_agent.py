@@ -22,6 +22,7 @@ from cecli.helpers.server.acp.agent.transport import (
     METHOD_NOT_FOUND,
 )
 from cecli.helpers.server.acp.agent.updates import UpdateEmitter
+from cecli.io import InputOutput
 from cecli.reasoning_tags import REASONING_END, REASONING_START
 
 
@@ -122,6 +123,14 @@ def test_model_text_settles_running_tools():
         "toolCallId": "t1",
         "status": "completed",
     } in updates
+
+
+def test_emit_sends_a_prebuilt_event():
+    emitter, updates = make_emitter()
+    emitter.emit({"sessionUpdate": "state_update", "state": "idle", "scope": "mcp"})
+    emitter.emit({})
+
+    assert updates == [{"sessionUpdate": "state_update", "state": "idle", "scope": "mcp"}]
 
 
 def test_finish_turn_fails_open_tools_when_cancelled():
@@ -277,7 +286,14 @@ class StubCoder:
         self.root = str(root)
         self.abs_fnames = set()
         self.abs_read_only_fnames = set()
-        self.io = SimpleNamespace(output_task=None, yes=None, tool_output=lambda *a, **k: None)
+        self.user_inputs = []
+        self.io = SimpleNamespace(
+            output_task=None,
+            yes=None,
+            tool_output=lambda *a, **k: None,
+            log_user_input=self.user_inputs.append,
+            user_input=self.user_inputs.append,
+        )
         self.interrupt_event = threading.Event()
         self.main_model = model or StubModel("gpt-x")
         self.agent_model = None
@@ -367,8 +383,137 @@ async def test_turn_lifecycle(tmp_path):
     # The turn's updates all precede its response
     kinds = [m.get("method") or m.get("id") for m in transport.sent]
     assert kinds[-2:] == ["session/update", 4]
-    assert transport.updates()[-1]["content"]["text"] == "Hi there."
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn",
+    }
+    assert texts(transport.updates(), "agent_message_chunk") == "Hi there."
     waiting.cancel()
+
+
+async def test_state_updates_bracket_a_turn(tmp_path):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "running",
+    }
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn",
+    }
+    waiting.cancel()
+
+
+async def test_state_scope_pushes_after_context_change(tmp_path):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    agent._coder_ref = lambda: coder
+
+    result = agent._on_cecli_context({"action": "add", "path": "a.py"}, 7)
+
+    assert result["contextFiles"][0]["path"] == "a.py"
+    assert transport.updates()[-1] == {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "scope": "context",
+    }
+
+
+async def test_steer_injects_into_the_running_turn(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    coder.wrap_user_input = lambda text: f"wrapped:{text}"
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "cecli/steer",
+            "params": {"sessionId": "s1", "prompt": [{"type": "text", "text": "more"}]},
+        }
+    )
+    await settle()
+
+    assert transport.results()[7]["result"] == {"ok": True, "steered": True}
+    assert queued[0]["message_dict"]["content"] == "wrapped:more"
+    assert coder.user_inputs == ["more"]
+    steer_updates = [
+        update for update in transport.updates() if update.get("sessionUpdate") == "session_message"
+    ]
+    assert steer_updates[-1]["content"][0]["text"] == "more"
+
+
+async def test_steer_runs_reap_agent_instead_of_queueing(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder))
+
+    coder.commands = Commands()
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "cecli/steer",
+            "params": {
+                "sessionId": "s1",
+                "prompt": [{"type": "text", "text": "/reap-agent"}],
+            },
+        }
+    )
+    await settle()
+
+    assert transport.results()[7]["result"] == {"ok": True, "steered": True}
+    assert ran == [("/reap-agent", coder)]
+    assert queued == []
+    assert coder.user_inputs == []
 
 
 async def test_cancel_interrupts_coder(tmp_path):
@@ -674,6 +819,43 @@ async def test_cancelling_a_subagent_leaves_the_rest_running(tmp_path, monkeypat
     await settle()
     assert cancelled == ["w1"]
     assert await asking is False
+
+
+async def test_subagent_message_runs_reap_agent_while_running(tmp_path, monkeypatch):
+    from cecli.helpers.agents.service import AgentService
+
+    agent, transport, io, _coder = await delegating_agent(tmp_path)
+    io.subagent_event("w1", "created", parent_uuid="primary", name="worker")
+    io.subagent_event("w1", "running")
+    child = agent.subagents["w1"].session_id
+
+    sub_coder = make_coder(tmp_path)
+    sub_coder.uuid = "w1"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder, kwargs["target_agent_uuid"]))
+
+    sub_coder.commands = Commands()
+    service = SimpleNamespace(
+        sub_agents={"w1": SimpleNamespace(coder=sub_coder)},
+        start_generate_task=lambda *args: pytest.fail("the command should not be queued"),
+    )
+    monkeypatch.setattr(AgentService, "get_instance", staticmethod(lambda coder: service))
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "cecli/subagent/message",
+            "params": {"sessionId": child, "text": "/reap-agent"},
+        }
+    )
+    await settle()
+
+    assert transport.results()[9]["result"] == {"ok": True, "running": True}
+    assert ran == [("/reap-agent", sub_coder, "w1")]
 
 
 # ── Config options ─────────────────────────────────────────────
@@ -1008,3 +1190,55 @@ async def test_session_new_connects_client_mcp_servers_first(tmp_path):
     assert coder.mcp_manager.calls == [("add", "github", "McpServer")]
     assert transport.results()[2]["result"]["sessionId"] == "s1"
     waiting.cancel()
+
+
+def test_log_user_input_writes_while_confirmation_is_pending(tmp_path):
+    history = tmp_path / "chat.history"
+    io = InputOutput(chat_history_file=history)
+    io.confirmation_in_progress_event.clear()
+
+    io.user_input("dropped while confirming")
+    io.log_user_input("first prompt")
+
+    text = history.read_text(encoding="utf-8")
+    assert "first prompt" in text
+    assert "dropped while confirming" not in text
+
+
+async def test_get_input_logs_prompt_while_confirmation_is_pending(tmp_path):
+    history = tmp_path / "chat.history"
+
+    async def next_input(_coder):
+        return "first prompt"
+
+    agent = SimpleNamespace(
+        emitter=SimpleNamespace(root=None),
+        next_input=next_input,
+        in_prompt=lambda: True,
+    )
+    io = AcpInputOutput(chat_history_file=history, agent=agent)
+    io.confirmation_in_progress_event.clear()
+
+    assert await io.get_input(None, None, None, None) == "first prompt"
+    assert "#### first prompt" in history.read_text(encoding="utf-8")
+
+
+def test_path_completions_preserve_ranked_order():
+    from cecli.helpers.server.acp.agent.agent import _complete
+
+    class RankedFs:
+        trie = False
+
+        def search(self, prefix, threshold):
+            return ["src/zero.py", "src/zebra.py"]
+
+    coder = SimpleNamespace(
+        fs=RankedFs(),
+        root="/repo",
+        commands=None,
+        get_inchat_relative_files=lambda: [],
+    )
+
+    result = _complete(coder, "@ze")
+
+    assert result["suggestions"] == ["src/zero.py", "src/zebra.py"]

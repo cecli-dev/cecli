@@ -215,7 +215,7 @@ def test_browser_automation_context_mentions_heredoc(monkeypatch):
 
     from cecli.coders.agent_coder import AgentCoder
 
-    coder = SimpleNamespace(use_enhanced_context=True)
+    coder = SimpleNamespace()
     monkeypatch.setattr(browser, "is_browser_harness_available", lambda: True)
 
     context = AgentCoder.get_browser_automation_context(coder)
@@ -230,7 +230,7 @@ def test_browser_automation_context_requires_harness(monkeypatch):
 
     from cecli.coders.agent_coder import AgentCoder
 
-    coder = SimpleNamespace(use_enhanced_context=True)
+    coder = SimpleNamespace()
     monkeypatch.setattr(browser, "is_browser_harness_available", lambda: False)
 
     assert AgentCoder.get_browser_automation_context(coder) is None

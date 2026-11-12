@@ -182,7 +182,7 @@ def test_parse_hashline():
 def test_resolve_stripped_unique_line_preview_and_edit_aligned():
     """Stripped-whitespace unique line content resolves in preview AND edit paths.
 
-    Regression test for issue #630: EditFile previews (get_hashline_diff) and
+    Regression test for issue #630: WriteFile previews (get_hashline_diff) and
     actual edits (apply_hashline_operations) must resolve selectors identically.
     A selector with normalized/stripped whitespace that matches exactly one
     unique line must resolve to a content ID in BOTH paths.

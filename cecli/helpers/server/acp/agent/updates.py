@@ -39,7 +39,7 @@ _TOOL_KINDS = {
     "grep": "search",
     "explorecode": "search",
     "searchfacts": "search",
-    "editfile": "edit",
+    "writefile": "edit",
     "manageextensions": "edit",
     "undochange": "edit",
     "replacefacts": "edit",
@@ -168,6 +168,17 @@ class UpdateEmitter:
         self._active: str | None = None
         self._in_panel = False
 
+    def emit(self, event: dict) -> None:
+        """Send one already-shaped GUI event; the one path to the client.
+
+        Every other method here builds a payload and calls through this method,
+        so new event kinds stay out of this translator: callers build the dict
+        once (see ``cecli.helpers.server.acp.events``) and every front end
+        shares it.
+        """
+        if isinstance(event, dict) and event.get("sessionUpdate"):
+            self._send(event)
+
     # ── Model text ──────────────────────────────────────────────
 
     def stream(self, text: str, final: bool = False) -> None:
@@ -230,7 +241,7 @@ class UpdateEmitter:
             return
 
         self._flush_held()
-        self._send({"sessionUpdate": "diff", "filePath": str(file_path), "diff": str(diff or "")})
+        self.emit({"sessionUpdate": "diff", "filePath": str(file_path), "diff": str(diff or "")})
 
     # ── Tool calls ──────────────────────────────────────────────
 
@@ -307,7 +318,7 @@ class UpdateEmitter:
         }
         if tool.output:
             update["content"] = self._content(tool)
-        self._send(update)
+        self.emit(update)
         return tool_id, True
 
     def permission_prompt(self, tool_call_id: str, question: str) -> dict:
@@ -373,7 +384,7 @@ class UpdateEmitter:
             tool.title, tool.kind = "Update plan", "think"
             entries = plan_entries(args.get("tasks"))
             if entries:
-                self._send({"sessionUpdate": "plan", "entries": entries})
+                self.emit({"sessionUpdate": "plan", "entries": entries})
         elif norm == "yield" and isinstance(args.get("summary"), str):
             tool.title = "Finish"
             tool.message = args["summary"]
@@ -389,7 +400,7 @@ class UpdateEmitter:
         locations = self._locations(args)
         if locations:
             update["locations"] = locations
-        self._send(update)
+        self.emit(update)
 
     def _locations(self, args: dict) -> list[dict]:
         for key in _PATH_KEYS:
@@ -428,7 +439,7 @@ class UpdateEmitter:
             self._emit_message(prefix + message.strip() + "\n\n")
 
     def _update(self, tool: _Tool, **fields: Any) -> None:
-        self._send({"sessionUpdate": "tool_call_update", "toolCallId": tool.id, **fields})
+        self.emit({"sessionUpdate": "tool_call_update", "toolCallId": tool.id, **fields})
 
     def _settle_tools(self) -> None:
         """The model is talking again, so tools that already ran are done."""
@@ -456,7 +467,7 @@ class UpdateEmitter:
             # Whitespace before a thought (e.g. the newline ahead of a reasoning
             # marker) would otherwise surface as an empty message
             self._pending_ws = ""
-            self._send(
+            self.emit(
                 {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": text}}
             )
         elif not text.strip():
@@ -467,6 +478,6 @@ class UpdateEmitter:
     def _emit_message(self, text: str) -> None:
         text, self._pending_ws = self._pending_ws + text, ""
         self._msg_tail = (self._msg_tail + text)[-2:]
-        self._send(
+        self.emit(
             {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}
         )

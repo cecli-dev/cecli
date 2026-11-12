@@ -307,7 +307,7 @@ class AgentProxy:
         return "\n".join(lines)
 
     def get_content_id(self, file_path: str, line_content: str) -> str:
-        """Resolve a content ID for use as start_line/end_line with EditFile.
+        """Resolve a content ID for use as start_line/end_line with WriteFile.
 
         Supports three modes:
         - **@L{number}**: e.g., `Agent.get_content_id("foo.py", "@L42")`

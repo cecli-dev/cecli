@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from cecli.helpers.hashline import hashline
-from cecli.tools import edit_file
+from cecli.tools import write_file
 
 
 class DummyIO:
@@ -86,7 +86,7 @@ def test_position_top_succeeds_with_no_patterns(coder_with_file):
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -111,7 +111,7 @@ def test_mutually_exclusive_parameters_raise(coder_with_file):
     coder, file_path = coder_with_file
 
     # Test with invalid hashline format (missing pipe)
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -141,7 +141,7 @@ def test_trailing_newline_preservation(coder_with_file):
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    edit_file.Tool.execute(
+    write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -178,7 +178,7 @@ def test_no_trailing_newline_preservation(coder_with_file):
     # Extract hash fragment from {hash}::content format
     hash_fragment = line1_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
-    edit_file.Tool.execute(
+    write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -211,7 +211,7 @@ def test_line_number_beyond_file_length_appends(coder_with_file):
     # Extract hash fragment from {hash}::content format
     hash_fragment = line2_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -244,7 +244,7 @@ def test_line_number_beyond_file_length_appends_no_trailing_newline(coder_with_f
     hash_fragment = line2_hashline.split("::", 1)[0]  # Everything before "::"
     start_line = hash_fragment  # Just the hash fragment, no brackets
 
-    edit_file.Tool.execute(
+    write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -264,7 +264,7 @@ def test_line_number_beyond_file_length_appends_no_trailing_newline(coder_with_f
 def test_insert_before_target(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -284,7 +284,7 @@ def test_insert_before_target(coder_with_file):
 def test_insert_after_target_explicit(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -305,7 +305,7 @@ def test_insert_invalid_position_fails(coder_with_file):
     coder, file_path = coder_with_file
     original = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -326,7 +326,7 @@ def test_insert_invalid_position_fails(coder_with_file):
 def test_insert_before_top_marker_prepends(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -346,7 +346,7 @@ def test_insert_before_top_marker_prepends(coder_with_file):
 def test_insert_after_eof_marker_appends(coder_with_file):
     coder, file_path = coder_with_file
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {

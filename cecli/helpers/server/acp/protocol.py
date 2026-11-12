@@ -103,11 +103,10 @@ def make_state_update(
     state: str,
     stop_reason: str | None = None,
 ) -> dict:
-    """Build a state_update payload."""
-    result: dict[str, Any] = {"sessionUpdate": "state_update", "state": state}
-    if stop_reason is not None:
-        result["stopReason"] = stop_reason
-    return result
+    """Build a ``state_update`` payload (canonical shape lives in ``events``)."""
+    from cecli.helpers.server.acp.events import state_update as _state_update
+
+    return _state_update(state, stop_reason=stop_reason)
 
 
 def make_user_message(message_id: str, content: list[dict]) -> dict:

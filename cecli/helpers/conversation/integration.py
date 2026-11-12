@@ -532,7 +532,11 @@ class ConversationChunks:
             # Create user message
             user_msg = {
                 "role": "user",
-                "content": f"Rules defined in {rel_fname}:\n\n{content}",
+                "content": (
+                    f'<context name="user_rules" from="harness" source="{rel_fname}">\n'
+                    f"{content}"
+                    "\n</context>"
+                ),
             }
 
             # Add to ConversationManager with RULES tag
@@ -804,9 +808,6 @@ class ConversationChunks:
         if not coder:
             return
 
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
-            return
-
         # Ensure tokens are calculated
         if hasattr(coder, "_calculate_context_block_tokens"):
             coder._calculate_context_block_tokens()
@@ -866,9 +867,6 @@ class ConversationChunks:
         if not coder:
             return
 
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
-            return
-
         # Ensure tokens are calculated
         if hasattr(coder, "_calculate_context_block_tokens"):
             coder._calculate_context_block_tokens()
@@ -914,9 +912,6 @@ class ConversationChunks:
         if not skills_manager:
             return
 
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
-            return
-
         loaded_skills = getattr(skills_manager, "_loaded_skills", set())
 
         # Prune messages for skills that are no longer loaded.
@@ -957,9 +952,6 @@ class ConversationChunks:
         """
         coder = self.get_coder()
         if not coder:
-            return
-
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
             return
 
         if self._cancel_post_message_injections():
@@ -1021,9 +1013,6 @@ class ConversationChunks:
         if not coder:
             return
 
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
-            return
-
         if not hasattr(coder, "get_background_command_output"):
             return
 
@@ -1065,9 +1054,6 @@ class ConversationChunks:
         """
         coder = self.get_coder()
         if not coder:
-            return
-
-        if not hasattr(coder, "use_enhanced_context") or not coder.use_enhanced_context:
             return
 
         if not hasattr(coder, "get_sub_agent_states"):

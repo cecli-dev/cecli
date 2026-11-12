@@ -523,7 +523,9 @@ uvicorn[standard]==0.38.0
     #   chromadb
     #   mcp
 uvloop==0.22.1
-    # via uvicorn
+    # via
+    #   -r requirements/requirements.in
+    #   uvicorn
 virtualenv==20.35.4
     # via pre-commit
 watchfiles==1.1.1

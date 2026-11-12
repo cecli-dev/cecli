@@ -31,6 +31,7 @@ from cecli.io import CommandCompletionException
 
 from .widgets import (
     BackgroundCommandsPanel,
+    BtwPanel,
     CompletionBar,
     FileList,
     FloatingPanels,
@@ -40,6 +41,7 @@ from .widgets import (
     MainFooter,
     OutputContainer,
     StatusBar,
+    TodoPanel,
 )
 from .widgets.output import CostUpdate
 
@@ -72,6 +74,8 @@ class TUI(App):
 
     PANELS = {
         "commands": "#background-commands-panel",
+        "plans": "#todo-panel",
+        "asides": "#btw-panel",
     }
 
     def __init__(self, coder_worker, output_queue, input_queue, args):
@@ -347,6 +351,8 @@ class TUI(App):
         )
 
         yield BackgroundCommandsPanel(id="background-commands-panel")
+        yield TodoPanel(id="todo-panel")
+        yield BtwPanel(id="btw-panel")
 
     BANNER_COLORS = [
         "spring_green2",
@@ -388,6 +394,8 @@ class TUI(App):
         # Cheap poll for git branch changes (HEAD) rather than a full git
         # resolve on a fixed cadence; only refresh the footer when it changes.
         self.set_interval(5, self._check_git_branch)
+
+        self.set_interval(1, self._refresh_overlay_subtitles)
 
         self.worker.start()
         self.query_one("#input").focus()
@@ -925,6 +933,12 @@ class TUI(App):
             self._handle_spawn_agent_command(user_input, stripped)
             return
 
+        # Intercept /btw so side questions can be asked while the agent is
+        # generating, matching the immediate /spawn-agent dispatch.
+        if stripped == "/btw" or stripped.startswith("/btw "):
+            self._handle_btw_command(user_input, stripped)
+            return
+
         # Intercept /creator to spawn the creator sub-agent immediately, even
         # while the primary coder is generating.
         if stripped == "/creator" or stripped.startswith("/creator "):
@@ -1174,6 +1188,34 @@ class TUI(App):
 
         self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_spawn()))
 
+    def _handle_btw_command(self, user_input: str, stripped: str) -> None:
+        """Dispatch /btw immediately without entering the generation queue."""
+        from cecli.commands.btw import BtwCommand
+
+        parts = stripped.split(maxsplit=1)
+        btw_args = parts[1].strip() if len(parts) > 1 else ""
+
+        input_area = self.query_one("#input", InputArea)
+        input_area.value = ""
+
+        if not btw_args:
+            self.show_error("Usage: /btw [-n|--no-context] <question>")
+            return
+
+        input_area.save_to_history(user_input)
+        self.add_user_message(user_input)
+
+        coder = self._get_visible_coder()
+
+        if self.worker.loop is None:
+            self.show_error("Worker loop not available. Cannot run /btw.")
+            return
+
+        async def _run_btw():
+            await BtwCommand.execute(coder.io, coder, btw_args)
+
+        self.worker.loop.call_soon_threadsafe(lambda: self.worker.loop.create_task(_run_btw()))
+
     def _handle_creator_command(self, user_input: str, stripped: str) -> None:
         """Dispatch /creator immediately without a full generation cycle."""
         from cecli.commands.creator import CreatorCommand
@@ -1344,7 +1386,9 @@ class TUI(App):
 
         panel.display = True
 
-        if hasattr(panel, "refresh_data"):
+        if hasattr(panel, "open_panel"):
+            panel.open_panel()
+        elif hasattr(panel, "refresh_data"):
             panel.refresh_data()
 
         self._position_panel(panel)
@@ -1405,10 +1449,25 @@ class TUI(App):
 
         return False
 
+    def _refresh_overlay_subtitles(self):
+        """Refresh the shared item-count subtitle on every overlay panel."""
+        from .widgets.overlay import refresh_overlay_subtitles
+
+        refresh_overlay_subtitles(self)
+
     def _position_panel(self, panel=None):
-        """Center a floating panel over the screen."""
+        """Center the visible floating panel over the screen."""
         try:
-            panel = panel or self.query_one("#background-commands-panel", BackgroundCommandsPanel)
+            if panel is None:
+                for selector in self.PANELS.values():
+                    candidate = self.query_one(selector)
+                    if candidate.display:
+                        panel = candidate
+                        break
+
+            if panel is None:
+                panel = self.query_one("#background-commands-panel", BackgroundCommandsPanel)
+
             width, height = panel.outer_size
         except Exception:
             return

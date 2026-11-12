@@ -52,7 +52,6 @@ def test_creator_context_lists_installed_modules(monkeypatch):
         lambda: ("Python 3.14.0", ["requests", "rich", "yaml"]),
     )
     coder = SimpleNamespace(
-        use_enhanced_context=True,
         agent_config={"creator_mode": True},
     )
 
@@ -71,7 +70,6 @@ def test_context_is_none_for_non_creator(monkeypatch):
         lambda: ("Python 3.14.0", ["requests"]),
     )
     coder = SimpleNamespace(
-        use_enhanced_context=True,
         agent_config={},
     )
 
