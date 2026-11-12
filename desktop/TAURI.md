@@ -370,12 +370,13 @@ semver and written to `src-tauri/tauri.version.conf.json`, which is merged as a
 second `--config`, so installers carry the tag version. The release job marks
 `a`, `b` and `rc` tags as GitHub pre-releases.
 
-Before building, tagged builds wait for the matching `cecli-dev` release to appear
-on PyPI, then resolve the spec with `uv pip compile --quiet`. The compile passes
-`--exclude-newer-package "cecli-dev=0 days"` so the repo-wide
+Before building, tagged builds retry the runtime resolution with
+`uv pip compile --quiet` until the matching `cecli-dev` release is resolvable on
+PyPI, waiting 30 seconds between attempts, up to 10 attempts. The compile targets Python 3.12 and
+passes `--exclude-newer-package "cecli-dev=0 days"` so the repo-wide
 `exclude-newer = "2 days"` cooldown does not filter the freshly published version.
-A tag whose version never appears on PyPI fails CI instead of failing on a user's
-first launch.
+A tag whose version never becomes resolvable fails CI instead of failing on a
+user's first launch.
 
 The tag pins only the shell, bridge and UI. The `cecli` agent itself comes from
 PyPI, so an rc build needs the matching `cecli-dev` rc published first.

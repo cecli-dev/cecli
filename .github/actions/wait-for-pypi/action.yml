@@ -1,37 +1,61 @@
 name: Wait for PyPI release
-description: Poll the PyPI simple index until the cecli-dev version from the pushed tag is published.
+description: Retry uv resolution until the tagged cecli-dev release is installable.
+
+inputs:
+  spec:
+    description: Runtime spec to resolve, for example cecli-dev==1.12.2rc7
+    required: true
+  uv:
+    description: Path to the staged uv binary
+    required: true
 
 runs:
   using: composite
   steps:
     - name: Wait for PyPI release
       shell: bash
+      env:
+        SPEC: ${{ inputs.spec }}
+        UV_BIN: ${{ inputs.uv }}
       run: |
         set -euo pipefail
 
-        version="${GITHUB_REF_NAME#v}"
-        url="https://pypi.org/simple/cecli-dev/"
+        if [[ -z "${SPEC:-}" ]]; then
+          echo "::error::runtime spec is empty" >&2
+          exit 1
+        fi
 
-        echo "Waiting for cecli-dev ${version} on PyPI: ${url}"
+        spec_file="runtime-spec.txt"
+        printf '%s\n' "$SPEC" > "$spec_file"
 
-        attempt=1
+        compile() {
+          "$UV_BIN" pip compile "$spec_file" --quiet --no-header \
+            --python-version 3.12 --refresh-package cecli-dev \
+            --exclude-newer-package "cecli-dev=0 days" > /dev/null
+        }
 
-        while [ "$attempt" -le 60 ]; do
-          if curl -fsS --max-time 10 \
-            -H 'Accept: application/vnd.pypi.simple.v1+json' "$url" \
-            | grep -qiF -e "cecli_dev-${version}-" -e "cecli_dev-${version}.tar.gz"; then
-            echo "cecli-dev ${version} is available on PyPI (attempt ${attempt})."
+        if [[ "$SPEC" != *"=="* ]]; then
+          compile
+          exit 0
+        fi
+
+        for ((attempt = 1; attempt <= 10; attempt++)); do
+          if output=$(compile 2>&1); then
+            echo "resolved $SPEC on attempt $attempt"
             exit 0
           fi
 
-          if [ "$attempt" -ge 60 ]; then
-            break
+          if [[ "$output" != *"no version of cecli-dev=="* ]]; then
+            echo "$output" >&2
+            exit 1
           fi
 
-          echo "Attempt ${attempt}/60: cecli-dev ${version} not on PyPI yet; retrying in 30s."
-          sleep 30
-          attempt=$((attempt + 1))
-        done
+          if ((attempt == 10)); then
+            echo "::error::timed out waiting for $SPEC to become resolvable on PyPI" >&2
+            echo "$output" >&2
+            exit 1
+          fi
 
-        echo "::error::cecli-dev ${version} was not available on PyPI after 60 attempts (~30 minutes)."
-        exit 1
+          echo "waiting for $SPEC to become resolvable (attempt $attempt/10)"
+          sleep 30
+        done

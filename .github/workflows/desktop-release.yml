@@ -61,17 +61,11 @@ jobs:
         shell: bash
         run: python3 desktop/scripts/fetch_uv.py
 
-      - name: Wait for PyPI release
-        uses: ./.github/actions/wait-for-pypi
-        if: startsWith(github.ref, 'refs/tags/')
-
       - name: Verify runtime spec resolves
-        shell: bash
-        run: |
-          printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
-          desktop/src-tauri/binaries/uv-x86_64-unknown-linux-gnu \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
-              --exclude-newer-package "cecli-dev=0 days" > /dev/null
+        uses: ./.github/actions/wait-for-pypi
+        with:
+          spec: ${{ env.CECLI_RUNTIME_SPEC }}
+          uv: desktop/src-tauri/binaries/uv-x86_64-unknown-linux-gnu
 
       - name: Install UI dependencies
         working-directory: desktop
@@ -136,17 +130,11 @@ jobs:
         shell: bash
         run: python desktop/scripts/fetch_uv.py
 
-      - name: Wait for PyPI release
-        uses: ./.github/actions/wait-for-pypi
-        if: startsWith(github.ref, 'refs/tags/')
-
       - name: Verify runtime spec resolves
-        shell: bash
-        run: |
-          printf '%s\n' "$CECLI_RUNTIME_SPEC" > runtime-spec.txt
-          desktop/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe \
-            pip compile runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
-              --exclude-newer-package "cecli-dev=0 days" > /dev/null
+        uses: ./.github/actions/wait-for-pypi
+        with:
+          spec: ${{ env.CECLI_RUNTIME_SPEC }}
+          uv: desktop/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe
 
       - name: Install UI dependencies
         working-directory: desktop
@@ -210,17 +198,11 @@ jobs:
         shell: bash
         run: python3 desktop/scripts/fetch_uv.py
 
-      - name: Wait for PyPI release
-        uses: ./.github/actions/wait-for-pypi
-        if: startsWith(github.ref, 'refs/tags/')
-
       - name: Verify runtime spec resolves
-        shell: bash
-        run: |
-          printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
-          desktop/src-tauri/binaries/uv-aarch64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
-              --exclude-newer-package "cecli-dev=0 days" > /dev/null
+        uses: ./.github/actions/wait-for-pypi
+        with:
+          spec: ${{ env.CECLI_RUNTIME_SPEC }}
+          uv: desktop/src-tauri/binaries/uv-aarch64-apple-darwin
 
       - name: Install UI dependencies
         working-directory: desktop
