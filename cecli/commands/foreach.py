@@ -179,6 +179,10 @@ class ForeachCommand(BaseCommand):
 
         orig_context_mgmt = getattr(coder, "context_management_enabled", None)
         orig_threshold = getattr(coder, "large_file_token_threshold", None)
+        orig_repo_map_tokens = None
+        if hasattr(coder, "repo_map") and coder.repo_map is not None:
+            orig_repo_map_tokens = getattr(coder.repo_map, "max_map_tokens", None)
+            coder.repo_map.max_map_tokens = 0
 
         if getattr(parsed, "no_truncation", True):
             if hasattr(coder, "large_file_token_threshold"):
@@ -251,6 +255,8 @@ class ForeachCommand(BaseCommand):
                 coder.context_management_enabled = orig_context_mgmt
             if orig_threshold is not None and hasattr(coder, "large_file_token_threshold"):
                 coder.large_file_token_threshold = orig_threshold
+            if orig_repo_map_tokens is not None and hasattr(coder, "repo_map") and coder.repo_map is not None:
+                coder.repo_map.max_map_tokens = orig_repo_map_tokens
 
         status_msg = (
             f"Processed {completed_count}/{total_items} item(s) "
