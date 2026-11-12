@@ -158,6 +158,7 @@ class LoopDetector:
         # Level 3: Sentence State (Bounded LRU Cache)
         self.current_sentence = []
         self.sentence_counts = OrderedDict()
+        self.pending_terminator = None
 
     @property
     def char_limit(self):
@@ -218,34 +219,52 @@ class LoopDetector:
             # -------------------------
             self.current_sentence.append(char)
 
-            if char in [".", "!", "?", "\n"]:
-                sentence_str = "".join(self.current_sentence).strip()
+            if self.pending_terminator is not None:
+                if char.isspace():
+                    self._record_sentence()
+                    self.current_sentence = []
+                    self.pending_terminator = None
+                else:
+                    # A terminator glued to the next token (3.14, e.g. paths) is
+                    # not a boundary; only whitespace confirms one.
+                    self.pending_terminator = char if char in ".!?" else None
+                continue
 
-                if len(sentence_str) > 10 and is_sentence(sentence_str):
-                    normalized = " ".join(sentence_str.lower().split())
-
-                    # Update count and move to the "most recent" position
-                    if normalized in self.sentence_counts:
-                        self.sentence_counts[normalized] += 1
-                        self.sentence_counts.move_to_end(normalized)
-                    else:
-                        self.sentence_counts[normalized] = 1
-
-                    # Check threshold
-                    if self.sentence_counts[normalized] >= self.sentence_limit:
-                        raise LoopDetectedError(
-                            f"Sentence loop: '{normalized}' occurred {self.sentence_counts[normalized]} times.",
-                            level="sentence",
-                        )
-
-                    # Enforce the 10-sentence memory bound
-                    if len(self.sentence_counts) > self.max_sentences:
-                        # popitem(last=False) removes the oldest, least recently used item
-                        self.sentence_counts.popitem(last=False)
-
+            if char in ".!?":
+                self.pending_terminator = char
+            elif char == "\n":
+                self._record_sentence()
                 self.current_sentence = []
 
         return None
+
+    def _record_sentence(self):
+        """Count the buffered sentence and raise when it repeats too often."""
+        sentence_str = "".join(self.current_sentence).strip()
+
+        if len(sentence_str) <= 10 or not is_sentence(sentence_str):
+            return
+
+        normalized = " ".join(sentence_str.lower().split())
+
+        # Update count and move to the "most recent" position
+        if normalized in self.sentence_counts:
+            self.sentence_counts[normalized] += 1
+            self.sentence_counts.move_to_end(normalized)
+        else:
+            self.sentence_counts[normalized] = 1
+
+        # Check threshold
+        if self.sentence_counts[normalized] >= self.sentence_limit:
+            raise LoopDetectedError(
+                f"Sentence loop: '{normalized}' occurred {self.sentence_counts[normalized]} times.",
+                level="sentence",
+            )
+
+        # Enforce the 10-sentence memory bound
+        if len(self.sentence_counts) > self.max_sentences:
+            # popitem(last=False) removes the oldest, least recently used item
+            self.sentence_counts.popitem(last=False)
 
 
 def is_sentence(text):
