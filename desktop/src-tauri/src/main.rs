@@ -167,13 +167,17 @@ fn bundled_uv() -> Option<PathBuf> {
         candidates.push(PathBuf::from(value));
     }
 
-    if let Some(dir) = current_exe_dir() {
-        candidates.push(dir.join(uv_binary_name()));
-    }
+    // Debug builds follow the checkout; a uv left in target/ by a bundled build
+    // must not silently switch npm run dev to a released cecli.
+    if !cfg!(debug_assertions) {
+        if let Some(dir) = current_exe_dir() {
+            candidates.push(dir.join(uv_binary_name()));
+        }
 
-    if let Some(dir) = resource_dir() {
-        candidates.push(dir.join(uv_binary_name()));
-        candidates.push(dir.join("_up_").join(uv_binary_name()));
+        if let Some(dir) = resource_dir() {
+            candidates.push(dir.join(uv_binary_name()));
+            candidates.push(dir.join("_up_").join(uv_binary_name()));
+        }
     }
 
     candidates.into_iter().find(|path| path.is_file())

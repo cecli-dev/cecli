@@ -69,8 +69,10 @@ root); set
 `CECLI_DESKTOP_WORKSPACE` to choose a project, and `CECLI_DESKTOP_CECLI` to
 pick a specific cecli executable.
 
-`npm run dev` and `npm run build` start `server.py` with the system Python, which
-is the right loop for development. Release builds instead ship the static `uv`
+`npm run dev` and `npm run build` run `server.py` from the checkout, preferring
+the `desktop/.runtime/venv` created by `npm run runtime:install` and falling
+back to the system Python. That runtime installs cecli editable, so local source
+changes are picked up immediately. Release builds instead ship the static `uv`
 binary and let it provision CPython and `cecli-dev` on first launch, so the
 installed app needs no system Python (but does need network access once):
 
