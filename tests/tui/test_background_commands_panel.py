@@ -175,7 +175,8 @@ def test_open_command_registration_and_completions():
     from cecli.commands.utils.registry import CommandRegistry
 
     assert CommandRegistry.get_command("open") is OpenCommand
-    assert OpenCommand.SUBCOMMANDS == ("commands",)
+    assert OpenCommand.SUBCOMMANDS == ("commands", "todo")
+    assert OpenCommand.get_completions(None, None, "tod") == ["todo"]
     assert OpenCommand.get_completions(None, None, "com") == ["commands"]
 
 
@@ -194,8 +195,9 @@ def test_open_command_routes_to_tui():
 
     asyncio.run(OpenCommand.execute(io, coder, "commands"))
     asyncio.run(OpenCommand.execute(io, coder, ""))
+    asyncio.run(OpenCommand.execute(io, coder, "todo"))
 
-    assert calls == ["commands", "commands"]
+    assert calls == ["commands", "commands", "todo"]
 
 
 def test_tui_panel_open_and_close_wiring():

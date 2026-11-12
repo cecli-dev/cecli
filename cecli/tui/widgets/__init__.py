@@ -11,6 +11,7 @@ from .key_hints import KeyHints
 from .output import OutputContainer
 from .status_bar import StatusBar
 from .subagent_pills import SubAgentPills
+from .todo_panel import TodoPanel
 
 __all__ = [
     "BackgroundCommandsPanel",
@@ -24,4 +25,5 @@ __all__ = [
     "FileList",
     "FloatingPanels",
     "SubAgentPills",
+    "TodoPanel",
 ]

@@ -241,3 +241,82 @@ TextArea > .text-area--selection {
     background: $background;
     scrollbar-size: 1 1;
 }
+
+/* --------------------------------------------------------------------------
+ * Todo panel (/open todo)
+ * -------------------------------------------------------------------------- */
+
+#todo-panel {
+    display: none;
+    position: absolute;
+    layer: panels;
+    width: 72%;
+    max-width: 115;
+    height: 65%;
+    border: round $accent 50%;
+    border-title-align: center;
+    border-title-color: $accent 50%;
+    border-title-style: bold;
+    padding: 0 1;
+    background: $background;
+}
+
+#todo-tabs {
+    width: 100%;
+    height: 2;
+    background: transparent;
+}
+
+#todo-tabs,
+#todo-tabs #tabs-scroll,
+#todo-tabs #tabs-list-bar,
+#todo-tabs #tabs-list {
+    scrollbar-size: 0 0;
+    scrollbar-visibility: hidden;
+    scrollbar-background: transparent;
+    scrollbar-color: transparent;
+    scrollbar-color-hover: transparent;
+    scrollbar-color-active: transparent;
+}
+
+#todo-tabs Underline > .underline--bar {
+    color: $accent;
+}
+
+#todo-tabs .todo-tab {
+    background: transparent;
+    color: $secondary;
+}
+
+#todo-tabs .todo-tab.-active {
+    background: $accent 30%;
+    color: $accent;
+    text-style: bold;
+}
+
+#todo-tabs .todo-tab:hover {
+    background: transparent;
+    color: $foreground;
+}
+
+#todo-agent-line {
+    width: 100%;
+    height: 1;
+    color: $secondary;
+    background: transparent;
+    padding: 0 1;
+}
+
+#todo-empty {
+    width: 100%;
+    height: 1fr;
+    color: $secondary;
+    content-align: center middle;
+}
+
+#todo-output {
+    width: 100%;
+    height: 1fr;
+    background: $background;
+    scrollbar-size: 1 1;
+}

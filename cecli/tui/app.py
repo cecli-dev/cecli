@@ -40,6 +40,7 @@ from .widgets import (
     MainFooter,
     OutputContainer,
     StatusBar,
+    TodoPanel,
 )
 from .widgets.output import CostUpdate
 
@@ -72,6 +73,7 @@ class TUI(App):
 
     PANELS = {
         "commands": "#background-commands-panel",
+        "todo": "#todo-panel",
     }
 
     def __init__(self, coder_worker, output_queue, input_queue, args):
@@ -347,6 +349,7 @@ class TUI(App):
         )
 
         yield BackgroundCommandsPanel(id="background-commands-panel")
+        yield TodoPanel(id="todo-panel")
 
     BANNER_COLORS = [
         "spring_green2",
@@ -1406,9 +1409,18 @@ class TUI(App):
         return False
 
     def _position_panel(self, panel=None):
-        """Center a floating panel over the screen."""
+        """Center the visible floating panel over the screen."""
         try:
-            panel = panel or self.query_one("#background-commands-panel", BackgroundCommandsPanel)
+            if panel is None:
+                for selector in self.PANELS.values():
+                    candidate = self.query_one(selector)
+                    if candidate.display:
+                        panel = candidate
+                        break
+
+            if panel is None:
+                panel = self.query_one("#background-commands-panel", BackgroundCommandsPanel)
+
             width, height = panel.outer_size
         except Exception:
             return

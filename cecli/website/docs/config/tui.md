@@ -112,6 +112,8 @@ Press `alt+o` or run `/open commands` to open the background command panel. It f
 
 `alt+o` cycles through the available panel types. When the last panel type is open, pressing `alt+o` again closes it.
 
+Run `/open todo` to open the todo panel. It has one tab per agent (the primary agent plus every tracked sub-agent) and shows that agent's todo list. The tab for the agent currently displayed in the TUI is selected when the panel opens.
+
 #### Customizing Key Bindings
 
 You can customize any key binding by adding a `key_bindings` section to your `tui-config`. For example, to change the quit key to `ctrl+x`:
