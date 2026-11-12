@@ -451,9 +451,8 @@ class Tool(BaseTool):
                                     f"Edit {op_index + 1} - {cls._categorize_edit_error(str(op_error))}"
                                 )
                     except Exception as e:
-                        # If batch operation fails, mark all operations as failed
-                        for edit_index, _ in file_edits:
-                            file_failed_edits.append(f"Edit {edit_index + 1}: {str(e)}")
+                        # Batch failure already includes per-op details; record once.
+                        file_failed_edits.append(f"Batch edit failed: {str(e)}")
 
                     all_failed_edits.extend(file_failed_edits)
 
@@ -543,7 +542,6 @@ class Tool(BaseTool):
             if total_successful_edits == 0:
                 coder.edit_allowed = True
                 error_msg = "No edits were successfully applied:\n" + "\n".join(all_failed_edits)
-                response.append_error(all_failed_edits)
                 raise ToolError(error_msg)
 
             # 5. Format and return result
