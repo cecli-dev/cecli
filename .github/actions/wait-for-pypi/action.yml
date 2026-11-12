@@ -17,7 +17,8 @@ runs:
         attempt=1
 
         while [ "$attempt" -le 60 ]; do
-          if curl -fsS --max-time 10 "$url" \
+          if curl -fsS --max-time 10 \
+            -H 'Accept: application/vnd.pypi.simple.v1+json' "$url" \
             | grep -qiF -e "cecli_dev-${version}-" -e "cecli_dev-${version}.tar.gz"; then
             echo "cecli-dev ${version} is available on PyPI (attempt ${attempt})."
             exit 0

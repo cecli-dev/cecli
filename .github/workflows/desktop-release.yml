@@ -70,7 +70,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-unknown-linux-gnu \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 \
+            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
@@ -145,7 +145,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe \
-            pip compile runtime-spec.txt --quiet --no-header --python-version 3.12 \
+            pip compile runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
@@ -219,7 +219,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-aarch64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 \
+            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 --refresh \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
