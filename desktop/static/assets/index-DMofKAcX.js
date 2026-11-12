@@ -1037,14 +1037,22 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
             `)}
         </ul>
       </article>
-    `}};customElements.define(`plan-card`,ju);var Mu=class extends A{static properties={item:{attribute:!1},agentId:{type:String}};constructor(){super(),this._open_ids=new Set}willUpdate(){let e=new Set(this.item.parts.map(e=>e.id));for(let t of this._open_ids)e.has(t)||this._open_ids.delete(t)}createRenderRoot(){return this}render(){let e=this.item.parts.filter(Wt),t=this.item.parts.filter(e=>!Wt(e));return O`
+    `}};customElements.define(`plan-card`,ju);var Mu=class extends A{static properties={item:{attribute:!1},agentId:{type:String}};constructor(){super(),this._open_ids=new Set,this._seen_edit_ids=new Set,this._auto_opened_edits=!1}willUpdate(){let e=new Set(this.item.parts.map(e=>e.id));for(let t of this._open_ids)e.has(t)||this._open_ids.delete(t);for(let t of this._seen_edit_ids)e.has(t)||this._seen_edit_ids.delete(t);this._auto_opened_edits=!1;for(let e of this.item.parts)e.type!==`diff`||this._seen_edit_ids.has(e.id)||(this._seen_edit_ids.add(e.id),this._open_ids.add(e.id),this._auto_opened_edits=!0)}updated(){this._auto_opened_edits&&(this._auto_opened_edits=!1,this.dispatchEvent(new CustomEvent(`transcript-layout`,{bubbles:!0,composed:!0})))}createRenderRoot(){return this}render(){let e=this.item.parts.filter(Wt),t=e.filter(e=>e.type===`diff`),n=e.filter(e=>e.type!==`diff`),r=this.item.parts.filter(e=>!Wt(e));return O`
       <div class="msg msg--assistant" data-turn=${this.item.turn}>
         <div class="msg-body">
-          ${e.length?O`<div class="assistant-pills">
-                ${Xe(e,e=>e.id,e=>this._render_pill(e))}
+          ${n.length?O`<div class="assistant-pills">
+                ${Xe(n,e=>e.id,e=>this._render_pill(e))}
               </div>`:k}
-          ${Xe(e.filter(e=>this._open_ids.has(e.id)),e=>`${e.id}-panel`,e=>this._render_panel(e))}
-          ${Xe(t,e=>e.id,e=>this._render_part(e))}
+          ${Xe(n.filter(e=>this._open_ids.has(e.id)),e=>`${e.id}-panel`,e=>this._render_panel(e))}
+          ${Xe(r,e=>e.id,e=>this._render_part(e))}
+          ${t.length?O`<div class="assistant-edits">
+                ${Xe(t,e=>e.id,e=>O`
+                    <div class="assistant-edit">
+                      ${this._render_pill(e)}
+                      ${this._open_ids.has(e.id)?this._render_panel(e):k}
+                    </div>
+                  `)}
+              </div>`:k}
         </div>
       </div>
     `}_render_pill(e){let t=this._open_ids.has(e.id);if(e.type===`thought`)return O`
@@ -1098,7 +1106,6 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         </div>
       `;if(e.type===`diff`)return O`
         <div class="assistant-pill-panel">
-          <div class="pill-panel-head"><span>Edited ${e.file}</span></div>
           <div class="diff-panel">
             ${Xe(Gt(e.diff),(t,n)=>`${e.id}-${n}`,e=>O`<span class="diff-line ${e.kind}">${e.text||` `}</span>`)}
           </div>
