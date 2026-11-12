@@ -1,5 +1,5 @@
 name: Wait for PyPI release
-description: Poll PyPI until the cecli-dev version from the pushed tag is published.
+description: Poll the PyPI simple index until the cecli-dev version from the pushed tag is published.
 
 runs:
   using: composite
@@ -10,14 +10,15 @@ runs:
         set -euo pipefail
 
         version="${GITHUB_REF_NAME#v}"
-        url="https://pypi.org/pypi/cecli-dev/${version}/json"
+        url="https://pypi.org/simple/cecli-dev/"
 
         echo "Waiting for cecli-dev ${version} on PyPI: ${url}"
 
         attempt=1
 
         while [ "$attempt" -le 60 ]; do
-          if curl -fsS --max-time 10 "$url" > /dev/null; then
+          if curl -fsS --max-time 10 "$url" \
+            | grep -qiF -e "cecli_dev-${version}-" -e "cecli_dev-${version}.tar.gz"; then
             echo "cecli-dev ${version} is available on PyPI (attempt ${attempt})."
             exit 0
           fi
@@ -26,10 +27,10 @@ runs:
             break
           fi
 
-          echo "Attempt ${attempt}/60: cecli-dev ${version} not on PyPI yet; retrying in 10s."
-          sleep 10
+          echo "Attempt ${attempt}/60: cecli-dev ${version} not on PyPI yet; retrying in 30s."
+          sleep 30
           attempt=$((attempt + 1))
         done
 
-        echo "::error::cecli-dev ${version} was not available on PyPI after 60 attempts (~10 minutes)."
+        echo "::error::cecli-dev ${version} was not available on PyPI after 60 attempts (~30 minutes)."
         exit 1

@@ -27,8 +27,10 @@ def call(agent, **params):
 @pytest.fixture
 def sleeper():
     key = BackgroundCommandManager.start_background_command(
-        f'{sys.executable} -c "import time; time.sleep(30)"', use_pty=True
+        f"{sys.executable} -c \"import sys; print('ready', flush=True); sys.stdin.read()\"",
+        use_pty=True,
     )
+    _await_sleeper_ready(key)
     yield key
     BackgroundCommandManager.close_background_command(key)
     BackgroundCommandManager.signal_stop_all_background_commands()
@@ -213,3 +215,23 @@ def test_background_emitter_sends_single_wrapped_notification():
     assert params.get("event")
     assert params.get("key") == key
     assert "method" not in params
+
+
+def _await_sleeper_ready(key, timeout=10.0):
+    """Wait until the sleeper has run and is blocked reading stdin."""
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        snapshot = BackgroundCommandManager.snapshot_background_command(key, 0)
+        if snapshot is None:
+            raise AssertionError(f"background command {key} vanished before it was ready")
+        if b"ready" in snapshot["data"]:
+            return
+        if snapshot["state"] != "running":
+            raise AssertionError(
+                f"background command {key} exited before it was ready: {snapshot['state']}"
+            )
+
+        time.sleep(0.01)
+
+    raise AssertionError(f"background command {key} was not ready within {timeout}s")

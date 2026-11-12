@@ -70,7 +70,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-unknown-linux-gnu \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header \
+            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
@@ -145,7 +145,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > runtime-spec.txt
           desktop/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe \
-            pip compile runtime-spec.txt --quiet --no-header \
+            pip compile runtime-spec.txt --quiet --no-header --python-version 3.12 \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
@@ -153,6 +153,7 @@ jobs:
         run: npm ci
 
       - name: Build NSIS installer
+        shell: bash
         working-directory: desktop
         run: |
           npm run tauri build -- \
@@ -165,79 +166,6 @@ jobs:
           name: cecli-desktop-windows-x64
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/nsis/*.exe
-
-  macos-x64:
-    name: macOS (x64)
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: desktop/src-tauri
-
-      - name: Resolve runtime spec and app version
-        shell: bash
-        run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            RELEASE="${GITHUB_REF_NAME#v}"
-            echo "CECLI_RUNTIME_SPEC=cecli-dev==$RELEASE" >> "$GITHUB_ENV"
-          else
-            RELEASE=""
-            echo "CECLI_RUNTIME_SPEC=cecli-dev" >> "$GITHUB_ENV"
-          fi
-
-          VERSION="${RELEASE:-0.1.0}"
-          VERSION="${VERSION/.dev/-dev}"
-          VERSION="${VERSION/.post/-post}"
-          if [[ "$VERSION" =~ ^(.*[0-9])((a|b|rc)[0-9]+)$ ]]; then
-            VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-          fi
-
-          echo "CECLI_APP_VERSION=$VERSION" >> "$GITHUB_ENV"
-          printf '{"version":"%s"}\n' "$VERSION" > desktop/src-tauri/tauri.version.conf.json
-
-      - name: Stage uv sidecar
-        shell: bash
-        run: python3 desktop/scripts/fetch_uv.py
-
-      - name: Wait for PyPI release
-        uses: ./.github/actions/wait-for-pypi
-        if: startsWith(github.ref, 'refs/tags/')
-
-      - name: Verify runtime spec resolves
-        shell: bash
-        run: |
-          printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
-          desktop/src-tauri/binaries/uv-x86_64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header \
-              --exclude-newer-package "cecli-dev=0 days" > /dev/null
-
-      - name: Install UI dependencies
-        working-directory: desktop
-        run: npm ci
-
-      - name: Build dmg
-        working-directory: desktop
-        run: |
-          npm run tauri build -- \
-            --config src-tauri/tauri.release.conf.json \
-            --config src-tauri/tauri.version.conf.json \
-            --bundles dmg
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cecli-desktop-macos-x64
-          if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
   macos-arm64:
     name: macOS (arm64)
@@ -291,7 +219,7 @@ jobs:
         run: |
           printf '%s\n' "$CECLI_RUNTIME_SPEC" > /tmp/runtime-spec.txt
           desktop/src-tauri/binaries/uv-aarch64-apple-darwin \
-            pip compile /tmp/runtime-spec.txt --quiet --no-header \
+            pip compile /tmp/runtime-spec.txt --quiet --no-header --python-version 3.12 \
               --exclude-newer-package "cecli-dev=0 days" > /dev/null
 
       - name: Install UI dependencies
@@ -315,7 +243,7 @@ jobs:
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux, windows, macos-x64, macos-arm64]
+    needs: [linux, windows, macos-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Detect prerelease channel
