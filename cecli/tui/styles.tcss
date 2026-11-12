@@ -233,6 +233,7 @@ TextArea > .text-area--selection {
     height: 1fr;
     color: $secondary;
     content-align: center middle;
+    text-align: center;
 }
 
 #bg-command-output {
@@ -312,9 +313,53 @@ TextArea > .text-area--selection {
     height: 1fr;
     color: $secondary;
     content-align: center middle;
+    text-align: center;
+}
+
+#todo-output-empty {
+    display: none;
+    width: 100%;
+    height: 1fr;
+    color: $secondary;
+    content-align: center middle;
+    text-align: center;
 }
 
 #todo-output {
+    width: 100%;
+    height: 1fr;
+    background: $background;
+    scrollbar-size: 1 1;
+}
+
+/* --------------------------------------------------------------------------
+ * Btw panel (/open btw)
+ * -------------------------------------------------------------------------- */
+
+#btw-panel {
+    display: none;
+    position: absolute;
+    layer: panels;
+    width: 72%;
+    max-width: 115;
+    height: 65%;
+    border: round $accent 50%;
+    border-title-align: center;
+    border-title-color: $accent 50%;
+    border-title-style: bold;
+    padding: 0 1;
+    background: $background;
+}
+
+#btw-empty {
+    width: 100%;
+    height: 1fr;
+    color: $secondary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#btw-output {
     width: 100%;
     height: 1fr;
     background: $background;

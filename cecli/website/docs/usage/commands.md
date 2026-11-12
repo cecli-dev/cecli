@@ -13,6 +13,7 @@ Cecli supports commands from within the chat, which all start with `/`.
 | **/add** | Add files to the chat so cecli can edit them or review them in detail |
 | **/architect** | Enter architect/editor mode using 2 different models. If no prompt provided, switches to architect/editor mode. |
 | **/ask** | Ask questions about the code base without editing any files. If no prompt provided, switches to ask mode. |
+| **/btw** | Ask a quick side question using the full chat context; the raw answer appears in the TUI's asides panel |
 | **/chat-mode** | Switch to a new chat mode |
 | **/clear** | Clear the chat history |
 | **/code** | Ask for changes to your code. If no prompt provided, switches to code mode. |

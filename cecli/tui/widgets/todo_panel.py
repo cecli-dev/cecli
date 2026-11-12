@@ -9,8 +9,10 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import RichLog, Static, Tab, Tabs
 
+from .overlay import OVERLAY_BINDINGS, OverlayPanelActions, refresh_overlay_subtitles
 
-class TodoPanel(Vertical):
+
+class TodoPanel(OverlayPanelActions, Vertical):
     """Overlay with one tab per agent showing its ``todo.txt`` contents.
 
     Tabs cover the primary agent plus every tracked sub-agent, and are rebuilt
@@ -23,6 +25,7 @@ class TodoPanel(Vertical):
     MAX_TODO_LINES = 500
 
     BINDINGS = [
+        *OVERLAY_BINDINGS,
         Binding("f", "toggle_follow", "Follow", show=False),
     ]
 
@@ -36,7 +39,8 @@ class TodoPanel(Vertical):
     def compose(self) -> ComposeResult:
         yield Tabs(id="todo-tabs")
         yield Static("", id="todo-agent-line")
-        yield Static("No agent todo lists.", id="todo-empty")
+        yield Static("No active todo list.", id="todo-empty")
+        yield Static("No todo list.", id="todo-output-empty")
         yield RichLog(
             id="todo-output",
             wrap=True,
@@ -47,7 +51,7 @@ class TodoPanel(Vertical):
 
     def on_mount(self):
         """Start polling and render the first snapshot."""
-        self.border_title = "todos"
+        self.border_title = "plans"
         self.set_interval(self.REFRESH_INTERVAL, self.refresh_data)
         self.call_after_refresh(self.refresh_data)
 
@@ -56,7 +60,7 @@ class TodoPanel(Vertical):
         if event.tab is None:
             return
 
-        self._active_key = event.tab.id
+        self._active_key = self._agent_uuid(event.tab.id)
         self._rendered_signature = None
         self.refresh_data()
 
@@ -66,8 +70,8 @@ class TodoPanel(Vertical):
             return
 
         agents = self._agent_snapshots()
-        self.border_title = f"todos ({len(agents)})" if agents else "todos"
-
+        self.border_title = "plans"
+        refresh_overlay_subtitles(self.app)
         if list(agents) != self._keys:
             self._sync_tabs(agents)
 
@@ -167,23 +171,25 @@ class TodoPanel(Vertical):
         with self.prevent(Tabs.TabActivated):
             for agent_uuid in previous_keys:
                 if agent_uuid not in agents:
-                    tabs.remove_tab(agent_uuid)
+                    tabs.remove_tab(self._tab_id(agent_uuid))
 
             for agent_uuid, agent in agents.items():
                 if agent_uuid not in previous_keys:
-                    tabs.add_tab(Tab(agent["label"], id=agent_uuid, classes="todo-tab"))
+                    tabs.add_tab(
+                        Tab(agent["label"], id=self._tab_id(agent_uuid), classes="todo-tab")
+                    )
 
             if self._active_key not in agents:
                 self._active_key = next(iter(agents), None)
 
             if self._active_key is not None:
-                tabs.active = self._active_key
+                tabs.active = self._tab_id(self._active_key)
 
     def _select_tab(self, agent_uuid: str) -> None:
         """Mark a tab active without relying on a user click."""
         try:
             tabs = self.query_one("#todo-tabs", Tabs)
-            tabs.active = agent_uuid
+            tabs.active = self._tab_id(agent_uuid)
         except Exception:
             pass
 
@@ -207,7 +213,10 @@ class TodoPanel(Vertical):
         self.query_one("#todo-empty", Static).display = empty
         self.query_one("#todo-agent-line", Static).display = not empty
         self.query_one("#todo-tabs", Tabs).display = not empty
-        self.query_one("#todo-output", RichLog).display = not empty
+
+        if empty:
+            self.query_one("#todo-output", RichLog).display = False
+            self.query_one("#todo-output-empty", Static).display = False
 
     def _set_agent_line(self, agent: dict) -> None:
         """Show the selected agent and status, truncated to the panel width."""
@@ -236,8 +245,9 @@ class TodoPanel(Vertical):
         self._write_todo(content)
 
     def _write_todo(self, content: str) -> None:
-        """Write the todo list, following the tail if enabled."""
+        """Write the todo list, or show a centered empty message."""
         log = self.query_one("#todo-output", RichLog)
+        output_empty = self.query_one("#todo-output-empty", Static)
         log.clear()
 
         lines = content.splitlines()
@@ -246,9 +256,27 @@ class TodoPanel(Vertical):
             lines = lines[-self.MAX_TODO_LINES :]
 
         if lines:
+            output_empty.display = False
+            log.display = True
             log.write("\n".join(lines), scroll_end=self._follow)
         else:
-            log.write(Text("no todo list", style="dim"), scroll_end=self._follow)
+            log.display = False
+            output_empty.display = True
+
+    @staticmethod
+    def _tab_id(agent_uuid: str) -> str:
+        """Return a Textual-safe widget id for *agent_uuid*."""
+        return f"todo-{agent_uuid}"
+
+    @staticmethod
+    def _agent_uuid(tab_id: str | None) -> str | None:
+        """Return the agent UUID encoded in a tab id."""
+        prefix = "todo-"
+
+        if tab_id and tab_id.startswith(prefix):
+            return tab_id[len(prefix) :]
+
+        return None
 
     @staticmethod
     def _read_todo(coder) -> str:

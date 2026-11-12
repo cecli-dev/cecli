@@ -1,7 +1,7 @@
 """/open — open a floating TUI panel.
 
 Subcommands: commands (live background shell task manager),
-todo (todo lists for the primary and every sub-agent).
+plans (todo lists for the primary and every sub-agent), asides (raw /btw answers).
 """
 
 from typing import List
@@ -13,10 +13,11 @@ class OpenCommand(BaseCommand):
     NORM_NAME = "open"
     DESCRIPTION = "Open a floating panel"
 
-    SUBCOMMANDS = ("commands", "todo")
+    SUBCOMMANDS = ("commands", "plans", "asides")
     SUBCOMMAND_USAGE = {
         "commands": "/open commands",
-        "todo": "/open todo",
+        "plans": "/open plans",
+        "asides": "/open asides",
     }
 
     @classmethod

@@ -1,6 +1,7 @@
 """Widgets for the cecli TUI."""
 
 from .background_commands_panel import BackgroundCommandsPanel
+from .btw_panel import BtwPanel
 from .completion_bar import CompletionBar
 from .file_list import FileList
 from .floating_panels import FloatingPanels
@@ -15,6 +16,7 @@ from .todo_panel import TodoPanel
 
 __all__ = [
     "BackgroundCommandsPanel",
+    "BtwPanel",
     "MainFooter",
     "CompletionBar",
     "InputArea",

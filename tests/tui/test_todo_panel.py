@@ -63,7 +63,7 @@ def _build_app(tmp_path):
 
 
 def _tab_ids(panel):
-    return [tab.id for tab in panel.query_one("#todo-tabs", Tabs).query(Tab)]
+    return [tab.id.removeprefix("todo-") for tab in panel.query_one("#todo-tabs", Tabs).query(Tab)]
 
 
 def _log_text(panel):
@@ -87,7 +87,7 @@ def test_todo_panel_shows_agents_and_defaults_to_active(tmp_path):
                 assert _tab_ids(panel) == [PRIMARY_UUID, SUB_UUID]
                 labels = [tab.label for tab in panel.query_one("#todo-tabs", Tabs).query(Tab)]
                 assert labels == ["primary", "worker sub"]
-                assert panel.border_title == "todos (2)"
+                assert panel.border_title == "plans"
 
                 # focus_panel selects the agent visible in the TUI
                 panel.focus_panel()
@@ -99,7 +99,7 @@ def test_todo_panel_shows_agents_and_defaults_to_active(tmp_path):
                 assert "· running" in str(agent_line.render())
 
                 tabs = panel.query_one("#todo-tabs", Tabs)
-                tabs.active = PRIMARY_UUID
+                tabs.active = f"todo-{PRIMARY_UUID}"
                 await pilot.pause()
 
                 assert panel._active_key == PRIMARY_UUID
@@ -124,7 +124,89 @@ def test_todo_panel_empty_without_coder(tmp_path):
                 await pilot.pause()
 
                 assert _tab_ids(panel) == []
-                assert panel.border_title == "todos"
+                assert panel.border_title == "plans"
                 assert panel.query_one("#todo-empty").display is True
+
+        asyncio.run(run())
+
+
+def test_todo_panel_numeric_leading_uuid(tmp_path):
+    numeric_uuid = "8731fc4e"
+    todo = tmp_path / "numeric-todo.txt"
+    todo.write_text("Remaining:\n→ numeric task", encoding="utf-8")
+    primary_coder = _make_coder(numeric_uuid, todo, todo.read_text(encoding="utf-8"))
+    service = SimpleNamespace(sub_agents={})
+
+    class _NumericApp(App):
+        CSS = """
+        #todo-panel { width: 80%; height: 70%; }
+        #todo-tabs { height: 2; }
+        #todo-agent-line { height: 1; }
+        #todo-output { height: 1fr; }
+        """
+
+        def __init__(self):
+            super().__init__()
+            self.worker = SimpleNamespace(coder=primary_coder)
+
+        def compose(self) -> ComposeResult:
+            yield TodoPanel(id="todo-panel")
+
+    with patch.object(AgentService, "get_instance", return_value=service):
+
+        async def run():
+            app = _NumericApp()
+
+            async with app.run_test(size=(120, 40)) as pilot:
+                panel = app.query_one("#todo-panel", TodoPanel)
+                panel.display = True
+                panel.refresh_data()
+                await pilot.pause()
+
+                assert _tab_ids(panel) == [numeric_uuid]
+                assert "numeric task" in _log_text(panel)
+
+        asyncio.run(run())
+
+
+def test_todo_panel_empty_list_uses_centered_message(tmp_path):
+    todo = tmp_path / "empty-todo.txt"
+    todo.write_text("", encoding="utf-8")
+    primary_coder = _make_coder(PRIMARY_UUID, todo, "")
+    service = SimpleNamespace(sub_agents={})
+
+    class _EmptyTodoApp(App):
+        CSS = """
+        #todo-panel { width: 80%; height: 70%; }
+        #todo-tabs { height: 2; }
+        #todo-agent-line { height: 1; }
+        #todo-output, #todo-output-empty { height: 1fr; }
+        """
+
+        def __init__(self):
+            super().__init__()
+            self.worker = SimpleNamespace(coder=primary_coder)
+
+        def compose(self) -> ComposeResult:
+            yield TodoPanel(id="todo-panel")
+
+    with patch.object(AgentService, "get_instance", return_value=service):
+
+        async def run():
+            app = _EmptyTodoApp()
+
+            async with app.run_test(size=(120, 40)) as pilot:
+                panel = app.query_one("#todo-panel", TodoPanel)
+                panel.display = True
+                panel.refresh_data()
+                await pilot.pause()
+
+                output = panel.query_one("#todo-output", RichLog)
+                empty = panel.query_one("#todo-output-empty", Static)
+
+                assert output.display is False
+                assert empty.display is True
+                assert "No todo list." in str(empty.render())
+                assert empty.region.height > 1
 
         asyncio.run(run())
