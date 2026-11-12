@@ -13,7 +13,7 @@ permissions:
 jobs:
 
   linux:
-    name: Linux AppImage (x64)
+    name: Linux packages (x64)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,26 @@ jobs:
           fi
 
           echo "CECLI_APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          # RPM rejects "-" in Version; keep the prerelease in Release.
+          RPM_VERSION="$VERSION"
+          RPM_RELEASE="1"
+
+          if [[ "$VERSION" == *-* ]]; then
+            RPM_VERSION="${VERSION%%-*}"
+            RPM_PRERELEASE="${VERSION#*-}"
+
+            if [[ "$RPM_PRERELEASE" == post* ]]; then
+              RPM_RELEASE="1.${RPM_PRERELEASE}"
+            else
+              RPM_RELEASE="0.${RPM_PRERELEASE}"
+            fi
+
+            RPM_RELEASE="${RPM_RELEASE//-/.}"
+          fi
+
           printf '{"version":"%s"}\n' "$VERSION" > desktop/src-tauri/tauri.version.conf.json
+          printf '{"version":"%s","bundle":{"linux":{"rpm":{"release":"%s"}}}}\n' \
+            "$RPM_VERSION" "$RPM_RELEASE" > desktop/src-tauri/tauri.rpm.version.conf.json
 
       - name: Stage uv sidecar
         shell: bash
@@ -79,13 +98,35 @@ jobs:
             --config src-tauri/tauri.version.conf.json \
             --bundles appimage,deb
 
-      - uses: actions/upload-artifact@v4
+      - name: Build rpm
+        working-directory: desktop
+        run: |
+          npm run tauri build -- \
+            --config src-tauri/tauri.release.conf.json \
+            --config src-tauri/tauri.version.conf.json \
+            --config src-tauri/tauri.rpm.version.conf.json \
+            --bundles rpm
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-linux-x64
+          name: cecli-desktop-linux-x64-appimage
           if-no-files-found: error
-          path: |
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-            desktop/src-tauri/target/release/bundle/deb/*.deb
+          path: desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: cecli-desktop-linux-x64-deb
+          if-no-files-found: error
+          path: desktop/src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: cecli-desktop-linux-x64-rpm
+          if-no-files-found: error
+          path: desktop/src-tauri/target/release/bundle/rpm/*.rpm
 
   windows:
     name: Windows (x64)

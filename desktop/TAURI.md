@@ -342,7 +342,7 @@ python3 scripts/fetch_uv.py            # writes src-tauri/binaries/uv-<triple>
 `--version` (an uv tag such as `0.13.7`, or `latest`). Tauri strips the target
 triple while copying `externalBin`, so the bundle ends up with `uv` (or
 `uv.exe`) next to the app executable: `Contents/MacOS` on macOS, `usr/bin` in
-the AppImage, the install root on Windows.
+the AppImage, deb, and rpm, the install root on Windows.
 
 ### Build the bundle
 
@@ -353,6 +353,11 @@ npm run build:bundled   # tauri build with the release config overlay
 
 `src-tauri/tauri.release.conf.json` adds `binaries/uv` to `externalBin` without
 touching the dev config, so `npm run dev` still works with no staged binaries.
+
+RPM packages cannot have a hyphen in `Version`, so tagged prereleases build the
+RPM with `1.12.2` and `Release=0.rc8`; AppImage and deb keep `1.12.2-rc8`. The
+release workflow writes that RPM-specific overlay to
+`src-tauri/tauri.rpm.version.conf.json`.
 
 ### Pre-release tags
 
@@ -401,7 +406,8 @@ overridden at runtime by `CECLI_DESKTOP_RUNTIME_SPEC`). Tagged releases pin
 ### Sizes and tradeoffs
 
 Measured on Linux with `cecli-dev1.12.1`: the AppImage drops from177 MB to
-about100 MB (WebKit libraries plus the36 MB uv binary) and the deb is23 MB.
+about100 MB (WebKit libraries plus the36 MB uv binary), while the deb and rpm
+are about23 MB each.
 The first launch downloads ~100 MB of wheels plus ~33 MB of CPython, and the
 runtime occupies ~930 MB (`~824 MB` venv, `~104 MB` CPython).
 The install needs network access; there is no offline path.

@@ -80,8 +80,8 @@ npm run fetch-uv        # uv -> src-tauri/binaries/uv-<triple>
 npm run build:bundled   # tauri build with the release config overlay
 ```
 
-`.github/workflows/desktop-release.yml` builds that bundle for Linux (AppImage
-and deb), Windows (NSIS) and macOS (Apple Silicon). See
+`.github/workflows/desktop-release.yml` builds that bundle for Linux (AppImage,
+deb, and rpm), Windows (NSIS) and macOS (Apple Silicon). See
 [Packaging the Python side](TAURI.md#packaging-the-python-side) for runtime
 size and first-launch details.
 
