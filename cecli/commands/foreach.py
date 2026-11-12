@@ -132,11 +132,11 @@ class ForeachCommand(BaseCommand):
                 "dirname": parent_dir,
             }
 
-            # Check -u / --unless-exists filter
+            # Check -u / --unless-exists filter (requires non-empty existing file)
             if parsed.unless_exists:
                 target_check_rel = safe_substitute(parsed.unless_exists, placeholders)
                 target_check_path = root_path / target_check_rel
-                if target_check_path.exists():
+                if target_check_path.exists() and target_check_path.stat().st_size > 0:
                     skipped_count += 1
                     continue
 
