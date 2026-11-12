@@ -40,7 +40,7 @@ class Tool(BaseTool):
             "name": "ReadFile",
             "description": (
                 "Read lines from one or more files. Each returned line carries a virtual identifier "
-                "you can pass straight to EditFile. Batch reads by passing an array of "
+                "you can pass straight to WriteFile. Batch reads by passing an array of "
                 "{file_path, range_start, range_end} objects."
                 ""
                 "Markers for range_start / range_end:"
@@ -249,7 +249,7 @@ class Tool(BaseTool):
                             "prefixed_contents": "",
                             "outline": "",
                             "note": (
-                                f"File {rel_path} is empty. Next: use EditFile with start_line @000 and"
+                                f"File {rel_path} is empty. Next: use WriteFile with start_line @000 and"
                                 " end_line @000 to write content, or ManageResources to scaffold —"
                                 " do not call ReadFile again on this empty file."
                             ),

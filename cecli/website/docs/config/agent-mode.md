@@ -47,7 +47,7 @@ This loop continues automatically until the `Yield` tool is called, or the maxim
 Agent Mode uses a centralized local tool registry. The standard tools include:
 
 - **Discovery and inspection**: `ExploreCode`, `Grep`, and `ReadFile`
-- **Context and editing**: `ManageResources`, `EditFile`, `UndoChange`, and `UpdateTodoList`
+- **Context and editing**: `ManageResources`, `WriteFile`, `UndoChange`, and `UpdateTodoList`
 - **Execution and orchestration**: `Shell` and `Orchestrate`
 - **Sub-agent coordination**: `Delegate` and `Yield`
 - **Optional memory tools**: `SearchFacts` and `ReplaceFacts`
@@ -73,7 +73,7 @@ Agent Mode includes some useful context management features:
 
 - **Undo capability**: `UndoChange` tool for immediate recovery from mistakes
 - **Dry run support**: Tools can be tested with `dry_run=True`
-- **Virtual content IDs**: `ReadFile` returns virtual line identifiers that `EditFile` uses to target complete logical blocks safely
+- **Virtual content IDs**: `ReadFile` returns virtual line identifiers that `WriteFile` uses to target complete logical blocks safely
 - **Tool usage monitoring**: Prevents infinite loops by tracking repetitive patterns
 
 ### Workflow Process
@@ -106,17 +106,17 @@ Arguments: {"content": "## Task: Add new feature\n- [ ] Analyze existing code\n-
 
 #### 3. Execution Phase
 
-Files are added to context and made editable with `ManageResources`, then modifications are applied with `EditFile`:
+Files are added to context and made editable with `ManageResources`, then modifications are applied with `WriteFile`:
 
 ```text
 Tool Call: ManageResources
 Arguments: {"add": ["main.py"]}
 
-Tool Call: EditFile
+Tool Call: WriteFile
 Arguments: {"edits": [{"file_path": "main.py", "operation": "replace", "start_line": "——def old_function():", "end_line": "——    return old_value", "text": "def new_function():\n    return new_value"}]}
 ```
 
-`EditFile` accepts an `edits` array containing `replace`, `delete`, `insert`, or `create` operations. Its line targets come from the latest `ReadFile` result. A `create` edit only needs `file_path` and `text`; it writes a new file and fails if the path already exists. `ManageResources` can add files as editable or read-only and remove them from context.
+`WriteFile` accepts an `edits` array containing `replace`, `delete`, `insert`, or `create` operations. Its line targets come from the latest `ReadFile` result. A `create` edit only needs `file_path` and `text`; it writes a new file and fails if the path already exists. `ManageResources` can add files as editable or read-only and remove them from context.
 
 #### 4. Verification Phase
 

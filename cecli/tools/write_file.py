@@ -52,7 +52,7 @@ BARE_AB_HINT_RE = re.compile(r"(?:^|[ \t])@[AB][ \t]*$")
 
 
 class Tool(BaseTool):
-    NORM_NAME = "editfile"
+    NORM_NAME = "writefile"
     RESULT_TYPE = "list"
     TRACK_INVOCATIONS = False
     VALIDATIONS = {
@@ -62,7 +62,7 @@ class Tool(BaseTool):
     SCHEMA = {
         "type": "function",
         "function": {
-            "name": "EditFile",
+            "name": "WriteFile",
             "description": (
                 "Edit lines in one or more files by targeting lines with their virtual identifiers "
                 "(as returned by ReadFile); batch across files in one call. "
@@ -78,7 +78,7 @@ class Tool(BaseTool):
                 "- 'text @L<n>', 'text @A{{regex}}' (anchor text required; after regex hit), "
                 "or 'text @B{{regex}}' (before it); bare '@A'/'@B' is rejected\n"
                 "- '@C<n>', '@P<n>', and '@N<n>' are ReadFile-only range markers; "
-                "EditFile rejects them (use '@L<n>' or a content ID instead)\n"
+                "WriteFile rejects them (use '@L<n>' or a content ID instead)\n"
                 "\n"
                 "Ambiguous text fails. '@000' = empty/top; '000@' = EOF. "
                 "Use '@000' for both start_line and end_line to prepend. "
@@ -191,10 +191,10 @@ class Tool(BaseTool):
                     ),
                 ),
                 tag=MessageTag.CUR,
-                hash_key=("edit_file", "reminder"),
+                hash_key=("write_file", "reminder"),
             )
 
-        # tool_name = "EditFile"
+        # tool_name = "WriteFile"
         response = ToolResponse(cls.NORM_NAME, result_type=cls.RESULT_TYPE)
         try:
             # 1. Validate edits parameter
@@ -493,7 +493,7 @@ class Tool(BaseTool):
                         rel_path,
                         original_content,
                         new_content,
-                        "editfile",
+                        "writefile",
                         metadata,
                         change_id,
                     )
@@ -770,7 +770,7 @@ class Tool(BaseTool):
         if READFILE_ONLY_HINT_RE.search(line_spec):
             raise ToolError(
                 "ReadFile-only range markers ('@C<n>', '@P<n>', '@N<n>') are not "
-                "supported by EditFile; use a content ID or '@L<n>' line reference."
+                "supported by WriteFile; use a content ID or '@L<n>' line reference."
             )
 
         if BARE_AB_HINT_RE.search(line_spec):
@@ -938,7 +938,7 @@ class Tool(BaseTool):
             rel_path,
             "",
             create_text,
-            "editfile",
+            "writefile",
             metadata,
             change_id,
         )

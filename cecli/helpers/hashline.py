@@ -2024,7 +2024,7 @@ def _raise_clear_hash_error(hp, op, key):
     if re.search(r"(?:^|[ \t])@[CPN][0-9]*[ \t]*$", value_stripped):
         raise ContentHashError(
             "ReadFile-only range markers ('@C<n>', '@P<n>', '@N<n>') are not "
-            "supported by EditFile; use a content ID or '@L<n>' line reference."
+            "supported by WriteFile; use a content ID or '@L<n>' line reference."
         )
 
     if re.search(r"(?:^|[ \t])@[AB][ \t]*$", value_stripped):

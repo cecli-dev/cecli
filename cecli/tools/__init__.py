@@ -5,7 +5,6 @@ from . import (
     _yield,
     broadcast,
     delegate,
-    edit_file,
     explore_code,
     git_branch,
     git_diff,
@@ -24,13 +23,14 @@ from . import (
     shell,
     undo_change,
     update_todo_list,
+    write_file,
 )
 
 # List of all available tool modules for dynamic discovery
 TOOL_MODULES = [
     shell,
     delegate,
-    edit_file,
+    write_file,
     explore_code,
     _yield,
     broadcast,

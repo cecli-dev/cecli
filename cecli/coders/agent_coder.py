@@ -74,7 +74,7 @@ class AgentCoder(Coder):
         }
         self.write_tools = {
             "shell",
-            "editfile",
+            "writefile",
             "undochange",
             "replacefacts",
         }

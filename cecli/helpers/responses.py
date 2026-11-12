@@ -424,7 +424,7 @@ def parse_tool_arguments(args_string: str) -> dict | list:
 
     Returns a dict in almost all cases. A bare top-level JSON array (e.g. a
     model emitting ``[...]`` directly as the arguments instead of wrapping it
-    under the tool's single required array parameter, as EditFile's `edits`
+    under the tool's single required array parameter, as WriteFile's `edits`
     or ReadFile's `read`) is returned as-is rather than collapsed to ``{}``,
     so ``BaseTool.process_response`` can still wrap it using the tool's
     schema instead of silently losing the data.

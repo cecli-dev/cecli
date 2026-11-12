@@ -179,7 +179,7 @@ def test_empty_file_includes_edit_hint(tmp_path):
         )
 
     assert "pubspec.yaml is empty" in str(result)
-    assert "EditFile" in str(result)
+    assert "WriteFile" in str(result)
     assert "readfile again" in str(result).lower()
     coder.io.tool_error.assert_not_called()
 

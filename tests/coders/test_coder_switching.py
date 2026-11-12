@@ -32,7 +32,7 @@ class TestCoderSwitching(unittest.TestCase):
             main_model.reasoning_tag = "think"
             main_model.get_active_model.return_value = main_model
 
-            mock_tool_registry.get_registered_tools.return_value = ["editfile"]
+            mock_tool_registry.get_registered_tools.return_value = ["writefile"]
             mock_tool_registry.get_tool.return_value = MagicMock()
             mock_tool_registry.build_registry.return_value = None
 
@@ -96,7 +96,7 @@ class TestCoderSwitching(unittest.TestCase):
             main_model.reasoning_tag = "think"
             main_model.get_active_model.return_value = main_model
 
-            mock_tool_registry.get_registered_tools.return_value = ["editfile"]
+            mock_tool_registry.get_registered_tools.return_value = ["writefile"]
             mock_tool_registry.get_tool.return_value = MagicMock()
             mock_tool_registry.build_registry.return_value = None
 

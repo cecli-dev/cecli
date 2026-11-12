@@ -209,7 +209,7 @@ class ToolValidations:
         # Determine the single array-typed parameter to auto-correct into,
         # if any. Prefer the schema's `required` list (covers tools that also
         # declare optional properties alongside their one required array,
-        # e.g. EditFile's optional `change_id`); fall back to "exactly one
+        # e.g. WriteFile's optional `change_id`); fall back to "exactly one
         # property total" when the schema doesn't declare `required` at all.
         single_param_name = None
         if len(required) == 1:

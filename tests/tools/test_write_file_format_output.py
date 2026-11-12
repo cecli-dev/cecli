@@ -1,4 +1,4 @@
-"""Regression tests for EditFile.format_output preview parity with execute.
+"""Regression tests for WriteFile.format_output preview parity with execute.
 
 format_output renders a live diff preview of an edit BEFORE execute applies
 it. It must resolve the same start_line/end_line inputs that execute accepts;
@@ -16,7 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from cecli.tools import edit_file
+from cecli.tools import write_file
 
 
 class DummyIO:
@@ -122,7 +122,7 @@ def make_tool_response(edits, wrap_arguments=False):
         id="test-id",
         type="function",
         function=SimpleNamespace(
-            name="EditFile",
+            name="WriteFile",
             arguments=json.dumps(arguments),
         ),
     )
@@ -130,7 +130,7 @@ def make_tool_response(edits, wrap_arguments=False):
 
 def preview_output(coder, edits, wrap_arguments=False):
     """Run format_output (as base_coder does before execute) and capture output."""
-    edit_file.Tool.format_output(
+    write_file.Tool.format_output(
         coder,
         mcp_server=SimpleNamespace(name="Local"),
         tool_response=make_tool_response(edits, wrap_arguments=wrap_arguments),
@@ -160,7 +160,7 @@ def test_format_output_resolves_at_l_references(coder_with_file):
 
     assert_preview_shows_diff(coder, edits)
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
     assert "Applied 1 edits" in result.to_dict()["result"][0]["content"]
 
@@ -180,7 +180,7 @@ def test_format_output_resolves_unique_prefix_references(coder_with_file):
 
     assert_preview_shows_diff(coder, edits)
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
 
 
@@ -199,7 +199,7 @@ def test_format_output_resolves_at_l_delete(coder_with_file):
 
     assert_preview_shows_diff(coder, edits)
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
     assert "print('hello')" not in file_path.read_text()
 
@@ -221,7 +221,7 @@ def test_format_output_resolves_at_000_for_empty_file(coder_with_file):
     output = preview_output(coder, edits)
     assert "Preview Unavailable" not in output
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
     assert file_path.read_text() == "hello\nworld"
 
@@ -250,7 +250,7 @@ def test_format_output_mixed_selectors_in_batch(coder_with_file):
     assert "Preview Unavailable" not in output
     assert output.count("@@") >= 2
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
 
 
@@ -276,13 +276,13 @@ def test_format_output_unwraps_double_wrapped_arguments(coder_with_file):
     assert "Preview Unavailable" not in output
     assert "@@" in output, f"expected a unified diff in preview output:\n{output}"
 
-    result = edit_file.Tool.execute(coder, edits=edits)
+    result = write_file.Tool.execute(coder, edits=edits)
     assert result.to_dict()["errors"] == []
 
 
 def test_description_documents_brace_hint_syntax():
     """The description must document the canonical double-brace hint syntax."""
-    description = edit_file.Tool.SCHEMA["function"]["description"]
+    description = write_file.Tool.SCHEMA["function"]["description"]
 
     assert "@A{{regex}}" in description
     assert "@B{{regex}}" in description
@@ -294,16 +294,16 @@ def test_description_documents_brace_hint_syntax():
     assert "@P<n>" in description
     assert "@N<n>" in description
     assert "bare '@A'/'@B' is rejected" in description
-    assert "EditFile rejects them" in description
+    assert "WriteFile rejects them" in description
     assert "indentation may be trimmed" not in description
 
 
 def test_execute_rejects_multiline_anchor(coder_with_file):
-    """EditFile must reject multiline start_line/end_line values."""
+    """WriteFile must reject multiline start_line/end_line values."""
     coder, file_path = coder_with_file
     original_content = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -322,10 +322,10 @@ def test_execute_rejects_multiline_anchor(coder_with_file):
 
 
 def test_execute_appends_with_000_markers(coder_with_file):
-    """EditFile supports 000@ for both boundaries as an EOF append."""
+    """WriteFile supports 000@ for both boundaries as an EOF append."""
     coder, file_path = coder_with_file
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -349,7 +349,7 @@ def test_execute_hint_disambiguates_trimmed_duplicate(coder_with_file):
         "def alpha():\n" "    return total\n" "\n" "\n" "def beta():\n" "    return total\n"
     )
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -388,7 +388,7 @@ def test_execute_at_b_disambiguates_trimmed_duplicate(coder_with_file, hint):
         "    return total\n"
     )
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -419,7 +419,7 @@ def test_execute_at_a_accepts_single_or_double_braces(coder_with_file, hint):
         "def alpha():\n" "    return total\n" "\n" "\n" "def beta():\n" "    return total\n"
     )
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -447,7 +447,7 @@ def test_execute_rejects_bare_at_hints(coder_with_file, hint):
     coder, file_path = coder_with_file
     file_path.write_text("def describe(self):\n    return 1\n")
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -467,11 +467,11 @@ def test_execute_rejects_bare_at_hints(coder_with_file, hint):
 
 @pytest.mark.parametrize("hint", ["@C1", "@P1", "@N1", "some text @C1"])
 def test_execute_rejects_readfile_only_markers(coder_with_file, hint):
-    """@C/@P/@N markers must fail with an EditFile-specific message."""
+    """@C/@P/@N markers must fail with an WriteFile-specific message."""
     coder, file_path = coder_with_file
     original_content = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -486,7 +486,7 @@ def test_execute_rejects_readfile_only_markers(coder_with_file, hint):
 
     assert result["errors"]
     assert "ReadFile-only" in result["errors"][0]
-    assert "not supported by EditFile" in result["errors"][0]
+    assert "not supported by WriteFile" in result["errors"][0]
     assert file_path.read_text() == original_content
 
 
@@ -495,7 +495,7 @@ def test_execute_prepends_with_at_000_markers(coder_with_file):
     coder, file_path = coder_with_file
     original = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -517,7 +517,7 @@ def test_execute_allows_at_l0_prepend(coder_with_file):
     coder, file_path = coder_with_file
     original = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -539,7 +539,7 @@ def test_execute_preserves_crlf_line_endings(coder_with_file):
     coder, file_path = coder_with_file
     file_path.write_bytes(b"first\r\nsecond\r\n")
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[
             {
@@ -572,7 +572,7 @@ def test_execute_invalidates_cached_read_ranges(coder_with_file):
     files._file_context_versions[abs_path] = 1
 
     try:
-        result = edit_file.Tool.execute(
+        result = write_file.Tool.execute(
             coder,
             edits=[
                 {
@@ -644,7 +644,7 @@ def test_execute_create_writes_new_file(tmp_path):
         }
     ]
 
-    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+    result = write_file.Tool.execute(coder, edits=edits).to_dict()
 
     created = tmp_path / "pkg" / "new_file.py"
     assert result["errors"] == []
@@ -660,7 +660,7 @@ def test_execute_create_fails_when_file_exists(coder_with_file):
     coder, file_path = coder_with_file
     original_content = file_path.read_text()
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[{"file_path": "example.txt", "operation": "create", "text": "x"}],
     ).to_dict()
@@ -674,7 +674,7 @@ def test_execute_create_requires_text(tmp_path):
     """Create without text is rejected."""
     coder = DummyCoder(tmp_path)
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder, edits=[{"file_path": "new.txt", "operation": "create"}]
     ).to_dict()
 
@@ -697,7 +697,7 @@ def test_execute_create_rejects_mixed_edits(tmp_path):
         },
     ]
 
-    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+    result = write_file.Tool.execute(coder, edits=edits).to_dict()
 
     assert result["errors"]
     assert "cannot be combined" in result["errors"][0]
@@ -708,7 +708,7 @@ def test_execute_create_dry_run_does_not_write(tmp_path):
     """A dry-run create reports the target without touching the filesystem."""
     coder = DummyCoder(tmp_path)
 
-    result = edit_file.Tool.execute(
+    result = write_file.Tool.execute(
         coder,
         edits=[{"file_path": "new.txt", "operation": "create", "text": "x"}],
         dry_run=True,
@@ -727,7 +727,7 @@ def test_execute_create_batches_multiple_files(tmp_path):
         {"file_path": "b.txt", "operation": "create", "text": "bbb\n"},
     ]
 
-    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+    result = write_file.Tool.execute(coder, edits=edits).to_dict()
 
     assert result["errors"] == []
     assert (tmp_path / "a.txt").read_text() == "aaa\n"

@@ -39,7 +39,7 @@ _TOOL_KINDS = {
     "grep": "search",
     "explorecode": "search",
     "searchfacts": "search",
-    "editfile": "edit",
+    "writefile": "edit",
     "manageextensions": "edit",
     "undochange": "edit",
     "replacefacts": "edit",
