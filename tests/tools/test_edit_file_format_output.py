@@ -631,3 +631,114 @@ def test_format_output_leaves_inserted_text_plain_without_diff_colors(coder_with
 
     assert "+    print('inserted')" in output
     assert "\033[32m" not in output
+
+
+def test_execute_create_writes_new_file(tmp_path):
+    """Create writes text to a new path, tracks it, and adds it to context."""
+    coder = DummyCoder(tmp_path)
+    edits = [
+        {
+            "file_path": "pkg/new_file.py",
+            "operation": "create",
+            "text": "print('hi')\n",
+        }
+    ]
+
+    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+
+    created = tmp_path / "pkg" / "new_file.py"
+    assert result["errors"] == []
+    assert "Created pkg/new_file.py" in result["result"][0]["content"]
+    assert created.read_text() == "print('hi')\n"
+    assert str(created.resolve()) in coder.abs_fnames
+    assert coder.change_tracker.calls[0]["original_content"] == ""
+    assert coder.change_tracker.calls[0]["new_content"] == "print('hi')\n"
+
+
+def test_execute_create_fails_when_file_exists(coder_with_file):
+    """Create must not overwrite an existing file."""
+    coder, file_path = coder_with_file
+    original_content = file_path.read_text()
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[{"file_path": "example.txt", "operation": "create", "text": "x"}],
+    ).to_dict()
+
+    assert result["errors"]
+    assert "already exists" in result["errors"][0]
+    assert file_path.read_text() == original_content
+
+
+def test_execute_create_requires_text(tmp_path):
+    """Create without text is rejected."""
+    coder = DummyCoder(tmp_path)
+
+    result = edit_file.Tool.execute(
+        coder, edits=[{"file_path": "new.txt", "operation": "create"}]
+    ).to_dict()
+
+    assert result["errors"]
+    assert "'text' parameter is required" in result["errors"][0]
+    assert not (tmp_path / "new.txt").exists()
+
+
+def test_execute_create_rejects_mixed_edits(tmp_path):
+    """Create cannot be combined with other edits for the same file."""
+    coder = DummyCoder(tmp_path)
+    edits = [
+        {"file_path": "mix.txt", "operation": "create", "text": "x"},
+        {
+            "file_path": "mix.txt",
+            "operation": "replace",
+            "start_line": "@L1",
+            "end_line": "@L1",
+            "text": "y",
+        },
+    ]
+
+    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+
+    assert result["errors"]
+    assert "cannot be combined" in result["errors"][0]
+    assert not (tmp_path / "mix.txt").exists()
+
+
+def test_execute_create_dry_run_does_not_write(tmp_path):
+    """A dry-run create reports the target without touching the filesystem."""
+    coder = DummyCoder(tmp_path)
+
+    result = edit_file.Tool.execute(
+        coder,
+        edits=[{"file_path": "new.txt", "operation": "create", "text": "x"}],
+        dry_run=True,
+    ).to_dict()
+
+    assert result["errors"] == []
+    assert "Would create new.txt" in result["result"][0]["content"]
+    assert not (tmp_path / "new.txt").exists()
+
+
+def test_execute_create_batches_multiple_files(tmp_path):
+    """Several files can be created in a single call."""
+    coder = DummyCoder(tmp_path)
+    edits = [
+        {"file_path": "a.txt", "operation": "create", "text": "aaa\n"},
+        {"file_path": "b.txt", "operation": "create", "text": "bbb\n"},
+    ]
+
+    result = edit_file.Tool.execute(coder, edits=edits).to_dict()
+
+    assert result["errors"] == []
+    assert (tmp_path / "a.txt").read_text() == "aaa\n"
+    assert (tmp_path / "b.txt").read_text() == "bbb\n"
+
+
+def test_format_output_renders_created_text(tmp_path):
+    """Created text is additive, so preview it like added diff lines."""
+    coder = DummyCoder(tmp_path)
+    edits = [{"file_path": "new.txt", "operation": "create", "text": "hello"}]
+
+    output = preview_output(coder, edits)
+
+    assert "+hello" in output

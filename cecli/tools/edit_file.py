@@ -1,3 +1,4 @@
+import os
 import re
 
 from cecli.helpers import nested
@@ -22,17 +23,19 @@ from cecli.tools.utils.helpers import (
     ToolError,
     apply_change,
     read_text_preserving_newlines,
+    resolve_paths,
     validate_file_for_edit,
 )
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
 from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
-VALID_OPERATIONS = {"replace", "delete", "insert"}
+VALID_OPERATIONS = {"replace", "delete", "insert", "create"}
 OPERATION_NOUNS = {
     "replace": "replacement",
     "delete": "deletion",
     "insert": "insertion",
+    "create": "creation",
 }
 
 
@@ -64,7 +67,8 @@ class Tool(BaseTool):
                 "Edit lines in one or more files by targeting lines with their virtual identifiers "
                 "(as returned by ReadFile); batch across files in one call. "
                 "'replace' swaps the range, 'delete' removes it, "
-                "'insert' adds text before/after the target line.\n"
+                "'insert' adds text before/after the target line, and "
+                "'create' writes a new file with 'text' (fails if it already exists).\n"
                 "\n"
                 "start_line and end_line are inclusive; each is one single-line anchor:\n"
                 f"- unique lines (prefixed with '{UNIQUE_HASH_DELIMITER}') by exact text, "
@@ -90,7 +94,8 @@ class Tool(BaseTool):
                         "type": "array",
                         "description": (
                             "List of edit operations to apply. Each edit requires a "
-                            "file path, operation type, start/end IDs, and text."
+                            "file path, operation, and text; 'replace'/'delete'/'insert' "
+                            "also require start_line (end_line for replace/delete)."
                         ),
                         "items": {
                             "type": "object",
@@ -103,16 +108,18 @@ class Tool(BaseTool):
                                 },
                                 "operation": {
                                     "type": "string",
-                                    "enum": ["replace", "delete", "insert"],
+                                    "enum": ["replace", "delete", "insert", "create"],
                                     "description": (
                                         "'replace' swaps the range with text; 'delete' removes it; "
-                                        "'insert' adds text before/after the target line."
+                                        "'insert' adds text before/after the target line; "
+                                        "'create' writes 'text' to a new file and fails if it exists."
                                     ),
                                 },
                                 "text": {
                                     "type": "string",
                                     "description": (
-                                        "Replacement/insertion text (non-empty); \"\" for 'delete'. "
+                                        "Replacement/insertion text; file contents for 'create'. "
+                                        "Non-empty for 'replace'/'insert'; \"\" for 'delete'. "
                                         "Prefixes are stripped."
                                     ),
                                 },
@@ -128,7 +135,7 @@ class Tool(BaseTool):
                                     "type": "string",
                                     "description": (
                                         "First line (inclusive). See anchor forms above; "
-                                        "'@000'/'@L0' = empty/top."
+                                        "'@000'/'@L0' = empty/top. Not used by 'create'."
                                     ),
                                 },
                                 "end_line": {
@@ -143,7 +150,6 @@ class Tool(BaseTool):
                                 "file_path",
                                 "operation",
                                 "text",
-                                "start_line",
                             ],
                         },
                     },
@@ -169,7 +175,7 @@ class Tool(BaseTool):
         **kwargs,
     ):
         """
-        Edit text in one or more files. Supports replace, delete, and insert operations.
+        Edit text in one or more files. Supports replace, delete, insert, and create operations.
         Can handle single edit or array of edits across multiple files.
         Each edit object must include its own file_path.
         """
@@ -218,6 +224,25 @@ class Tool(BaseTool):
 
             for file_path_key, file_edits in edits_by_file.items():
                 try:
+                    create_edits = [(i, e) for i, e in file_edits if e.get("operation") == "create"]
+
+                    if create_edits:
+                        all_results.append(
+                            cls._apply_create(
+                                coder,
+                                file_path_key,
+                                file_edits,
+                                create_edits,
+                                change_id,
+                                dry_run,
+                            )
+                        )
+
+                        if not dry_run:
+                            total_successful_edits += 1
+                            files_processed += 1
+                        continue
+
                     # Validate file and get content
                     abs_path, rel_path, original_content = validate_file_for_edit(
                         coder, file_path_key
@@ -246,7 +271,7 @@ class Tool(BaseTool):
                             if operation not in VALID_OPERATIONS:
                                 raise ToolError(
                                     f"Edit {edit_index + 1}: Invalid operation '{operation}'. "
-                                    "Must be 'replace', 'delete', or 'insert'"
+                                    "Must be 'replace', 'delete', 'insert', or 'create'"
                                 )
 
                             edit_file_raw = edit.get("text")
@@ -528,9 +553,12 @@ class Tool(BaseTool):
             if files_processed == 1:
                 # Single file case
                 result = all_results[0]
-                success_message = (
-                    f"Applied {result['successful_edits']} edits in {result['file_path']}"
-                )
+                if result.get("created"):
+                    success_message = f"Created {result['file_path']}"
+                else:
+                    success_message = (
+                        f"Applied {result['successful_edits']} edits in " f"{result['file_path']}"
+                    )
                 if result["failed_edits"]:
                     success_message += f" ({len(result['failed_edits'])} failed)"
                     success_message += "\nFailed edits:\n" + "\n".join(result["failed_edits"])
@@ -547,9 +575,13 @@ class Tool(BaseTool):
             else:
                 # Multiple files case — append per-file structured results
                 for result in all_results:
-                    per_file_message = (
-                        f"Applied {result['successful_edits']} edits in {result['file_path']}"
-                    )
+                    if result.get("created"):
+                        per_file_message = f"Created {result['file_path']}"
+                    else:
+                        per_file_message = (
+                            f"Applied {result['successful_edits']} edits in "
+                            f"{result['file_path']}"
+                        )
                     if result["failed_edits"]:
                         per_file_message += f" ({len(result['failed_edits'])} failed)"
                         per_file_message += "\nFailed edits:\n" + "\n".join(result["failed_edits"])
@@ -685,8 +717,8 @@ class Tool(BaseTool):
                         coder.io.tool_output(diff_output)
                         coder.io.tool_output("")
 
-                elif operation == "insert":
-                    # Inserted text is additive, so render it like added diff lines.
+                elif operation in ("insert", "create"):
+                    # Inserted/created text is additive, so render it like added diff lines.
                     if text:
                         lines = [f"+{line}" for line in text.splitlines()]
                         if coder.agent_config.get("diff_colors", True):
@@ -850,3 +882,78 @@ class Tool(BaseTool):
         )
         if diff.strip():
             io.diff_event(rel_path, diff)
+
+    @classmethod
+    def _apply_create(cls, coder, file_path_key, file_edits, create_edits, change_id, dry_run):
+        """Create a new file from a single 'create' edit.
+
+        Raises ToolError when 'create' is mixed with other edits for the same
+        file or when the target already exists.
+        """
+        from cecli.helpers.conversation import ConversationService
+
+        if len(file_edits) > 1:
+            raise ToolError(
+                f"File '{file_path_key}': the 'create' operation cannot be combined "
+                "with other edits for the same file"
+            )
+
+        edit_index, edit = create_edits[0]
+        create_text = edit.get("text")
+
+        if create_text is None:
+            raise ToolError(
+                f"Edit {edit_index + 1}: 'text' parameter is required for 'create' operation"
+            )
+
+        create_text = strip_hashline(create_text)
+        abs_path, rel_path = resolve_paths(coder, file_path_key)
+
+        if os.path.exists(abs_path):
+            raise ToolError(
+                f"Edit {edit_index + 1}: File '{file_path_key}' already exists; "
+                "use 'replace' to modify it"
+            )
+
+        if dry_run:
+            return {
+                "file_path": file_path_key,
+                "dry_run": True,
+                "dry_run_message": f"Dry run: Would create {file_path_key}",
+            }
+
+        parent_dir = os.path.dirname(abs_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        metadata = {
+            "edits": [{"operation": "create", "text": create_text}],
+            "total_edits": 1,
+            "failed_edits": None,
+        }
+
+        final_change_id = apply_change(
+            coder,
+            abs_path,
+            rel_path,
+            "",
+            create_text,
+            "editfile",
+            metadata,
+            change_id,
+        )
+
+        coder.abs_fnames.add(abs_path)
+        cls._emit_diff_event(coder, rel_path, "", create_text)
+
+        coder.files_edited_by_tools.add(rel_path)
+        if getattr(coder, "uuid", None):
+            ConversationService.get_chunks(coder).notify_file_edited(abs_path)
+
+        return {
+            "file_path": file_path_key,
+            "created": True,
+            "successful_edits": 1,
+            "failed_edits": [],
+            "change_id": final_change_id,
+        }

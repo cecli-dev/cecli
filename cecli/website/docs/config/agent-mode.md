@@ -116,7 +116,7 @@ Tool Call: EditFile
 Arguments: {"edits": [{"file_path": "main.py", "operation": "replace", "start_line": "——def old_function():", "end_line": "——    return old_value", "text": "def new_function():\n    return new_value"}]}
 ```
 
-`EditFile` accepts an `edits` array containing `replace`  or `delete` operations. Its line targets come from the latest `ReadFile` result. `ManageResources` can add files as editable or read-only and remove them from context.
+`EditFile` accepts an `edits` array containing `replace`, `delete`, `insert`, or `create` operations. Its line targets come from the latest `ReadFile` result. A `create` edit only needs `file_path` and `text`; it writes a new file and fails if the path already exists. `ManageResources` can add files as editable or read-only and remove them from context.
 
 #### 4. Verification Phase
 
