@@ -550,6 +550,33 @@ def test_comma_separated_globs_are_supported(tmp_path, monkeypatch):
     assert _files_from_content(op) == {"a.py", "b.md"}
 
 
+@pytest.mark.skipif(shutil.which("grep") is None, reason="grep is required")
+def test_grep_path_prefixed_file_glob_finds_matches(tmp_path, monkeypatch):
+    sub = tmp_path / "pine_sources"
+    sub.mkdir()
+    target = sub / "PBK_Periods_w_Singles+_v1.0.pine"
+    target.write_text("startOn = input.time(0)\nnoPlot = input(true)\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("grep", shutil.which("grep")))
+
+    result = grep.Tool.execute(
+        coder,
+        searches=[
+            {
+                "pattern": r"input\.",
+                "directory": ".",
+                "file_glob": "pine_sources/PBK_Periods_w_Singles+_v1.0.pine",
+                "use_regex": True,
+            }
+        ],
+    )
+    op = result.to_dict()["result"][0]
+
+    assert op["_"]["error"] is None
+    assert op["_"]["total_matches"] >= 1
+    assert op["_"]["total_files"] == 1
+
+
 @pytest.mark.skipif(shutil.which("rg") is None, reason="rg is required")
 def test_zero_match_glob_gets_warning(tmp_path, monkeypatch):
     (tmp_path / "sample.py").write_text("needle\n")
@@ -591,3 +618,30 @@ def test_grep_comma_separated_globs_are_supported(tmp_path, monkeypatch):
 
     assert op["_"]["total_matches"] == 2
     assert _files_from_content(op) == {"a.py", "b.md"}
+
+
+@pytest.mark.skipif(shutil.which("grep") is None, reason="grep is required")
+def test_grep_path_prefixed_file_glob_finds_matches(tmp_path, monkeypatch):
+    sub = tmp_path / "pine_sources"
+    sub.mkdir()
+    target = sub / "PBK_Periods_w_Singles+_v1.0.pine"
+    target.write_text("startOn = input.time(0)\nnoPlot = input(true)\n")
+    coder = _grep_coder(tmp_path)
+    monkeypatch.setattr(grep.Tool, "_find_search_tool", lambda: ("grep", shutil.which("grep")))
+
+    result = grep.Tool.execute(
+        coder,
+        searches=[
+            {
+                "pattern": r"input\.",
+                "directory": ".",
+                "file_glob": "pine_sources/PBK_Periods_w_Singles+_v1.0.pine",
+                "use_regex": True,
+            }
+        ],
+    )
+    op = result.to_dict()["result"][0]
+
+    assert op["_"]["error"] is None
+    assert op["_"]["total_matches"] >= 1
+    assert op["_"]["total_files"] == 1
