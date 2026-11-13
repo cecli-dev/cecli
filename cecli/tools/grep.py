@@ -436,7 +436,12 @@ def _build_powershell_search_script(
     parts = ["Get-ChildItem", "-LiteralPath", _ps_quote(search_dir_path), "-Recurse", "-File"]
 
     if file_pattern != "*":
-        parts.extend(["-Filter", _ps_quote(file_pattern)])
+        if "," in file_pattern:
+            globs = [g.strip() for g in file_pattern.split(",") if g.strip()]
+            if globs:
+                parts.extend(["-Include", ", ".join(_ps_quote(g) for g in globs)])
+        else:
+            parts.extend(["-Filter", _ps_quote(file_pattern)])
 
     exclude_regex = _build_powershell_exclude_regex(exclude_cecli=exclude_cecli)
     if exclude_regex:
@@ -996,7 +1001,6 @@ class Tool(BaseTool):
                             + null_flag
                             + ["--", pattern, str(search_dir_path)]
                         )
-                        count_string = oslex.join(count_cmd)
 
                         # Source-level caps: bound matches per file and line length so
                         # post-processing never sees unbounded content.
