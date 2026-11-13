@@ -15,6 +15,8 @@ import {
   logs_key,
   reconcile_tabs,
   shell_key,
+  shell_tab_key,
+  shell_tab_label,
   workspace_key,
 } from '../src/core/cli-tabs.js';
 
@@ -49,6 +51,14 @@ test('workspace key and stable tab keys', () => {
   assert.equal(shell_key('ws'), 'shell:ws');
   assert.equal(bg_key('b1', 'bg_1'), 'bg:b1:bg_1');
   assert.notEqual(bg_key('b1', 'bg_1'), bg_key('b2', 'bg_1'));
+});
+
+test('shell tab keys and labels derive from terminal ids', () => {
+  assert.equal(shell_tab_key('ws'), 'shell:ws');
+  assert.equal(shell_tab_key('ws', 'term:b1:2'), 'shell:ws:term:b1:2');
+  assert.equal(shell_tab_label({ id: 'term:b1:2' }), 'Shell 2');
+  assert.equal(shell_tab_label({ id: 'custom' }), 'Shell');
+  assert.equal(shell_tab_label(null), 'Shell');
 });
 
 test('default tabs include Shell only when terminal is enabled', () => {

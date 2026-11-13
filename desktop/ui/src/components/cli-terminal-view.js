@@ -12,6 +12,7 @@ const HIDDEN_CLOSE_MS = 5 * 60 * 1000;
 export class CliTerminalView extends LitElement {
   static properties = {
     bridge_id: { type: String },
+    terminal_id: { type: String },
     active: { type: Boolean },
     terminal_meta: { attribute: false },
     live_bridges: { attribute: false },
@@ -20,6 +21,7 @@ export class CliTerminalView extends LitElement {
   constructor() {
     super();
     this.bridge_id = '';
+    this.terminal_id = '';
     this.active = false;
     this.terminal_meta = {};
     this.live_bridges = null;
@@ -114,7 +116,7 @@ export class CliTerminalView extends LitElement {
     session.socket_open = false;
 
     try {
-      await stop_terminal(this.bridge_id);
+      await stop_terminal(session.bridge_id, session.terminal_id);
     } catch (error) {
       /* already stopped */
     }
@@ -125,19 +127,22 @@ export class CliTerminalView extends LitElement {
 
   _session() {
     if (!this.bridge_id) return null;
-    let session = this._sessions.get(this.bridge_id);
+    const key = this._session_key();
+    let session = this._sessions.get(key);
 
     if (!session) {
       const host = document.createElement('div');
       host.className = 'cli-xterm-host';
       host.dataset.bridge = this.bridge_id;
+      host.dataset.terminal = this.terminal_id;
       session = {
-        key: this.bridge_id, host, terminal: null, fit: null, client: null,
+        key, bridge_id: this.bridge_id, terminal_id: this.terminal_id,
+        host, terminal: null, fit: null, client: null,
         queue: null, opened: false, starting: false, failed: false, socket_open: false,
         status: '', pending_since: null, resize_observer: null, idle_timer: null,
         gap_attempts: 0,
       };
-      this._sessions.set(this.bridge_id, session);
+      this._sessions.set(key, session);
     }
 
     return session;
@@ -179,6 +184,15 @@ export class CliTerminalView extends LitElement {
     session.fit = fit;
     session.queue = new TerminalWriteQueue((data) => terminal.write(data));
 
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown' || event.key !== 'Enter' || !event.shiftKey) return true;
+      if (!this.active || this._session() !== session) return true;
+
+      event.preventDefault();
+      session.client?.send_input('\n');
+      return false;
+    });
+
     terminal.onData((data) => {
       if (this.active && this._session() === session) session.client?.send_input(data);
     });
@@ -187,7 +201,11 @@ export class CliTerminalView extends LitElement {
     });
     terminal.onBell(() => {
       if (this._session() === session) {
-        this.dispatchEvent(new CustomEvent('terminal-attention', { bubbles: true, composed: true }));
+        this.dispatchEvent(new CustomEvent('terminal-attention', {
+          detail: { terminal_id: this.terminal_id },
+          bubbles: true,
+          composed: true,
+        }));
       }
     });
 
@@ -208,17 +226,21 @@ export class CliTerminalView extends LitElement {
     try {
       if (restart) {
         try {
-          await stop_terminal(session.key);
+          await stop_terminal(session.bridge_id, session.terminal_id);
         } catch (error) {
           /* already stopped */
         }
       }
 
-      const result = await start_terminal(session.key);
-      const terminal = result?.terminal || {};
-      const since = session.pending_since ?? (terminal.seq || 0);
+      const result = await start_terminal(session.bridge_id, session.terminal_id);
+      this.dispatchEvent(new CustomEvent('terminal-state', {
+        detail: result?.terminals || null,
+        bubbles: true,
+        composed: true,
+      }));
+      const since = session.pending_since ?? 0;
       session.pending_since = null;
-      const socket = open_terminal_socket(session.key, since);
+      const socket = open_terminal_socket(session.bridge_id, since, session.terminal_id);
 
       session.client = new TerminalClient(socket, {
         on_data: (data) => session.queue?.enqueue(data),
@@ -289,7 +311,7 @@ export class CliTerminalView extends LitElement {
     if (this.bridge_id) live.add(this.bridge_id);
 
     for (const [key, session] of this._sessions) {
-      if (live.has(key)) continue;
+      if (live.has(session.bridge_id)) continue;
       this._dispose_session(session);
       this._sessions.delete(key);
       if (this._attached === session) this._attached = null;
@@ -328,6 +350,10 @@ export class CliTerminalView extends LitElement {
     if (session?.idle_timer === null || session?.idle_timer === undefined) return;
     clearTimeout(session.idle_timer);
     session.idle_timer = null;
+  }
+
+  _session_key() {
+    return `${this.bridge_id}::${this.terminal_id}`;
   }
 
   _dispose_session(session) {

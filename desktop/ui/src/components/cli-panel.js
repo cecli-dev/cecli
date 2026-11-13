@@ -9,6 +9,7 @@ import './cli-stdin-composer.js';
 
 import { BackgroundPoller } from '../core/background-poller.js';
 import { close_cli, get_cli_state, send_cli_input } from '../core/cli-api.js';
+import { close_terminal, create_terminal } from '../core/terminal-api.js';
 import { subscribe_cli_event } from '../core/cli-bus.js';
 import {
   MAX_INPUT_BYTES,
@@ -24,7 +25,8 @@ import {
   logs_key,
   release_payload,
   reconcile_tabs,
-  shell_key,
+  shell_tab_key,
+  shell_tab_label,
   workspace_key,
 } from '../core/cli-tabs.js';
 import { get_terminal_logs, push_terminal_log, subscribe_terminal_log } from '../core/log-bus.js';
@@ -68,6 +70,7 @@ export class CliPanel extends LitElement {
     this._log_floor = new Map();
     this._pending_kill = null;
     this._state_generation = 0;
+    this._terminals_signature = '';
     this._fetch_inflight = false;
     this._background_supported = true;
     this._log_unsub = null;
@@ -122,6 +125,7 @@ export class CliPanel extends LitElement {
 
   willUpdate() {
     this._sync_store();
+    this._sync_shell_tabs();
   }
 
   updated() {
@@ -168,10 +172,11 @@ export class CliPanel extends LitElement {
           <cli-tab-strip
             .tabs=${this.tabs}
             .active_key=${this.active_key}
+            .can_new=${shell_enabled}
             @tab-select=${this._on_tab_select_event}
             @tab-close=${this._on_tab_close_event}
+            @tab-new=${this._on_tab_new_event}
           ></cli-tab-strip>
-
           <div class="cli-panes">
             <div
               class="cli-pane"
@@ -184,24 +189,24 @@ export class CliPanel extends LitElement {
                 .workspace_key=${this.workspace_key}
               ></cli-log-view>
             </div>
-
-            ${shell_enabled
-              ? html`<div
-                  class="cli-pane"
-                  id=${`cli-pane-${sanitize(shell_key(this.workspace_key))}`}
-                  role="tabpanel"
-                  ?hidden=${this.active_key !== shell_key(this.workspace_key)}
-                >
-                  <cli-terminal-view
-                    .bridge_id=${this.bridge_id}
-                    .active=${this.active_key === shell_key(this.workspace_key)}
-                    .terminal_meta=${state.terminal || {}}
-                    .live_bridges=${this._live_bridges()}
-                    @terminal-attention=${this._on_shell_attention}
-                  ></cli-terminal-view>
-                </div>`
-              : nothing}
-
+            ${repeat(this.tabs.filter((tab) => tab.kind === 'shell'), (tab) => tab.key, (tab) => html`
+              <div
+                class="cli-pane"
+                id=${`cli-pane-${sanitize(tab.key)}`}
+                role="tabpanel"
+                ?hidden=${this.active_key !== tab.key}
+              >
+                <cli-terminal-view
+                  .bridge_id=${this.bridge_id}
+                  .terminal_id=${tab.terminal_id || ''}
+                  .active=${this.active_key === tab.key}
+                  .terminal_meta=${state.terminal || {}}
+                  .live_bridges=${this._live_bridges()}
+                  @terminal-attention=${this._on_shell_attention}
+                  @terminal-state=${this._on_terminal_state}
+                ></cli-terminal-view>
+              </div>
+            `)}
             ${repeat(this._all_bg_tabs(), (tab) => tab.key, (tab) => html`
               <div
                 class="cli-pane cli-bg-pane"
@@ -266,6 +271,7 @@ export class CliPanel extends LitElement {
       if (bridge !== this.bridge_id || generation !== this._state_generation) return;
       this._background_supported = true;
       if (result.workspace && result.workspace !== this.workspace_key) return;
+      this._apply_terminals(result.terminals);
       this._apply_state(result.background, { baseline });
     } catch (error) {
       if (bridge !== this.bridge_id) return;
@@ -278,6 +284,7 @@ export class CliPanel extends LitElement {
   _on_poll_state(result, meta) {
     if (meta.bridge_id !== this.bridge_id) return;
     this._background_supported = true;
+    this._apply_terminals(result.terminals);
     this._apply_state(result.background, { baseline: meta.baseline });
   }
 
@@ -299,14 +306,17 @@ export class CliPanel extends LitElement {
       active_key: this.active_key,
     });
 
-    const active_exists = result.tabs.some((tab) => tab.key === this.active_key);
-    this._set_tabs(result.tabs, active_exists ? this.active_key : logs_key(this.workspace_key));
+    this._set_tabs(result.tabs, this.active_key);
   }
 
   _set_tabs(tabs, active_key = this.active_key) {
-    const next = tabs || [];
+    const next = this._with_shell_tabs(tabs || []);
     let next_active = active_key;
-    if (!next.some((tab) => tab.key === next_active)) next_active = next[0]?.key || '';
+    if (!next.some((tab) => tab.key === next_active)) {
+      const prior_kind = this.tabs.find((tab) => tab.key === next_active)?.kind;
+      const replacement = prior_kind === 'shell' ? next.find((tab) => tab.kind === 'shell') : null;
+      next_active = replacement?.key || next[0]?.key || '';
+    }
 
     this.tabs = next;
     this.active_key = next_active;
@@ -356,6 +366,11 @@ export class CliPanel extends LitElement {
     const tab = this.tabs.find((item) => item.key === key);
     if (!tab?.closeable) return;
 
+    if (tab.kind === 'shell') {
+      this._close_shell_tab(tab);
+      return;
+    }
+
     const running = ['starting', 'running', 'needs_input', 'stopping'].includes(tab.status);
 
     if (running) {
@@ -373,6 +388,127 @@ export class CliPanel extends LitElement {
     }
 
     this._remove_tab_local(key);
+  }
+
+  _on_tab_new_event() {
+    this._new_shell();
+  }
+
+  async _new_shell() {
+    if (!this.bridge_id || !this._terminal_enabled(this._store.state)) return;
+
+    try {
+      const result = await create_terminal(this.bridge_id);
+      const terminal_id = result?.terminal?.id || '';
+      this._apply_terminals(result?.terminals);
+      this._terminals_signature = '';
+      this._sync_shell_tabs();
+      if (terminal_id) this._select_tab(shell_tab_key(this.workspace_key, terminal_id));
+    } catch (error) {
+      this._set_notice(error?.message || 'Unable to open a new shell.');
+    }
+  }
+
+  async _close_shell_tab(tab) {
+    if (!tab?.terminal_id) return;
+
+    const terminals = (this._store.state.terminal?.terminals || [])
+      .filter((terminal) => terminal.id !== tab.terminal_id);
+    this._apply_terminals(terminals);
+    this._terminals_signature = '';
+    this._remove_tab_local(tab.key);
+
+    try {
+      await close_terminal(tab.bridge_id || this.bridge_id, tab.terminal_id);
+    } catch (error) {
+      /* already closed */
+    }
+
+    this._fetch_state(true);
+  }
+
+  _shell_tabs() {
+    if (!this._terminal_enabled(this._store.state)) return [];
+
+    const terminals = this._store.state.terminal?.terminals || [];
+    if (terminals.length) {
+      return terminals.map((terminal) => ({
+        key: shell_tab_key(this.workspace_key, terminal.id),
+        kind: 'shell',
+        workspace_key: this.workspace_key,
+        bridge_id: this.bridge_id,
+        terminal_id: terminal.id,
+        cli_id: null,
+        command_key: null,
+        label: shell_tab_label(terminal),
+        closeable: terminals.length > 1,
+        status: terminal.running === false ? 'exited' : 'running',
+        exit_code: terminal.exitCode ?? null,
+        started_at: null,
+        finished_at: null,
+        total_chars: 0,
+        unread: 0,
+        input_hint: false,
+        pinned: false,
+        input_owner: null,
+      }));
+    }
+
+    const existing = this.tabs.find((tab) => tab.kind === 'shell');
+    return [{
+      key: shell_tab_key(this.workspace_key),
+      kind: 'shell',
+      workspace_key: this.workspace_key,
+      bridge_id: this.bridge_id,
+      terminal_id: '',
+      cli_id: null,
+      command_key: null,
+      label: 'Shell',
+      closeable: false,
+      status: existing?.status || 'idle',
+      exit_code: null,
+      started_at: null,
+      finished_at: null,
+      total_chars: 0,
+      unread: 0,
+      input_hint: false,
+      pinned: false,
+      input_owner: existing?.input_owner || null,
+    }];
+  }
+
+  _with_shell_tabs(tabs) {
+    const shells = this._shell_tabs();
+    const rest = (tabs || []).filter((tab) => tab.kind !== 'shell');
+    const merged = shells.map((shell) => {
+      const prior = (tabs || []).find((tab) => tab.kind === 'shell' && tab.key === shell.key);
+      return prior ? { ...prior, ...shell, unread: prior.unread || 0 } : shell;
+    });
+
+    return [
+      ...rest.filter((tab) => tab.kind === 'logs'),
+      ...merged,
+      ...rest.filter((tab) => tab.kind !== 'logs'),
+    ];
+  }
+
+  _sync_shell_tabs() {
+    const terminals = this._store.state.terminal?.terminals || [];
+    const signature = terminals.map((terminal) => `${terminal.id}:${terminal.running}`).join('|');
+    if (signature === this._terminals_signature) return;
+
+    this._terminals_signature = signature;
+    if (!this.workspace_key) return;
+    this._set_tabs(this.tabs, this.active_key);
+  }
+
+  _apply_terminals(terminals) {
+    if (!Array.isArray(terminals)) return;
+
+    store.update((state) => ({
+      ...state,
+      terminal: { ...state.terminal, terminals },
+    }));
   }
 
   _remove_tab_local(key) {
@@ -527,10 +663,16 @@ export class CliPanel extends LitElement {
     this.requestUpdate();
   }
 
-  _on_shell_attention() {
-    if (this.active_key === shell_key(this.workspace_key)) return;
+  _on_terminal_state(event) {
+    this._apply_terminals(event.detail);
+  }
+
+  _on_shell_attention(event) {
+    const key = shell_tab_key(this.workspace_key, event?.detail?.terminal_id || '');
+    if (this.active_key === key) return;
+
     this.tabs = this.tabs.map((tab) =>
-      tab.kind === 'shell' ? { ...tab, unread: (tab.unread || 0) + 1 } : tab,
+      tab.kind === 'shell' && tab.key === key ? { ...tab, unread: (tab.unread || 0) + 1 } : tab,
     );
     this.unread_total = count_unread(this.tabs);
     this.requestUpdate();
@@ -682,7 +824,8 @@ export class CliPanel extends LitElement {
   }
 
   _shell_view() {
-    return this.querySelector('cli-terminal-view');
+    const pane = this.querySelector(`#cli-pane-${sanitize(this.active_key)}`);
+    return pane?.querySelector('cli-terminal-view') || this.querySelector('cli-terminal-view');
   }
 
   _live_bridges() {

@@ -63,7 +63,9 @@ export class BackgroundPoller {
       this.on_state?.(result, { bridge_id, baseline: false });
     } catch (error) {
       if (bridge_id !== this.bridge_id || generation !== this._generation) return;
-      if (error?.status === 404 || error?.status === 501) this.supported = false;
+      if (error?.status === 403 || error?.status === 404 || error?.status === 501) {
+        this.supported = false;
+      }
       this.on_error?.(error);
     } finally {
       this._inflight = false;

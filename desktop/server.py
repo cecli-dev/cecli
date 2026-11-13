@@ -2869,6 +2869,10 @@ class DesktopServer:
         """Dispatch one POST /api/terminal/* control call."""
         if suffix == "start":
             return await self._terminal_start(body)
+        if suffix == "new":
+            return await self._terminal_start(body, fresh=True)
+        if suffix == "close":
+            return await self._terminal_close(body)
         if suffix == "stop":
             return await self._terminal_stop(body)
         if suffix == "input":
@@ -2877,18 +2881,66 @@ class DesktopServer:
             return await self._terminal_resize(body)
         return self._json(404, {"ok": False, "error": "not found"})
 
-    async def _terminal_start(self, body: bytes) -> tuple[int, bytes, str]:
-        """Lazily spawn the workspace shell and return its state."""
+    def _terminal_session(self, bridge_id: str, data: dict[str, Any]) -> Any:
+        """Resolve a requested terminal id or fall back to the bridge's latest."""
+        terminal_id = data.get("terminalId")
+        if isinstance(terminal_id, str) and terminal_id:
+            session = self.terminal.get_by_id(terminal_id)
+            if session is None or str(session.bridge_id) != str(bridge_id):
+                raise TerminalError(404, "terminal not found")
+
+            return session
+
+        return self.terminal.get(bridge_id)
+
+    async def _terminal_start(self, body: bytes, fresh: bool = False) -> tuple[int, bytes, str]:
+        """Lazily spawn a workspace shell and return its state."""
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get_or_create(bridge.bridge_id, bridge.workspace)
+            terminal_id = data.get("terminalId")
+            if isinstance(terminal_id, str) and terminal_id:
+                session = self._terminal_session(bridge.bridge_id, data)
+            elif fresh:
+                session = self.terminal.create(bridge.bridge_id, bridge.workspace)
+            else:
+                session = self.terminal.get_or_create(bridge.bridge_id, bridge.workspace)
             await session.start()
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         except TerminalError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(200, {"ok": True, "terminal": session.state()})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": session.state(),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
+
+    async def _terminal_close(self, body: bytes) -> tuple[int, bytes, str]:
+        """Close one terminal session and forget its retained buffer."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            terminal_id = data.get("terminalId")
+            if not isinstance(terminal_id, str) or not terminal_id:
+                raise TerminalError(400, "terminalId is required")
+            session = self._terminal_session(bridge.bridge_id, data)
+            await self.terminal.close_by_id(session.id)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        except TerminalError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": self.terminal.state(bridge.bridge_id),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
 
     async def _cli_terminal(
         self, action: str, bridge_id: str, terminal_id: str, params: dict[str, Any]
@@ -2930,17 +2982,29 @@ class DesktopServer:
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            await self.terminal.stop(bridge.bridge_id)
-        except BridgeError as err:
-            return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
+            terminal_id = data.get("terminalId")
+            if isinstance(terminal_id, str) and terminal_id:
+                session = self._terminal_session(bridge.bridge_id, data)
+                await self.terminal.stop_by_id(session.id)
+            else:
+                await self.terminal.stop(bridge.bridge_id)
+        except (BridgeError, TerminalError) as err:
+            return self._json(getattr(err, "status", 400), {"ok": False, "error": str(err)})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": self.terminal.state(bridge.bridge_id),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
 
     async def _terminal_input(self, body: bytes) -> tuple[int, bytes, str]:
         """Write bytes to the PTY without ever logging them."""
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get(bridge.bridge_id)
+            session = self._terminal_session(bridge.bridge_id, data)
             if session is None or not session.running:
                 raise TerminalError(409, "terminal is not running")
             payload = data.get("data")
@@ -2961,7 +3025,7 @@ class DesktopServer:
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get(bridge.bridge_id)
+            session = self._terminal_session(bridge.bridge_id, data)
             if session is None or not session.running:
                 raise TerminalError(409, "terminal is not running")
             session.resize(data.get("cols"), data.get("rows"))
@@ -3001,7 +3065,11 @@ class DesktopServer:
         except BridgeError as err:
             await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
             return
-        session = self.terminal.get(bridge.bridge_id)
+        try:
+            session = self._terminal_session(bridge.bridge_id, data)
+        except TerminalError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
         if session is None:
             await self._write_json(writer, 409, {"ok": False, "error": "terminal is not running"})
             return
@@ -3146,7 +3214,14 @@ class DesktopServer:
         except BridgeError as err:
             await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
             return
-        session = self.terminal.get(bridge.bridge_id)
+        terminal_id = _optional_str(query_body(query).get("terminalId"))
+        session = (
+            self.terminal.get_by_id(terminal_id)
+            if terminal_id
+            else self.terminal.get(bridge.bridge_id)
+        )
+        if session is not None and str(session.bridge_id) != str(bridge.bridge_id):
+            session = None
         if session is None:
             await self._write_json(writer, 404, {"ok": False, "error": "terminal is not running"})
             return
