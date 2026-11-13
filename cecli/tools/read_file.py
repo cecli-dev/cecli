@@ -457,7 +457,9 @@ class Tool(BaseTool):
 
                 # Generate hashline for the entire file
                 hashed_content, _ = hashline_formatted(content, file_name=abs_path)
-                hashed_lines = hashed_content.splitlines()
+                # HashPos joins logical lines without a final terminator.
+                # splitlines() would discard a trailing blank line.
+                hashed_lines = hashed_content.split("\n")
 
                 # Extract the context window from hashed lines
                 # context_hashed_lines = hashed_lines[start_line_idx : end_line_idx + 1]
