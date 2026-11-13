@@ -240,6 +240,10 @@ def _validate_task(task: TaskConfig, index: int, where: str, norm_tasks: Any = N
             if entry.get("name") is not None and not str(entry["name"]).strip():
                 warnings.append(f"tasks[{index}] 'name' is empty and was ignored")
 
+            post_run = entry.get("post_run")
+            if post_run is not None and not isinstance(post_run, str) and not callable(post_run):
+                raise ValueError(f"{label}: 'post_run' must be a string or callable")
+
     if task.continue_on_error is not None and not isinstance(task.continue_on_error, bool):
         warnings.append(f"tasks[{index}] 'continue_on_error' is not a boolean")
 

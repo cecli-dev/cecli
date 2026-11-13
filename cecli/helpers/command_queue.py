@@ -29,12 +29,13 @@ def get_active_coder(coder):
         return coder
 
 
-def enqueue_prompt(coder, text: str) -> dict:
+def enqueue_prompt(coder, text: str, metadata: dict | None = None) -> dict:
     """Add a prompt to the given coder's queue and return the queued item.
 
     Args:
         coder: The coder whose queue should be modified.
         text: The prompt text to enqueue.
+        metadata: Optional metadata carried with the item (exposed to hooks).
 
     Returns:
         dict with keys: id (str), text (str), timestamp (float).
@@ -52,21 +53,18 @@ def enqueue_prompt(coder, text: str) -> dict:
 
     with _get_lock(coder):
         coder._queue_counter += 1
-        item = {
-            "id": str(coder._queue_counter),
-            "text": text,
-            "timestamp": time.time(),
-        }
+        item = _build_item(coder, text, metadata)
         coder.prompt_queue.append(item)
     return item
 
 
-def insert_prompt(coder, text: str, index: int) -> dict:
+def insert_prompt(coder, text: str, index: int, metadata: dict | None = None) -> dict:
     """Insert a prompt at the given 0-based index and return the queued item.
 
     Args:
         coder: The coder whose queue should be modified.
         text: The prompt text to insert.
+        metadata: Optional metadata carried with the item (exposed to hooks).
         index: 0-based position to insert at. Clamped to [0, len(queue)].
 
     Returns:
@@ -86,11 +84,7 @@ def insert_prompt(coder, text: str, index: int) -> dict:
     index = max(0, min(index, get_queue_length(coder)))
     with _get_lock(coder):
         coder._queue_counter += 1
-        item = {
-            "id": str(coder._queue_counter),
-            "text": text,
-            "timestamp": time.time(),
-        }
+        item = _build_item(coder, text, metadata)
         coder.prompt_queue.insert(index, item)
     return item
 
@@ -231,6 +225,20 @@ def nested_command_completions(coder, text: str) -> list:
         return list(coder.commands.get_completions(inner_cmd, inner_args, coder=coder))
     except Exception:
         return []
+
+
+def _build_item(coder, text: str, metadata: dict | None = None) -> dict:
+    """Build a queue item; the caller must hold the queue lock."""
+    item = {
+        "id": str(coder._queue_counter),
+        "text": text,
+        "timestamp": time.time(),
+    }
+
+    if metadata is not None:
+        item["metadata"] = dict(metadata)
+
+    return item
 
 
 def _get_lock(coder) -> threading.Lock:

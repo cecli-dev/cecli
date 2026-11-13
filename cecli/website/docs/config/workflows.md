@@ -95,18 +95,138 @@ Task fields:
 | `prompt` | — | Required. A list entry may also be a bare string, which is taken as the prompt. Slash commands (`/mcp load`, `/model`, …) work exactly as if typed |
 | `name` | `task-N` | Label used in run logs and status output |
 | `save_to` | none | On success, writes the run's final summary to a persistent per-run file under `~/.cecli/workflows/outputs/{workflow}/{run}/` (named after the key; the path is recorded in the run log) |
+| `post_run` | none | One async `post_run(coder, context)` hook: a callable, a `.py` file, inline Python (a whole `async def post_run(...)` or just its body), or a `module:function` reference. It can continue, stop, or jump to another step |
 
 Run-time placeholders are expanded in task prompts in addition to load-time env interpolation: `{date}` (today as `YYYY-MM-DD`), `{workflow}` (the workflow name) and `{run_id}` (the scheduler run id, empty for manual runs). Other braces are left verbatim. A complete annotated sample is in the repository at `examples/workflows/check-pipeline.yml` — copy it to `~/.cecli/workflows/` or pass it via `--workflows` to try it.
 
 ## How a run works
 
 1. The scheduler (or `/workflows run`) creates the `wf:{name}` worker sub-agent, configured with the workflow's model, hooks, skills and servers.
-2. The task prompts are queued to that worker **in order**, using the same prompt queue as `/queue`. Each prompt is processed to completion before the next.
-3. If a task errors, the remaining queued prompts are dropped according to `on_failure` (or the failing task's `continue_on_error`), then the worker is reaped. (Caveat: errors that abort the queue-drain chain behave like `stop` even under `continue_on_error`, since the remaining prompts never get a chance to drain; errors handled inside a prompt continue normally.)
+2. The task prompts are staged in the worker's prompt queue **in order**, using the same queue as `/queue`. The runner processes one prompt at a time and runs that step's `post_run` hook before choosing the next queued action.
+3. If a task errors, its `post_run` hook still runs with `context.status == "error"`. Without a jump, the remaining prompts are dropped or kept according to `on_failure` (or the failing task's `continue_on_error`). A hook can therefore recover by jumping to a fix step, or stop the run explicitly.
 4. The run is **detached**: a workflow worker never injects summaries or status into the parent's conversation (background operations stay out of its context). A finished `/workflows run` is announced once in the terminal only; the durable record lives in the run log and outputs.
 5. With `persist: true`, the worker is not reaped when the run finishes: it stays in the TUI and the next run of the same workflow reuses it. Before staging the new tasks, the runner waits for any in-flight run, clears the worker's conversation (re-adding its system prompt) and file context, resets the prompt queue and per-run status, and then runs the new task list on the same agent.
 
 Because a run is a sub-agent, it doesn't block the main conversation — watch it with `/agent-tree` or the TUI sub-agent pane. Every run also appends a JSON-lines audit log to `~/.cecli/workflows/runs/<YYYY-MM-DD>/<name>.<id>.jsonl`: a `start` line (with the definition hash), one `task` line per task, and a `finish` line. Before the worker is reaped, its full session is archived to `~/.cecli/workflows/outputs/<workflow>/<run>/session.json` using the standard session format (encrypted when session encryption is enabled) — so every run, including replayed or tool-less replies, is completely reviewable on disk without ever touching the parent's context.
+
+## Dynamic task flow
+
+Every task is a named step. Set a task-level `post_run` to a Python callable or a string reference (`module:function` or `path.py:function`). The hook runs after the step and chooses what happens next:
+
+- `True` continues with the queue.
+- `False` stops the run.
+- `context.jump(step, prompt=None)` (or a returned `(step, prompt)` tuple) makes *step* the next action. The optional `prompt` replaces that step's prompt completely; omit it to use the original definition.
+
+```yaml
+tasks:
+  - name: run-tests
+    prompt: Run the test suite and report failures.
+    post_run: ".cecli/workflows/hooks.py:route_failure"
+  - name: fix-failures
+    prompt: Fix the reported failures.
+  - name: publish
+    prompt: Publish the release.
+```
+
+Example `.cecli/workflows/hooks.py`:
+
+```python
+def route_failure(coder, context):
+    if context.status == "error":
+        return context.jump("fix-failures", "Fix only the first failure.")
+
+    return True
+```
+
+A failed `run-tests` queues `fix-failures` next; a successful `fix-failures` then continues to `publish`. `context.steps` is the original `{name: prompt}` map and is never mutated or duplicated: forward jumps drop the queued steps before the target, and backward jumps queue the target again (retry loops, branches). A hook that returns a jump or `False` redirects control flow; returning `True` keeps the queue moving.
+
+The hook context exposes `coder`, `workflow`, `step_name`, `prompt`, `status` (`ok`/`error`), `error`, `steps` (the original `{name: prompt}` map) and `available_steps` (a copy). A hook may be async and may take `(coder, context)` or just `(context)`.
+
+More routing patterns:
+
+```python
+# Stop the whole run when a step fails.
+def stop_on_error(coder, context):
+    if context.status == "error":
+        return context.stop()
+
+    return True
+
+
+# Retry the same step with a sharper prompt (at most twice).
+attempts = {}
+
+def retry_tests(coder, context):
+    attempts[context.step_name] = attempts.get(context.step_name, 0) + 1
+    if context.status == "error" and attempts[context.step_name] <= 2:
+        return context.jump(
+            context.step_name,
+            f"{context.prompt}\n\nFix the failures from the last attempt.",
+        )
+
+    return True
+
+
+# Branch on the worker's result: tuple form instead of context.jump().
+def review_or_publish(coder, context):
+    if "risk" in (context.error or "").lower():
+        return ("manual-review", "Explain the risk and stop before publishing.")
+
+    return True
+```
+
+A forward jump drops every queued step before the target, so `run-tests -> fix-failures` skips unrelated steps in between. A backward jump queues the target (and everything after it) again, which is how retries and loops are expressed. Because the step map is the original definition, the override prompt lasts for that one jump only; the next visit starts from the original prompt again.
+
+### Python file hooks
+
+Point `post_run` at a `.py` file and define `async def post_run(coder, context)` inside it. Relative paths resolve against the worker root, then against the workflow file's directory:
+
+```yaml
+tasks:
+  - name: run-tests
+    prompt: Run the test suite and report failures.
+    post_run: ".cecli/workflows/hooks.py"
+```
+
+```python
+# .cecli/workflows/hooks.py
+async def post_run(coder, context):
+    if context.status == "error":
+        return context.jump("fix-failures", "Fix only the first failure.")
+
+    return True
+```
+
+### Inline Python
+
+For one-off logic, put Python directly in the workflow. A complete `async def post_run(coder, context)` works as-is:
+
+```yaml
+tasks:
+  - name: run-tests
+    prompt: Run the test suite and report failures.
+    post_run: |
+      async def post_run(coder, context):
+          if context.status == "error":
+              return context.jump("fix-failures")
+
+          return True
+```
+
+Or write only the function body; it is wrapped in an `async def post_run(coder, context)`. The hook must be async in every form:
+
+```yaml
+tasks:
+  - name: run-tests
+    prompt: Run the test suite and report failures.
+    post_run: |
+      if context.status == "error":
+          return context.jump("fix-failures", "Fix only the first failure.")
+
+      return True
+```
+
+Inline hooks are compiled into a cached temporary module, so module-level state (counters, retry attempts) persists for the life of the process — including between runs on a `persist: true` worker. Use `context`/`coder` attributes if you want state scoped to one run.
 
 ## Isolated worktrees
 

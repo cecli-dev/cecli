@@ -12,9 +12,11 @@ with ``status`` set (``ok`` | ``error`` | ``aborted``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, List, Optional
 
 from cecli.helpers.workflows.models import RunResult, TaskResult, WorkflowConfig
@@ -67,26 +69,25 @@ async def execute_workflow(
 
         texts = [_expand(task.prompt, wf=wf, run_id=run_id) for task in wf.tasks]
 
-        # Persistent workflows reuse their previous worker (clearing its
-        # conversation and queue) so they stay visible in the TUI; everything
-        # else spawns WITHOUT a prompt so the whole task list can be staged
-        # first. The daemon variant runs on its own tree branch, everything
-        # else shares the owning session.
         worker, info = await _obtain_worker(service, coder, wf, source)
+        steps = _step_map(wf, texts)
+        _stage_steps(worker, wf, steps)
 
-        for text in texts[1:]:
-            command_queue.enqueue_prompt(worker, text)
+        state = {"statuses": {}, "last_error": ""}
+        info.generate_task = asyncio.create_task(
+            _drive_steps(service, worker, info, wf, steps, state)
+        )
 
-        # The first task is started directly, so make sure a command task also
-        # drains the staged queue instead of stopping after the command.
-        worker._drain_queue_after_command = True
-        service.start_generate_task(info, texts[0])
+        try:
+            outcome, detail = await _await_run(info)
+        finally:
+            command_queue.clear_active_prompt(worker)
 
-        outcome, detail = await _await_run(info)
+        if outcome == "ok" and state["last_error"]:
+            outcome, detail = "error", state["last_error"]
 
-        pending = command_queue.list_queue(worker)
-        executed_tail = len(wf.tasks) - 1 - len(pending)
-        failing = wf.tasks[_failing_index(executed_tail, len(wf.tasks))]
+        statuses = state["statuses"]
+        failing = _failing_task(wf, statuses)
 
         if outcome != "ok" and _should_stop(wf, failing):
             command_queue.clear_queue(worker)
@@ -99,7 +100,7 @@ async def execute_workflow(
         # the worker actually produced one before dying.
         if outcome != "aborted" or info.summary:
             result.summary = info.summary or ""
-        result.tasks = _task_results(wf, outcome, detail, executed_tail)
+        result.tasks = _task_results(wf, statuses, outcome, detail)
 
         if outcome != "aborted":
             _save_outputs(wf, result)
@@ -112,6 +113,7 @@ async def execute_workflow(
         result.error_message = str(exc) or exc.__class__.__name__
     finally:
         if worker is not None:
+            worker = getattr(info, "coder", None) or worker
             record = getattr(worker, "worktree", None)
             if record is not None:
                 to_dict = getattr(record, "to_dict", None)
@@ -215,6 +217,7 @@ async def _prepare_reused_worker(info: Any, wf: WorkflowConfig) -> None:
     worker._queue_counter = 0
     worker._processing_queue = False
     worker._active_queue_prompt = None
+    worker._active_queue_index = None
     worker._drain_queue_after_command = False
 
     # File context belongs to the run that added it; start the next one with
@@ -246,21 +249,14 @@ def _worker_prompt(wf: WorkflowConfig) -> str:
     return getattr(config, "prompt", "") or ""
 
 
-def _task_results(wf, outcome, detail, executed_tail) -> List[TaskResult]:
-    """Derive per-task outcomes from the overall run result and queue position."""
+def _task_results(wf, statuses, outcome, detail) -> List[TaskResult]:
+    """Build one result per declared task from the steps that actually ran."""
     results: List[TaskResult] = []
-    failing_idx = _failing_index(executed_tail, len(wf.tasks))
 
     for idx, task in enumerate(wf.tasks):
         label = task.name or f"task-{idx + 1}"
-        if outcome == "ok":
-            results.append(TaskResult(index=idx, label=label, status="ok"))
-        elif idx < failing_idx:
-            results.append(TaskResult(index=idx, label=label, status="ok"))
-        elif idx == failing_idx:
-            results.append(TaskResult(index=idx, label=label, status=outcome, message=detail))
-        else:
-            results.append(TaskResult(index=idx, label=label, status="skipped"))
+        status, message = statuses.get(label, ("skipped", ""))
+        results.append(TaskResult(index=idx, label=label, status=status, message=message))
 
     return results
 
@@ -328,14 +324,165 @@ def _expand(text: str, wf: WorkflowConfig, run_id: Optional[int] = None) -> str:
     return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), text)
 
 
-def _failing_index(executed_tail: int, task_count: int) -> int:
-    """Index of the task that ended the run, given how many tail tasks drained.
+def _step_map(wf: WorkflowConfig, texts: List[str]) -> dict:
+    """Return the ordered ``{step name: original prompt}`` map for a run."""
+    steps = {}
 
-    The queue drains FIFO, so ``executed_tail`` tail prompts were dequeued and
-    the deepest one still on the ``run_one`` stack when the failure surfaced is
-    task ``executed_tail`` (0 — the first prompt — when nothing drained yet).
-    """
-    return max(0, min(executed_tail, task_count - 1))
+    for index, (task, text) in enumerate(zip(wf.tasks, texts), start=1):
+        name = task.name or f"task-{index}"
+        if name in steps:
+            logger.warning(
+                "workflow '%s' has duplicate step name '%s'; the later definition wins",
+                wf.name,
+                name,
+            )
+        steps[name] = text
+
+    return steps
+
+
+def _stage_steps(worker, wf: WorkflowConfig, steps: dict) -> None:
+    """Load every step into the worker's prompt queue in definition order."""
+    from cecli.helpers import command_queue
+
+    for name, prompt in steps.items():
+        command_queue.enqueue_prompt(worker, prompt, metadata={"workflow": wf.name, "step": name})
+
+
+async def _drive_steps(service, worker, info, wf: WorkflowConfig, steps: dict, state: dict) -> None:
+    """Drain the step queue, running each step's ``post_run`` hook afterwards."""
+    import asyncio
+
+    from cecli.commands import SwitchCoderSignal
+    from cecli.helpers import command_queue
+    from cecli.helpers.agents.service import (
+        DEFAULT_SUMMARY_INTERRUPTED,
+        SubAgentStatus,
+    )
+    from cecli.helpers.workflows.hooks import WorkflowRunContext, run_task_hooks
+
+    statuses = state["statuses"]
+    info.status = SubAgentStatus.RUNNING
+    info.cancel_requested = False
+    # run_one() drains the queue itself at the end of every prompt. Keeping this
+    # flag set lets the runner own the queue and run hooks between steps.
+    worker._processing_queue = True
+
+    try:
+        while True:
+            item = command_queue.dequeue_prompt(worker)
+            if item is None:
+                break
+
+            metadata = item.get("metadata") or {}
+            name = metadata.get("step") or ""
+            task = _task_for_step(wf, name)
+            prompt = item["text"]
+            status, message = "ok", ""
+
+            try:
+                await worker.generate(prompt, preproc=True)
+            except SwitchCoderSignal as switch:
+                old_coder = worker
+                worker = await service.switch_sub_agent_coder(
+                    info, switch, preproc=True, drain=False
+                )
+                old_coder._processing_queue = False
+                worker._processing_queue = True
+            except asyncio.CancelledError:
+                statuses[name] = ("aborted", "run cancelled")
+                raise
+            except Exception as exc:
+                status, message = "error", str(exc) or exc.__class__.__name__
+                state["last_error"] = message
+
+            statuses[name] = (status, message)
+
+            context = WorkflowRunContext(
+                coder=worker,
+                workflow=wf,
+                task=task,
+                steps=MappingProxyType(dict(steps)),
+                step_name=name,
+                prompt=prompt,
+                status=status,
+                error=message or None,
+            )
+            directive = await run_task_hooks(worker, context)
+
+            if directive is False:
+                command_queue.clear_queue(worker)
+                break
+
+            if isinstance(directive, tuple):
+                _jump(worker, wf, steps, directive[0], directive[1])
+                continue
+
+            if status == "error" and _should_stop(wf, task):
+                command_queue.clear_queue(worker)
+                break
+
+        if info.status == SubAgentStatus.RUNNING:
+            info.status = SubAgentStatus.FINISHED
+            info.summary = info.summary or _fallback_summary(worker)
+    except asyncio.CancelledError:
+        info.status = SubAgentStatus.FINISHED
+        info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
+        raise
+    except Exception as exc:
+        info.status = SubAgentStatus.ERROR
+        info.error = str(exc) or exc.__class__.__name__
+        raise
+    finally:
+        worker._processing_queue = False
+
+
+def _jump(worker, wf: WorkflowConfig, steps: dict, target: str, prompt) -> None:
+    """Replace the remaining queue with *target* and the steps after it."""
+    from cecli.helpers import command_queue
+
+    names = list(steps)
+    if target not in steps:
+        logger.warning(
+            "workflow '%s' hook jumped to unknown step '%s'; continuing normally",
+            wf.name,
+            target,
+        )
+        return
+
+    command_queue.clear_queue(worker)
+    for name in names[names.index(target) :]:
+        text = prompt if name == target and prompt is not None else steps[name]
+        command_queue.enqueue_prompt(worker, text, metadata={"workflow": wf.name, "step": name})
+
+
+def _task_for_step(wf: WorkflowConfig, name: str):
+    """Return the declared task whose step name is *name*."""
+    for index, task in enumerate(wf.tasks, start=1):
+        if (task.name or f"task-{index}") == name:
+            return task
+
+    return None
+
+
+def _failing_task(wf: WorkflowConfig, statuses: dict):
+    """Return the last task that finished with an error or abort status."""
+    for index in range(len(wf.tasks), 0, -1):
+        task = wf.tasks[index - 1]
+        name = task.name or f"task-{index}"
+        if statuses.get(name, ("skipped", ""))[0] in ("error", "aborted"):
+            return task
+
+    return None
+
+
+def _fallback_summary(worker) -> str:
+    """Use the worker's last response as the summary when it yielded none."""
+    content = getattr(worker, "partial_response_content", None)
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+
+    return "(completed without explicit summary)"
 
 
 def _should_stop(wf, failing_task) -> bool:
