@@ -4,7 +4,7 @@
   display: grid;
   flex: 1 1 0;
   grid-template-rows: minmax(220px, 1.25fr) minmax(160px, 1fr);
-  min-width: 0;
+  min-width: min(50%, 440px);
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--border);

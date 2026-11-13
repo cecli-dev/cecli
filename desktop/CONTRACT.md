@@ -218,8 +218,8 @@ report the truth.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards
   pointer, wheel, text and key input; the command panel mirrors the TUI's active
-  tabs, command line, output and Follow control. Chat and workbench split the
-  remaining width evenly, and header toggles hide the sidebar, chat, or workbench.
+  tabs, command line, output and Follow control. The workbench takes up all
+  remaining width beside the chat, and header toggles hide the sidebar, chat, or workbench.
   The tab strip scrolls horizontally without a visible scrollbar, offers new-tab
   and hover-close controls, and the browser, background, and workflows headers
   each collapse their own section when clicked. The column hides below 940px.
