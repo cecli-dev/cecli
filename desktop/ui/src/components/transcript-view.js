@@ -59,38 +59,50 @@ export class TranscriptView extends LitElement {
     const transcript = selectors.visible_transcript(state);
 
     return html`
-      <div
-        class="transcript"
-        role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
-        tabindex="0"
-        @scroll=${this._on_scroll}
-        @transcript-layout=${this._maybe_autoscroll}
-      >
-        ${selectors.visible_busy(state) && transcript.length === 0
-          ? html`<p class="history-note">
-              This turn is running in the background; earlier transcript history is not
-              replayed after a reload.
-            </p>`
-          : nothing}
-        <empty-state
-          ?hidden=${selectors.has_transcript(state) || selectors.visible_busy(state)}
-          @example-select=${this._on_example}
-        ></empty-state>
-        ${repeat(
-          transcript,
-          (item) => item.id,
-          (item) =>
-            item.type === 'user'
-              ? html`<user-message .text=${item.text}></user-message>`
-              : item.type === 'context'
-                ? html`<context-message .item=${item}></context-message>`
-                : html`<assistant-turn
-                  .item=${item}
-                  .agentId=${state.active_agent_session_id}
-                ></assistant-turn>`,
-        )}
+      <div class="transcript-frame">
+        <div
+          class="transcript"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          tabindex="0"
+          @scroll=${this._on_scroll}
+          @transcript-layout=${this._maybe_autoscroll}
+        >
+          ${selectors.visible_busy(state) && transcript.length === 0
+            ? html`<p class="history-note">
+                This turn is running in the background; earlier transcript history is not
+                replayed after a reload.
+              </p>`
+            : nothing}
+          <empty-state
+            ?hidden=${selectors.has_transcript(state) || selectors.visible_busy(state)}
+            @example-select=${this._on_example}
+          ></empty-state>
+          ${repeat(
+            transcript,
+            (item) => item.id,
+            (item) =>
+              item.type === 'user'
+                ? html`<user-message .text=${item.text}></user-message>`
+                : item.type === 'context'
+                  ? html`<context-message .item=${item}></context-message>`
+                  : html`<assistant-turn
+                    .item=${item}
+                    .agentId=${state.active_agent_session_id}
+                  ></assistant-turn>`,
+          )}
+        </div>
+        ${state.auto_scroll
+          ? nothing
+          : html`<button
+              type="button"
+              class="strip-badge jump-badge jump-latest"
+              title="Jump to latest"
+              @click=${this._jump_latest}
+            >
+              <span aria-hidden="true">↓</span> Jump to latest
+            </button>`}
       </div>
     `;
   }
@@ -128,6 +140,9 @@ export class TranscriptView extends LitElement {
     session.set_auto_scroll(at_bottom);
   }
 
+  _jump_latest() {
+    session.jump_to_latest();
+  }
 
   _on_example(event) {
     session.fill_composer(event.detail && event.detail.prompt);

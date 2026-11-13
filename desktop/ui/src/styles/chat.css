@@ -1,5 +1,22 @@
 /* ------------------------------------------------------------------- chat */
 
+.transcript-frame {
+  position: relative;
+  display: flex;
+  flex: 1;
+  width: 100%;
+  max-width: 820px;
+  min-height: 0;
+}
+
+.jump-latest {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  box-shadow: 0 6px 20px rgba(17, 20, 45, 0.22);
+}
+
 .transcript {
   flex: 1;
   min-height: 0;

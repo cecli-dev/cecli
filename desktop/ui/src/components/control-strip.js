@@ -55,16 +55,6 @@ export class ControlStrip extends LitElement {
             </button>
             ${this._render_extensions_popover(state)}
           </div>
-          ${state.auto_scroll
-            ? nothing
-            : html`<button
-                type="button"
-                class="strip-badge jump-badge"
-                title="Jump to latest"
-                @click=${this._jump_latest}
-              >
-                <span aria-hidden="true">↓</span> Jump to latest
-              </button>`}
         </div>
         <div class="strip-actions">
           <metrics-menu></metrics-menu>
@@ -83,10 +73,6 @@ export class ControlStrip extends LitElement {
         @close=${this._close_models}
       ></model-dialog>
     `;
-  }
-
-  _jump_latest() {
-    session.jump_to_latest();
   }
 
   _open_modal(tab) {

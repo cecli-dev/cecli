@@ -470,14 +470,6 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
             </button>
             ${this._render_extensions_popover(e)}
           </div>
-          ${e.auto_scroll?k:O`<button
-                type="button"
-                class="strip-badge jump-badge"
-                title="Jump to latest"
-                @click=${this._jump_latest}
-              >
-                <span aria-hidden="true">↓</span> Jump to latest
-              </button>`}
         </div>
         <div class="strip-actions">
           <metrics-menu></metrics-menu>
@@ -495,7 +487,7 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
         .option=${this._model_option(this._store.state)}
         @close=${this._close_models}
       ></model-dialog>
-    `}_jump_latest(){j.jump_to_latest()}_open_modal(e){this._modal=e,j.refresh_state(),this.requestUpdate()}_on_open_registry(e){this._open_modal(e.detail?.tab||`context`)}_close_modal(){this._modal=null,this.requestUpdate()}_render_model(e){let t=this._model_option(e);return t?O`
+    `}_open_modal(e){this._modal=e,j.refresh_state(),this.requestUpdate()}_on_open_registry(e){this._open_modal(e.detail?.tab||`context`)}_close_modal(){this._modal=null,this.requestUpdate()}_render_model(e){let t=this._model_option(e);return t?O`
       <button
         type="button"
         class="model-trigger"
@@ -1199,29 +1191,39 @@ l0,-`+(t+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         <div class="bubble">${this.text}</div>
       </div>
     `}};customElements.define(`user-message`,zu);var Bu=class extends A{constructor(){super(),this._store=new br(this,Sr),this._observer=null}createRenderRoot(){return this}firstUpdated(){let e=this._transcript();e&&(this._observer=new MutationObserver(()=>this._maybe_autoscroll()),this._observer.observe(e,{childList:!0,subtree:!0,characterData:!0}),this._resize_observer=new ResizeObserver(()=>this._maybe_autoscroll()),this._resize_observer.observe(e))}disconnectedCallback(){this._observer&&this._observer.disconnect(),this._observer=null,this._resize_observer&&this._resize_observer.disconnect(),this._resize_observer=null,this._scroll_timer&&clearTimeout(this._scroll_timer),this._scroll_timer=null,super.disconnectedCallback()}updated(){this._maybe_autoscroll(),queueMicrotask(()=>this._maybe_autoscroll()),this._scroll_timer&&clearTimeout(this._scroll_timer),this._scroll_timer=setTimeout(()=>{this._scroll_timer=null,this._maybe_autoscroll()},0)}render(){let e=this._store.state,t=xr.visible_transcript(e);return O`
-      <div
-        class="transcript"
-        role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
-        tabindex="0"
-        @scroll=${this._on_scroll}
-        @transcript-layout=${this._maybe_autoscroll}
-      >
-        ${xr.visible_busy(e)&&t.length===0?O`<p class="history-note">
-              This turn is running in the background; earlier transcript history is not
-              replayed after a reload.
-            </p>`:k}
-        <empty-state
-          ?hidden=${xr.has_transcript(e)||xr.visible_busy(e)}
-          @example-select=${this._on_example}
-        ></empty-state>
-        ${Xe(t,e=>e.id,t=>t.type===`user`?O`<user-message .text=${t.text}></user-message>`:t.type===`context`?O`<context-message .item=${t}></context-message>`:O`<assistant-turn
-                  .item=${t}
-                  .agentId=${e.active_agent_session_id}
-                ></assistant-turn>`)}
+      <div class="transcript-frame">
+        <div
+          class="transcript"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          tabindex="0"
+          @scroll=${this._on_scroll}
+          @transcript-layout=${this._maybe_autoscroll}
+        >
+          ${xr.visible_busy(e)&&t.length===0?O`<p class="history-note">
+                This turn is running in the background; earlier transcript history is not
+                replayed after a reload.
+              </p>`:k}
+          <empty-state
+            ?hidden=${xr.has_transcript(e)||xr.visible_busy(e)}
+            @example-select=${this._on_example}
+          ></empty-state>
+          ${Xe(t,e=>e.id,t=>t.type===`user`?O`<user-message .text=${t.text}></user-message>`:t.type===`context`?O`<context-message .item=${t}></context-message>`:O`<assistant-turn
+                    .item=${t}
+                    .agentId=${e.active_agent_session_id}
+                  ></assistant-turn>`)}
+        </div>
+        ${e.auto_scroll?k:O`<button
+              type="button"
+              class="strip-badge jump-badge jump-latest"
+              title="Jump to latest"
+              @click=${this._jump_latest}
+            >
+              <span aria-hidden="true">↓</span> Jump to latest
+            </button>`}
       </div>
-    `}_transcript(){return this.querySelector(`.transcript`)}_near_bottom(){let e=this._transcript();return!e||e.scrollHeight-e.scrollTop-e.clientHeight<80}_scroll_to_bottom(e){let t=this._transcript();t&&t.scrollTo({top:t.scrollHeight,behavior:e?`smooth`:`auto`})}_maybe_autoscroll(){this._store.state.auto_scroll&&this._scroll_to_bottom(!1)}_on_scroll(){let e=this._near_bottom();this._store.state.auto_scroll!==e&&j.set_auto_scroll(e)}_on_example(e){j.fill_composer(e.detail&&e.detail.prompt)}};customElements.define(`transcript-view`,Bu);var Vu={"Content-Type":`application/json`};function Hu(e,t,n=1e4){return od(e,{method:`POST`,headers:Vu,body:JSON.stringify(t===void 0?{}:t),timeout_ms:n})}function Uu(){return od(`/api/browser/state`,{headers:{Accept:`application/json`}})}function Wu(){return Hu(`/api/browser/start`,{},45e3)}function Gu(e){return Hu(`/api/browser/open`,{url:e})}function Ku(e){return Hu(`/api/browser/action`,{action:e})}function qu(e=null){return Hu(`/api/browser/tab/new`,e?{url:e}:{})}function Ju(e){return Hu(`/api/browser/tab/close`,{tabId:e})}function Yu(e){return Hu(`/api/browser/tab`,{tabId:e})}function Xu(e,t,n){return Hu(`/api/browser/viewport`,{width:e,height:t,dpr:n})}function Zu(e){return Hu(`/api/browser/input`,{event:e})}function Qu(){let e=Ze(),t=[`cecli.browser.v1`];e&&t.push(`token.${e}`);let n=window.location.protocol===`https:`?`wss`:`ws`,r=new WebSocket(`${n}://${window.location.host}/api/browser/ws`,t);return r.binaryType=`arraybuffer`,r}function $u(){return new EventSource(`/api/browser/stream`)}function ed(e,t=``){return Hu(`/api/browser/dialog`,{accept:e,promptText:t})}function td(e){return Hu(`/api/browser/file-chooser`,{files:e},3e4)}function nd(){return Hu(`/api/browser/file-chooser`,{cancel:!0})}function rd(e){return Hu(`/api/browser/download`,{action:`open`,id:e})}function id(e=null){return Hu(`/api/browser/external`,e?{url:e}:{})}function ad(e){return Hu(`/api/browser/drop`,e,3e4)}async function od(e,t){let n,{timeout_ms:r=1e4,...i}=t;!i.signal&&typeof AbortSignal<`u`&&typeof AbortSignal.timeout==`function`&&(i.signal=AbortSignal.timeout(r));try{n=await fetch(e,i)}catch(e){let t=Error(`Network error: ${e.message}`);throw t.status=0,t}let a=null;try{a=await n.json()}catch{a=null}if(!n.ok||a&&a.ok===!1){let e=Error(a&&(a.error||a.message)||`Request failed (${n.status})`);throw e.status=n.status,e.data=a,e}return a}var sd=new Set([`Enter`,`Backspace`,`Delete`,`Tab`,`Escape`,`ArrowLeft`,`ArrowRight`,`ArrowUp`,`ArrowDown`,`Home`,`End`,`PageUp`,`PageDown`,`Insert`]),cd=700,ld=8e3,ud=32,dd=32,fd=4,pd=1920,md=1080,hd=.5,gd=3,_d=1.2,vd=O`
+    `}_transcript(){return this.querySelector(`.transcript`)}_near_bottom(){let e=this._transcript();return!e||e.scrollHeight-e.scrollTop-e.clientHeight<80}_scroll_to_bottom(e){let t=this._transcript();t&&t.scrollTo({top:t.scrollHeight,behavior:e?`smooth`:`auto`})}_maybe_autoscroll(){this._store.state.auto_scroll&&this._scroll_to_bottom(!1)}_on_scroll(){let e=this._near_bottom();this._store.state.auto_scroll!==e&&j.set_auto_scroll(e)}_jump_latest(){j.jump_to_latest()}_on_example(e){j.fill_composer(e.detail&&e.detail.prompt)}};customElements.define(`transcript-view`,Bu);var Vu={"Content-Type":`application/json`};function Hu(e,t,n=1e4){return od(e,{method:`POST`,headers:Vu,body:JSON.stringify(t===void 0?{}:t),timeout_ms:n})}function Uu(){return od(`/api/browser/state`,{headers:{Accept:`application/json`}})}function Wu(){return Hu(`/api/browser/start`,{},45e3)}function Gu(e){return Hu(`/api/browser/open`,{url:e})}function Ku(e){return Hu(`/api/browser/action`,{action:e})}function qu(e=null){return Hu(`/api/browser/tab/new`,e?{url:e}:{})}function Ju(e){return Hu(`/api/browser/tab/close`,{tabId:e})}function Yu(e){return Hu(`/api/browser/tab`,{tabId:e})}function Xu(e,t,n){return Hu(`/api/browser/viewport`,{width:e,height:t,dpr:n})}function Zu(e){return Hu(`/api/browser/input`,{event:e})}function Qu(){let e=Ze(),t=[`cecli.browser.v1`];e&&t.push(`token.${e}`);let n=window.location.protocol===`https:`?`wss`:`ws`,r=new WebSocket(`${n}://${window.location.host}/api/browser/ws`,t);return r.binaryType=`arraybuffer`,r}function $u(){return new EventSource(`/api/browser/stream`)}function ed(e,t=``){return Hu(`/api/browser/dialog`,{accept:e,promptText:t})}function td(e){return Hu(`/api/browser/file-chooser`,{files:e},3e4)}function nd(){return Hu(`/api/browser/file-chooser`,{cancel:!0})}function rd(e){return Hu(`/api/browser/download`,{action:`open`,id:e})}function id(e=null){return Hu(`/api/browser/external`,e?{url:e}:{})}function ad(e){return Hu(`/api/browser/drop`,e,3e4)}async function od(e,t){let n,{timeout_ms:r=1e4,...i}=t;!i.signal&&typeof AbortSignal<`u`&&typeof AbortSignal.timeout==`function`&&(i.signal=AbortSignal.timeout(r));try{n=await fetch(e,i)}catch(e){let t=Error(`Network error: ${e.message}`);throw t.status=0,t}let a=null;try{a=await n.json()}catch{a=null}if(!n.ok||a&&a.ok===!1){let e=Error(a&&(a.error||a.message)||`Request failed (${n.status})`);throw e.status=n.status,e.data=a,e}return a}var sd=new Set([`Enter`,`Backspace`,`Delete`,`Tab`,`Escape`,`ArrowLeft`,`ArrowRight`,`ArrowUp`,`ArrowDown`,`Home`,`End`,`PageUp`,`PageDown`,`Insert`]),cd=700,ld=8e3,ud=32,dd=32,fd=4,pd=1920,md=1080,hd=.5,gd=3,_d=1.2,vd=O`
   <svg
     width="22"
     height="22"
