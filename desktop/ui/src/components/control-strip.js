@@ -32,15 +32,18 @@ export class ControlStrip extends LitElement {
           ${this._render_pickers(state)}
         </div>
         <div class="strip-badges">
-          <button
-            type="button"
-            class="strip-badge"
-            title="Manage skills, MCP servers and context"
-            @click=${() => this._open_modal('skills')}
-          >
-            Extensions
-            <span>${state.skills.length + state.mcp_servers.length + state.context_files.length}</span>
-          </button>
+          <div class="extensions-hover">
+            <button
+              type="button"
+              class="strip-badge"
+              aria-label="Manage skills, MCP servers and context"
+              @click=${() => this._open_modal('skills')}
+            >
+              Extensions
+              <span>${state.skills.length + state.mcp_servers.length + state.context_files.length}</span>
+            </button>
+            ${this._render_extensions_popover(state)}
+          </div>
           ${state.auto_scroll
             ? nothing
             : html`<button
@@ -145,6 +148,47 @@ export class ControlStrip extends LitElement {
   _close_models() {
     this._model_open = false;
     this.requestUpdate();
+  }
+
+  _render_extensions_popover(state) {
+    const skills = (state.skills || []).filter((item) => this._is_skill_loaded(item));
+    const servers = (state.mcp_servers || []).filter((item) => this._is_server_connected(item));
+
+    return html`
+      <div class="extensions-popover" role="tooltip">
+        ${this._render_extensions_section('Skills', skills, 'No active skills')}
+        ${this._render_extensions_section('Servers', servers, 'No active servers')}
+      </div>
+    `;
+  }
+
+  _render_extensions_section(title, items, empty_label) {
+    return html`
+      <section class="extensions-section">
+        <h4 class="extensions-section-title">${title}</h4>
+        ${items.length
+          ? html`
+              <ul class="extensions-list">
+                ${items.map(
+                  (item) => html`<li class="extensions-item">${this._extension_name(item)}</li>`,
+                )}
+              </ul>
+            `
+          : html`<p class="extensions-empty">${empty_label}</p>`}
+      </section>
+    `;
+  }
+
+  _extension_name(item) {
+    return item?.name || item?.id || String(item);
+  }
+
+  _is_skill_loaded(item) {
+    return Boolean(item?.loaded ?? item?.enabled ?? item?.status === 'loaded');
+  }
+
+  _is_server_connected(item) {
+    return Boolean(item?.connected ?? item?.status === 'connected');
   }
 
 }

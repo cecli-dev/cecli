@@ -440,15 +440,18 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
           ${this._render_pickers(e)}
         </div>
         <div class="strip-badges">
-          <button
-            type="button"
-            class="strip-badge"
-            title="Manage skills, MCP servers and context"
-            @click=${()=>this._open_modal(`skills`)}
-          >
-            Extensions
-            <span>${e.skills.length+e.mcp_servers.length+e.context_files.length}</span>
-          </button>
+          <div class="extensions-hover">
+            <button
+              type="button"
+              class="strip-badge"
+              aria-label="Manage skills, MCP servers and context"
+              @click=${()=>this._open_modal(`skills`)}
+            >
+              Extensions
+              <span>${e.skills.length+e.mcp_servers.length+e.context_files.length}</span>
+            </button>
+            ${this._render_extensions_popover(e)}
+          </div>
           ${e.auto_scroll?k:O`<button
                 type="button"
                 class="strip-badge jump-badge"
@@ -483,7 +486,21 @@ var e=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t,t.exports),e=null),t.exports)
       >
         <span class="model-trigger-value">${this._model_label(t)}</span>
       </button>
-    `:k}_render_pickers(e){let t=e.config_options.filter(e=>e.id!==`mode`&&e.id!==`model`&&e.id!==`reasoning_effort`);return t.length?Xe(t,e=>e.id,e=>O`<config-picker .option=${e}></config-picker>`):e.status===`ready`&&this._model_option(e)?k:O`<span class="strip-muted">${e.status===`ready`?`No config options`:`Connecting…`}</span>`}_model_option(e){return e.config_options.find(e=>e.id===`model`)||null}_model_label(e){let t=String(e.currentValue??``),n=[];for(let t of e.options||[])Array.isArray(t.options)?n.push(...t.options):t&&t.value!==void 0&&n.push(t);return n.find(e=>String(e.value)===t)?.name||t||`Choose model`}_open_models(){this._model_open=!0,j.refresh_state(),this.requestUpdate()}_close_models(){this._model_open=!1,this.requestUpdate()}};customElements.define(`control-strip`,Hr);var Ur=`github_copilot`,Wr=class extends A{static properties={open:{type:Boolean}};constructor(){super(),this.open=!1,this._step=`provider`,this._providers=[],this._provider=null,this._key_values={},this._models=[],this._query=``,this._copilot=null,this._login=null,this._loading=!1,this._busy=!1,this._error=``,this._poll_timer=null}createRenderRoot(){return this}willUpdate(e){e.has(`open`)&&this.open&&(this._reset(),this._providers.length||this._load_providers())}disconnectedCallback(){super.disconnectedCallback(),this._stop_polling()}render(){return this.open?O`
+    `:k}_render_pickers(e){let t=e.config_options.filter(e=>e.id!==`mode`&&e.id!==`model`&&e.id!==`reasoning_effort`);return t.length?Xe(t,e=>e.id,e=>O`<config-picker .option=${e}></config-picker>`):e.status===`ready`&&this._model_option(e)?k:O`<span class="strip-muted">${e.status===`ready`?`No config options`:`Connecting…`}</span>`}_model_option(e){return e.config_options.find(e=>e.id===`model`)||null}_model_label(e){let t=String(e.currentValue??``),n=[];for(let t of e.options||[])Array.isArray(t.options)?n.push(...t.options):t&&t.value!==void 0&&n.push(t);return n.find(e=>String(e.value)===t)?.name||t||`Choose model`}_open_models(){this._model_open=!0,j.refresh_state(),this.requestUpdate()}_close_models(){this._model_open=!1,this.requestUpdate()}_render_extensions_popover(e){let t=(e.skills||[]).filter(e=>this._is_skill_loaded(e)),n=(e.mcp_servers||[]).filter(e=>this._is_server_connected(e));return O`
+      <div class="extensions-popover" role="tooltip">
+        ${this._render_extensions_section(`Skills`,t,`No active skills`)}
+        ${this._render_extensions_section(`Servers`,n,`No active servers`)}
+      </div>
+    `}_render_extensions_section(e,t,n){return O`
+      <section class="extensions-section">
+        <h4 class="extensions-section-title">${e}</h4>
+        ${t.length?O`
+              <ul class="extensions-list">
+                ${t.map(e=>O`<li class="extensions-item">${this._extension_name(e)}</li>`)}
+              </ul>
+            `:O`<p class="extensions-empty">${n}</p>`}
+      </section>
+    `}_extension_name(e){return e?.name||e?.id||String(e)}_is_skill_loaded(e){return!!(e?.loaded??e?.enabled??e?.status===`loaded`)}_is_server_connected(e){return!!(e?.connected??e?.status===`connected`)}};customElements.define(`control-strip`,Hr);var Ur=`github_copilot`,Wr=class extends A{static properties={open:{type:Boolean}};constructor(){super(),this.open=!1,this._step=`provider`,this._providers=[],this._provider=null,this._key_values={},this._models=[],this._query=``,this._copilot=null,this._login=null,this._loading=!1,this._busy=!1,this._error=``,this._poll_timer=null}createRenderRoot(){return this}willUpdate(e){e.has(`open`)&&this.open&&(this._reset(),this._providers.length||this._load_providers())}disconnectedCallback(){super.disconnectedCallback(),this._stop_polling()}render(){return this.open?O`
       <div class="modal-backdrop" @click=${this._on_backdrop}>
         <div
           class="modal-card modal-card--wide onboarding-card"
