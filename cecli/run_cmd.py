@@ -33,12 +33,24 @@ def get_windows_parent_process_name():
             if parent is None:
                 break
             parent_name = parent.name().lower()
-            if parent_name in ["powershell.exe", "cmd.exe"]:
+            if parent_name in ["pwsh.exe", "powershell.exe", "cmd.exe"]:
                 return parent_name
             current_process = parent
         return None
     except Exception:
         return None
+
+
+def _wrap_windows_powershell_command(command, parent_process):
+    """Wrap command for PowerShell (pwsh or Windows PowerShell) with CLIXML silenced."""
+    if parent_process not in ("pwsh.exe", "powershell.exe"):
+        return command
+    exe = "pwsh" if parent_process == "pwsh.exe" else "powershell"
+    # Silence progress/error streams at the source to prevent CLIXML
+    silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
+    cmd_bytes = silenced_command.encode("utf-16-le")
+    encoded = base64.b64encode(cmd_bytes).decode()
+    return f"{exe} -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
 
 
 def run_cmd_subprocess(
@@ -54,12 +66,7 @@ def run_cmd_subprocess(
         # Determine the appropriate shell
         if platform.system() == "Windows":
             parent_process = get_windows_parent_process_name()
-            if parent_process == "powershell.exe":
-                # Silence progress/error streams at the source to prevent CLIXML
-                silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
-                cmd_bytes = silenced_command.encode("utf-16-le")
-                encoded = base64.b64encode(cmd_bytes).decode()
-                command = f"powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
+            command = _wrap_windows_powershell_command(command, parent_process)
         if verbose:
             print("Running command:", command)
             print("SHELL:", shell)
@@ -123,12 +130,7 @@ async def run_cmd_async(
     # Determine the appropriate shell
     if platform.system() == "Windows":
         parent_process = get_windows_parent_process_name()
-        if parent_process == "powershell.exe":
-            # Silence progress/error streams at the source to prevent CLIXML
-            silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
-            cmd_bytes = silenced_command.encode("utf-16-le")
-            encoded = base64.b64encode(cmd_bytes).decode()
-            command = f"powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
+        command = _wrap_windows_powershell_command(command, parent_process)
 
     if verbose:
         print("Running command:", command)
