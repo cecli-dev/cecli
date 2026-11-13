@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,12 @@ def get_windows_parent_process_name():
 def _wrap_windows_powershell_command(command, parent_process):
     """Wrap command for PowerShell (pwsh or Windows PowerShell) with CLIXML silenced."""
     if parent_process not in ("pwsh.exe", "powershell.exe"):
+        return command
+    if re.match(
+        r'^\s*(?:"[^"]*(?:pwsh|powershell)(?:\.exe)?"|\S*(?:pwsh|powershell)(?:\.exe)?)\s+.*-EncodedCommand\s+',
+        command,
+        re.IGNORECASE,
+    ):
         return command
     exe = "pwsh" if parent_process == "pwsh.exe" else "powershell"
     # Silence progress/error streams at the source to prevent CLIXML
@@ -130,6 +137,7 @@ async def run_cmd_async(
     if verbose:
         print("Using run_cmd_async:", command)
 
+    raw_command = command
     shell = os.environ.get("SHELL", "/bin/sh")
     parent_process = None
 
@@ -153,7 +161,7 @@ async def run_cmd_async(
             return await loop.run_in_executor(
                 None,
                 run_cmd_subprocess,
-                command,
+                raw_command,
                 verbose,
                 cwd,
                 encoding,
@@ -174,7 +182,7 @@ async def run_cmd_async(
         return await loop.run_in_executor(
             None,
             run_cmd_subprocess,
-            command,
+            raw_command,
             verbose,
             cwd,
             encoding,
