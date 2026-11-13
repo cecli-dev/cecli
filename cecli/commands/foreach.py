@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import shlex
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -30,20 +29,54 @@ class ForeachCommand(BaseCommand):
     @classmethod
     def _create_arg_parser(cls) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(prog="/foreach", add_help=False)
-        parser.add_argument("-u", "--unless-exists", dest="unless_exists", default=None,
-                            help="Skip item if the evaluated target file path already exists on disk.")
-        parser.add_argument("-c", "--clear", dest="clear", action="store_true", default=False,
-                            help="Clear conversation history between iterations to prevent context bloat.")
-        parser.add_argument("-n", "--limit", dest="limit", type=int, default=None,
-                            help="Process at most N items.")
-        parser.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
-                            help="Show matching items and evaluated prompts without executing them.")
-        parser.add_argument("--delay", dest="delay", type=float, default=0.0,
-                            help="Delay in seconds between iterations.")
-        parser.add_argument("--allow-truncation", dest="no_truncation", action="store_false", default=True,
-                            help="Allow context management to truncate large files during batch iteration (default: False/never truncate).")
-        parser.add_argument("pattern", nargs="?", default=None,
-                            help="Glob pattern or directory path matching target files.")
+        parser.add_argument(
+            "-u",
+            "--unless-exists",
+            dest="unless_exists",
+            default=None,
+            help="Skip item if the evaluated target file path already exists on disk.",
+        )
+        parser.add_argument(
+            "-c",
+            "--clear",
+            dest="clear",
+            action="store_true",
+            default=False,
+            help="Clear conversation history between iterations to prevent context bloat.",
+        )
+        parser.add_argument(
+            "-n", "--limit", dest="limit", type=int, default=None, help="Process at most N items."
+        )
+        parser.add_argument(
+            "--dry-run",
+            dest="dry_run",
+            action="store_true",
+            default=False,
+            help="Show matching items and evaluated prompts without executing them.",
+        )
+        parser.add_argument(
+            "--delay",
+            dest="delay",
+            type=float,
+            default=0.0,
+            help="Delay in seconds between iterations.",
+        )
+        parser.add_argument(
+            "--allow-truncation",
+            dest="no_truncation",
+            action="store_false",
+            default=True,
+            help=(
+                "Allow context management to truncate large files during batch iteration "
+                "(default: False/never truncate)."
+            ),
+        )
+        parser.add_argument(
+            "pattern",
+            nargs="?",
+            default=None,
+            help="Glob pattern or directory path matching target files.",
+        )
         return parser
 
     @classmethod
@@ -151,7 +184,7 @@ class ForeachCommand(BaseCommand):
 
         # Apply limit if requested
         if parsed.limit and parsed.limit > 0:
-            candidates = candidates[:parsed.limit]
+            candidates = candidates[: parsed.limit]
 
         total_items = len(candidates)
 
@@ -170,8 +203,7 @@ class ForeachCommand(BaseCommand):
             return f"Dry-run completed: {total_items} items to process."
 
         io.tool_output(
-            f"🔄 /foreach: Starting loop for {total_items} item(s) "
-            f"({skipped_count} skipped)..."
+            f"🔄 /foreach: Starting loop for {total_items} item(s) " f"({skipped_count} skipped)..."
         )
 
         completed_count = 0
@@ -186,7 +218,9 @@ class ForeachCommand(BaseCommand):
 
         if getattr(parsed, "no_truncation", True):
             if hasattr(coder, "large_file_token_threshold"):
-                max_tokens = getattr(getattr(coder, "main_model", None), "max_context_tokens", None) or 87552
+                max_tokens = (
+                    getattr(getattr(coder, "main_model", None), "max_context_tokens", None) or 87552
+                )
                 coder.large_file_token_threshold = max(32768, max_tokens // 2)
             if hasattr(coder, "context_management_enabled"):
                 coder.context_management_enabled = False
@@ -265,7 +299,11 @@ class ForeachCommand(BaseCommand):
                 coder.context_management_enabled = orig_context_mgmt
             if orig_threshold is not None and hasattr(coder, "large_file_token_threshold"):
                 coder.large_file_token_threshold = orig_threshold
-            if orig_repo_map_tokens is not None and hasattr(coder, "repo_map") and coder.repo_map is not None:
+            if (
+                orig_repo_map_tokens is not None
+                and hasattr(coder, "repo_map")
+                and coder.repo_map is not None
+            ):
                 coder.repo_map.max_map_tokens = orig_repo_map_tokens
 
         status_msg = (
@@ -287,13 +325,20 @@ class ForeachCommand(BaseCommand):
         help_text += "  {index}     Current item index (1-based)\n"
         help_text += "  {total}     Total count of items to process\n"
         help_text += "\nOptions:\n"
-        help_text += "  -u, --unless-exists <path>   Skip item if evaluated file path already exists\n"
+        help_text += (
+            "  -u, --unless-exists <path>   Skip item if evaluated file path already exists\n"
+        )
         help_text += "  -c, --clear                 Clear chat history between iterations (prevents context bloat)\n"
         help_text += "  -n, --limit <count>         Process at most N items\n"
-        help_text += "  --dry-run                   Preview matching files and prompts without executing\n"
+        help_text += (
+            "  --dry-run                   Preview matching files and prompts without executing\n"
+        )
         help_text += "  --delay <seconds>           Pause between iterations (default: 0)\n"
         help_text += "\nExamples:\n"
-        help_text += "  /foreach pine_sources/PBK_*.pine -u doc/indicator/{filename}_manual.md -c :: Delegate to worker for {file}\n"
+        help_text += (
+            "  /foreach pine_sources/PBK_*.pine -u doc/indicator/{filename}_manual.md "
+            "-c :: Delegate to worker for {file}\n"
+        )
         help_text += "  /foreach --dry-run src/*.py :: Review {file} for performance\n"
         help_text += "  /foreach -n 3 src/**/*.ts -c :: Add unit tests for {file}\n"
         return help_text

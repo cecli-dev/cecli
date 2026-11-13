@@ -80,7 +80,7 @@ class AgentCoder(Coder):
         }
         self.edit_allowed = True
         self.max_tool_calls = 10000
-        self.large_file_token_threshold = 25000
+        self.large_file_token_threshold = 8192
         self.skills_manager = None
         self.change_tracker = ChangeTracker()
         self.args = kwargs.get("args")
@@ -211,7 +211,7 @@ class AgentCoder(Coder):
                 return {}
 
         config["large_file_token_threshold"] = nested.getter(
-            config, "large_file_token_threshold", 25000
+            config, "large_file_token_threshold", 8192
         )
         config["show_lint_errors"] = nested.getter(config, "show_lint_errors", False)
         config["skip_cli_confirmations"] = nested.getter(
