@@ -17,7 +17,12 @@ import xxhash
 
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.helpers.browser import configure_browser_environment
-from cecli.run_cmd import run_cmd, run_cmd_subprocess
+from cecli.run_cmd import (
+    _wrap_windows_powershell_command,
+    get_windows_parent_process_name,
+    run_cmd,
+    run_cmd_subprocess,
+)
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.helpers import ToolError, is_creator_coder
 from cecli.tools.utils.output import color_markers, tool_footer, tool_header
@@ -437,6 +442,10 @@ class Tool(BaseTool):
                 if use_pty and not HAS_PTY
                 else command_string
             )
+            if platform.system() == "Windows":
+                resolved_cmd = _wrap_windows_powershell_command(
+                    resolved_cmd, get_windows_parent_process_name()
+                )
             shell = os.environ.get("SHELL", "/bin/sh")
             process = subprocess.Popen(
                 resolved_cmd,

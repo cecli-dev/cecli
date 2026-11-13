@@ -48,3 +48,20 @@ def test_wrap_windows_powershell_command(parent_process, expected_exe):
 def test_wrap_windows_powershell_command_passthrough_for_cmd():
     assert _wrap_windows_powershell_command("dir", "cmd.exe") == "dir"
     assert _wrap_windows_powershell_command("dir", None) == "dir"
+
+
+def test_get_windows_parent_process_name_defaults_to_powershell():
+    parent = SimpleNamespace(name=lambda: "explorer.exe", parent=lambda: None)
+    current = SimpleNamespace(parent=lambda: parent)
+
+    with (
+        patch("cecli.run_cmd.psutil.Process", return_value=current),
+        patch("cecli.run_cmd.shutil.which", side_effect=lambda name: name == "pwsh"),
+    ):
+        assert get_windows_parent_process_name() == "pwsh.exe"
+
+    with (
+        patch("cecli.run_cmd.psutil.Process", return_value=current),
+        patch("cecli.run_cmd.shutil.which", side_effect=lambda name: name == "powershell"),
+    ):
+        assert get_windows_parent_process_name() == "powershell.exe"

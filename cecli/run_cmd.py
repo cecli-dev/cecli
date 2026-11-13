@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from io import BytesIO
@@ -36,9 +37,14 @@ def get_windows_parent_process_name():
             if parent_name in ["pwsh.exe", "powershell.exe", "cmd.exe"]:
                 return parent_name
             current_process = parent
-        return None
     except Exception:
-        return None
+        pass
+    # Sane Win11 default when launched outside a shell (e.g. IDE/Explorer/service)
+    if shutil.which("pwsh"):
+        return "pwsh.exe"
+    if shutil.which("powershell"):
+        return "powershell.exe"
+    return None
 
 
 def _wrap_windows_powershell_command(command, parent_process):
