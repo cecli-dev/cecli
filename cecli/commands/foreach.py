@@ -231,6 +231,16 @@ class ForeachCommand(BaseCommand):
                             coder.abs_read_only_stubs_fnames = set()
                         if hasattr(coder, "files_added_in_exploration"):
                             coder.files_added_in_exploration = set()
+                        if hasattr(coder, "file_read_cache"):
+                            coder.file_read_cache.clear()
+                        try:
+                            from cecli.tools.read_file import Tool as ReadFileTool
+
+                            ReadFileTool._last_invocation.clear()
+                            ReadFileTool._last_read_turn.clear()
+                            ReadFileTool._special_marker_count.clear()
+                        except Exception:
+                            pass
                         ConversationService.get_chunks(coder).flush_removals()
                     except Exception as clear_err:
                         io.tool_warning(f"Context clear warning: {clear_err}")

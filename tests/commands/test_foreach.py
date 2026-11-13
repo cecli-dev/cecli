@@ -98,8 +98,18 @@ async def test_execute_clears_context_when_flag_present(tmp_path):
     src_dir.mkdir()
     (src_dir / "item1.txt").write_text("1", encoding="utf-8")
 
+    from cecli.tools.read_file import Tool as ReadFileTool
+
+    ReadFileTool._last_invocation["x"] = {"start_idx": 0, "end_idx": 1}
+    ReadFileTool._last_read_turn["x"] = 1
+    ReadFileTool._special_marker_count["x"] = 2
+
     io = MagicMock()
-    coder = SimpleNamespace(root=str(tmp_path), run_one=AsyncMock())
+    coder = SimpleNamespace(
+        root=str(tmp_path),
+        run_one=AsyncMock(),
+        file_read_cache={"x"},
+    )
 
     with patch("cecli.helpers.conversation.ConversationService.get_manager") as mock_get_manager, \
          patch("cecli.helpers.conversation.ConversationService.get_files") as mock_get_files:
@@ -116,4 +126,8 @@ async def test_execute_clears_context_when_flag_present(tmp_path):
 
         assert mock_manager.clear_tag.call_count >= 1
         assert mock_files.reset.call_count >= 1
+        assert coder.file_read_cache == set()
+        assert ReadFileTool._last_invocation == {}
+        assert ReadFileTool._last_read_turn == {}
+        assert ReadFileTool._special_marker_count == {}
         assert coder.run_one.call_count == 1
