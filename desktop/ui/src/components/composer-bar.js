@@ -1,6 +1,6 @@
 import { LitElement, html, nothing } from 'lit';
 
-import { SEND_ICON, STOP_ICON } from '../core/constants.js';
+import { PLUS_ICON, SEND_ICON, STOP_ICON } from '../core/constants.js';
 import { get_prompt_history } from '../core/api.js';
 import { session } from '../core/session.js';
 import { StoreController, selectors, store } from '../core/store.js';
@@ -88,6 +88,15 @@ export class ComposerBar extends LitElement {
             @input=${this._on_input}
             @keydown=${this._on_keydown}
           ></textarea>
+          <div class="composer-add">
+            <button
+              class="add-btn"
+              type="button"
+              aria-label="Manage extensions and context"
+              @click=${this._open_extensions}
+            >${PLUS_ICON}</button>
+            ${this._render_context_popover(state)}
+          </div>
           <button
             class="send-btn"
             type="button"
@@ -116,6 +125,37 @@ export class ComposerBar extends LitElement {
         </div>
       </footer>
     `;
+  }
+
+  _open_extensions() {
+    document.dispatchEvent(
+      new CustomEvent('cecli:open-registry', { detail: { tab: 'context' } }),
+    );
+  }
+
+  _render_context_popover(state) {
+    const files = state.context_files || [];
+
+    return html`
+      <div class="composer-context-popover" role="tooltip">
+        <h4 class="composer-context-title">Context</h4>
+        ${files.length
+          ? html`
+              <ul class="composer-context-list">
+                ${files.map((item) => {
+                  const path = this._context_path(item);
+
+                  return html`<li class="composer-context-item" title=${path}>${path}</li>`;
+                })}
+              </ul>
+            `
+          : html`<p class="composer-context-empty">No files in context</p>`}
+      </div>
+    `;
+  }
+
+  _context_path(item) {
+    return item?.path || item?.name || String(item);
   }
 
   _textarea() {

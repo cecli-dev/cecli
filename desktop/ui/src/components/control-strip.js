@@ -16,10 +16,21 @@ export class ControlStrip extends LitElement {
     this._store = new StoreController(this, store);
     this._modal = null;
     this._model_open = false;
+    this._on_open_registry = this._on_open_registry.bind(this);
   }
 
   createRenderRoot() {
     return this;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener('cecli:open-registry', this._on_open_registry);
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener('cecli:open-registry', this._on_open_registry);
+    super.disconnectedCallback();
   }
 
   render() {
@@ -82,6 +93,10 @@ export class ControlStrip extends LitElement {
     this._modal = tab;
     session.refresh_state();
     this.requestUpdate();
+  }
+
+  _on_open_registry(event) {
+    this._open_modal(event.detail?.tab || 'context');
   }
 
   _close_modal() {
