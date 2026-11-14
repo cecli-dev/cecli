@@ -1,8 +1,9 @@
 import { LitElement, html } from 'lit';
+import { repeat } from 'lit/directives/repeat.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 
 import { MARKDOWN_THROTTLE_MS } from '../core/constants.js';
-import { markdown_to_html } from '../core/markdown.js';
+import { MarkdownStreamRenderer } from '../core/markdown.js';
 
 export class MarkdownView extends LitElement {
   static properties = {
@@ -14,7 +15,10 @@ export class MarkdownView extends LitElement {
     super();
     this.text = '';
     this.streaming = false;
-    this._rendered = '';
+    this._renderer = new MarkdownStreamRenderer();
+    this._blocks = [];
+    this._text_rendered = '';
+    this._render_revision = 0;
     this._timer = null;
     this._caret_for = null;
   }
@@ -50,7 +54,11 @@ export class MarkdownView extends LitElement {
       <div
         class="md ${this.streaming ? 'is-streaming' : ''}"
         @click=${this._on_click}
-      >${unsafeHTML(this._rendered)}</div>
+      >${repeat(
+        this._blocks,
+        (block, index) => index,
+        (block) => unsafeHTML(block.html),
+      )}</div>
     `;
   }
 
@@ -59,7 +67,7 @@ export class MarkdownView extends LitElement {
 
     this._timer = setTimeout(() => {
       this._timer = null;
-      this._rendered = markdown_to_html(this.text);
+      this._render_blocks();
       this.requestUpdate();
     }, MARKDOWN_THROTTLE_MS);
   }
@@ -67,14 +75,30 @@ export class MarkdownView extends LitElement {
   _render_now() {
     clearTimeout(this._timer);
     this._timer = null;
-    this._rendered = markdown_to_html(this.text);
+    this._render_blocks();
+  }
+
+  _render_blocks() {
+    const text = this.text || '';
+    if (!text.startsWith(this._text_rendered)) this._renderer.reset();
+
+    this._text_rendered = text;
+    const blocks = this._renderer.render(text);
+    const changed =
+      blocks.length !== this._blocks.length ||
+      blocks.some((block, index) => block.html !== this._blocks[index].html);
+
+    this._blocks = blocks;
+    if (changed) this._render_revision += 1;
   }
 
   _attach_caret() {
-    if (this._caret_for === this._rendered) return;
+    if (this._caret_for === this._render_revision) return;
 
     const container = this.querySelector('.md');
     if (!container) return;
+
+    this._remove_caret();
 
     const caret = document.createElement('span');
     caret.className = 'stream-caret';
@@ -88,7 +112,7 @@ export class MarkdownView extends LitElement {
       container.appendChild(caret);
     }
 
-    this._caret_for = this._rendered;
+    this._caret_for = this._render_revision;
   }
 
   _remove_caret() {

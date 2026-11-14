@@ -33,6 +33,21 @@
   outline-offset: -4px;
 }
 
+/* Keep full scrollback in the DOM while letting the browser skip layout and
+   paint for messages outside the viewport. */
+.transcript .msg,
+.transcript .context-message {
+  content-visibility: auto;
+  contain-intrinsic-size: 120px;
+  contain-intrinsic-size: auto 120px;
+}
+
+/* Live turns stay fully rendered so streaming updates cannot swap placeholders. */
+.transcript > :nth-last-child(-n + 2) .msg,
+.transcript > :nth-last-child(-n + 2) .context-message {
+  content-visibility: visible;
+}
+
 /* ------------------------------------------------------------ empty state */
 
 .empty-state {

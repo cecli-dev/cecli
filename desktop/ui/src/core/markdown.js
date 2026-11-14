@@ -20,8 +20,20 @@ export function escape_html(value) {
 
 /** Convert a plain-text markdown buffer into safe HTML. */
 export function markdown_to_html(text) {
+  return markdown_blocks(text)
+    .map((block) => block.render())
+    .join('');
+}
+
+/**
+ * Parse the top-level blocks of `text` without rendering them yet.
+ *
+ * Each block keeps its escaped source and a lazy `render` callback, so a streaming view can
+ * reuse the HTML of blocks whose source has already settled.
+ */
+export function markdown_blocks(text) {
   const lines = escape_html(text).split('\n');
-  const html = [];
+  const blocks = [];
   let index = 0;
 
   while (index < lines.length) {
@@ -32,6 +44,7 @@ export function markdown_to_html(text) {
       continue;
     }
 
+    const start = index;
     const fence = /^```([\w+#.-]*)\s*$/.exec(line.trim());
     if (fence) {
       const language = fence[1] || '';
@@ -44,7 +57,7 @@ export function markdown_to_html(text) {
       }
 
       if (index < lines.length) index += 1;
-      html.push(render_code_block_html(code.join('\n'), language));
+      push_block(blocks, lines, start, index, () => render_code_block_html(code.join('\n'), language));
       continue;
     }
 
@@ -66,13 +79,13 @@ export function markdown_to_html(text) {
         index += 1;
       }
 
-      html.push(render_math_block_html(math_lines.join('\n'), !closed));
+      push_block(blocks, lines, start, index, () => render_math_block_html(math_lines.join('\n'), !closed));
       continue;
     }
 
     const single_line_math = single_line_display_math(line);
     if (single_line_math) {
-      html.push(render_math_block_html(single_line_math[1], false));
+      push_block(blocks, lines, start, index + 1, () => render_math_block_html(single_line_math[1], false));
       index += 1;
       continue;
     }
@@ -95,20 +108,20 @@ export function markdown_to_html(text) {
         index += 1;
       }
 
-      html.push(render_table_html(header_cells, alignments, body_rows));
+      push_block(blocks, lines, start, index, () => render_table_html(header_cells, alignments, body_rows));
       continue;
     }
 
     const heading = /^(#{1,3})\s+(.+)$/.exec(line);
     if (heading) {
       const level = heading[1].length;
-      html.push(`<h${level}>${inline_to_html(heading[2])}</h${level}>`);
+      push_block(blocks, lines, start, index + 1, () => `<h${level}>${inline_to_html(heading[2])}</h${level}>`);
       index += 1;
       continue;
     }
 
     if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      html.push('<hr>');
+      push_block(blocks, lines, start, index + 1, () => '<hr>');
       index += 1;
       continue;
     }
@@ -121,7 +134,7 @@ export function markdown_to_html(text) {
         index += 1;
       }
 
-      html.push(`<blockquote>${inline_to_html(quoted.join('\n')).replace(/\n/g, '<br>')}</blockquote>`);
+      push_block(blocks, lines, start, index, () => `<blockquote>${inline_to_html(quoted.join('\n')).replace(/\n/g, '<br>')}</blockquote>`);
       continue;
     }
 
@@ -133,7 +146,7 @@ export function markdown_to_html(text) {
         index += 1;
       }
 
-      html.push(`<ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+      push_block(blocks, lines, start, index, () => `<ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`);
       continue;
     }
 
@@ -145,7 +158,7 @@ export function markdown_to_html(text) {
         index += 1;
       }
 
-      html.push(`<ol>${items.map((item) => `<li>${item}</li>`).join('')}</ol>`);
+      push_block(blocks, lines, start, index, () => `<ol>${items.map((item) => `<li>${item}</li>`).join('')}</ol>`);
       continue;
     }
 
@@ -156,13 +169,43 @@ export function markdown_to_html(text) {
     }
 
     if (paragraph.length) {
-      html.push(`<p>${inline_to_html(paragraph.join('\n')).replace(/\n/g, '<br>')}</p>`);
+      push_block(blocks, lines, start, index, () => `<p>${inline_to_html(paragraph.join('\n')).replace(/\n/g, '<br>')}</p>`);
     } else {
       index += 1;
     }
   }
 
-  return html.join('');
+  return blocks;
+}
+
+/**
+ * Render growing markdown incrementally; blocks whose source is unchanged keep their HTML.
+ */
+export class MarkdownStreamRenderer {
+  constructor() {
+    this._blocks = [];
+  }
+
+  render(text) {
+    const blocks = markdown_blocks(text).map((block, index) => {
+      const cached = this._blocks[index];
+      if (cached !== undefined && cached.source === block.source) return cached;
+
+      return { source: block.source, html: block.render() };
+    });
+
+    this._blocks = blocks;
+    return blocks;
+  }
+
+  reset() {
+    this._blocks = [];
+  }
+}
+
+/** Record one parsed block with its escaped source for later cache checks. */
+function push_block(blocks, lines, start, end, render) {
+  blocks.push({ source: lines.slice(start, end).join('\n'), render });
 }
 
 /** True when the line at `index` begins a non-paragraph block. */

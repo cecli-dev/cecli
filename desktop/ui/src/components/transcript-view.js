@@ -14,6 +14,8 @@ export class TranscriptView extends LitElement {
     super();
     this._store = new StoreController(this, store);
     this._observer = null;
+    this._scroll_frame = null;
+    this._autoscrolling = false;
   }
 
   createRenderRoot() {
@@ -24,14 +26,14 @@ export class TranscriptView extends LitElement {
     const transcript = this._transcript();
     if (!transcript) return;
 
-    this._observer = new MutationObserver(() => this._maybe_autoscroll());
+    this._observer = new MutationObserver(() => this._schedule_autoscroll());
     this._observer.observe(transcript, {
       childList: true,
       subtree: true,
       characterData: true,
     });
 
-    this._resize_observer = new ResizeObserver(() => this._maybe_autoscroll());
+    this._resize_observer = new ResizeObserver(() => this._schedule_autoscroll());
     this._resize_observer.observe(transcript);
   }
 
@@ -40,19 +42,13 @@ export class TranscriptView extends LitElement {
     this._observer = null;
     if (this._resize_observer) this._resize_observer.disconnect();
     this._resize_observer = null;
-    if (this._scroll_timer) clearTimeout(this._scroll_timer);
-    this._scroll_timer = null;
+    if (this._scroll_frame !== null) cancelAnimationFrame(this._scroll_frame);
+    this._scroll_frame = null;
+    this._autoscrolling = false;
     super.disconnectedCallback();
   }
   updated() {
-    this._maybe_autoscroll();
-    queueMicrotask(() => this._maybe_autoscroll());
-
-    if (this._scroll_timer) clearTimeout(this._scroll_timer);
-    this._scroll_timer = setTimeout(() => {
-      this._scroll_timer = null;
-      this._maybe_autoscroll();
-    }, 0);
+    this._schedule_autoscroll();
   }
   render() {
     const state = this._store.state;
@@ -67,7 +63,7 @@ export class TranscriptView extends LitElement {
           aria-relevant="additions text"
           tabindex="0"
           @scroll=${this._on_scroll}
-          @transcript-layout=${this._maybe_autoscroll}
+          @transcript-layout=${this._schedule_autoscroll}
         >
           ${selectors.visible_busy(state) && transcript.length === 0
             ? html`<p class="history-note">
@@ -129,11 +125,57 @@ export class TranscriptView extends LitElement {
     });
   }
 
-  _maybe_autoscroll() {
-    if (this._store.state.auto_scroll) this._scroll_to_bottom(false);
+  _schedule_autoscroll() {
+    if (this._scroll_frame !== null || !this._store.state.auto_scroll) return;
+
+    let target = null;
+    let passes = 0;
+    this._autoscrolling = true;
+
+    const finish = () => {
+      this._autoscrolling = false;
+    };
+
+    const step = () => {
+      this._scroll_frame = null;
+
+      const transcript = this._transcript();
+      if (!transcript) {
+        finish();
+        return;
+      }
+
+      if (target === null && !this._store.state.auto_scroll) {
+        finish();
+        return;
+      }
+
+      // A user scroll-up moves above the last programmatic target.
+      if (target !== null && transcript.scrollTop < target - 1) {
+        finish();
+        session.set_auto_scroll(false);
+        return;
+      }
+
+      this._scroll_to_bottom(false);
+      target = transcript.scrollTop;
+      passes += 1;
+
+      // Offscreen content-visibility placeholders resolve over the next few frames.
+      if (passes >= 4) {
+        finish();
+        return;
+      }
+
+      this._scroll_frame = requestAnimationFrame(step);
+    };
+
+    this._scroll_frame = requestAnimationFrame(step);
   }
 
   _on_scroll() {
+    if (this._autoscrolling) return;
+
     const at_bottom = this._near_bottom();
     if (this._store.state.auto_scroll === at_bottom) return;
 

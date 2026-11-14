@@ -398,6 +398,25 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         schedule.assert_not_called()
 
+    async def test_stop_screencast_releases_the_last_frame(self) -> None:
+        bridge = BrowserBridge()
+        bridge._cast_running = True
+        bridge._last_frame = {"type": "frame", "data": "ZmFrZQ==", "meta": {}}
+
+        await bridge._stop_screencast(force=True)
+
+        self.assertIsNone(bridge._last_frame)
+
+    async def test_unsubscribe_drains_buffered_frames(self) -> None:
+        bridge = BrowserBridge()
+        queue = bridge.subscribe()
+        queue.put_nowait({"type": "frame", "data": "ZmFrZQ==", "meta": {}})
+
+        bridge.unsubscribe(queue)
+
+        self.assertTrue(queue.empty())
+        self.assertNotIn(queue, bridge._subscribers)
+
     async def test_wait_for_debugger_stops_when_the_process_exits(self) -> None:
         bridge = BrowserBridge()
         bridge._process = mock.Mock()
