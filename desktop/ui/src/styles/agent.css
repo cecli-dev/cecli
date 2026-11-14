@@ -353,6 +353,55 @@
   margin-bottom: 12px;
 }
 
+.context-path-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.context-path-field input {
+  width: 100%;
+}
+
+.context-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 14px 32px rgba(17, 20, 45, 0.16);
+}
+
+.context-suggestion {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.context-suggestion:hover,
+.context-suggestion[data-active='true'] {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
 .modal-hint,
 .modal-empty {
   margin: 0 0 10px;

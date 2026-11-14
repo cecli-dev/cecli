@@ -3,6 +3,7 @@ import { LitElement, html, nothing } from 'lit';
 import { PLUS_ICON, SEND_ICON, STOP_ICON } from '../core/constants.js';
 import { binding_label, matches_key_binding } from '../core/key-bindings.js';
 import { get_prompt_history, paste_clipboard } from '../core/api.js';
+import { context_path, group_context_files } from '../core/format.js';
 import { push_toast } from '../core/notices.js';
 import { session } from '../core/session.js';
 import { StoreController, selectors, store } from '../core/store.js';
@@ -65,6 +66,7 @@ export class ComposerBar extends LitElement {
 
   render() {
     const state = this._store.state;
+    const context_files = selectors.active_context_files(state);
     const active_agent = selectors.active_agent(state);
     const busy = active_agent ? Boolean(active_agent.running) : state.busy;
     const status = selectors.composer_status(state);
@@ -99,12 +101,12 @@ export class ComposerBar extends LitElement {
                 type="button"
                 aria-label="Manage extensions and context"
                 @click=${this._open_extensions}
-              >${PLUS_ICON}${state.context_files.length
+              >${PLUS_ICON}${context_files.length
                 ? html`<span class="add-count" aria-hidden="true">
-                    ${state.context_files.length}
+                    ${context_files.length}
                   </span>`
                 : nothing}</button>
-              ${this._render_context_popover(state)}
+              ${this._render_context_popover(context_files)}
             </div>
             <button
               class="send-btn"
@@ -149,29 +151,30 @@ export class ComposerBar extends LitElement {
     );
   }
 
-  _render_context_popover(state) {
-    const files = state.context_files || [];
+  _render_context_popover(files) {
+    const groups = group_context_files(files).filter((group) => group.items.length);
 
     return html`
       <div class="composer-context-popover" role="tooltip">
         <h4 class="composer-context-title">Context</h4>
-        ${files.length
-          ? html`
-              <ul class="composer-context-list">
-                ${files.map((item) => {
-                  const path = this._context_path(item);
+        ${groups.length
+          ? groups.map(
+              (group) => html`
+                <section class="composer-context-section">
+                  <h5 class="composer-context-section-title">${group.label}</h5>
+                  <ul class="composer-context-list">
+                    ${group.items.map((item) => {
+                      const path = context_path(item);
 
-                  return html`<li class="composer-context-item" title=${path}>${path}</li>`;
-                })}
-              </ul>
-            `
+                      return html`<li class="composer-context-item" title=${path}>${path}</li>`;
+                    })}
+                  </ul>
+                </section>
+              `,
+            )
           : html`<p class="composer-context-empty">No files in context</p>`}
       </div>
     `;
-  }
-
-  _context_path(item) {
-    return item?.path || item?.name || String(item);
   }
 
   _textarea() {
@@ -212,14 +215,24 @@ export class ComposerBar extends LitElement {
     if (this._completions.length) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
-        const delta = event.key === 'ArrowDown' ? 1 : -1;
-        const count = this._completions.length;
-        this._completion_index = (this._completion_index + delta + count) % count;
-        this.requestUpdate();
+        this._cycle_completion(event.key === 'ArrowDown' ? 1 : -1);
         return;
       }
 
-      if ((event.key === 'Tab' || event.key === 'ArrowRight') && !event.shiftKey && !event.isComposing) {
+      if (event.key === 'Tab' && !event.isComposing) {
+        event.preventDefault();
+        this._cycle_completion(event.shiftKey ? -1 : 1);
+        return;
+      }
+
+      if (
+        event.key === 'ArrowRight' &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         this._accept_completion();
         return;
@@ -410,7 +423,10 @@ export class ComposerBar extends LitElement {
     const seq = ++this._completion_seq;
     this._completion_timer = setTimeout(async () => {
       try {
-        const result = await session.complete(value);
+        const result = await session.complete(
+          value,
+          this._store.state.active_agent_session_id,
+        );
         if (seq !== this._completion_seq) return;
 
         const suggestions = Array.isArray(result?.suggestions) ? result.suggestions : [];
@@ -423,6 +439,14 @@ export class ComposerBar extends LitElement {
         if (seq === this._completion_seq) this._dismiss_completions();
       }
     }, 120);
+  }
+
+  _cycle_completion(delta) {
+    const count = this._completions.length;
+    if (!count) return;
+
+    this._completion_index = (this._completion_index + delta + count) % count;
+    this.requestUpdate();
   }
 
   _select_completion(index) {

@@ -319,6 +319,12 @@ export const selectors = {
     );
   },
 
+  active_context_files(state) {
+    const agent = selectors.active_agent(state);
+    const files = agent ? agent.contextFiles : state.context_files;
+    return Array.isArray(files) ? files : [];
+  },
+
   visible_transcript(state) {
     if (!state.active_agent_session_id) return state.transcript;
     return state.subagent_transcripts?.[state.active_agent_session_id] || [];

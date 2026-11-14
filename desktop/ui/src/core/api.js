@@ -174,9 +174,10 @@ export async function get_copilot_status() {
 }
 
 /** POST composer text and return completion candidates. */
-export async function post_complete(bridge_id, text) {
+export async function post_complete(bridge_id, text, agent_session_id = null) {
   return post_json('/api/complete', {
     ...(bridge_id ? { bridgeId: bridge_id } : {}),
+    ...(agent_session_id ? { agentSessionId: agent_session_id } : {}),
     text,
   });
 }

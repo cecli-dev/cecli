@@ -384,13 +384,20 @@ class AcpBridge:
         await self.prompt(f"/workflows run {name.strip()}")
         return {"ok": True, "workflow": name.strip()}
 
-    async def complete(self, text: str) -> dict[str, Any]:
-        """Return composer completion candidates for the current coder."""
+    async def complete(self, text: str, agent_session_id: str | None = None) -> dict[str, Any]:
+        """Return composer completion candidates for a coder.
+
+        ``agent_session_id`` targets a child session; it defaults to the primary
+        coder.
+        """
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
         if not isinstance(text, str):
             raise BridgeError(400, "text is required")
-        return await self.call_extension("cecli/complete", {"text": text})
+        params = {"text": text}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return await self.call_extension("cecli/complete", params)
 
     async def history(self) -> dict[str, Any]:
         """Return each coder's conversation stream for transcript replay."""
@@ -411,11 +418,22 @@ class AcpBridge:
         """Return the active session's agent todos and aside exchanges."""
         return await self.call_extension("cecli/panels", {})
 
-    async def set_context(self, action: str, path: str, read_only: bool = False) -> dict[str, Any]:
-        """Add or remove a context file on the child."""
-        return await self.call_extension(
-            "cecli/context", {"action": action, "path": path, "readOnly": read_only}
-        )
+    async def set_context(
+        self,
+        action: str,
+        path: str,
+        read_only: bool = False,
+        agent_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Add or remove a context file on a coder.
+
+        ``agent_session_id`` targets a child session; it defaults to the primary
+        coder.
+        """
+        params = {"action": action, "path": path, "readOnly": read_only}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return await self.call_extension("cecli/context", params)
 
     async def send_subagent_message(self, child_session_id: str, text: str) -> dict[str, Any]:
         """Deliver a message to one sub-agent session."""
@@ -2114,7 +2132,7 @@ class DesktopServer:
         if not isinstance(text, str):
             return self._json(400, {"ok": False, "error": "text is required"})
         try:
-            result = await bridge.complete(text)
+            result = await bridge.complete(text, data.get("agentSessionId"))
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(200, {"ok": True, **result})
@@ -2189,7 +2207,12 @@ class DesktopServer:
             else:
                 if action not in ("add", "remove") or not isinstance(name, str):
                     return self._json(400, {"ok": False, "error": "action and path are required"})
-                result = await bridge.set_context(action, name, bool(data.get("readOnly")))
+                result = await bridge.set_context(
+                    action,
+                    name,
+                    bool(data.get("readOnly")),
+                    data.get("agentSessionId"),
+                )
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
 
@@ -3716,7 +3739,9 @@ class DesktopServer:
             await bridge.resolve_permission(params.get("requestId"), params.get("optionId"))
             return {"ok": True}
         if command == "complete.get":
-            return await bridge.complete(str(params.get("text") or ""))
+            return await bridge.complete(
+                str(params.get("text") or ""), params.get("agentSessionId")
+            )
         if command == "history.get":
             return await bridge.history()
         if command == "state.details":
@@ -3759,6 +3784,7 @@ class DesktopServer:
                 command.split(".", 1)[1],
                 str(params.get("path")),
                 bool(params.get("readOnly")),
+                params.get("agentSessionId"),
             )
 
         raise BridgeError(400, f"unknown command: {command}")

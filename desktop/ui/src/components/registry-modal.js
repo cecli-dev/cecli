@@ -1,9 +1,10 @@
 import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
+import { context_path, group_context_files } from '../core/format.js';
 import { group_hooks } from '../core/hooks.js';
 import { session } from '../core/session.js';
-import { StoreController, store } from '../core/store.js';
+import { StoreController, selectors, store } from '../core/store.js';
 
 export const REGISTRY_TABS = [
   { id: 'skills', label: 'Skills' },
@@ -26,6 +27,10 @@ export class RegistryModal extends LitElement {
     this._path = '';
     this._error = '';
     this._busy = false;
+    this._suggestions = [];
+    this._suggestion_index = -1;
+    this._completion_seq = 0;
+    this._completion_timer = null;
   }
 
   createRenderRoot() {
@@ -34,6 +39,12 @@ export class RegistryModal extends LitElement {
 
   willUpdate(changed) {
     if (changed.has('open') && this.open) session.refresh_state();
+  }
+
+  disconnectedCallback() {
+    clearTimeout(this._completion_timer);
+    this._completion_timer = null;
+    super.disconnectedCallback();
   }
 
   render() {
@@ -83,7 +94,7 @@ export class RegistryModal extends LitElement {
       case 'hooks':
         return this._render_hooks(state.hooks || []);
       case 'context':
-        return this._render_context(state.context_files || []);
+        return this._render_context(selectors.active_context_files(state));
       default:
         return this._render_skills(state.skills || []);
     }
@@ -188,49 +199,100 @@ export class RegistryModal extends LitElement {
   }
 
   _render_context(items) {
+    const groups = group_context_files(items);
+
     return html`
       <div class="modal-inline-form">
-        <input
-          type="text"
-          .value=${this._path}
-          placeholder="Relative or absolute file path"
-          @input=${this._on_path}
-          @keydown=${this._on_path_keydown}
-        />
+        <div class="context-path-field">
+          <input
+            type="text"
+            .value=${this._path}
+            placeholder="Relative or absolute file path"
+            autocomplete="off"
+            @input=${this._on_path}
+            @keydown=${this._on_path_keydown}
+          />
+          ${this._render_context_suggestions()}
+        </div>
         <button type="button" class="modal-btn modal-btn--small" @click=${this._add_context}>
           Add
         </button>
       </div>
-      ${items.length
-        ? html`
-            <ul class="registry-modal-list">
-              ${items.map((item) => {
-                const path = item.path || item.name || String(item);
-                const read_only = Boolean(item.readOnly || item.read_only);
+      <div class="registry-sections">
+        ${groups.map(
+          (group) => html`
+            <section class="registry-section">
+              <h3 class="registry-section-title">
+                ${group.label}${group.items.length ? ` (${group.items.length})` : ''}
+              </h3>
+              ${group.items.length
+                ? html`
+                    <ul class="registry-modal-list">
+                      ${group.items.map((item) => {
+                        const path = context_path(item);
+                        const read_only = Boolean(item.readOnly || item.read_only);
 
-                return html`
-                  <li class="registry-modal-row">
-                    <span class="registry-modal-name" title=${path}>${path}</span>
-                    ${read_only ? html`<span class="registry-tag">read-only</span>` : nothing}
-                    <button
-                      type="button"
-                      class="modal-btn modal-btn--small"
-                      @click=${() => this._remove_context(path)}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                `;
-              })}
-            </ul>
-          `
-        : html`<p class="modal-empty">No context files are attached.</p>`}
+                        return html`
+                          <li class="registry-modal-row">
+                            <span class="registry-modal-name" title=${path}>${path}</span>
+                            ${read_only
+                              ? html`<span class="registry-tag">read-only</span>`
+                              : nothing}
+                            ${item.implicit || group.kind === 'rules'
+                              ? nothing
+                              : html`<button
+                                  type="button"
+                                  class="modal-btn modal-btn--small"
+                                  @click=${() => this._remove_context(path)}
+                                >
+                                  Remove
+                                </button>`}
+                          </li>
+                        `;
+                      })}
+                    </ul>
+                  `
+                : html`<p class="modal-empty">${group.empty}</p>`}
+            </section>
+          `,
+        )}
+      </div>
+    `;
+  }
+
+  _render_context_suggestions() {
+    if (!this._suggestions.length) return nothing;
+
+    return html`
+      <ul class="context-suggestions" role="listbox" aria-label="Path completions">
+        ${this._suggestions.map((item, index) => {
+          const path = String(item);
+
+          return html`
+            <li>
+              <button
+                type="button"
+                class="context-suggestion"
+                role="option"
+                data-active=${index === this._suggestion_index}
+                aria-selected=${index === this._suggestion_index}
+                @mousedown=${(event) => event.preventDefault()}
+                @click=${() => this._accept_context_suggestion(index)}
+              >
+                ${path}
+              </button>
+            </li>
+          `;
+        })}
+      </ul>
     `;
   }
 
   _select_tab(tab) {
     this.tab = tab;
     this._error = '';
+    this._path = '';
+    this._dismiss_context_completions();
     this.dispatchEvent(new CustomEvent('tab-change', { detail: { tab }, bubbles: true, composed: true }));
     this.requestUpdate();
   }
@@ -245,19 +307,49 @@ export class RegistryModal extends LitElement {
 
   _on_path(event) {
     this._path = event.target.value;
+    this._schedule_context_completions(this._path);
   }
 
   _on_path_keydown(event) {
+    if (this._suggestions.length) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        const count = this._suggestions.length;
+        this._suggestion_index = (this._suggestion_index + delta + count) % count;
+        this.requestUpdate();
+        return;
+      }
+
+      if (
+        (event.key === 'Tab' || event.key === 'ArrowRight') &&
+        !event.shiftKey &&
+        !event.isComposing
+      ) {
+        event.preventDefault();
+        this._accept_context_suggestion(this._suggestion_index);
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this._dismiss_context_completions();
+        return;
+      }
+    }
+
     if (event.key !== 'Enter' || event.isComposing) return;
     event.preventDefault();
     this._add_context();
   }
 
   async _act(kind, action, name) {
+    const agent_session_id =
+      kind === 'context' ? this._store.state.active_agent_session_id : null;
     this._busy = true;
     this._error = '';
     try {
-      await session.registry_action(kind, action, name);
+      await session.registry_action(kind, action, name, agent_session_id);
     } catch (error) {
       this._error = error.message;
       session.refresh_state();
@@ -272,6 +364,7 @@ export class RegistryModal extends LitElement {
     if (!path) return;
 
     await this._act('context', 'add', path);
+    this._dismiss_context_completions();
     this._path = '';
     this.requestUpdate();
   }
@@ -280,10 +373,64 @@ export class RegistryModal extends LitElement {
     await this._act('context', 'remove', path);
   }
 
+  _schedule_context_completions(value) {
+    clearTimeout(this._completion_timer);
+    const seq = ++this._completion_seq;
+    this._completion_timer = setTimeout(async () => {
+      this._completion_timer = null;
+      try {
+        const result = await session.complete(
+          `/add ${value}`,
+          this._store.state.active_agent_session_id,
+        );
+        if (seq !== this._completion_seq) return;
+
+        this._suggestions = Array.isArray(result?.suggestions) ? result.suggestions : [];
+        this._suggestion_index = this._suggestions.length ? 0 : -1;
+      } catch (error) {
+        if (seq !== this._completion_seq) return;
+        this._suggestions = [];
+        this._suggestion_index = -1;
+      }
+
+      this.requestUpdate();
+    }, 160);
+  }
+
+  _dismiss_context_completions() {
+    clearTimeout(this._completion_timer);
+    this._completion_timer = null;
+    this._completion_seq += 1;
+    this._suggestions = [];
+    this._suggestion_index = -1;
+    this.requestUpdate();
+  }
+
+  _accept_context_suggestion(index) {
+    const choice = this._suggestions[index];
+    if (!choice) return;
+
+    this._dismiss_context_completions();
+    this._path = String(choice);
+    this.requestUpdate();
+
+    this.updateComplete.then(() => {
+      const input = this.querySelector('.context-path-field input');
+      if (!input) return;
+
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    });
+
+    if (this._path.endsWith('/')) this._schedule_context_completions(this._path);
+  }
+
   _close() {
     this._busy = false;
     this._error = '';
     this._path = '';
+    this._dismiss_context_completions();
     this.open = false;
     this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true }));
   }

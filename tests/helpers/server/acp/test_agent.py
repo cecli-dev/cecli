@@ -11,7 +11,12 @@ import pytest
 
 from cecli import models
 from cecli.helpers.server.acp.agent import config as acp_config
-from cecli.helpers.server.acp.agent.agent import AcpAgent, _todo_entries, prompt_to_text
+from cecli.helpers.server.acp.agent.agent import (
+    AcpAgent,
+    _remove_context_path,
+    _todo_entries,
+    prompt_to_text,
+)
 from cecli.helpers.server.acp.agent.config import SessionConfig, current_value
 from cecli.helpers.server.acp.agent.io import AcpInputOutput
 from cecli.helpers.server.acp.agent.mcp import ClientMcpServers, to_cecli_configs
@@ -1374,3 +1379,50 @@ def test_path_completions_preserve_ranked_order():
     result = _complete(coder, "@ze")
 
     assert result["suggestions"] == ["src/zero.py", "src/zebra.py"]
+
+
+def test_context_state_labels_rules_and_artifacts(tmp_path):
+    root = tmp_path
+    rules = root / "AGENTS.md"
+    source = root / "app.py"
+    image = root / "logo.png"
+    rules.write_text("rules", encoding="utf-8")
+    source.write_text("print()", encoding="utf-8")
+    image.write_bytes(b"png")
+    coder = SimpleNamespace(
+        root=str(root),
+        abs_fnames={str(source)},
+        abs_read_only_fnames={str(image)},
+        abs_read_only_stubs_fnames=set(),
+        abs_rules_fnames=set(),
+    )
+    agent = AcpAgent(SimpleNamespace(send=lambda *args, **kwargs: None))
+
+    state = agent._context_state(coder)
+
+    assert [(item["path"], item["kind"], item["implicit"]) for item in state] == [
+        ("AGENTS.md", "rules", True),
+        ("app.py", "context", False),
+        ("logo.png", "artifact", False),
+    ]
+
+    coder.abs_rules_fnames.add(str(rules))
+
+    assert agent._context_state(coder)[0]["implicit"] is False
+
+
+def test_remove_context_path_clears_every_list():
+    path = "/repo/app.py"
+    coder = SimpleNamespace(
+        abs_fnames={path},
+        abs_read_only_fnames={path},
+        abs_read_only_stubs_fnames={path},
+        abs_rules_fnames={path},
+    )
+
+    _remove_context_path(coder, path)
+
+    assert coder.abs_fnames == set()
+    assert coder.abs_read_only_fnames == set()
+    assert coder.abs_read_only_stubs_fnames == set()
+    assert coder.abs_rules_fnames == set()

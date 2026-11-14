@@ -67,6 +67,8 @@ export function markdown_blocks(text) {
         code.push(lines[index]);
         index += 1;
       }
+
+      if (!code.join('\n').trim()) continue;
       push_block(blocks, lines, start, index, () => render_code_block_html(code.join('\n'), language));
       continue;
     }

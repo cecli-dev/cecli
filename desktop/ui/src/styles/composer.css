@@ -237,8 +237,9 @@
   left: 0;
   bottom: calc(100% + 10px);
   z-index: 30;
-  min-width: 190px;
-  max-width: 300px;
+  width: max-content;
+  min-width: 280px;
+  max-width: min(560px, calc(100vw - 48px));
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -275,6 +276,19 @@
   color: var(--text);
   font-size: 10.5px;
   font-weight: 650;
+}
+
+.composer-context-section + .composer-context-section {
+  margin-top: 8px;
+}
+
+.composer-context-section-title {
+  margin: 0 0 3px;
+  color: var(--text-muted);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .composer-context-list {

@@ -213,8 +213,8 @@ report the truth.
   reasoning-effort selector. Mode changes are refused by the bridge, and effort
   stays under the agent's control (`/reasoning-effort` still works).
 - The composer offers bridge completion candidates for `/` commands, command
-  arguments, `@` mentions and paths; Up/Down move, Tab/Right accept, Esc closes,
-  and Enter still sends the prompt.
+  arguments, `@` mentions and paths; Up/Down or Tab/Shift+Tab move, Right accepts,
+  Esc closes, and Enter still sends the prompt.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards
@@ -506,19 +506,28 @@ required (400 otherwise). Relevant additions:
 | GET | `/api/state?bridgeId=...` | - | one bridge snapshot plus `sessions` |
 | POST | `/api/sessions` | `{cwd?, title?}` | 201 `{bridgeId, state}` |
 | POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
-| POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
+| POST | `/api/complete` | `{bridgeId?, text, agentSessionId?}` | 200 `{suggestions, descriptions, start}` |
 | GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
 | GET | `/api/session/panels?bridgeId=...` | - | `{agents, asides}` current todo lists and aside exchanges |
 | GET | `/api/prompt-history?bridgeId=...` | - | `{history}` composer recall entries, oldest first |
 | POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
 | POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |
 | POST | `/api/subagent/cancel` | `{bridgeId, sessionId}` | 202 |
-| POST | `/api/skills|mcp|workflows|context` | `{bridgeId, action, name, ...}` | 200 `{result}` |
+| POST | `/api/skills|mcp|workflows|context` | `{bridgeId, action, name, agentSessionId?, ...}` | 200 `{result}` |
+
+`agentSessionId` optionally targets a child session for `complete` and
+`context.add|remove`; it defaults to the primary coder. The WebSocket commands
+`complete.get` and `context.add|remove` take the same parameter.
 
 Snapshots add `bridgeId`, `primary`, `title`, `activity`, `activityDetail`, `subagents`,
 `detailsSupported`, `skills`, `mcpServers`, `workflows`, `contextFiles`, and
 permission entries tagged with `bridgeId`. SSE `status`, `session`, `update`,
 `permission`, `details`, `subagents`, and `sessions` events also carry `bridgeId`.
+
+`contextFiles` entries are `{path, absolutePath, readOnly, kind, implicit}`. `kind`
+is `rules`, `context`, or `artifact`; `implicit` marks convention rules
+(`AGENTS.md`/`CLAUDE.md`) picked up without an explicit `/rules` entry.
+
 The primary parent cannot be closed, and a busy parent cannot be closed.
 Workflow runs execute as `/workflows run <name>` in the primary session rather
 than as a separate child session.

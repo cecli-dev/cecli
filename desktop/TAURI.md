@@ -227,11 +227,13 @@ development package is missing.
 `--use-system-ca` to `NODE_OPTIONS`, so the CLI and its `beforeDevCommand` /
 `beforeBuildCommand` children trust the system certificate store.
 
-On Linux the Rust shell sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
-`WEBKIT_DISABLE_COMPOSITING_MODE=1` before Tauri starts, so direct and packaged
-launches get the same workaround; the dev/build wrapper also sets them under
-WSL. Both avoid blank or flickering WebKit views on common WSL/GPU-driver
-setups.
+On Linux the Rust shell opts into WebKitGTK's software rendering paths when
+`CECLI_SOFTWARE_WEBKIT` is set to a truthy value (`1`, `true`, `yes`, `on`): it
+then sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and
+`WEBKIT_DISABLE_COMPOSITING_MODE=1` before Tauri starts. Direct and packaged
+launches need the variable to avoid blank or flickering WebKit views on common
+WSL/GPU-driver setups; the dev/build wrapper sets those variables itself under
+WSL.
 
 Point the app at a project and a cecli build with environment variables:
 
@@ -511,8 +513,9 @@ implemented or attempted here.
 - **Blank or flickering WebKit view under WSL.** `npm run dev` already forces
   `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1`
   there, so confirm WSLg is available (`ls /mnt/wslg`) and that a simple GUI app
-  can open a window. When launching the binary directly, set both variables
-  yourself.
+  can open a window. When launching the binary directly, set
+  `CECLI_SOFTWARE_WEBKIT=1` (the shell then sets both variables) or set both
+  variables yourself.
 - **Icons missing during `npm run build`.** Run `npm run gen:icons` first, or
   point the bundler at a generated icon set.
 - **`npm install` cannot reach the registry.** The build needs the Tauri CLI

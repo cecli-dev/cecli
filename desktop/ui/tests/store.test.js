@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { handle_event } from '../src/core/events.js';
 import { apply_snapshot } from '../src/core/snapshot.js';
+import { group_context_files } from '../src/core/format.js';
 import { create_initial_state } from '../src/core/state.js';
 import { Store, selectors } from '../src/core/store.js';
 
@@ -201,4 +202,38 @@ test('composer status keeps an approval prompt on the amber state', () => {
     label: 'Waiting for your approval',
     kind: 'message',
   });
+});
+
+
+test('active context files follow the selected agent', () => {
+  const store = create_store();
+  store.update((state) => ({
+    ...state,
+    context_files: [{ path: 'README.md' }],
+    subagents: [{ sessionId: 'agent-1', contextFiles: [{ path: 'src/app.js' }] }],
+    active_agent_session_id: null,
+  }));
+
+  assert.deepEqual(selectors.active_context_files(store.state), [{ path: 'README.md' }]);
+
+  store.update((state) => ({ ...state, active_agent_session_id: 'agent-1' }));
+  assert.deepEqual(selectors.active_context_files(store.state), [{ path: 'src/app.js' }]);
+});
+
+test('context files group into rules, text, and artifacts', () => {
+  const groups = group_context_files([
+    { path: 'AGENTS.md' },
+    { path: 'src/app.js' },
+    { path: 'diagram.png' },
+    { path: 'notes.txt', kind: 'rules' },
+  ]);
+
+  assert.deepEqual(
+    groups.map((group) => group.items.map((item) => item.path)),
+    [
+      ['AGENTS.md', 'notes.txt'],
+      ['src/app.js'],
+      ['diagram.png'],
+    ],
+  );
 });

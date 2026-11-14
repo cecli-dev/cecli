@@ -70,10 +70,18 @@ fn main() {
     });
 }
 
-/// Force WebKitGTK's software rendering paths, which avoid blank or flickering
-/// windows under some Linux and WSL GPU stacks.
+/// Opt into WebKitGTK's software rendering paths for blank or flickering
+/// windows caused by some Linux and WSL GPU stacks.
 #[cfg(target_os = "linux")]
 fn configure_webkit() {
+    let enabled = env::var("CECLI_SOFTWARE_WEBKIT")
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false);
+
+    if !enabled {
+        return;
+    }
+
     env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
 }

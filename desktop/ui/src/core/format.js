@@ -219,3 +219,107 @@ export function diff_lines(diff) {
       return { kind: 'ctx', text: line };
     });
 }
+
+/** Context files grouped by the role they play in the prompt. */
+export const CONTEXT_GROUPS = [
+  { kind: 'rules', label: 'Rules', empty: 'No rules files' },
+  { kind: 'context', label: 'Context', empty: 'No text files' },
+  { kind: 'artifact', label: 'Artifacts', empty: 'No binary files' },
+];
+
+const ARTIFACT_EXTENSIONS = new Set([
+  '.7z',
+  '.a',
+  '.avi',
+  '.bin',
+  '.bmp',
+  '.bz2',
+  '.class',
+  '.dat',
+  '.db',
+  '.dll',
+  '.doc',
+  '.docx',
+  '.dylib',
+  '.eot',
+  '.exe',
+  '.flac',
+  '.gif',
+  '.gz',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.m4a',
+  '.mkv',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.o',
+  '.odp',
+  '.ods',
+  '.odt',
+  '.ogg',
+  '.otf',
+  '.pdf',
+  '.png',
+  '.ppt',
+  '.pptx',
+  '.pyc',
+  '.rar',
+  '.so',
+  '.sqlite',
+  '.sqlite3',
+  '.tar',
+  '.tgz',
+  '.tif',
+  '.tiff',
+  '.ttf',
+  '.wav',
+  '.webm',
+  '.webp',
+  '.woff',
+  '.woff2',
+  '.xls',
+  '.xlsx',
+  '.xz',
+  '.zip',
+]);
+
+const RULE_FILENAMES = new Set([
+  'agents.md',
+  'claude.md',
+  'rules.md',
+  '.cursorrules',
+  '.windsurfrules',
+  '.clinerules',
+]);
+
+export function context_path(item) {
+  return item?.path || item?.name || String(item);
+}
+
+export function context_kind(item) {
+  if (item?.kind === 'rules' || item?.kind === 'context' || item?.kind === 'artifact') {
+    return item.kind;
+  }
+
+  const path = context_path(item).toLowerCase();
+  const basename = path.split('/').pop();
+  if (RULE_FILENAMES.has(basename)) return 'rules';
+
+  const dot = path.lastIndexOf('.');
+  const extension = dot === -1 ? '' : path.slice(dot);
+  return ARTIFACT_EXTENSIONS.has(extension) ? 'artifact' : 'context';
+}
+
+export function group_context_files(files) {
+  const groups = CONTEXT_GROUPS.map((group) => ({ ...group, items: [] }));
+  const by_kind = Object.fromEntries(groups.map((group) => [group.kind, group]));
+
+  for (const item of files || []) {
+    const kind = context_kind(item);
+    (by_kind[kind] || by_kind.context).items.push(item);
+  }
+
+  return groups;
+}

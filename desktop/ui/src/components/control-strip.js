@@ -4,7 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { INFO_ICON } from '../core/constants.js';
 import { binding_label } from '../core/key-bindings.js';
 import { session } from '../core/session.js';
-import { StoreController, store } from '../core/store.js';
+import { StoreController, selectors, store } from '../core/store.js';
 import './config-picker.js';
 import './log-drawer.js';
 import './metrics-menu.js';
@@ -48,6 +48,7 @@ export class ControlStrip extends LitElement {
 
   render() {
     const state = this._store.state;
+    const context_count = selectors.active_context_files(state).length;
     const panels_label = binding_label(state.key_bindings, 'panels');
     const cycle_label = binding_label(state.key_bindings, 'panel_cycle');
 
@@ -67,7 +68,7 @@ export class ControlStrip extends LitElement {
               @click=${() => this._open_modal('skills')}
             >
               Extensions
-              <span>${state.skills.length + state.mcp_servers.length + state.context_files.length}</span>
+              <span>${state.skills.length + state.mcp_servers.length + context_count}</span>
             </button>
             ${this._render_extensions_popover(state)}
           </div>

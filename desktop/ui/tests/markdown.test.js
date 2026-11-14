@@ -86,6 +86,12 @@ test('does not parse tables inside fenced code', () => {
 });
 
 
+test('drops fenced code blocks with no content', () => {
+  assert.equal(markdown_to_html('````\n\n'), '');
+  assert.equal(markdown_to_html('````\n  \n````\n\n'), '');
+});
+
+
 test('renders multi-line display math', () => {
   const html = markdown_to_html(String.raw`$$
 \frac{a}{b} = \sqrt{x^2} + \alpha

@@ -778,14 +778,17 @@ class AcpAgent:
         return _DEFERRED
 
     def _on_cecli_context(self, params: dict, request_id: Any) -> dict:
-        """Add or remove a file from the coder's editable or read-only context."""
+        """Add or remove a file from a coder's context lists."""
         coder = self._require_coder()
+        agent_session_id = params.get("agentSessionId")
+        if isinstance(agent_session_id, str) and agent_session_id:
+            coder = self._coder_for_session(agent_session_id) or coder
         action = params.get("action")
         path = params.get("path")
         if action not in ("add", "remove") or not isinstance(path, str) or not path:
             raise AcpError(INVALID_PARAMS, "action and path are required")
 
-        root = self.cwd or os.getcwd()
+        root = str(getattr(coder, "root", None) or self.cwd or os.getcwd())
         absolute = path if os.path.isabs(path) else os.path.abspath(os.path.join(root, path))
         read_only = bool(params.get("readOnly"))
 
@@ -793,8 +796,7 @@ class AcpAgent:
             target = coder.abs_read_only_fnames if read_only else coder.abs_fnames
             target.add(absolute)
         else:
-            coder.abs_fnames.discard(absolute)
-            coder.abs_read_only_fnames.discard(absolute)
+            _remove_context_path(coder, absolute)
 
         self._emit_state(scope=SCOPE_CONTEXT)
         return {"contextFiles": self._context_state(coder)}
@@ -802,6 +804,9 @@ class AcpAgent:
     def _on_cecli_complete(self, params: dict, request_id: Any) -> dict:
         """Return shell-style completion candidates for the desktop composer."""
         coder = self._require_coder()
+        agent_session_id = params.get("agentSessionId")
+        if isinstance(agent_session_id, str) and agent_session_id:
+            coder = self._coder_for_session(agent_session_id) or coder
         text = params.get("text")
         if not isinstance(text, str):
             raise AcpError(INVALID_PARAMS, "text is required")
@@ -1450,6 +1455,31 @@ class AcpAgent:
             raise AcpError(INTERNAL_ERROR, "cecli is not ready")
         return coder
 
+    def _coder_for_session(self, session_id: str) -> Any:
+        """Return the live coder for a child ACP session, if one exists."""
+        from cecli.helpers.agents.service import AgentService
+
+        subagent = next(
+            (item for item in self.subagents.values() if item.session_id == session_id),
+            None,
+        )
+        if subagent is None:
+            return None
+
+        service = AgentService.get_instance(self._require_coder())
+        info = service.sub_agents.get(subagent.agent_uuid)
+        if info is None:
+            info = next(
+                (
+                    item
+                    for item in service.sub_agents.values()
+                    if str(getattr(getattr(item, "coder", None), "uuid", ""))
+                    == str(subagent.agent_uuid)
+                ),
+                None,
+            )
+        return getattr(info, "coder", None) if info else None
+
     def _empty_state(self) -> dict[str, Any]:
         return {
             "activity": "idle",
@@ -1540,8 +1570,42 @@ class AcpAgent:
         return result
 
     def _context_state(self, coder: Any) -> list[dict[str, Any]]:
-        root = self.cwd or os.getcwd()
+        """Describe every file attached to a coder, labelled by its role."""
+        root = str(getattr(coder, "root", None) or self.cwd or os.getcwd())
         result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(path: str, read_only: bool, kind: str, implicit: bool = False) -> None:
+            absolute = path if os.path.isabs(path) else os.path.abspath(os.path.join(root, path))
+            if absolute in seen:
+                return
+
+            seen.add(absolute)
+            try:
+                relative = os.path.relpath(absolute, root)
+            except ValueError:
+                relative = absolute
+
+            result.append(
+                {
+                    "path": relative,
+                    "absolutePath": absolute,
+                    "readOnly": read_only,
+                    "kind": kind,
+                    "implicit": implicit,
+                }
+            )
+
+        rules = getattr(coder, "abs_rules_fnames", None) or set()
+        for path in sorted(rules):
+            add(path, True, "rules")
+
+        if not rules:
+            for fallback_name in ("AGENTS.md", "CLAUDE.md"):
+                fallback_path = os.path.join(root, fallback_name)
+                if os.path.isfile(fallback_path):
+                    add(fallback_path, True, "rules", implicit=True)
+
         groups = (
             (getattr(coder, "abs_fnames", set()), False),
             (getattr(coder, "abs_read_only_fnames", set()), True),
@@ -1550,11 +1614,7 @@ class AcpAgent:
 
         for paths, read_only in groups:
             for path in sorted(paths):
-                try:
-                    relative = os.path.relpath(path, root)
-                except ValueError:
-                    relative = path
-                result.append({"path": relative, "absolutePath": path, "readOnly": read_only})
+                add(path, read_only, _context_kind(path))
 
         return result
 
@@ -1680,6 +1740,86 @@ class AcpAgent:
 
 PATH_COMPLETION_COMMANDS = {"/add", "/read-only", "/read-only-stub", "/rules", "/load", "/save"}
 MAX_COMPLETIONS = 50
+
+ARTIFACT_EXTENSIONS = {
+    ".7z",
+    ".a",
+    ".avi",
+    ".bin",
+    ".bmp",
+    ".bz2",
+    ".class",
+    ".dat",
+    ".db",
+    ".dll",
+    ".doc",
+    ".docx",
+    ".dylib",
+    ".eot",
+    ".exe",
+    ".flac",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".m4a",
+    ".mkv",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".o",
+    ".odp",
+    ".ods",
+    ".odt",
+    ".ogg",
+    ".otf",
+    ".pdf",
+    ".png",
+    ".ppt",
+    ".pptx",
+    ".pyc",
+    ".rar",
+    ".so",
+    ".sqlite",
+    ".sqlite3",
+    ".tar",
+    ".tgz",
+    ".tif",
+    ".tiff",
+    ".ttf",
+    ".wav",
+    ".webm",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".xls",
+    ".xlsx",
+    ".xz",
+    ".zip",
+}
+
+
+CONTEXT_PATH_ATTRIBUTES = (
+    "abs_fnames",
+    "abs_read_only_fnames",
+    "abs_read_only_stubs_fnames",
+    "abs_rules_fnames",
+)
+
+
+def _remove_context_path(coder: Any, path: str) -> None:
+    """Drop *path* from every context list on *coder* that holds it."""
+    for attribute in CONTEXT_PATH_ATTRIBUTES:
+        paths = getattr(coder, attribute, None)
+        if paths is not None:
+            paths.discard(path)
+
+
+def _context_kind(path: str) -> str:
+    """Classify a context path as a plain text file or a binary artifact."""
+    extension = os.path.splitext(path)[1].lower()
+    return "artifact" if extension in ARTIFACT_EXTENSIONS else "context"
 
 
 def _todo_entries(coder: Any) -> list[dict[str, Any]]:

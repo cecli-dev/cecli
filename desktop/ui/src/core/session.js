@@ -424,7 +424,7 @@ export class Session {
     }));
   }
 
-  async registry_action(kind, action, name) {
+  async registry_action(kind, action, name, agent_session_id = null) {
     const bridge_id = this.store.active_bridge_id;
     if (!bridge_id) return;
 
@@ -432,10 +432,18 @@ export class Session {
 
     try {
       const params = { bridgeId: bridge_id, name };
-      if (kind === 'context') params.path = name;
+      if (kind === 'context') {
+        params.path = name;
+        if (agent_session_id) params.agentSessionId = agent_session_id;
+      }
       await bridge_socket.request(`${kind}.${action}`, params);
     } catch (error) {
-      await post_json(`/api/${kind}`, { bridgeId: bridge_id, action, name });
+      await post_json(`/api/${kind}`, {
+        bridgeId: bridge_id,
+        action,
+        name,
+        ...(agent_session_id ? { agentSessionId: agent_session_id } : {}),
+      });
     }
 
     if (run_workflow) {
@@ -460,13 +468,15 @@ export class Session {
   }
 
   /** Ask the bridge for composer completion candidates. */
-  async complete(text) {
+  async complete(text, agent_session_id = null) {
     const bridge_id = this.store.active_bridge_id;
 
     try {
-      return await bridge_socket.request('complete.get', { bridgeId: bridge_id, text });
+      const params = { bridgeId: bridge_id, text };
+      if (agent_session_id) params.agentSessionId = agent_session_id;
+      return await bridge_socket.request('complete.get', params);
     } catch (error) {
-      return post_complete(bridge_id, text);
+      return post_complete(bridge_id, text, agent_session_id);
     }
   }
   /** Send composer text and optimistically start the turn. */
