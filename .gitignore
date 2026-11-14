@@ -50,4 +50,12 @@ cecli/website/node_modules/*
 
 # Desktop local Python runtime (build-host only)
 desktop/.runtime/
-desktop
+desktop/node_modules/
+desktop/__pycache__/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/
+desktop/src-tauri/tauri.version.conf.json
+desktop/src-tauri/tauri.rpm.version.conf.json
+desktop/dist/
+desktop/*.log
