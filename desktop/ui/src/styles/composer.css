@@ -4,15 +4,6 @@
   padding: 0;
 }
 
-.busy-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .spinner {
   width: 12px;
   height: 12px;
@@ -150,6 +141,10 @@
   font-size: 10.8px;
   font-weight: 550;
   text-transform: capitalize;
+}
+
+.turn-status[data-kind="message"] {
+  text-transform: none;
 }
 
 .turn-dot {

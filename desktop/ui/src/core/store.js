@@ -260,6 +260,28 @@ export const selectors = {
     return state.busy_message || 'cecli is working…';
   },
 
+  composer_status(state) {
+    const agent = selectors.active_agent(state);
+
+    if (agent) {
+      const turn_state = agent.running ? 'running' : agent.state || 'idle';
+
+      return { turn_state, label: turn_state.replace(/_/g, ' '), kind: 'state' };
+    }
+
+    if (state.busy) {
+      const is_running = state.turn_state === 'running' && !state.stopping;
+
+      return {
+        turn_state: state.turn_state,
+        label: is_running ? 'running' : selectors.busy_text(state),
+        kind: is_running ? 'state' : 'message',
+      };
+    }
+
+    return { turn_state: state.turn_state, label: selectors.turn_label(state), kind: 'state' };
+  },
+
   retry_visible(state) {
     return Boolean(state.retry_available && state.last_prompt && !state.busy && !state.stopping);
   },

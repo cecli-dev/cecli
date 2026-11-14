@@ -64,6 +64,7 @@ export class ComposerBar extends LitElement {
     const state = this._store.state;
     const active_agent = selectors.active_agent(state);
     const busy = active_agent ? Boolean(active_agent.running) : state.busy;
+    const status = selectors.composer_status(state);
     const retry_visible = selectors.retry_visible(state);
     const show_stop = busy && !this._has_text;
     const disabled = show_stop
@@ -72,10 +73,6 @@ export class ComposerBar extends LitElement {
 
     return html`
       <footer class="composer">
-        <div class="busy-indicator" ?hidden=${!busy}>
-          <span class="spinner" aria-hidden="true"></span>
-          <span>${selectors.busy_text(state)}</span>
-        </div>
         ${this._render_completions()}
         <div class="composer-box">
           <textarea
@@ -117,9 +114,15 @@ export class ComposerBar extends LitElement {
               ?hidden=${!retry_visible}
               @click=${this._retry}
             >Retry last</button>
-            <span class="turn-status" data-state=${state.turn_state}>
-              <span class="turn-dot" aria-hidden="true"></span>
-              <span>${selectors.turn_label(state)}</span>
+            <span
+              class="turn-status"
+              data-state=${status.turn_state}
+              data-kind=${status.kind}
+            >
+              ${status.turn_state === 'running'
+                ? html`<span class="spinner" aria-hidden="true"></span>`
+                : html`<span class="turn-dot" aria-hidden="true"></span>`}
+              <span>${status.label}</span>
             </span>
           </div>
         </div>
