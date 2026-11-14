@@ -48,12 +48,11 @@
 @import "./thoughts.css";
 @import "./tool.css";
 @import "./plan.css";
+@import "./panels.css";
 @import "./permission.css";
 @import "./composer.css";
 @import "./browser.css";
-@import "./background.css";
 @import "./workbench.css";
-@import "./terminal.css";
 @import "./cli.css";
 @import "./agent.css";
 @import "./utilities.css";

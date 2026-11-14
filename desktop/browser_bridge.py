@@ -1079,6 +1079,11 @@ class BrowserBridge:
         """Detach a queue; the last one to leave stops the screencast."""
 
         self._subscribers.discard(queue)
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
         if not self._subscribers and self._cast_running:
             self._task(self._stop_screencast())
 
@@ -1094,8 +1099,14 @@ class BrowserBridge:
         self._file_chooser = None
         self._cursor = ""
         self._tab_order = []
+        self._last_frame = None
         for queue in list(self._subscribers):
             self._subscribers.discard(queue)
+            while True:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
         session = self._session
         self._session = None
         self._target_id = None
@@ -1718,6 +1729,7 @@ class BrowserBridge:
         self._dialog = None
         self._file_chooser = None
         self._cursor = ""
+        self._last_frame = None
         self._drop_ack()
         self._publish_event({"type": "error", "message": "the browser connection closed"})
         if self._subscribers:
@@ -1766,6 +1778,8 @@ class BrowserBridge:
         session = self._cast_session
         self._cast_session = None
         self._drop_cast_listeners()
+        if not self._subscribers:
+            self._last_frame = None
         if session is not None and not session.closed:
             try:
                 await session.send("Page.stopScreencast", timeout=2.0)

@@ -129,6 +129,10 @@
           "path": "/config/subagents/"
         },
         {
+          "title": "System One",
+          "path": "/config/system-one/"
+        },
+        {
           "title": "TUI",
           "path": "/config/tui/"
         },

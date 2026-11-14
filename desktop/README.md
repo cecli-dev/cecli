@@ -116,7 +116,7 @@ workarounds described in [TAURI.md](TAURI.md).
   scrollbar. Client-side zoom controls do not change the emulated page viewport,
   and wheel scrolling hands off from the page into the zoomed canvas at page
   scroll boundaries. The browser, background, and workflows headers collapse
-  their sections when clicked. Chat and the workbench split the remaining width,
+  their sections when clicked. The workbench takes up all remaining width beside the chat,
   header toggles collapse the sidebar, chat, or workbench, and the emulated page
   fills the pane up to a 1920x1080 viewport.
 - The browser preview handles JavaScript dialogs, file pickers, downloads,

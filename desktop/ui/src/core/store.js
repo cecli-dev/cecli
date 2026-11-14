@@ -6,6 +6,7 @@ export class Store {
     this._active_bridge_id = null;
     this._sessions = [];
     this._workspaces = [];
+    this._key_bindings = {};
     this._max_sessions = initial_state.max_sessions || 8;
     this._revisions = new Map();
     this._listeners = new Set();
@@ -30,6 +31,14 @@ export class Store {
 
   get workspaces() {
     return this._workspaces;
+  }
+
+  set_key_bindings(bindings) {
+    if (!bindings || typeof bindings !== 'object') return;
+    const next = { ...bindings };
+    if (JSON.stringify(next) === JSON.stringify(this._key_bindings)) return;
+    this._key_bindings = next;
+    this.emit();
   }
 
   /** Monotonic per-bridge revision used to reject stale snapshots. */
@@ -169,6 +178,7 @@ export class Store {
       ...view,
       sessions: this._sessions,
       workspaces: this._workspaces,
+      key_bindings: this._key_bindings,
       active_bridge_id: this._active_bridge_id,
       max_sessions: this._max_sessions,
       ...this._connection,
@@ -212,6 +222,7 @@ export class Store {
     const next = { ...view };
     delete next.sessions;
     delete next.workspaces;
+    delete next.key_bindings;
     delete next.active_bridge_id;
     delete next.max_sessions;
     delete next.connected;
@@ -258,6 +269,28 @@ export const selectors = {
 
   busy_text(state) {
     return state.busy_message || 'cecli is working…';
+  },
+
+  composer_status(state) {
+    const agent = selectors.active_agent(state);
+
+    if (agent) {
+      const turn_state = agent.running ? 'running' : agent.state || 'idle';
+
+      return { turn_state, label: turn_state.replace(/_/g, ' '), kind: 'state' };
+    }
+
+    if (state.busy) {
+      const is_running = state.turn_state === 'running' && !state.stopping;
+
+      return {
+        turn_state: state.turn_state,
+        label: is_running ? 'running' : selectors.busy_text(state),
+        kind: is_running ? 'state' : 'message',
+      };
+    }
+
+    return { turn_state: state.turn_state, label: selectors.turn_label(state), kind: 'state' };
   },
 
   retry_visible(state) {

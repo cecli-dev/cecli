@@ -137,6 +137,47 @@ class ConfStoreTest(unittest.TestCase):
 
         self.assertEqual(self.store().workspaces()[0]["path"], str(self.workspace))
 
+    def test_key_bindings_copy_tui_config_into_desktop_yml(self) -> None:
+        self.global_path.write_text(
+            yaml.safe_dump(
+                {
+                    "tui-config": {
+                        "key_bindings": {
+                            "submit": "ctrl+j",
+                            "newline": "enter",
+                            "panel_cycle": "alt+o",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bindings = self.store().key_bindings()
+
+        self.assertEqual(
+            bindings,
+            {"submit": "ctrl+j", "newline": "enter", "panel_cycle": "alt+o"},
+        )
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["key-bindings"], bindings)
+
+    def test_desktop_key_bindings_are_never_overwritten(self) -> None:
+        self.global_path.write_text(
+            yaml.safe_dump({"tui-config": {"key_bindings": {"submit": "ctrl+j"}}}),
+            encoding="utf-8",
+        )
+        self.desktop_path.write_text(
+            yaml.safe_dump({"key-bindings": {"submit": "enter"}}),
+            encoding="utf-8",
+        )
+
+        bindings = self.store().key_bindings()
+
+        self.assertEqual(bindings, {"submit": "enter"})
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["key-bindings"], {"submit": "enter"})
+
     def test_invalid_folder_is_reported_not_raised(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
         self.desktop_path.write_text(

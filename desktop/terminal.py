@@ -635,7 +635,15 @@ class TerminalManager:
         ]
 
     def get_or_create(self, bridge_id: str, workspace: str) -> TerminalSession:
-        """Create or reuse a shell; ConPTY falls back to pipe on Windows only."""
+        """Reuse the bridge's live shell or create a new generation."""
+        session = self.get(str(bridge_id))
+        if session is not None and session.ended_at is None:
+            return session
+
+        return self.create(bridge_id, workspace)
+
+    def create(self, bridge_id: str, workspace: str) -> TerminalSession:
+        """Create a new shell for the workspace; ConPTY falls back to pipe."""
         conpty_fallback = False
         if self.backend == "conpty" and not self.available():
             if os.name != "nt":
@@ -650,9 +658,6 @@ class TerminalManager:
         if not workspace or not os.path.isdir(workspace):
             workspace = os.getcwd()
         bridge_key = str(bridge_id)
-        session = self.get(bridge_key)
-        if session is not None and session.ended_at is None:
-            return session
         retained = sum(1 for item in self._terminals.values() if str(item.bridge_id) == bridge_key)
         if retained >= TERMINAL_MAX_PER_BRIDGE:
             self._drop_expired()
@@ -709,7 +714,13 @@ class TerminalManager:
         self._terminals.pop(str(terminal_id), None)
         bridge_key = str(session.bridge_id)
         if self._latest.get(bridge_key) == str(terminal_id):
-            self._latest.pop(bridge_key, None)
+            remaining = [
+                key for key, item in self._terminals.items() if str(item.bridge_id) == bridge_key
+            ]
+            if remaining:
+                self._latest[bridge_key] = remaining[-1]
+            else:
+                self._latest.pop(bridge_key, None)
         await session.stop()
         return True
 
@@ -756,6 +767,7 @@ class TerminalManager:
             "shell": self.shell,
             "endedAt": None,
             "exitCode": None,
+            "terminals": self.terminals(bridge_id),
         }
         if session is not None:
             base.update(session.state())

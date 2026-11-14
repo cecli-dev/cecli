@@ -4,12 +4,14 @@ export class CliTabStrip extends LitElement {
   static properties = {
     tabs: { attribute: false },
     active_key: { type: String },
+    can_new: { type: Boolean },
   };
 
   constructor() {
     super();
     this.tabs = [];
     this.active_key = '';
+    this.can_new = false;
   }
 
   createRenderRoot() {
@@ -25,6 +27,15 @@ export class CliTabStrip extends LitElement {
     return html`
       <div class="cli-tabstrip" role="tablist" aria-label="CLI tabs" @keydown=${this._on_keydown}>
         ${this.tabs.map((tab, index) => this._render_tab(tab, index))}
+        ${this.can_new
+          ? html`<button
+              class="cli-tab-new"
+              type="button"
+              aria-label="New shell"
+              title="New shell"
+              @click=${this._new}
+            >+</button>`
+          : nothing}
       </div>
     `;
   }
@@ -85,6 +96,11 @@ export class CliTabStrip extends LitElement {
     this.dispatchEvent(new CustomEvent('tab-select', { detail: key, bubbles: true, composed: true }));
   }
 
+  _new(event) {
+    event.stopPropagation();
+    this.dispatchEvent(new CustomEvent('tab-new', { bubbles: true, composed: true }));
+  }
+
   _close(event, key) {
     event.stopPropagation();
     this.dispatchEvent(new CustomEvent('tab-close', { detail: key, bubbles: true, composed: true }));
@@ -92,7 +108,7 @@ export class CliTabStrip extends LitElement {
 
   _on_keydown(event) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    if (event.target?.closest?.('.cli-close')) return;
+    if (event.target?.closest?.('.cli-close, .cli-tab-new')) return;
 
     const index = this.tabs.findIndex((tab) => tab.key === this.active_key);
     if (index < 0) return;

@@ -4,15 +4,6 @@
   padding: 0;
 }
 
-.busy-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .spinner {
   width: 12px;
   height: 12px;
@@ -152,6 +143,10 @@
   text-transform: capitalize;
 }
 
+.turn-status[data-kind="message"] {
+  text-transform: none;
+}
+
 .turn-dot {
   width: 6px;
   height: 6px;
@@ -171,4 +166,107 @@
 .turn-status[data-state="requires_action"] .turn-dot {
   background: var(--warn);
   animation: pulse 1.2s ease-in-out infinite;
+}
+
+.composer-add {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.add-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.add-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.add-btn:hover {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.add-btn:active {
+  transform: scale(0.96);
+}
+
+.composer-context-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  min-width: 190px;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgba(17, 20, 45, 0.16);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+  pointer-events: none;
+}
+
+.composer-context-popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 10px;
+}
+
+.composer-add:hover .composer-context-popover,
+.composer-add:focus-within .composer-context-popover {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.composer-context-title {
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.composer-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.composer-context-item {
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.composer-context-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
 }

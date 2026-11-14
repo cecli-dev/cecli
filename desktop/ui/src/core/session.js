@@ -35,6 +35,7 @@ export class Session {
     this.history_loaded = new Set();
     this.reconnect_timer = null;
     this.reconnect_delay = RECONNECT_MIN_MS;
+    this.pending_asides = false;
   }
 
   /** Open the SSE stream. */
@@ -93,7 +94,12 @@ export class Session {
       const target = bridge_id ? this.store.scoped(bridge_id) : this.store;
       handle_event(target, payload, {
         on_permission_resolved: (key) => this.schedule_permission_cleanup(key, bridge_id),
-        on_prompt_done: () => this.clear_permission_cleanup(bridge_id),
+        on_prompt_done: () => {
+          this.clear_permission_cleanup(bridge_id);
+          this._open_pending_asides();
+        },
+        on_command_complete: (command, update) =>
+          this._on_command_complete(command, update),
       });
       this._track_session_event(target, payload);
       if (payload.type === 'status' && payload.status === 'ready') {
@@ -146,6 +152,7 @@ export class Session {
       this.store.set_sessions(payload.sessions, payload.maxSessions);
       if (workspace_payload) {
         this.store.set_workspaces(workspace_payload.workspaces || []);
+        this.store.set_key_bindings(workspace_payload.keyBindings || {});
       }
       if (!(payload.sessions || []).length) {
         this.store.update((state) =>
@@ -508,6 +515,7 @@ export class Session {
         bridge_id ? { bridgeId: bridge_id, text } : { text },
       );
       const steered = Boolean(result?.steered);
+      if (!steered && is_btw_command(text)) this.pending_asides = true;
       this.store.update((current) => {
         if (steered) {
           return {
@@ -779,6 +787,27 @@ export class Session {
       draft_revision: state.draft_revision + 1,
     }));
   }
+
+  _open_pending_asides() {
+    if (!this.pending_asides) return;
+    this.pending_asides = false;
+    this._open_asides_panel();
+  }
+
+  _on_command_complete(command, update) {
+    if (command === 'btw' && update.ok !== false) this._open_asides_panel();
+  }
+
+  _open_asides_panel() {
+    document.dispatchEvent(
+      new CustomEvent('cecli:open-session-panels', { detail: { tab: 'asides' } }),
+    );
+  }
+}
+
+/** True when *text* asks the agent for a ``/btw`` aside. */
+function is_btw_command(text) {
+  return /^\/btw(?:\s|$)/.test(String(text || ''));
 }
 
 export const session = new Session(store);

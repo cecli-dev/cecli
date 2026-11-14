@@ -147,6 +147,7 @@ cli-panel {
 
 .cli-tab:focus-visible,
 .cli-close:focus-visible,
+.cli-tab-new:focus-visible,
 .cli-action:focus-visible,
 .cli-stdin-send:focus-visible,
 .cli-stdin-secret:focus-visible {
@@ -217,6 +218,28 @@ cli-panel {
 .cli-close:hover {
   background: var(--color-error, #d93a4a);
   color: #fff;
+}
+
+.cli-tab-new {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cli-tab-new:hover {
+  background: var(--surface-muted);
+  color: var(--text);
 }
 
 .cli-panes {
@@ -447,12 +470,14 @@ cli-background-view {
 .cli-action,
 .cli-chevron,
 .cli-tab,
-.cli-close {
+.cli-close,
+.cli-tab-new {
   color: var(--cli-muted);
 }
 
 .cli-action:hover,
-.cli-tab:hover {
+.cli-tab:hover,
+.cli-tab-new:hover {
   background: #262a34;
   color: var(--cli-text);
 }

@@ -14,6 +14,7 @@ import './workbench-panel.js';
 import './workspace-dialog.js';
 import './workspace-settings-dialog.js';
 
+import { matches_key_binding } from '../core/key-bindings.js';
 import { session } from '../core/session.js';
 import { StoreController, store } from '../core/store.js';
 
@@ -30,6 +31,17 @@ export class CecliApp extends LitElement {
 
   createRenderRoot() {
     return this;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._on_global_keydown = this._on_global_keydown.bind(this);
+    document.addEventListener('keydown', this._on_global_keydown);
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener('keydown', this._on_global_keydown);
+    super.disconnectedCallback();
   }
 
   render() {
@@ -78,6 +90,54 @@ export class CecliApp extends LitElement {
     `;
   }
 
+  _on_global_keydown(event) {
+    const state = this._store.state;
+    const bindings = state.key_bindings;
+
+    if (matches_key_binding(bindings, 'next_agent', event)) {
+      event.preventDefault();
+      this._switch_agent(1);
+      return;
+    }
+
+    if (matches_key_binding(bindings, 'prev_agent', event)) {
+      event.preventDefault();
+      this._switch_agent(-1);
+      return;
+    }
+
+    if (matches_key_binding(bindings, 'main_agent', event)) {
+      event.preventDefault();
+      session.select_agent(state.active_bridge_id, null);
+      return;
+    }
+
+    if (matches_key_binding(bindings, 'panel_cycle', event)) {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent('cecli:cycle-session-panels'));
+      return;
+    }
+
+    if (matches_key_binding(bindings, 'panels', event)) {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent('cecli:cycle-registry'));
+    }
+  }
+
+  _switch_agent(delta) {
+    const state = this._store.state;
+    const agents = [
+      null,
+      ...(state.subagents || [])
+        .filter((agent) => !agent.removed)
+        .map((agent) => agent.sessionId),
+    ];
+    const current = agents.indexOf(state.active_agent_session_id);
+    const index = current === -1 ? 0 : current;
+    const next = (index + delta + agents.length) % agents.length;
+    session.select_agent(state.active_bridge_id, agents[next]);
+  }
+
   _on_toggle_pane(event) {
     const pane = event.detail && event.detail.pane;
     if (pane === 'sidebar') {
@@ -115,6 +175,6 @@ export class CecliApp extends LitElement {
   _open_onboarding() {
     session.open_onboarding();
   }
-
 }
+
 customElements.define('cecli-app', CecliApp);

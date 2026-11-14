@@ -4,7 +4,7 @@ import test from 'node:test';
 import { handle_event } from '../src/core/events.js';
 import { apply_snapshot } from '../src/core/snapshot.js';
 import { create_initial_state } from '../src/core/state.js';
-import { Store } from '../src/core/store.js';
+import { Store, selectors } from '../src/core/store.js';
 
 function create_store() {
   return new Store(create_initial_state());
@@ -131,4 +131,74 @@ test('reconnect updates the shared connection after switching bridges', () => {
   assert.equal(store.state.connected, true);
   assert.equal(store.state.had_connection, true);
   assert.equal(store.revision('s1'), revision);
+});
+
+test('composer status labels a running main agent as running', () => {
+  const store = create_store();
+
+  store.update((state) => ({
+    ...state,
+    busy: true,
+    turn_state: 'running',
+    busy_message: 'cecli is working…',
+  }));
+
+  assert.deepEqual(selectors.composer_status(store.state), {
+    turn_state: 'running',
+    label: 'running',
+    kind: 'state',
+  });
+});
+
+test('composer status reflects the active sub-agent instead of the main turn', () => {
+  const store = create_store();
+
+  store.update((state) => ({
+    ...state,
+    busy: true,
+    turn_state: 'idle',
+    subagents: [{ sessionId: 'agent-1', running: true, state: 'running' }],
+    active_agent_session_id: 'agent-1',
+  }));
+
+  assert.deepEqual(selectors.composer_status(store.state), {
+    turn_state: 'running',
+    label: 'running',
+    kind: 'state',
+  });
+});
+
+test('composer status keeps the stopping message while the turn winds down', () => {
+  const store = create_store();
+
+  store.update((state) => ({
+    ...state,
+    busy: true,
+    stopping: true,
+    turn_state: 'running',
+    busy_message: 'Stopping…',
+  }));
+
+  assert.deepEqual(selectors.composer_status(store.state), {
+    turn_state: 'running',
+    label: 'Stopping…',
+    kind: 'message',
+  });
+});
+
+test('composer status keeps an approval prompt on the amber state', () => {
+  const store = create_store();
+
+  store.update((state) => ({
+    ...state,
+    busy: true,
+    turn_state: 'requires_action',
+    busy_message: 'Waiting for your approval',
+  }));
+
+  assert.deepEqual(selectors.composer_status(store.state), {
+    turn_state: 'requires_action',
+    label: 'Waiting for your approval',
+    kind: 'message',
+  });
 });

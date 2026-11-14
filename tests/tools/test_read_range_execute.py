@@ -400,6 +400,22 @@ class TestReadFileExecute:
         finally:
             self._teardown()
 
+    def test_trailing_blank_line_full_read(
+        self, mock_coder, mock_file_context, mock_chunks, mock_manager
+    ):
+        """Full-file read (@000..000@) succeeds when file ends with a trailing blank line."""
+        content = "line1\nline2\nline3\n\n"
+        self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
+        try:
+            show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "000@"}]
+            result = self.Tool.execute(self.coder, show)
+            result_str = str(result)
+            assert "Retrieved context" in result_str
+            assert "line1" in result_str
+            assert "line3" in result_str
+        finally:
+            self._teardown()
+
     def test_file_not_found(self, mock_coder, mock_file_context, mock_chunks, mock_manager):
         """Test with a non-existent file."""
         mock_coder.io.read_text.return_value = None

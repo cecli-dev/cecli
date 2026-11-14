@@ -5,7 +5,7 @@ import { group_hooks } from '../core/hooks.js';
 import { session } from '../core/session.js';
 import { StoreController, store } from '../core/store.js';
 
-const TABS = [
+export const REGISTRY_TABS = [
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP' },
   { id: 'hooks', label: 'Hooks' },
@@ -50,7 +50,7 @@ export class RegistryModal extends LitElement {
         >
           <div class="modal-tabs" role="tablist">
             ${repeat(
-              TABS,
+              REGISTRY_TABS,
               (item) => item.id,
               (item) => html`
                 <button
@@ -231,6 +231,7 @@ export class RegistryModal extends LitElement {
   _select_tab(tab) {
     this.tab = tab;
     this._error = '';
+    this.dispatchEvent(new CustomEvent('tab-change', { detail: { tab }, bubbles: true, composed: true }));
     this.requestUpdate();
   }
 

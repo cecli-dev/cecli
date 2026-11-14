@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { escape_html, markdown_to_html } from '../src/core/markdown.js';
+import {
+  escape_html,
+  MarkdownStreamRenderer,
+  markdown_to_html,
+} from '../src/core/markdown.js';
 
 
 test('renders a GFM table with alignment and inline formatting', () => {
@@ -220,4 +224,77 @@ test('preserves existing heading, list, blockquote, code, hr, and link behavior'
 test('escapes raw HTML before formatting', () => {
   assert.equal(escape_html('<b>&"'), '&lt;b&gt;&amp;&quot;');
   assert.match(markdown_to_html('<script>alert(1)</script>'), /&lt;script&gt;/);
+});
+
+
+test('stream renderer matches full rendering for every prefix', () => {
+  const document = [
+    '# Title',
+    '',
+    'A paragraph with **bold** and `code`.',
+    '',
+    '- one',
+    '- two',
+    '',
+    '```js',
+    'const a = 1;',
+    'const b = 2;',
+    '```',
+    '',
+    '| a | b |',
+    '| --- | --- |',
+    '| 1 | 2 |',
+    '',
+    '> quote',
+    '',
+    '$$',
+    'x + 1',
+    '$$',
+    '',
+    'closing paragraph',
+  ].join('\n');
+
+  const renderer = new MarkdownStreamRenderer();
+  const lines = document.split('\n');
+
+  for (let index = 1; index <= lines.length; index += 1) {
+    const prefix = lines.slice(0, index).join('\n');
+    const blocks = renderer.render(prefix);
+
+    assert.equal(blocks.map((block) => block.html).join(''), markdown_to_html(prefix));
+  }
+});
+
+
+test('stream renderer keeps closed blocks and replaces the tail', () => {
+  const renderer = new MarkdownStreamRenderer();
+  const first = renderer.render('intro\n\n```js\nconst a = 1;\n```');
+  const second = renderer.render('intro\n\n```js\nconst a = 1;\n```\n\ntail');
+
+  assert.equal(second[0], first[0]);
+  assert.equal(second[1], first[1]);
+  assert.equal(second.length, 3);
+  assert.equal(second[2].html, '<p>tail</p>');
+});
+
+
+test('stream renderer refreshes an open block as text grows', () => {
+  const renderer = new MarkdownStreamRenderer();
+  const first = renderer.render('```js\nconst a = 1;');
+  const second = renderer.render('```js\nconst a = 1;\nconst b = 2;');
+
+  assert.notEqual(second[0].html, first[0].html);
+  assert.match(second[0].html, /const b = 2;/);
+});
+
+
+test('stream renderer drops cached blocks after reset', () => {
+  const renderer = new MarkdownStreamRenderer();
+  renderer.render('one\n\ntwo');
+
+  renderer.reset();
+  const blocks = renderer.render('three\n\nfour');
+
+  assert.equal(blocks[0].html, '<p>three</p>');
+  assert.equal(blocks[1].html, '<p>four</p>');
 });

@@ -70,6 +70,30 @@ def _atomic_dump(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def _string_mapping(value: Any) -> dict[str, str]:
+    """Return the string-valued entries of a mapping, ignoring other shapes."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): str(item).strip()
+        for key, item in value.items()
+        if isinstance(item, (str, int, float)) and str(item).strip()
+    }
+
+
+def _key_bindings_from_config(config: dict[str, Any]) -> dict[str, str]:
+    """Find the TUI key bindings nested in one merged cecli config."""
+    for section_name in ("tui-config", "tui_config", "tui"):
+        section = config.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for field in ("key_bindings", "key-bindings"):
+            bindings = _string_mapping(section.get(field))
+            if bindings:
+                return bindings
+    return {}
+
+
 def _normalize_entry(entry: Any) -> dict[str, Any] | None:
     """Return a `{path, name}` entry, or None when the shape is unusable."""
     if isinstance(entry, str):
@@ -134,6 +158,27 @@ class ConfStore:
         config = self.config()
         model = config.get("model") or config.get("agent-model")
         return model if isinstance(model, str) and model.strip() else None
+
+    def key_bindings(self) -> dict[str, str]:
+        """Desktop key bindings, copied once from the TUI config when absent.
+
+        The whole `tui-config.key_bindings` mapping is mirrored into the
+        top-level `key-bindings` section of desktop.yml so the desktop can grow
+        into the remaining bindings without another config source. A section
+        already present in desktop.yml wins and is never overwritten.
+        """
+        data = _read_yaml(self.desktop_path)
+        existing = _string_mapping(data.get("key-bindings"))
+        if existing:
+            return existing
+
+        bindings = _key_bindings_from_config(self.config())
+        if not bindings:
+            return {}
+
+        data["key-bindings"] = bindings
+        _atomic_dump(self.desktop_path, data)
+        return bindings
 
     def workspaces(self) -> list[dict[str, Any]]:
         """Configured folders in file order, with invalid entries still present."""

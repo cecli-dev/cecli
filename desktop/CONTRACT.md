@@ -108,6 +108,7 @@ All responses are JSON unless noted. Unknown paths return 404.
 | POST   | `/api/new_session`| `{"cwd": "..."}` optional              | 202; 409 if busy |
 | POST   | `/api/permission` | `{"requestId": 7, "optionId": "y"}` or `{"requestId": 7, "optionId": null}` | 200 `{"ok": true}`; 404 unknown requestId |
 | POST   | `/api/config`     | `{"configId": "mode", "value": "..."}`| 202 `{"ok": true}` |
+| POST   | `/api/paste`      | `{bridgeId?, data?, mimeType?}`        | 200 `{ok, path, contextFiles}` for an image; `{ok, text}` when the clipboard only has text; 404 when empty. Without `data` it reads the host clipboard like the TUI `/paste` command, saves the image to a temp file, and adds the path to the chat. |
 | POST   | `/api/restart`    | -                                      | 202, kills and respawns the child |
 
 State snapshot:
@@ -218,8 +219,8 @@ report the truth.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards
   pointer, wheel, text and key input; the command panel mirrors the TUI's active
-  tabs, command line, output and Follow control. Chat and workbench split the
-  remaining width evenly, and header toggles hide the sidebar, chat, or workbench.
+  tabs, command line, output and Follow control. The workbench takes up all
+  remaining width beside the chat, and header toggles hide the sidebar, chat, or workbench.
   The tab strip scrolls horizontally without a visible scrollbar, offers new-tab
   and hover-close controls, and the browser, background, and workflows headers
   each collapse their own section when clicked. The column hides below 940px.
@@ -416,6 +417,11 @@ kept separate from the CLI config; writes go there atomically and preserve every
 unrelated key. Legacy `desktop.folders` lists in `~/.cecli/conf.yml` or the
 project-local `<workspace>/.cecli/conf.yml` are read only when desktop.yml has no
 folders. Other settings still merge global then project (project wins).
+
+When `desktop.yml` has no top-level `key-bindings` mapping, the first
+`GET /api/workspaces` copies the whole `tui-config.key_bindings` mapping from
+the merged CLI config into it. An existing desktop mapping is never overwritten,
+so the desktop can adopt more TUI bindings over time without another source.
 `CECLI_DESKTOP_CONF_FILE`, `CECLI_DESKTOP_GLOBAL_CONF`, and
 `CECLI_DESKTOP_FOLDERS_FILE` override those paths (used by tests). When no
 folders are configured the server starts with zero sessions; `--workspace` only
@@ -423,7 +429,7 @@ establishes the allowed root and default cwd, it does not auto-open a session.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, desktopConfigPath, globalConfigPath, projectConfigPath}` |
+| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, desktopConfigPath, globalConfigPath, projectConfigPath, keyBindings}` |
 | POST | `/api/workspaces` | `{path, name?, enable_on_startup?}` | 201 `{ok, workspace, bridgeId, sessions}` |
 | POST | `/api/workspaces/update` | `{path, name?, enable_on_startup?}` | 200 `{ok, workspace, bridgeId, sessions}` |
 | DELETE | `/api/workspaces` | `{path}` | 200 `{ok, closed, sessions}` |
@@ -486,6 +492,7 @@ required (400 otherwise). Relevant additions:
 | POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
 | POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
 | GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
+| GET | `/api/session/panels?bridgeId=...` | - | `{agents, asides}` current todo lists and aside exchanges |
 | GET | `/api/prompt-history?bridgeId=...` | - | `{history}` composer recall entries, oldest first |
 | POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
 | POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |

@@ -1022,13 +1022,17 @@ class AgentService:
     # Public API
     # ------------------------------------------------------------------ #
 
-    async def switch_sub_agent_coder(self, info: SubAgentInfo, switch, preproc=True) -> Any:
+    async def switch_sub_agent_coder(
+        self, info: SubAgentInfo, switch, preproc=True, drain=True
+    ) -> Any:
         """Atomically hand a sub-agent's remaining queue to a replacement coder.
 
         Commands such as /add request a coder rebuild by raising SwitchCoderSignal.
         A sub-agent must absorb that signal locally: letting it escape recreates the
         primary coder from the sub-agent and leaves the main session in sub-agent
         mode. The active prompt has already run, so only the remaining queue moves.
+        Set ``drain=False`` to leave that queue for the caller to process (the
+        workflow runner drains it step by step so hooks still fire).
         """
         from cecli.coders import Coder
         from cecli.helpers import command_queue
@@ -1055,7 +1059,8 @@ class AgentService:
         self.sub_agents[new_coder.uuid] = info
         self._uuid_coder_map[new_coder.uuid] = weakref.ref(new_coder)
 
-        await new_coder.process_prompt_queue(preproc)
+        if drain:
+            await new_coder.process_prompt_queue(preproc)
         return new_coder
 
     def start_generate_task(self, info: SubAgentInfo, user_message: str) -> asyncio.Task:

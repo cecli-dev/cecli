@@ -32,6 +32,7 @@ from .drop import DropCommand
 from .editor import EditCommand, EditorCommand
 from .editor_model import EditorModelCommand
 from .exit import ExitCommand
+from .foreach import ForeachCommand
 from .git import GitCommand
 from .hashline import HashlineCommand
 from .help import HelpCommand
@@ -117,6 +118,7 @@ CommandRegistry.register(EditCommand)
 CommandRegistry.register(EditorCommand)
 CommandRegistry.register(EditorModelCommand)
 CommandRegistry.register(ExitCommand)
+CommandRegistry.register(ForeachCommand)
 CommandRegistry.register(GitCommand)
 CommandRegistry.register(HashlineCommand)
 CommandRegistry.register(HelpCommand)
@@ -195,6 +197,7 @@ __all__ = [
     "EditorCommand",
     "EditorModelCommand",
     "ExitCommand",
+    "ForeachCommand",
     "expand_subdir",
     "format_command_result",
     "get_available_files",
