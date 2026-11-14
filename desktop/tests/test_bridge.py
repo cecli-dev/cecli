@@ -15,6 +15,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -317,6 +318,47 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["history"][-1], "remember me")
         self.assertIn("+remember me", history_file.read_text(encoding="utf-8"))
+
+    def test_paste_writes_temp_image_and_adds_context(self) -> None:
+        self.wait_ready()
+
+        payload = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
+        status, body = self.request(
+            "POST", "/api/paste", {"data": payload, "mimeType": "image/png"}
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        path = Path(body["path"])
+        self.addCleanup(shutil.rmtree, path.parent, True)
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.read_bytes(), b"\x89PNG\r\n\x1a\n")
+        self.assertEqual([item["absolutePath"] for item in body["contextFiles"]], [str(path)])
+
+        status, body = self.request(
+            "POST", "/api/paste", {"data": payload, "mimeType": "image/png"}
+        )
+
+        self.assertEqual(status, 200)
+        replacement = Path(body["path"])
+        self.addCleanup(shutil.rmtree, replacement.parent, True)
+        self.assertNotEqual(replacement, path)
+        self.assertEqual(
+            [item["absolutePath"] for item in body["contextFiles"]], [str(replacement)]
+        )
+
+    def test_session_panels_route(self) -> None:
+        self.wait_ready()
+
+        status, body = self.request("GET", "/api/session/panels")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["agents"]), 2)
+        self.assertEqual(body["agents"][0]["todos"][1]["status"], "in_progress")
+        self.assertEqual(body["agents"][1]["label"], "worker chi")
+        self.assertEqual(body["asides"][0]["prompt"], "what is this?")
+        self.assertEqual(body["asides"][0]["response"], "A fake aside.")
 
     def test_history_replays_the_conversation_stream(self) -> None:
         self.wait_ready()

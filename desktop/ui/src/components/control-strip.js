@@ -1,13 +1,16 @@
 import { LitElement, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 
+import { INFO_ICON } from '../core/constants.js';
+import { binding_label } from '../core/key-bindings.js';
 import { session } from '../core/session.js';
 import { StoreController, store } from '../core/store.js';
 import './config-picker.js';
 import './log-drawer.js';
 import './metrics-menu.js';
 import './actions-menu.js';
-import './registry-modal.js';
+import './session-panels-modal.js';
+import { REGISTRY_TABS } from './registry-modal.js';
 import './model-dialog.js';
 
 export class ControlStrip extends LitElement {
@@ -17,6 +20,10 @@ export class ControlStrip extends LitElement {
     this._modal = null;
     this._model_open = false;
     this._on_open_registry = this._on_open_registry.bind(this);
+    this._panels_modal = null;
+    this._on_cycle_panels = this._on_cycle_panels.bind(this);
+    this._on_open_panels = this._on_open_panels.bind(this);
+    this._on_cycle_registry = this._on_cycle_registry.bind(this);
   }
 
   createRenderRoot() {
@@ -26,15 +33,23 @@ export class ControlStrip extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     document.addEventListener('cecli:open-registry', this._on_open_registry);
+    document.addEventListener('cecli:cycle-session-panels', this._on_cycle_panels);
+    document.addEventListener('cecli:open-session-panels', this._on_open_panels);
+    document.addEventListener('cecli:cycle-registry', this._on_cycle_registry);
   }
 
   disconnectedCallback() {
     document.removeEventListener('cecli:open-registry', this._on_open_registry);
+    document.removeEventListener('cecli:cycle-session-panels', this._on_cycle_panels);
+    document.removeEventListener('cecli:open-session-panels', this._on_open_panels);
+    document.removeEventListener('cecli:cycle-registry', this._on_cycle_registry);
     super.disconnectedCallback();
   }
 
   render() {
     const state = this._store.state;
+    const panels_label = binding_label(state.key_bindings, 'panels');
+    const cycle_label = binding_label(state.key_bindings, 'panel_cycle');
 
     return html`
       <div class="control-strip" role="toolbar" aria-label="Session controls">
@@ -48,6 +63,7 @@ export class ControlStrip extends LitElement {
               type="button"
               class="strip-badge"
               aria-label="Manage skills, MCP servers and context"
+              title=${panels_label ? `${panels_label} to cycle extensions` : 'Manage extensions'}
               @click=${() => this._open_modal('skills')}
             >
               Extensions
@@ -57,6 +73,13 @@ export class ControlStrip extends LitElement {
           </div>
         </div>
         <div class="strip-actions">
+          <button
+            type="button"
+            class="strip-btn session-panels-trigger"
+            title=${`Plans and asides (${cycle_label} to cycle)`}
+            aria-label="Open plans and asides"
+            @click=${() => this._open_panels('plans')}
+          >${INFO_ICON}</button>
           <metrics-menu></metrics-menu>
           ${state.cliPane?.enabled ? nothing : html`<log-drawer></log-drawer>`}
           <actions-menu></actions-menu>
@@ -65,8 +88,15 @@ export class ControlStrip extends LitElement {
       <registry-modal
         .open=${Boolean(this._modal)}
         .tab=${this._modal || 'skills'}
+        @tab-change=${this._on_registry_tab_change}
         @close=${this._close_modal}
       ></registry-modal>
+      <session-panels-modal
+        .open=${Boolean(this._panels_modal)}
+        .tab=${this._panels_modal || 'plans'}
+        @tab-change=${this._on_panels_tab_change}
+        @close=${this._close_panels}
+      ></session-panels-modal>
       <model-dialog
         .open=${this._model_open}
         .option=${this._model_option(this._store.state)}
@@ -76,6 +106,7 @@ export class ControlStrip extends LitElement {
   }
 
   _open_modal(tab) {
+    this._panels_modal = null;
     this._modal = tab;
     session.refresh_state();
     this.requestUpdate();
@@ -83,6 +114,50 @@ export class ControlStrip extends LitElement {
 
   _on_open_registry(event) {
     this._open_modal(event.detail?.tab || 'context');
+  }
+
+  _on_cycle_registry() {
+    this._panels_modal = null;
+    const index = REGISTRY_TABS.findIndex((item) => item.id === this._modal);
+    this._modal = index === -1 ? REGISTRY_TABS[0].id : (REGISTRY_TABS[index + 1]?.id ?? null);
+    if (this._modal) session.refresh_state();
+    this.requestUpdate();
+  }
+
+  _on_registry_tab_change(event) {
+    this._modal = event.detail?.tab || REGISTRY_TABS[0].id;
+    this.requestUpdate();
+  }
+
+  _on_open_panels(event) {
+    const tab = event.detail?.tab || 'asides';
+    const reopen = this._panels_modal === tab;
+    this._open_panels(tab);
+    if (reopen) this.querySelector('session-panels-modal')?.reload();
+  }
+
+  _open_panels(tab = 'plans') {
+    this._modal = null;
+    this._panels_modal = tab;
+    this.requestUpdate();
+  }
+
+  _on_cycle_panels() {
+    this._modal = null;
+    if (this._panels_modal === null) this._panels_modal = 'plans';
+    else if (this._panels_modal === 'plans') this._panels_modal = 'asides';
+    else this._panels_modal = null;
+    this.requestUpdate();
+  }
+
+  _on_panels_tab_change(event) {
+    this._panels_modal = event.detail?.tab || 'plans';
+    this.requestUpdate();
+  }
+
+  _close_panels() {
+    this._panels_modal = null;
+    this.requestUpdate();
   }
 
   _close_modal() {

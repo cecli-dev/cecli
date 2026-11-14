@@ -15,6 +15,7 @@ export function create_initial_state() {
     title: '',
     sessions: [],
     workspaces: [],
+    key_bindings: {},
     active_bridge_id: null,
     max_sessions: 8,
     activity: 'idle',

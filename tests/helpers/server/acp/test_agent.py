@@ -11,7 +11,7 @@ import pytest
 
 from cecli import models
 from cecli.helpers.server.acp.agent import config as acp_config
-from cecli.helpers.server.acp.agent.agent import AcpAgent, prompt_to_text
+from cecli.helpers.server.acp.agent.agent import AcpAgent, _todo_entries, prompt_to_text
 from cecli.helpers.server.acp.agent.config import SessionConfig, current_value
 from cecli.helpers.server.acp.agent.io import AcpInputOutput
 from cecli.helpers.server.acp.agent.mcp import ClientMcpServers, to_cecli_configs
@@ -40,6 +40,25 @@ def configured_models(monkeypatch):
 
 
 # ── UpdateEmitter ──────────────────────────────────────────────
+
+
+def test_todo_entries_parse_the_formatted_file(tmp_path):
+    todo_path = tmp_path / "todo.txt"
+    todo_path.write_text(
+        "Done:\n✓ Inspect the workspace\n\nRemaining:\n→ Write the answer\n○ Run the tests\n",
+        encoding="utf-8",
+    )
+    coder = SimpleNamespace(
+        abs_root_path=lambda _path: str(todo_path),
+        local_agent_folder=lambda _name: "todo.txt",
+        io=SimpleNamespace(read_text=lambda _path: todo_path.read_text(encoding="utf-8")),
+    )
+
+    assert _todo_entries(coder) == [
+        {"content": "Inspect the workspace", "status": "completed"},
+        {"content": "Write the answer", "status": "in_progress"},
+        {"content": "Run the tests", "status": "pending"},
+    ]
 
 
 def make_emitter():
@@ -514,6 +533,119 @@ async def test_steer_runs_reap_agent_instead_of_queueing(tmp_path, monkeypatch):
     assert ran == [("/reap-agent", coder)]
     assert queued == []
     assert coder.user_inputs == []
+
+
+async def test_steer_runs_generation_time_commands(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    coder.wrap_user_input = lambda text: f"wrapped:{text}"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder))
+
+    coder.commands = Commands()
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    commands = [
+        "/btw why?",
+        "/spawn-agent worker",
+        "/queue add fix",
+        "/creator",
+        "/workflows status",
+    ]
+    for index, text in enumerate(commands):
+        transport.feed(
+            {
+                "jsonrpc": "2.0",
+                "id": 7 + index,
+                "method": "cecli/steer",
+                "params": {"sessionId": "s1", "prompt": [{"type": "text", "text": text}]},
+            }
+        )
+    await settle()
+
+    assert [item[0] for item in ran] == commands
+    assert queued == []
+    complete = [
+        update
+        for update in transport.updates()
+        if update.get("sessionUpdate") == "command_complete"
+    ]
+    assert [update["command"] for update in complete] == [
+        "btw",
+        "spawn-agent",
+        "queue",
+        "creator",
+        "workflows",
+    ]
+    assert all(update["ok"] for update in complete)
+
+
+async def test_steer_keeps_queue_run_as_text(tmp_path, monkeypatch):
+    agent, transport = await ready_agent(tmp_path)
+    coder = make_coder(tmp_path)
+    coder.uuid = "u1"
+    coder.wrap_user_input = lambda text: f"wrapped:{text}"
+    ran = []
+
+    class Commands:
+        async def run(self, text, coder=None, **kwargs):
+            ran.append((text, coder))
+
+    coder.commands = Commands()
+    queued = []
+
+    class Manager:
+        def queue_message(self, **kwargs):
+            queued.append(kwargs)
+
+    monkeypatch.setattr(
+        "cecli.helpers.conversation.service.ConversationService.get_manager",
+        lambda coder: Manager(),
+    )
+
+    waiting = asyncio.create_task(agent.next_input(coder))
+    await settle()
+    transport.feed(prompt(4, "hello"))
+    assert await waiting == "hello"
+
+    transport.feed(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "cecli/steer",
+            "params": {
+                "sessionId": "s1",
+                "prompt": [{"type": "text", "text": "/queue run"}],
+            },
+        }
+    )
+    await settle()
+
+    assert ran == []
+    assert queued[0]["message_dict"]["content"] == "wrapped:/queue run"
+    assert not [
+        update
+        for update in transport.updates()
+        if update.get("sessionUpdate") == "command_complete"
+    ]
 
 
 async def test_cancel_interrupts_coder(tmp_path):

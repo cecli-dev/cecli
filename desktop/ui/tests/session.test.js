@@ -130,3 +130,59 @@ test('a rejected workflow leaves no phantom turn', async () => {
     assert.equal(store.state.busy, false);
   });
 });
+
+test('a /btw prompt opens the asides panel when the turn finishes', async () => {
+  await with_fast_timers(async () => {
+    const store = new Store(create_initial_state());
+    store.update((state) => ({ ...state, status: 'ready' }));
+    const session = new Session(store);
+    store.set_sessions([{ bridgeId: 'b1', status: 'ready' }], 8);
+    globalThis.fetch = async () => response({ ok: true }, true, 202);
+
+    assert.equal(await session.send_prompt('/btw what is this?'), true);
+    assert.equal(session.pending_asides, true);
+
+    const opened = [];
+    const original_document = globalThis.document;
+    globalThis.document = { dispatchEvent: (event) => opened.push(event.detail) };
+    try {
+      session._open_pending_asides();
+    } finally {
+      globalThis.document = original_document;
+    }
+
+    assert.deepEqual(opened, [{ tab: 'asides' }]);
+    assert.equal(session.pending_asides, false);
+  });
+});
+
+test('a generation-time /btw command opens the asides panel when it completes', () => {
+  const store = new Store(create_initial_state());
+  const session = new Session(store);
+  const opened = [];
+  const original_document = globalThis.document;
+  globalThis.document = { dispatchEvent: (event) => opened.push(event.detail) };
+
+  try {
+    session._on_command_complete('btw', { ok: true });
+    session._on_command_complete('btw', { ok: false });
+    session._on_command_complete('spawn-agent', { ok: true });
+  } finally {
+    globalThis.document = original_document;
+  }
+
+  assert.deepEqual(opened, [{ tab: 'asides' }]);
+});
+
+test('a normal prompt leaves the asides panel closed', async () => {
+  await with_fast_timers(async () => {
+    const store = new Store(create_initial_state());
+    store.update((state) => ({ ...state, status: 'ready' }));
+    const session = new Session(store);
+    store.set_sessions([{ bridgeId: 'b1', status: 'ready' }], 8);
+    globalThis.fetch = async () => response({ ok: true }, true, 202);
+
+    assert.equal(await session.send_prompt('hello'), true);
+    assert.equal(session.pending_asides, false);
+  });
+});

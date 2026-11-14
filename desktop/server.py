@@ -16,6 +16,7 @@ import datetime
 import hashlib
 import ipaddress
 import json
+import mimetypes
 import os
 import secrets
 import shutil
@@ -23,6 +24,7 @@ import signal
 import socket
 import struct
 import sys
+import tempfile
 import time
 import urllib.parse
 import uuid
@@ -389,6 +391,10 @@ class AcpBridge:
             "subagents": subagents if isinstance(subagents, list) else [],
             "diffs": diffs if isinstance(diffs, list) else [],
         }
+
+    async def session_panels(self) -> dict[str, Any]:
+        """Return the active session's agent todos and aside exchanges."""
+        return await self.call_extension("cecli/panels", {})
 
     async def set_context(self, action: str, path: str, read_only: bool = False) -> dict[str, Any]:
         """Add or remove a context file on the child."""
@@ -1611,6 +1617,21 @@ class DesktopServer:
                 return self._json(err.status, {"ok": False, "error": str(err)})
             return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
 
+        if method == "GET" and path == "/api/session/panels":
+            bridge = self.sessions.get(self._query_bridge(query))
+            try:
+                result = await bridge.session_panels()
+            except BridgeError as err:
+                return self._json(err.status, {"ok": False, "error": str(err)})
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "agents": result.get("agents") or [],
+                    "asides": result.get("asides") or [],
+                },
+            )
+
         if method == "GET" and path == "/api/prompt-history":
             bridge = self.sessions.get(self._query_bridge(query))
             return self._json(
@@ -1735,6 +1756,8 @@ class DesktopServer:
             return await self._close_session(body)
         if path == "/api/prompt":
             return await self._prompt(body)
+        if path == "/api/paste":
+            return await self._paste(body)
         if path == "/api/cancel":
             bridge = self._bridge_from(body)
             await bridge.cancel()
@@ -1778,6 +1801,7 @@ class DesktopServer:
                 "configPath": str(self.conf.desktop_path),
                 "desktopConfigPath": str(self.conf.desktop_path),
                 "globalConfigPath": str(self.conf.global_path),
+                "keyBindings": self.conf.key_bindings(),
                 "projectConfigPath": str(self.conf.project_path),
             },
         )
@@ -2153,6 +2177,65 @@ class DesktopServer:
 
         _append_prompt_history(bridge.workspace, text.strip())
         return self._json(202, {"ok": True, "steered": steered})
+
+    async def _paste(self, body: bytes) -> tuple[int, bytes, str]:
+        """Save a clipboard image to a temp file, then add it to the chat."""
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+
+        try:
+            bridge = self.sessions.get_mutation(data.get("bridgeId"))
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        encoded = data.get("data")
+        try:
+            if isinstance(encoded, str) and encoded:
+                path = await asyncio.to_thread(
+                    _write_pasted_image, encoded, str(data.get("mimeType") or "image/png")
+                )
+                text = ""
+            else:
+                path, text = await asyncio.to_thread(_grab_clipboard_paste)
+        except (ValueError, binascii.Error) as err:
+            return self._json(400, {"ok": False, "error": str(err)})
+        except Exception as err:
+            return self._json(500, {"ok": False, "error": f"clipboard read failed: {err}"})
+
+        if path is None:
+            if text:
+                return self._json(200, {"ok": True, "text": text})
+            return self._json(404, {"ok": False, "error": "no image or text in clipboard"})
+
+        await self._remove_stale_pasted_image(bridge, path)
+        try:
+            result = await bridge.set_context("add", str(path))
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        context_files = result.get("contextFiles") if isinstance(result, dict) else None
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "path": str(path),
+                "contextFiles": context_files if isinstance(context_files, list) else [],
+            },
+        )
+
+    async def _remove_stale_pasted_image(self, bridge: "AcpBridge", path: Path) -> None:
+        """Drop an earlier paste with the same basename, like the TUI /paste command."""
+        for item in bridge.details.get("contextFiles") or []:
+            existing = item.get("absolutePath") if isinstance(item, dict) else None
+            if not existing or item.get("readOnly"):
+                continue
+            if Path(existing).name != path.name or Path(existing) == path:
+                continue
+            try:
+                await bridge.set_context("remove", existing)
+            except BridgeError:
+                continue
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body) if body else {}
@@ -4190,6 +4273,39 @@ def _append_prompt_history(workspace: str, text: str) -> None:
                 handle.write(f"+{line}\n".encode("utf-8"))
     except OSError:
         pass
+
+
+def _write_pasted_image(encoded: str, mime_type: str) -> Path:
+    """Decode a base64 image into a fresh temp file for the chat."""
+    if not mime_type.startswith("image/"):
+        raise ValueError("mimeType must be an image")
+
+    suffix = mimetypes.guess_extension(mime_type) or ".png"
+    if suffix == ".jpe":
+        suffix = ".jpg"
+
+    payload = base64.b64decode(encoded, validate=True)
+    if not payload:
+        raise ValueError("image data is empty")
+
+    directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
+    path = directory / f"clipboard_image{suffix}"
+    path.write_bytes(payload)
+    return path
+
+
+def _grab_clipboard_paste() -> tuple[Path | None, str]:
+    """Mirror the TUI /paste command: image to a temp file, else clipboard text."""
+    from cecli.commands.paste import PasteCommand
+
+    image = PasteCommand._grab_clipboard_image(None)
+    if image is not None and hasattr(image, "save"):
+        directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
+        path = directory / "clipboard_image.png"
+        image.save(path, "PNG")
+        return path, ""
+
+    return None, PasteCommand._read_clipboard_text(None)
 
 
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:
