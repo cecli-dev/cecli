@@ -2,7 +2,6 @@
 Tests for the fix of `AttributeError: 'SubAgentCoder' object has no attribute 'original_kwargs'`.
 """
 
-import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -61,7 +60,7 @@ class TestSubAgentCoderOriginalKwargs:
             mock_instance.spawn = AsyncMock(return_value=(MagicMock(), mock_info))
             MockService.get_instance.return_value = mock_instance
 
-            # This should not raise AttributeError for original_kwargs
+            # Should not raise AttributeError for original_kwargs
             result = await DelegateTool.execute(
                 mock_coder, delegations=[{"name": "reviewer", "prompt": "review this"}]
             )
@@ -70,11 +69,11 @@ class TestSubAgentCoderOriginalKwargs:
             assert "agent started with id" in str(result)
             assert "child-uuid-123" in str(result)
 
-    def test_coder_init_initializes_original_kwargs(self):
-        """Coder.__init__ must initialize original_kwargs so direct construction is safe."""
-        from cecli.coders.base_coder import Coder
+    def test_sub_agent_coder_direct_instantiation(self):
+        """Direct construction initializes original_kwargs without manual assignment."""
+        from cecli.coders.sub_agent_coder import SubAgentCoder
 
-        # The fix lives in Coder.__init__: every Coder-family instance (including
-        # SubAgentCoder) gets the attribute at construction, before Coder.create()
-        # overwrites it with the real kwargs.
-        assert "self.original_kwargs = {}" in inspect.getsource(Coder.__init__)
+        coder = SubAgentCoder(main_model=MagicMock(), io=MagicMock())
+
+        assert hasattr(coder, "original_kwargs")
+        assert isinstance(coder.original_kwargs, dict)
