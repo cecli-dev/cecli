@@ -123,7 +123,7 @@ class TestModels:
         ]
         print("Warning messages:", warning_messages)
         assert mock_io.tool_warning.call_count >= 1
-        assert any(("bogus-model" in msg for msg in warning_messages))
+        assert any("bogus-model" in msg for msg in warning_messages)
 
     @patch("cecli.models.check_for_dependencies")
     async def test_sanity_check_model_calls_check_dependencies(self, mock_check_deps):
