@@ -45,18 +45,28 @@ export function markdown_blocks(text) {
     }
 
     const start = index;
-    const fence = /^```([\w+#.-]*)\s*$/.exec(line.trim());
+    const fence = parse_fence_open(line);
     if (fence) {
-      const language = fence[1] || '';
+      const { marker, language } = fence;
       const code = [];
       index += 1;
 
-      while (index < lines.length && !/^```\s*$/.test(lines[index].trim())) {
+      while (index < lines.length) {
+        if (is_fence_closer(lines[index], marker)) {
+          index += 1;
+          break;
+        }
+
+        const partial = split_trailing_fence(lines[index], marker);
+        if (partial !== null) {
+          if (partial) code.push(partial);
+          index += 1;
+          break;
+        }
+
         code.push(lines[index]);
         index += 1;
       }
-
-      if (index < lines.length) index += 1;
       push_block(blocks, lines, start, index, () => render_code_block_html(code.join('\n'), language));
       continue;
     }
@@ -213,7 +223,7 @@ function starts_block_line(lines, index) {
   const line = lines[index];
 
   return (
-    /^```/.test(line.trim()) ||
+    /^(?:`{3,}|~{3,})/.test(line.trim()) ||
     math_block_closer(line) !== null ||
     single_line_display_math(line) !== null ||
     /^#{1,3}\s+/.test(line) ||
@@ -229,6 +239,56 @@ function starts_block_line(lines, index) {
 function render_code_block_html(code, language) {
   const label = language ? escape_html(language) : 'text';
   return `<div class="code-block"><div class="code-head"><span class="code-lang">${label}</span><button type="button" class="code-copy" aria-label="Copy code">Copy</button></div><pre><code>${code}</code></pre></div>`;
+}
+
+/** Parse a fenced-code opener, returning its marker run and language label. */
+function parse_fence_open(line) {
+  const value = line.trim();
+  const match = /^(`{3,}|~{3,})(.*)$/.exec(value);
+
+  if (!match) return null;
+
+  const marker = match[1];
+  const info = match[2].trim();
+
+  if (marker[0] === '`' && info.includes('`')) return null;
+
+  return { marker, language: info.split(/\s+/)[0] || '' };
+}
+
+/** True when the line closes a fence opened with the same character and at least its length. */
+function is_fence_closer(line, marker) {
+  const value = line.trim();
+  const char = marker[0];
+  let run = 0;
+
+  while (run < value.length && value[run] === char) run += 1;
+
+  return run >= marker.length && value.slice(run).trim() === '';
+}
+
+/**
+ * Recover a closing fence glued to the end of a code line ("code```").
+ *
+ * Models occasionally omit the newline before the closing fence; without this the rest of the
+ * message would be swallowed into the code block. Trailing whitespace is ignored so a chunk
+ * boundary that splits "``` " from its newline still closes. Returns the remaining code line, or
+ * null when the line does not end in a fence run.
+ *
+ * A code line that legitimately ends in a run this long cannot be told apart from a glued closer,
+ * so it closes the block early.
+ */
+function split_trailing_fence(line, marker) {
+  const value = line.replace(/\s+$/, '');
+  const char = marker[0];
+  let end = value.length;
+
+  while (end > 0 && value[end - 1] === char) end -= 1;
+
+  const run = value.length - end;
+  if (run < marker.length) return null;
+
+  return value.slice(0, end);
 }
 
 /** Convert inline markdown within already-escaped text. */

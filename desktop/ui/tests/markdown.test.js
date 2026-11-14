@@ -298,3 +298,69 @@ test('stream renderer drops cached blocks after reset', () => {
   assert.equal(blocks[0].html, '<p>three</p>');
   assert.equal(blocks[1].html, '<p>four</p>');
 });
+
+
+test('recovers a closing fence glued to the last code line', () => {
+  const html = markdown_to_html('before\n```js\nconst x = 1;```\nafter');
+
+  assert.match(html, /<code>const x = 1;<\/code>/);
+  assert.doesNotMatch(html, /<code>[^<]*after/);
+  assert.match(html, /<\/div><p>after<\/p>$/);
+});
+
+
+test('recovers a glued fence followed by trailing whitespace', () => {
+  const html = markdown_to_html('```\ncode``` \nafter');
+
+  assert.match(html, /<code>code<\/code>/);
+  assert.match(html, /<\/div><p>after<\/p>$/);
+});
+
+
+test('recovers a glued fence with a carriage return line ending', () => {
+  const html = markdown_to_html('```js\r\nconst x = 1;```\r\nafter');
+
+  assert.match(html, /<span class="code-lang">js<\/span>/);
+  assert.match(html, /<code>const x = 1;<\/code>/);
+});
+
+
+test('recovers a glued tilde fence', () => {
+  const html = markdown_to_html('~~~\ncode~~~\nafter');
+
+  assert.match(html, /<code>code<\/code>/);
+  assert.match(html, /<\/div><p>after<\/p>$/);
+});
+
+
+test('supports longer fence markers and nested shorter fences', () => {
+  const html = markdown_to_html('````md\n```\nnested\n```\n````');
+
+  assert.equal((html.match(/code-block/g) || []).length, 1);
+  assert.match(html, /<span class="code-lang">md<\/span>/);
+  assert.match(html, /```[\s\S]*nested[\s\S]*```/);
+});
+
+
+test('requires a closing fence at least as long as the opener', () => {
+  const html = markdown_to_html('````\ncode\n```\n````');
+
+  assert.match(html, /<pre><code>code\n```<\/code><\/pre>/);
+});
+
+
+test('supports tilde fences', () => {
+  const html = markdown_to_html('~~~js\nconst x = 1;\n~~~');
+
+  assert.match(html, /<span class="code-lang">js<\/span>/);
+  assert.match(html, /<pre><code>const x = 1;<\/code><\/pre>/);
+  assert.doesNotMatch(html, /<del>/);
+});
+
+
+test('keeps the first info word as the language label', () => {
+  const html = markdown_to_html('```js title="demo"\nconst x = 1;\n```');
+
+  assert.match(html, /<span class="code-lang">js<\/span>/);
+  assert.match(html, /const x = 1;/);
+});
