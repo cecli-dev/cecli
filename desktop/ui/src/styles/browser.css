@@ -166,6 +166,121 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   opacity: 0.35;
 }
 
+.browser-menu-wrap {
+  position: relative;
+  flex: none;
+}
+
+.browser-menu-trigger[aria-expanded='true'] {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.browser-menu-trigger svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.browser-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 196px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(17, 20, 45, 0.16);
+}
+
+.browser-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.browser-menu-item:hover:not(:disabled),
+.browser-menu-item:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.browser-menu-item:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.browser-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.browser-menu-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+}
+
+.browser-menu-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.browser-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.browser-switch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background 0.15s ease;
+}
+
+.browser-switch[data-on='true'] {
+  background: var(--accent-a);
+}
+
+.browser-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.browser-switch[data-on='true'] .browser-switch-knob {
+  transform: translateX(13px);
+}
+
 .browser-url {
   flex: 1;
   min-width: 0;

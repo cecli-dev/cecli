@@ -1100,6 +1100,13 @@ class BrowserBridge:
         self._cursor = ""
         self._tab_order = []
         self._last_frame = None
+        self._url = "about:blank"
+        self._title = ""
+        self._error = None
+        self._frame_count = 0
+        self._tabs = []
+        self._tabs_signature = None
+        self._downloads = []
         for queue in list(self._subscribers):
             self._subscribers.discard(queue)
             while True:

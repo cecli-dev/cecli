@@ -8,6 +8,23 @@
   padding: 0 6px 8px;
 }
 
+.transcript-dock .agent-strip {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 0;
+  scrollbar-width: none;
+}
+
+.transcript-dock .agent-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.transcript-dock .agent-pill {
+  flex: none;
+}
+
 .agent-pill {
   display: inline-flex;
   align-items: center;

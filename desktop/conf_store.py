@@ -180,6 +180,56 @@ class ConfStore:
         _atomic_dump(self.desktop_path, data)
         return bindings
 
+    def browser_settings(self) -> dict[str, Any]:
+        """Desktop browser options from the top-level `browser` section."""
+        data = _read_yaml(self.desktop_path)
+        browser = data.get("browser")
+        if not isinstance(browser, dict):
+            return {"launch_on_startup": False}
+        return {"launch_on_startup": _as_bool(browser.get("launch_on_startup"))}
+
+    def ensure_browser_settings(self) -> dict[str, Any]:
+        """Write the default `browser` section when desktop.yml lacks one.
+
+        A desktop.yml that cannot be parsed as a mapping is left untouched so a
+        broken file is never replaced by the defaults.
+        """
+        data = _read_yaml_for_write(self.desktop_path)
+        if data is None:
+            return {"launch_on_startup": False}
+
+        browser = data.get("browser")
+        if not isinstance(browser, dict):
+            browser = {}
+        if "launch_on_startup" in browser:
+            return {"launch_on_startup": _as_bool(browser.get("launch_on_startup"))}
+
+        browser["launch_on_startup"] = False
+        data["browser"] = browser
+        try:
+            _atomic_dump(self.desktop_path, data)
+        except OSError:
+            pass
+        return {"launch_on_startup": False}
+
+    def set_browser_launch_on_startup(self, enabled: bool) -> dict[str, Any]:
+        """Persist the browser launch preference in desktop.yml.
+
+        Raises ValueError instead of overwriting a desktop.yml that cannot be
+        parsed as a mapping.
+        """
+        data = _read_yaml_for_write(self.desktop_path)
+        if data is None:
+            raise ValueError("desktop.yml is not valid YAML; refusing to overwrite it")
+
+        browser = data.get("browser")
+        if not isinstance(browser, dict):
+            browser = {}
+        browser["launch_on_startup"] = bool(enabled)
+        data["browser"] = browser
+        _atomic_dump(self.desktop_path, data)
+        return {"launch_on_startup": bool(enabled)}
+
     def workspaces(self) -> list[dict[str, Any]]:
         """Configured folders in file order, with invalid entries still present."""
         folders = self._top_folders_from(self.desktop_path)
@@ -297,3 +347,26 @@ class ConfStore:
         desktop = _read_yaml(path).get("desktop")
         folders = desktop.get("folders") if isinstance(desktop, dict) else None
         return folders if isinstance(folders, list) else None
+
+
+def _as_bool(value: Any) -> bool:
+    """Interpret YAML/JSON truthy values without treating "false" as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def _read_yaml_for_write(path: Path) -> dict[str, Any] | None:
+    """Read the mapping an update will rewrite, or None when it is unusable."""
+    if not path.exists():
+        return {}
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return None
+
+    return data if isinstance(data, dict) else None

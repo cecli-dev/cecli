@@ -1,7 +1,6 @@
 import { LitElement, html } from 'lit';
 
 import './app-backdrop.js';
-import './agent-strip.js';
 import './app-header.js';
 import './composer-bar.js';
 import './control-strip.js';
@@ -68,7 +67,6 @@ export class CecliApp extends LitElement {
             <transcript-view></transcript-view>
             <permission-region></permission-region>
             <div class="composer-dock">
-              <agent-strip></agent-strip>
               <composer-bar></composer-bar>
               <control-strip @open-onboarding=${this._open_onboarding}></control-strip>
             </div>

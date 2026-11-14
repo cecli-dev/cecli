@@ -4,6 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { SCROLL_LOCK_PX } from '../core/constants.js';
 import { session } from '../core/session.js';
 import { StoreController, selectors, store } from '../core/store.js';
+import './agent-strip.js';
 import './assistant-turn.js';
 import './context-message.js';
 import './empty-state.js';
@@ -89,17 +90,19 @@ export class TranscriptView extends LitElement {
                   ></assistant-turn>`,
           )}
         </div>
-        ${state.auto_scroll
-          ? nothing
-          : html`<button
-              type="button"
-              class="strip-badge jump-badge jump-latest"
-              title="Jump to latest"
-              @click=${this._jump_latest}
-            >
-              <span aria-hidden="true">↓</span> Jump to latest
-            </button>`}
-      </div>
+        <div class="transcript-dock">
+          <agent-strip></agent-strip>
+          ${state.auto_scroll
+            ? nothing
+            : html`<button
+                type="button"
+                class="strip-badge jump-badge jump-latest"
+                title="Jump to latest"
+                @click=${this._jump_latest}
+              >
+                <span aria-hidden="true">↓</span> Jump to latest
+              </button>`}
+        </div>
     `;
   }
 

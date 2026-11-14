@@ -277,7 +277,7 @@ loopback.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers}` |
+| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers, launchOnStartup}` |
 | POST | `/api/browser/start` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser |
 | POST | `/api/browser/open` | `{url}` | 200 `{ok, ...snapshot}`; 400 empty/invalid; 503/409 if no browser |
 | POST | `/api/browser/action` | `{action: "back"|"forward"|"reload"|"stop"}` | 202 `{ok}`; 400 unknown action |
@@ -287,6 +287,8 @@ loopback.
 | POST | `/api/browser/file-chooser` | `{files}` or `{cancel: true}` | 200 `{ok, ...snapshot}`; attaches or dismisses an intercepted chooser |
 | POST | `/api/browser/download` | `{action: "open", id}` | 202 `{ok, ...snapshot}`; 404 unknown, 409 not-ready |
 | POST | `/api/browser/external` | `{url?}` | 202 `{ok, url}`; opens the system browser |
+| POST | `/api/browser/close` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser; stops it and clears the browser-harness endpoint |
+| POST | `/api/browser/close` | `{}` | 202 `{ok, ...snapshot}`; stops the bridge and closes a browser it launched |
 | POST | `/api/browser/drop` | `{x, y, files?, text?}` | 202 `{ok, ...snapshot}`; dispatches a drag/drop |
 | POST | `/api/browser/tab/new` | `{url?}` | 202 `{ok, ...snapshot}`; 400 bad url |
 | POST | `/api/browser/tab/close` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
@@ -356,10 +358,14 @@ stops the shared screencast. Screencast acks are coalesced and slow to about
 3 fps after 12 seconds without input; the next input restores quality 70 and
 about 25 fps.
 
-The panel includes an "Open in default browser" button
-(`POST /api/browser/external`) as the accessibility escape hatch: the canvas is
+The panel's vertical settings menu (`POST /api/browser/external` and
+`POST /api/browser/close`) is the accessibility escape hatch: the canvas is
 not readable by screen readers, so the same page can be opened in the user's
-regular browser.
+regular browser, or the mirrored browser can be closed. The menu's switch
+persists `browser.launch_on_startup` in `desktop.yml` through
+`POST /api/browser/config`, and the server starts the browser during launch
+when that setting is true. Closing also detaches every session from the shared
+browser-harness endpoint so later turns do not reconnect to a dead port.
 
 `POST /api/background` with `{bridgeId?, action: "list"}` returns
 `{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns
@@ -417,6 +423,16 @@ kept separate from the CLI config; writes go there atomically and preserve every
 unrelated key. Legacy `desktop.folders` lists in `~/.cecli/conf.yml` or the
 project-local `<workspace>/.cecli/conf.yml` are read only when desktop.yml has no
 folders. Other settings still merge global then project (project wins).
+
+The same file can carry desktop-only browser preferences:
+
+```yaml
+browser:
+  launch_on_startup: false
+```
+
+`browser.launch_on_startup` defaults to false and is toggled from the browser
+panel's settings menu. It only affects the next desktop launch.
 
 When `desktop.yml` has no top-level `key-bindings` mapping, the first
 `GET /api/workspaces` copies the whole `tui-config.key_bindings` mapping from

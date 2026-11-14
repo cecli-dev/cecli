@@ -122,8 +122,10 @@ workarounds described in [TAURI.md](TAURI.md).
 - The browser preview handles JavaScript dialogs, file pickers, downloads,
   promptable permissions, IME composition, cursor feedback, clipboard copy, and
   file/text drops. Frames stream over a binary WebSocket (with the SSE endpoint
-  as a fallback), and an "Open in default browser" action provides the
-  screen-reader-accessible escape hatch from the canvas preview.
+  as a fallback). A vertical settings menu provides the screen-reader-accessible
+  escape hatch from the canvas preview (open the page in the default browser or
+  close the mirrored browser), plus a Start on Launch switch that persists
+  `browser.launch_on_startup` in `desktop.yml`.
 - A registry panel at the bottom of the sidebar for toggling skills and MCP
   servers and running workflows.
 

@@ -92,23 +92,29 @@ export class ComposerBar extends LitElement {
             @input=${this._on_input}
             @keydown=${this._on_keydown}
           ></textarea>
-          <div class="composer-add">
+          <div class="composer-actions">
+            <div class="composer-add">
+              <button
+                class="add-btn"
+                type="button"
+                aria-label="Manage extensions and context"
+                @click=${this._open_extensions}
+              >${PLUS_ICON}${state.context_files.length
+                ? html`<span class="add-count" aria-hidden="true">
+                    ${state.context_files.length}
+                  </span>`
+                : nothing}</button>
+              ${this._render_context_popover(state)}
+            </div>
             <button
-              class="add-btn"
+              class="send-btn"
               type="button"
-              aria-label="Manage extensions and context"
-              @click=${this._open_extensions}
-            >${PLUS_ICON}</button>
-            ${this._render_context_popover(state)}
+              data-mode=${show_stop ? 'stop' : 'send'}
+              aria-label=${show_stop ? 'Stop this turn' : 'Send message'}
+              ?disabled=${disabled}
+              @click=${this._on_send_click}
+            >${show_stop ? STOP_ICON : SEND_ICON}</button>
           </div>
-          <button
-            class="send-btn"
-            type="button"
-            data-mode=${show_stop ? 'stop' : 'send'}
-            aria-label=${show_stop ? 'Stop this turn' : 'Send message'}
-            ?disabled=${disabled}
-            @click=${this._on_send_click}
-          >${show_stop ? STOP_ICON : SEND_ICON}</button>
         </div>
         <div class="composer-meta">
           <span class="hint">${busy

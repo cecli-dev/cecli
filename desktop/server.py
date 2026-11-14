@@ -344,6 +344,21 @@ class AcpBridge:
         except (AcpError, asyncio.TimeoutError):
             return
 
+    async def clear_browser(self) -> None:
+        """Detach the child from a browser the desktop no longer owns."""
+        self.shared_browser = None
+        self._browser_announced = False
+
+        if self.status != "ready" or self.session_id is None:
+            return
+
+        try:
+            await self._request(
+                "cecli/browser", {"sessionId": self.session_id, "action": "clear"}, timeout=10.0
+            )
+        except (AcpError, asyncio.TimeoutError):
+            return
+
     async def set_skill(self, action: str, name: str) -> dict[str, Any]:
         """Load, remove, include or exclude one skill."""
         return await self.call_extension("cecli/skill", {"action": action, "name": name})
@@ -1251,6 +1266,16 @@ class SessionManager:
             return_exceptions=True,
         )
 
+    async def clear_browser(self) -> None:
+        """Forget the shared browser and tell every session to detach."""
+        self.browser_endpoint = None
+
+        bridges = list(self.sessions.values())
+        await asyncio.gather(
+            *(bridge.clear_browser() for bridge in bridges),
+            return_exceptions=True,
+        )
+
     def allow_root(self, path: str) -> None:
         """Let an explicitly configured workspace spawn its session."""
         real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
@@ -1414,6 +1439,7 @@ class DesktopServer:
         if self.sessions is not None:
             self.sessions.background_event_sink = self._on_background_event
         self._browser_sync_task: asyncio.Task[Any] | None = None
+        self.browser_autostart_task: asyncio.Task[Any] | None = None
 
     @property
     def bridge(self) -> AcpBridge:
@@ -1599,7 +1625,13 @@ class DesktopServer:
                 state = self._browser_bridge().snapshot()
             except BrowserError as err:
                 return self._json(err.status, {"ok": False, "error": str(err)})
-            return self._json(200, {"ok": True, **state})
+
+            payload: dict[str, Any] = {"ok": True, **state}
+            if self.conf is not None:
+                payload["launchOnStartup"] = bool(
+                    self.conf.browser_settings().get("launch_on_startup")
+                )
+            return self._json(200, payload)
 
         if method == "GET" and path == "/api/state":
             bridge = self.sessions.get(self._query_bridge(query))
@@ -1727,6 +1759,10 @@ class DesktopServer:
                 return await self._browser_download(body)
             if suffix == "external":
                 return await self._browser_external(body)
+            if suffix == "config":
+                return await self._browser_config(body)
+            if suffix == "close":
+                return await self._browser_close(body)
             if suffix == "drop":
                 return await self._browser_drop(body)
             if suffix == "tab/close":
@@ -2314,6 +2350,19 @@ class DesktopServer:
         self._announce_browser(state)
         return self._json(202, {"ok": True, **state})
 
+    async def autostart_browser(self) -> None:
+        """Launch the browser in the background when desktop.yml asks for it."""
+        if self.browser is None:
+            return
+
+        try:
+            state = await self._browser_bridge().start()
+        except BrowserError as err:
+            print(f"warning: could not start the browser: {err}", file=sys.stderr, flush=True)
+            return
+
+        self._announce_browser(state)
+
     async def _browser_open(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
         if data is None:
@@ -2472,6 +2521,38 @@ class DesktopServer:
         except BrowserError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(202, {"ok": True, **result})
+
+    async def _browser_config(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if not isinstance(data.get("launchOnStartup"), bool):
+            return self._json(400, {"ok": False, "error": "launchOnStartup must be a boolean"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+
+        try:
+            settings = self.conf.set_browser_launch_on_startup(data["launchOnStartup"])
+        except (OSError, ValueError) as err:
+            return self._json(500, {"ok": False, "error": f"could not save desktop config: {err}"})
+
+        return self._json(202, {"ok": True, "launchOnStartup": settings["launch_on_startup"]})
+
+    async def _browser_close(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        try:
+            await self._browser_bridge().shutdown()
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        state = self._browser_bridge().snapshot()
+        clear = getattr(self.sessions, "clear_browser", None)
+        if clear is not None:
+            await clear()
+
+        return self._json(202, {"ok": True, **state})
 
     async def _browser_drop(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
@@ -4031,6 +4112,7 @@ async def run_server(config: ServerConfig) -> None:
         token=config.token,
     )
     conf = ConfStore(config.workspace)
+    conf.ensure_browser_settings()
     onboarding = OnboardingService(manager, conf)
     browser = BrowserBridge()
     terminal = TerminalManager(
@@ -4107,6 +4189,8 @@ async def run_server(config: ServerConfig) -> None:
         )
     if config.open_browser:
         asyncio.create_task(_open_browser(url))
+    if conf.browser_settings().get("launch_on_startup"):
+        app.browser_autostart_task = asyncio.create_task(app.autostart_browser())
     terminal_reaper = asyncio.create_task(_terminal_reaper_loop(terminal))
 
     try:
@@ -4125,6 +4209,10 @@ async def run_server(config: ServerConfig) -> None:
             finally:
                 terminal_reaper.cancel()
                 await asyncio.gather(terminal_reaper, return_exceptions=True)
+                autostart = app.browser_autostart_task
+                if autostart is not None:
+                    autostart.cancel()
+                    await asyncio.gather(autostart, return_exceptions=True)
                 await browser.shutdown()
 
 

@@ -10,11 +10,27 @@
 }
 
 .jump-latest {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  z-index: 5;
+  flex: none;
+  margin-left: auto;
   box-shadow: 0 6px 20px rgba(17, 20, 45, 0.22);
+}
+
+.transcript-dock {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 20px;
+  pointer-events: none;
+}
+
+.transcript-dock > * {
+  pointer-events: auto;
 }
 
 .transcript {
@@ -23,10 +39,10 @@
   max-width: 820px;
   width: 100%;
   margin: 0;
-  padding: 14px 20px 24px;
+  padding: 14px 20px 64px;
   overflow-x: hidden;
   overflow-y: auto;
-  scroll-padding-bottom: 24px;
+  scroll-padding-bottom: 64px;
 }
 
 .transcript:focus-visible {

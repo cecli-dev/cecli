@@ -1,10 +1,16 @@
 import { LitElement, html, nothing } from 'lit';
 
-import { CHEVRON_ICON } from '../core/constants.js';
+import {
+  ACTIONS_ICON,
+  ARROW_UP_RIGHT_ICON,
+  CHEVRON_ICON,
+  CLOSE_ICON,
+} from '../core/constants.js';
 
 import {
   answer_browser_dialog,
   cancel_browser_file_chooser,
+  close_browser,
   close_browser_tab,
   drop_browser_files,
   get_browser_state,
@@ -17,6 +23,7 @@ import {
   select_browser_tab,
   send_browser_action,
   send_browser_input,
+  set_browser_launch_on_startup,
   set_browser_viewport,
   start_browser,
   upload_browser_files,
@@ -93,6 +100,10 @@ export class BrowserPanel extends LitElement {
     this._zoom_anchor = null;
     this._switching_tab = false;
     this._creating_tab = false;
+    this._closing_browser = false;
+    this._menu_open = false;
+    this._launch_on_startup = false;
+    this._saving_config = false;
     this._collapsed = false;
     this._scroll = { x: 0, y: 0, maxX: 0, maxY: 0 };
     this._scroll_known = false;
@@ -147,6 +158,7 @@ export class BrowserPanel extends LitElement {
     this._on_wheel = this._on_wheel.bind(this);
     this._on_viewport_resize = this._on_viewport_resize.bind(this);
     this._on_visibility_change = this._on_visibility_change.bind(this);
+    this._close_menu_outside = this._close_menu_outside.bind(this);
   }
 
   createRenderRoot() {
@@ -156,6 +168,7 @@ export class BrowserPanel extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     document.addEventListener('visibilitychange', this._on_visibility_change);
+    document.addEventListener('pointerdown', this._close_menu_outside, true);
     this._fetch_state();
     if (!document.hidden) this._connect_stream();
 
@@ -173,6 +186,7 @@ export class BrowserPanel extends LitElement {
   disconnectedCallback() {
     this._disconnected = true;
     document.removeEventListener('visibilitychange', this._on_visibility_change);
+    document.removeEventListener('pointerdown', this._close_menu_outside, true);
     this._close_stream();
     clearTimeout(this._reconnect_timer);
     this._reconnect_timer = null;
@@ -287,14 +301,19 @@ export class BrowserPanel extends LitElement {
             ?disabled=${!running}
             @click=${this._open_url}
           >Go</button>
-          <button
-            type="button"
-            class="browser-icon-btn browser-external"
-            title="Open this page in your default browser"
-            aria-label="Open this page in your default browser"
-            ?disabled=${!running}
-            @click=${this._open_external}
-          >\u2197</button>
+          <div class="browser-menu-wrap">
+            <button
+              type="button"
+              class="browser-icon-btn browser-menu-trigger"
+              title="Browser settings"
+              aria-label="Browser settings"
+              aria-haspopup="menu"
+              aria-expanded=${this._menu_open ? 'true' : 'false'}
+              @click=${this._toggle_menu}
+              @keydown=${this._on_menu_trigger_keydown}
+            >${ACTIONS_ICON}</button>
+            ${this._menu_open ? this._render_menu(running) : nothing}
+          </div>
         </div>
 
         ${this._error
@@ -391,6 +410,56 @@ export class BrowserPanel extends LitElement {
           </span>
         </footer>
       </section>
+    `;
+  }
+
+  _render_menu(running) {
+    return html`
+      <div
+        class="browser-menu"
+        role="menu"
+        aria-label="Browser settings"
+        @keydown=${this._on_menu_keydown}
+        @focusout=${this._on_menu_focusout}
+      >
+        <button
+          type="button"
+          class="browser-menu-item"
+          role="menuitem"
+          @click=${this._open_external}
+        >
+          <span class="browser-menu-label">Open Browser</span>
+          <span class="browser-menu-icon" aria-hidden="true">${ARROW_UP_RIGHT_ICON}</span>
+        </button>
+        <button
+          type="button"
+          class="browser-menu-item"
+          role="menuitem"
+          ?disabled=${!running || this._closing_browser}
+          @click=${this._close_browser}
+        >
+          <span class="browser-menu-label">Close Browser</span>
+          <span class="browser-menu-icon" aria-hidden="true">${CLOSE_ICON}</span>
+        </button>
+        <div class="browser-menu-divider" role="separator"></div>
+        <button
+          type="button"
+          class="browser-menu-item browser-menu-switch"
+          role="menuitemcheckbox"
+          aria-checked=${this._launch_on_startup ? 'true' : 'false'}
+          ?disabled=${this._saving_config}
+          @click=${this._toggle_launch_on_startup}
+        >
+          <span class="browser-menu-label">Start on Launch</span>
+          <span
+            class="browser-switch"
+            data-on=${this._launch_on_startup ? 'true' : 'false'}
+            aria-hidden="true"
+          >
+            <span class="browser-switch-knob"></span>
+          </span>
+        </button>
+      </div>
     `;
   }
 
@@ -709,6 +778,7 @@ export class BrowserPanel extends LitElement {
   _toggle_collapsed(event) {
     if (event) event.stopPropagation();
     this._collapsed = !this._collapsed;
+    this._close_menu();
     if (this._collapsed) {
       this._close_stream();
     } else if (!document.hidden) {
@@ -872,6 +942,7 @@ export class BrowserPanel extends LitElement {
   }
 
   async _open_external() {
+    this._close_menu();
     try {
       const data = await open_browser_external(this._url || null);
       this._show_notice(
@@ -880,6 +951,124 @@ export class BrowserPanel extends LitElement {
     } catch (error) {
       this._set_error(error);
     }
+  }
+
+  async _close_browser() {
+    this._close_menu();
+    if (this._closing_browser) return;
+
+    this._closing_browser = true;
+    this._error = '';
+    this.requestUpdate();
+
+    try {
+      const data = await close_browser();
+      if (data && typeof data === 'object') this._apply_state(data);
+      this._show_notice('Closed the browser');
+    } catch (error) {
+      this._set_error(error);
+    } finally {
+      this._closing_browser = false;
+      this.requestUpdate();
+    }
+  }
+
+  async _toggle_launch_on_startup() {
+    if (this._saving_config) return;
+
+    const next = !this._launch_on_startup;
+    this._saving_config = true;
+    this._launch_on_startup = next;
+    this.requestUpdate();
+
+    try {
+      const data = await set_browser_launch_on_startup(next);
+      if (data && typeof data.launchOnStartup === 'boolean') {
+        this._launch_on_startup = data.launchOnStartup;
+      }
+    } catch (error) {
+      this._launch_on_startup = !next;
+      this._set_error(error);
+    } finally {
+      this._saving_config = false;
+      this.requestUpdate();
+    }
+  }
+
+  _toggle_menu(event) {
+    if (event) event.stopPropagation();
+
+    this._menu_open = !this._menu_open;
+    this.requestUpdate();
+
+    if (!this._menu_open) return;
+
+    this.updateComplete.then(() => {
+      if (!this._menu_open) return;
+      this.querySelector('.browser-menu-item:not(:disabled)')?.focus();
+    });
+  }
+
+  _close_menu() {
+    if (!this._menu_open) return;
+
+    this._menu_open = false;
+    this.requestUpdate();
+  }
+
+  _on_menu_keydown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this._close_menu();
+      this.querySelector('.browser-menu-trigger')?.focus();
+      return;
+    }
+
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+
+    const items = [...this.querySelectorAll('.browser-menu-item:not(:disabled)')];
+    if (!items.length) return;
+
+    event.preventDefault();
+    const index = items.indexOf(document.activeElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    const next = index === -1 ? 0 : (index + step + items.length) % items.length;
+    items[next].focus();
+  }
+
+  _close_menu_outside(event) {
+    if (!this._menu_open) return;
+    if (event.composedPath().includes(this)) return;
+    this._close_menu();
+  }
+
+  _on_menu_trigger_keydown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this._close_menu();
+      return;
+    }
+
+    if (event.key !== 'ArrowDown') return;
+
+    event.preventDefault();
+    if (!this._menu_open) {
+      this._toggle_menu();
+      return;
+    }
+
+    this.querySelector('.browser-menu-item:not(:disabled)')?.focus();
+  }
+
+  _on_menu_focusout(event) {
+    if (!this._menu_open) return;
+
+    const wrap = this.querySelector('.browser-menu-wrap');
+    const next = event.relatedTarget;
+    if (wrap && next instanceof Node && wrap.contains(next)) return;
+
+    this._close_menu();
   }
 
   _on_drag_enter(event) {
@@ -1155,6 +1344,9 @@ export class BrowserPanel extends LitElement {
 
     if (typeof raw.available === 'boolean') this._available = raw.available;
     if (typeof raw.running === 'boolean') this._running = raw.running;
+    if (typeof raw.launchOnStartup === 'boolean') {
+      this._launch_on_startup = raw.launchOnStartup;
+    }
     if ('browser' in raw) this._browser = typeof raw.browser === 'string' ? raw.browser : '';
     if ('executable' in raw) this._executable = typeof raw.executable === 'string' ? raw.executable : '';
     if ('profile' in raw) this._profile = typeof raw.profile === 'string' ? raw.profile : '';

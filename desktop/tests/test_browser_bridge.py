@@ -652,6 +652,9 @@ class StubBrowser:
         self.calls.append(("drop", payload))
         return self.snapshot()
 
+    async def shutdown(self) -> None:
+        self.calls.append(("shutdown", None))
+
     async def set_viewport(self, width: int, height: int, dpr: float = 1.0) -> None:
         self.calls.append(("viewport", (width, height, dpr)))
 
@@ -679,9 +682,13 @@ class StubBridge:
 class StubSessions:
     def __init__(self) -> None:
         self.bridge = StubBridge()
+        self.cleared = False
 
     def get(self, _bridge_id: str | None = None) -> StubBridge:
         return self.bridge
+
+    async def clear_browser(self) -> None:
+        self.cleared = True
 
 
 class RouteTests(unittest.TestCase):
@@ -800,6 +807,40 @@ class RouteTests(unittest.TestCase):
         status, _, _ = self.route("POST", "/api/browser/drop", payload)
         self.assertEqual(status, 202)
         self.assertEqual(self.browser.calls[-1], ("drop", payload))
+
+    def test_config_and_close_routes(self) -> None:
+        status, body, _ = self.route("POST", "/api/browser/config", {})
+        self.assertEqual(status, 400)
+        self.assertFalse(body["ok"])
+
+        status, body, _ = self.route("POST", "/api/browser/config", {"launchOnStartup": True})
+        self.assertEqual(status, 503)
+        self.assertFalse(body["ok"])
+
+        status, body, _ = self.route("POST", "/api/browser/config", {"launchOnStartup": "true"})
+        self.assertEqual(status, 400)
+        self.assertFalse(body["ok"])
+
+        status, _, _ = self.route("POST", "/api/browser/close", {})
+        self.assertEqual(status, 202)
+        self.assertEqual(self.browser.calls[-1], ("shutdown", None))
+        self.assertTrue(self.sessions.cleared)
+
+    def test_config_persists_when_a_conf_store_is_available(self) -> None:
+        conf = mock.Mock()
+        conf.set_browser_launch_on_startup.return_value = {"launch_on_startup": True}
+        conf.browser_settings.return_value = {"launch_on_startup": True}
+        self.app.conf = conf
+
+        status, body, _ = self.route("POST", "/api/browser/config", {"launchOnStartup": True})
+
+        self.assertEqual(status, 202)
+        self.assertTrue(body["launchOnStartup"])
+        conf.set_browser_launch_on_startup.assert_called_once_with(True)
+
+        status, body, _ = self.route("GET", "/api/browser/state")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["launchOnStartup"])
 
     def test_background_list_and_output(self) -> None:
         status, body, _ = self.route("POST", "/api/background", {"action": "list"})
@@ -979,6 +1020,29 @@ class BrowserWsWriterTests(unittest.IsolatedAsyncioTestCase):
         text = writer.chunks[1]
         self.assertEqual(text[0] & 0x0F, 0x1)
         self.assertEqual(json.loads(text[2:].decode("utf-8"))["type"], "state")
+
+
+class ShutdownTests(unittest.TestCase):
+    def test_shutdown_clears_presentation_state(self) -> None:
+        bridge = BrowserBridge()
+        bridge._url = "https://example.com"
+        bridge._title = "Example"
+        bridge._error = "boom"
+        bridge._tabs = [{"id": "1", "title": "Tab"}]
+        bridge._tabs_signature = ("1",)
+        bridge._downloads = [{"id": "d1"}]
+        bridge._frame_count = 3
+
+        asyncio.run(bridge.shutdown())
+
+        state = bridge.snapshot()
+        self.assertFalse(state["running"])
+        self.assertEqual(state["url"], "about:blank")
+        self.assertEqual(state["title"], "")
+        self.assertIsNone(state["error"])
+        self.assertEqual(state["tabs"], [])
+        self.assertEqual(state["downloads"], [])
+        self.assertEqual(state["frames"], 0)
 
 
 if __name__ == "__main__":

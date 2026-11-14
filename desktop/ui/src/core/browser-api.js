@@ -23,6 +23,16 @@ export function start_browser() {
   return post_json('/api/browser/start', {}, 45000);
 }
 
+/** Close the local browser process and its CDP session. */
+export function close_browser() {
+  return post_json('/api/browser/close', {});
+}
+
+/** Persist the browser launch-on-startup preference. */
+export function set_browser_launch_on_startup(enabled) {
+  return post_json('/api/browser/config', { launchOnStartup: Boolean(enabled) });
+}
+
 /** Navigate the browser to a url. The backend resolves bare domains. */
 export function open_browser_url(url) {
   return post_json('/api/browser/open', { url });

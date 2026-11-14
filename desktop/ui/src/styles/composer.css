@@ -15,9 +15,9 @@
 
 .composer-box {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
-  padding: 12px 12px 12px 16px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: 24px;
   background: #ffffff;
@@ -31,7 +31,9 @@
 }
 
 .composer-box textarea {
-  flex: 1;
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
   min-width: 0;
   min-height: 26px;
   max-height: 180px;
@@ -43,6 +45,13 @@
   font-size: 15px;
   line-height: 1.55;
   resize: none;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .composer-box textarea::placeholder {
@@ -175,6 +184,7 @@
 }
 
 .add-btn {
+  position: relative;
   display: grid;
   place-items: center;
   width: 34px;
@@ -202,9 +212,29 @@
   transform: scale(0.96);
 }
 
+.add-count {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 1.5px solid var(--surface);
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--accent-a);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .composer-context-popover {
   position: absolute;
-  right: 0;
+  left: 0;
   bottom: calc(100% + 10px);
   z-index: 30;
   min-width: 190px;

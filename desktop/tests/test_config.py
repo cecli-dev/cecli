@@ -178,6 +178,60 @@ class ConfStoreTest(unittest.TestCase):
         data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
         self.assertEqual(data["key-bindings"], {"submit": "enter"})
 
+    def test_browser_launch_on_startup_defaults_and_persists(self) -> None:
+        self.desktop_path.write_text("theme: dark\n", encoding="utf-8")
+        store = self.store()
+
+        self.assertFalse(store.browser_settings()["launch_on_startup"])
+
+        settings = store.set_browser_launch_on_startup(True)
+
+        self.assertTrue(settings["launch_on_startup"])
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertTrue(data["browser"]["launch_on_startup"])
+        self.assertEqual(data["theme"], "dark")
+        self.assertTrue(store.browser_settings()["launch_on_startup"])
+
+        store.set_browser_launch_on_startup(False)
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertFalse(data["browser"]["launch_on_startup"])
+
+    def test_ensure_browser_settings_writes_default_section(self) -> None:
+        self.desktop_path.write_text("theme: dark\n", encoding="utf-8")
+        store = self.store()
+
+        settings = store.ensure_browser_settings()
+
+        self.assertFalse(settings["launch_on_startup"])
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertFalse(data["browser"]["launch_on_startup"])
+        self.assertEqual(data["theme"], "dark")
+
+    def test_browser_launch_on_startup_treats_quoted_false_as_false(self) -> None:
+        self.desktop_path.write_text(
+            yaml.safe_dump({"browser": {"launch_on_startup": "false"}}),
+            encoding="utf-8",
+        )
+
+        self.assertFalse(self.store().browser_settings()["launch_on_startup"])
+
+    def test_browser_settings_refuse_to_rewrite_a_malformed_file(self) -> None:
+        self.desktop_path.write_text("theme: [dark\n", encoding="utf-8")
+        store = self.store()
+
+        self.assertFalse(store.ensure_browser_settings()["launch_on_startup"])
+        self.assertEqual(self.desktop_path.read_text(encoding="utf-8"), "theme: [dark\n")
+
+        with self.assertRaises(ValueError):
+            store.set_browser_launch_on_startup(True)
+
+        self.assertEqual(self.desktop_path.read_text(encoding="utf-8"), "theme: [dark\n")
+
+        self.desktop_path.write_text("- one\n", encoding="utf-8")
+
+        self.assertFalse(store.ensure_browser_settings()["launch_on_startup"])
+        self.assertEqual(self.desktop_path.read_text(encoding="utf-8"), "- one\n")
+
     def test_invalid_folder_is_reported_not_raised(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
         self.desktop_path.write_text(
