@@ -185,8 +185,10 @@ export class CliPanel extends LitElement {
               ?hidden=${this.active_key !== logs_key(this.workspace_key)}
             >
               <cli-log-view
-                .entries=${this._logs_for_workspace()}
-                .workspace_key=${this.workspace_key}
+                .entries=${get_terminal_logs()}
+                .bridge_id=${this.bridge_id}
+                .floor=${this._log_floor.get(this.workspace_key) || 0}
+                .active=${this.active_key === logs_key(this.workspace_key)}
               ></cli-log-view>
             </div>
             ${repeat(this.tabs.filter((tab) => tab.kind === 'shell'), (tab) => tab.key, (tab) => html`

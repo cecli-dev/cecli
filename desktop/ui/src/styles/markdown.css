@@ -8,6 +8,10 @@
   overflow-wrap: anywhere;
 }
 
+.md-pending {
+  white-space: pre-wrap;
+}
+
 .md > :first-child {
   margin-top: 0;
 }

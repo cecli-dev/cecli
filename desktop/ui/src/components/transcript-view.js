@@ -10,6 +10,8 @@ import './context-message.js';
 import './empty-state.js';
 import './user-message.js';
 
+const JUMP_SCROLL_PASSES = 4;
+
 export class TranscriptView extends LitElement {
   constructor() {
     super();
@@ -17,6 +19,10 @@ export class TranscriptView extends LitElement {
     this._observer = null;
     this._scroll_frame = null;
     this._autoscrolling = false;
+    this._scroll_target = null;
+    this._last_transcript = undefined;
+    this._last_transcript_key = undefined;
+    this._last_auto_scroll = undefined;
   }
 
   createRenderRoot() {
@@ -43,13 +49,23 @@ export class TranscriptView extends LitElement {
     this._observer = null;
     if (this._resize_observer) this._resize_observer.disconnect();
     this._resize_observer = null;
-    if (this._scroll_frame !== null) cancelAnimationFrame(this._scroll_frame);
-    this._scroll_frame = null;
-    this._autoscrolling = false;
+    this._cancel_autoscroll();
     super.disconnectedCallback();
   }
   updated() {
-    this._schedule_autoscroll();
+    const state = this._store.state;
+    const transcript = selectors.visible_transcript(state);
+
+    if (transcript === this._last_transcript && state.auto_scroll === this._last_auto_scroll) return;
+
+    const key = `${state.active_agent_session_id || 'main'}:${transcript[0]?.id || ''}`;
+    const reset = key !== this._last_transcript_key;
+
+    this._last_transcript = transcript;
+    this._last_transcript_key = key;
+    this._last_auto_scroll = state.auto_scroll;
+
+    if (state.auto_scroll) this._schedule_autoscroll({ retry: reset });
   }
   render() {
     const state = this._store.state;
@@ -118,55 +134,37 @@ export class TranscriptView extends LitElement {
     return distance < SCROLL_LOCK_PX;
   }
 
-  _scroll_to_bottom(smooth) {
+  _scroll_to_bottom() {
     const transcript = this._transcript();
     if (!transcript) return;
 
-    transcript.scrollTo({
-      top: transcript.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto',
-    });
+    transcript.scrollTop = transcript.scrollHeight;
   }
 
-  _schedule_autoscroll() {
+  _schedule_autoscroll(options = {}) {
     if (this._scroll_frame !== null || !this._store.state.auto_scroll) return;
 
-    let target = null;
-    let passes = 0;
+    let passes = options.retry === true ? JUMP_SCROLL_PASSES : 1;
     this._autoscrolling = true;
-
-    const finish = () => {
-      this._autoscrolling = false;
-    };
+    this._scroll_target = this._transcript()?.scrollTop ?? null;
 
     const step = () => {
       this._scroll_frame = null;
 
-      const transcript = this._transcript();
-      if (!transcript) {
-        finish();
+      if (!this._store.state.auto_scroll) {
+        this._autoscrolling = false;
+        this._scroll_target = null;
         return;
       }
 
-      if (target === null && !this._store.state.auto_scroll) {
-        finish();
-        return;
-      }
+      this._scroll_to_bottom();
+      this._scroll_target = this._transcript()?.scrollTop ?? null;
+      passes -= 1;
 
-      // A user scroll-up moves above the last programmatic target.
-      if (target !== null && transcript.scrollTop < target - 1) {
-        finish();
-        session.set_auto_scroll(false);
-        return;
-      }
-
-      this._scroll_to_bottom(false);
-      target = transcript.scrollTop;
-      passes += 1;
-
-      // Offscreen content-visibility placeholders resolve over the next few frames.
-      if (passes >= 4) {
-        finish();
+      // Placeholders resolving below the fold can grow scrollHeight after the write.
+      if (passes <= 0 || this._near_bottom()) {
+        this._autoscrolling = false;
+        this._scroll_target = null;
         return;
       }
 
@@ -176,8 +174,17 @@ export class TranscriptView extends LitElement {
     this._scroll_frame = requestAnimationFrame(step);
   }
 
-  _on_scroll() {
-    if (this._autoscrolling) return;
+  _on_scroll(event) {
+    if (this._autoscrolling) {
+      const host = event?.currentTarget || this._transcript();
+      const target = this._scroll_target;
+
+      if (target === null || host === null || host.scrollTop >= target - 1) return;
+
+      this._cancel_autoscroll();
+      session.set_auto_scroll(false);
+      return;
+    }
 
     const at_bottom = this._near_bottom();
     if (this._store.state.auto_scroll === at_bottom) return;
@@ -185,8 +192,19 @@ export class TranscriptView extends LitElement {
     session.set_auto_scroll(at_bottom);
   }
 
+  _cancel_autoscroll() {
+    if (this._scroll_frame !== null) cancelAnimationFrame(this._scroll_frame);
+
+    this._scroll_frame = null;
+    this._autoscrolling = false;
+    this._scroll_target = null;
+  }
+
   _jump_latest() {
     session.jump_to_latest();
+
+    this._cancel_autoscroll();
+    this._schedule_autoscroll({ retry: true });
   }
 
   _on_example(event) {

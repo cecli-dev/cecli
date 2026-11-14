@@ -3,6 +3,8 @@ import { html } from 'lit';
 export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 8000;
 export const MARKDOWN_THROTTLE_MS = 60;
+export const MARKDOWN_THROTTLE_MAX_MS = 250;
+export const MARKDOWN_RENDER_SCALE = 2;
 export const SCROLL_LOCK_PX = 80;
 export const MAX_LOG_LINES = 200;
 export const TOAST_VISIBLE_MS = 4600;
