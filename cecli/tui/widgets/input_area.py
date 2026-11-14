@@ -4,6 +4,8 @@ from prompt_toolkit.history import FileHistory
 from textual.message import Message
 from textual.widgets import TextArea
 
+from cecli.helpers.completion import find_at_mention
+
 
 class InputArea(TextArea):
     """Input widget with autocomplete and history support."""
@@ -401,7 +403,8 @@ class InputArea(TextArea):
                 if "/" in last_word:
                     possible_path = True
 
-            if val.startswith("/") or "@" in val or possible_path or self.completion_active:
+            mention_active = find_at_mention(val) is not None
+            if val.startswith("/") or mention_active or possible_path or self.completion_active:
                 self.post_message(self.CompletionRequested(val))
 
     def _blocks_extra_space(self) -> bool:

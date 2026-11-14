@@ -22,6 +22,7 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
 from cecli import __version__
+from cecli.helpers.completion import find_at_mention
 from cecli.helpers.server.acp.agent.config import SessionConfig, current_value
 from cecli.helpers.server.acp.agent.mcp import ClientMcpServers
 from cecli.helpers.server.acp.agent.transport import (
@@ -1998,10 +1999,9 @@ def _complete(coder: Any, text: str) -> dict[str, Any]:
     descriptions: dict[str, str] = {}
     start = 0
 
-    if "@" in text:
-        at_index = text.rfind("@")
-        prefix = text[at_index + 1 :]
-        start = at_index + 1
+    mention = find_at_mention(text)
+    if mention is not None:
+        start, prefix, _ = mention
         suggestions = _mention_completions(coder, prefix)
     elif text.startswith("/"):
         parts = text.split(maxsplit=1)

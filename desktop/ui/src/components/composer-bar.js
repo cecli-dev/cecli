@@ -461,7 +461,17 @@ export class ComposerBar extends LitElement {
     const value = textarea.value;
     const choice = String(this._completions[this._completion_index]);
     const start = Math.max(0, Math.min(this._completion_start, value.length));
-    const insert = choice.startsWith('/') && start === 0 ? `${choice} ` : choice;
+    const mention = value[start] === '@';
+    const quoted = mention && value[start + 1] === '"';
+    const directory = choice.endsWith('/');
+    let insert = choice;
+
+    if (mention) {
+      insert = quoted ? `@"${choice}${directory ? '' : '"'}` : choice;
+      if (!directory) insert += ' ';
+    } else if (choice.startsWith('/') && start === 0) {
+      insert = `${choice} `;
+    }
 
     textarea.value = value.slice(0, start) + insert;
     const end = textarea.value.length;
