@@ -346,6 +346,9 @@ class BackgroundProcess:
         persist: bool = False,
         input_buffer: Optional[InputBuffer] = None,
         master_fd: Optional[int] = None,
+        command_key: Optional[str] = None,
+        event_sink: Any = None,
+        autostart: bool = True,
     ):
         self.command = command
         self.process = process
@@ -364,7 +367,7 @@ class BackgroundProcess:
                 self.write_fd = master_fd
                 self._shared_fd = True
 
-        self.command_key: Optional[str] = None
+        self.command_key: Optional[str] = command_key
         self.stream = StreamRing()
         self.state = "running" if self.is_alive() else "exited"
         self.exit_code: Optional[int] = None
@@ -379,7 +382,7 @@ class BackgroundProcess:
         self.close_requested = False
         self.input_owner: Optional[str] = None
         self.input_lease_until = 0.0
-        self.event_sink = None
+        self.event_sink = event_sink
         self.on_exit = None
 
         self.reader_thread = None
@@ -400,6 +403,17 @@ class BackgroundProcess:
         self._last_output_at = time.monotonic()
         self._prompt_fingerprint = None
         self._last_prompt_at = 0.0
+        self._threads_started = False
+
+        if autostart:
+            self.start()
+
+    def start(self) -> None:
+        """Start the reader, writer, reaper and prompt-watcher threads once."""
+        with self._state_lock:
+            if self._threads_started:
+                return
+            self._threads_started = True
 
         self._start_output_reader()
         self._start_input_writer()
@@ -1080,6 +1094,10 @@ class BackgroundCommandManager:
                     universal_newlines=True,
                 )
 
+            # Generate the key before construction so the exit reaper can
+            # emit lifecycle events even when the process exits immediately.
+            command_key = command_key or cls._generate_command_key(command)
+
             # Create background process wrapper
             bg_process = BackgroundProcess(
                 command,
@@ -1088,14 +1106,12 @@ class BackgroundCommandManager:
                 persist=persist,
                 input_buffer=existing_input_buffer,
                 master_fd=final_master_fd,
+                command_key=command_key,
+                event_sink=cls.event_sink,
+                autostart=False,
             )
 
-            # Generate unique key and store
-            command_key = command_key or cls._generate_command_key(command)
-
-            bg_process.command_key = command_key
             bg_process.on_exit = lambda: cls._remove(command_key)
-            bg_process.event_sink = cls.event_sink
             if not bg_process.is_alive():
                 bg_process.state = "exited"
 
@@ -1104,6 +1120,7 @@ class BackgroundCommandManager:
 
             cls._ensure_ttl_thread()
             cls._emit(command_key, "started", command=bg_process.entry())
+            bg_process.start()
 
             if verbose:
                 print(f"[Background] Started command: {command} (key: {command_key})")
