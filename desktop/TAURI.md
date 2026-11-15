@@ -257,7 +257,7 @@ npm run dev
 | `CECLI_DESKTOP_STATIC` | Directory holding the built UI | Directory of the running `server.py` |
 | `CECLI_PYTHON` | Python interpreter used to run the bridge | `desktop/.runtime/venv`, then `python3` on Unix; `python` then `python3` on Windows |
 | `CECLI_DESKTOP_TERMINAL` | Enable the terminal panel | Enabled on loopback; `--no-terminal` or `0/false/no/off` disables; forced off for non-loopback binds |
-| `CECLI_DESKTOP_TERMINAL_SHELL` | Shell used by the terminal panel | `$SHELL`/`/bin/sh` on POSIX; `%COMSPEC%`/`cmd.exe` on Windows |
+| `CECLI_DESKTOP_TERMINAL_SHELL` | Shell used by the terminal panel | `$SHELL`/`/bin/sh` on POSIX; `pwsh.exe`, then `powershell.exe`, then `%COMSPEC%`/`cmd.exe` on Windows |
 
 Use `CECLI_DESKTOP_PORT=8765` when you want to inspect the running app from a
 normal browser (`http://127.0.0.1:8765/`) or curl its API. Leave it unset in

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 import struct
 import subprocess
@@ -430,7 +431,7 @@ class PipeTerminalSession(TerminalSession):
             lock = self._write_lock = asyncio.Lock()
         async with lock:
             try:
-                process.stdin.write(data)
+                process.stdin.write(_pipe_newlines(data))
                 await process.stdin.drain()
             except (ConnectionError, OSError) as err:
                 raise TerminalError(409, f"terminal is not writable: {err}") from err
@@ -572,6 +573,21 @@ class ConPtyTerminalSession(PipeTerminalSession):
         self._mark_exit(code if code is not None else -1)
 
 
+def _default_shell() -> str:
+    """Pick the best available interactive shell.
+
+    Windows prefers PowerShell 7 (``pwsh.exe``), then Windows PowerShell 5.1
+    (``powershell.exe``), and only falls back to ``%COMSPEC%``/``cmd.exe``.
+    """
+    if os.name == "nt":
+        for candidate in ("pwsh.exe", "powershell.exe"):
+            found = shutil.which(candidate)
+            if found:
+                return found
+        return os.environ.get("COMSPEC") or "cmd.exe"
+    return os.environ.get("SHELL") or "/bin/sh"
+
+
 class TerminalManager:
     """Owns per-bridge terminal generations with retention and TTL."""
 
@@ -593,12 +609,7 @@ class TerminalManager:
         if not requested:
             requested = "pty" if os.name == "posix" else "pipe"
         self.backend = requested
-        if shell:
-            self.shell = shell
-        elif os.name == "posix":
-            self.shell = os.environ.get("SHELL") or "/bin/sh"
-        else:
-            self.shell = os.environ.get("COMSPEC") or "cmd.exe"
+        self.shell = shell or _default_shell()
         self.limit = limit
         self.exited_ttl = TERMINAL_EXITED_TTL
         self._terminals: dict[str, TerminalSession] = {}
@@ -775,6 +786,19 @@ class TerminalManager:
         return base
 
 
+def _pipe_newlines(data: bytes) -> bytes:
+    """Normalize bare carriage returns into CRLF for pipe shells.
+
+    ``cmd.exe`` reading from a pipe only treats a command as submitted once a
+    line feed arrives; a lone ``\r`` (what terminals send for Enter) is
+    silently swallowed, so commands appear to do nothing.
+    """
+
+    if b"\r" not in data:
+        return data
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\r\n")
+
+
 def _pipe_shell_command(shell: str) -> str:
     """Command line for the line-oriented pipe backend."""
 
@@ -782,7 +806,10 @@ def _pipe_shell_command(shell: str) -> str:
     if os.name == "nt":
         lowered = shell.lower()
         if lowered.endswith(("powershell.exe", "pwsh.exe")):
-            return f"{quoted} -NoLogo -NoProfile -NoExit -Command -"
+            # No ``-Command -``: with redirected stdin that flag disables the
+            # interactive loop, so PowerShell would print no prompt and never
+            # echo keystrokes. Running it plain keeps the console behaviour.
+            return f"{quoted} -NoLogo -NoProfile -NoExit"
         return f"{quoted} /Q /K"
     return quoted
 

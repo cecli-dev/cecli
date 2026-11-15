@@ -126,6 +126,47 @@ export class CliTerminalView extends LitElement {
     this.requestUpdate();
   }
 
+  _pipe_backend() {
+    const meta = this.terminal_meta || {};
+    return (meta.effectiveBackend || meta.backend) === 'pipe';
+  }
+
+  /**
+   * Whether the shell echoes what the user types.
+   *
+   * PowerShell runs its interactive loop over the pipe, so it prints a prompt
+   * and echoes keystrokes itself. ``cmd /Q`` keeps quiet, so those keystrokes
+   * have to be echoed client side instead.
+   */
+  _shell_echoes() {
+    const shell = String((this.terminal_meta || {}).shell || '').toLowerCase();
+    return shell.endsWith('powershell.exe') || shell.endsWith('pwsh.exe');
+  }
+
+  /**
+   * Echo keystrokes locally for the line-oriented pipe backend.
+   *
+   * ``cmd /Q`` keeps the pipe shell from echoing keystrokes, so without this
+   * the user types blindly until the command output arrives. Newlines use
+   * ``\n`` because xterm is configured with ``convertEol``.
+   */
+  _echo_local(session, data) {
+    const terminal = session?.terminal;
+    if (!terminal) return;
+
+    let out = '';
+    for (const char of data) {
+      const code = char.codePointAt(0);
+      if (char === '\r' || char === '\n') out += '\n';
+      else if (code === 0x7f || code === 0x08) out += '\b \b';
+      else if (code === 0x03) out += '^C\n';
+      else if (code === 0x1b) break; // Escape sequences (arrows, etc.) are not echoed.
+      else if (code >= 0x20) out += char;
+    }
+
+    if (out) terminal.write(out);
+  }
+
   _session() {
     if (!this.bridge_id) return null;
     const key = this._session_key();
@@ -188,9 +229,10 @@ export class CliTerminalView extends LitElement {
       session.client?.send_input('\n');
       return false;
     });
-
     terminal.onData((data) => {
-      if (this.active && this._session() === session) session.client?.send_input(data);
+      if (!(this.active && this._session() === session)) return;
+      if (this._pipe_backend() && !this._shell_echoes()) this._echo_local(session, data);
+      session.client?.send_input(data);
     });
     terminal.onResize(({ cols, rows }) => {
       if (this.active && this._session() === session) session.client?.resize(cols, rows);

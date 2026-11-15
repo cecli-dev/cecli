@@ -210,19 +210,62 @@ def test_configure_browser_environment_injects_active_endpoint():
     assert url == "http://127.0.0.1:9222"
 
 
-def test_browser_automation_context_mentions_heredoc(monkeypatch):
+def test_browser_automation_context_uses_bash_heredoc_on_posix(monkeypatch):
     from types import SimpleNamespace
 
     from cecli.coders.agent_coder import AgentCoder
 
     coder = SimpleNamespace()
     monkeypatch.setattr(browser, "is_browser_harness_available", lambda: True)
+    monkeypatch.setattr("cecli.coders.agent_coder.platform.system", lambda: "Linux")
 
     context = AgentCoder.get_browser_automation_context(coder)
 
     assert context.startswith('<context name="browser_automation"')
     assert "browser-harness <<'PY'" in context
     assert "BU_CDP_URL" in context
+
+
+def test_browser_automation_context_uses_here_string_under_powershell(monkeypatch):
+    from types import SimpleNamespace
+
+    from cecli.coders.agent_coder import AgentCoder
+
+    coder = SimpleNamespace()
+    monkeypatch.setattr(browser, "is_browser_harness_available", lambda: True)
+    monkeypatch.setattr("cecli.coders.agent_coder.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "cecli.coders.agent_coder.get_windows_parent_process_name",
+        lambda: "pwsh.exe",
+    )
+
+    context = AgentCoder.get_browser_automation_context(coder)
+
+    assert "'@ | browser-harness" in context
+    assert "```powershell" in context
+    assert "<<" not in context
+
+
+def test_browser_automation_context_uses_pipeline_under_cmd(monkeypatch):
+    from types import SimpleNamespace
+
+    from cecli.coders.agent_coder import AgentCoder
+
+    coder = SimpleNamespace()
+    monkeypatch.setattr(browser, "is_browser_harness_available", lambda: True)
+    monkeypatch.setattr("cecli.coders.agent_coder.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "cecli.coders.agent_coder.get_windows_parent_process_name",
+        lambda: "cmd.exe",
+    )
+
+    context = AgentCoder.get_browser_automation_context(coder)
+
+    assert "echo print(page_info()) | browser-harness" in context
+    assert """powershell -NoProfile -Command "'import os','print(os.getcwd())' | browser-harness""" in context
+    assert "```bat" in context
+    assert """< script.py""" not in context
+    assert "<<" not in context
 
 
 def test_browser_automation_context_requires_harness(monkeypatch):

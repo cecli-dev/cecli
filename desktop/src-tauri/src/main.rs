@@ -15,6 +15,14 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 const DARK_THEME: &str = "dark";
 const LIGHT_THEME: &str = "light";
 
+/// Bundled logo used for the window icon.
+///
+/// Windows resolves `default_window_icon()` from the executable's icon resource,
+/// which is only present when the binary is linked with one. Debug builds run
+/// through `cargo run` have none, so the title bar falls back to the generic
+/// system placeholder. Embedding the PNG keeps the real logo in that case.
+const WINDOW_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+
 /// Owns the Python bridge child process for the lifetime of the application.
 struct BridgeState(Mutex<Option<Child>>);
 
@@ -635,8 +643,13 @@ fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Er
         .min_inner_size(720.0, 520.0)
         .background_color(webview_background(&theme));
 
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone())?;
+    let window_icon = app
+        .default_window_icon()
+        .cloned()
+        .or_else(|| tauri::image::Image::from_bytes(WINDOW_ICON_PNG).ok());
+
+    if let Some(icon) = window_icon {
+        builder = builder.icon(icon)?;
     }
 
     #[cfg(target_os = "macos")]
@@ -698,7 +711,7 @@ fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>, dark
     };
 
     // COLORREF is 0x00BBGGRR, not RGB.
-    let (caption, text, border) = if dark {
+    let (caption, text, border): (u32, u32, u32) = if dark {
         (0x00463430, 0x00f5d0c6, 0x00594541)
     } else {
         (0x00f5f1ef, 0x00694f4c, 0x00dad0cc)

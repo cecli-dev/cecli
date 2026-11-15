@@ -397,8 +397,9 @@ can be disabled with `--no-terminal` or `CECLI_DESKTOP_TERMINAL=0`.
 - ACP stdin/stdout stay on their pipes. The terminal is a separate process with
   `cwd` set to the workspace. POSIX hosts use a `$SHELL -i` PTY with its own
   process group, so sudo prompts and interactive commands work. Other hosts use
-  a line-oriented pipe shell (`%COMSPEC%`/cmd.exe) where stdin can answer
-  ordinary prompts but there is no resize, job control, or TUI support.
+  a line-oriented pipe shell (`pwsh.exe`, then `powershell.exe`, then
+  `%COMSPEC%`/cmd.exe on Windows) where stdin can answer ordinary prompts
+  but there is no resize, job control, or TUI support.
 - `--terminal-shell` / `CECLI_DESKTOP_TERMINAL_SHELL` overrides the shell;
   `--no-terminal` / `CECLI_DESKTOP_TERMINAL=0` disables it.
 the existing WS helpers. Binary frames are `[uint64 big-endian seq][raw PTY

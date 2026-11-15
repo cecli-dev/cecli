@@ -1,8 +1,8 @@
 """Generate Tauri app icons from the desktop favicon SVG.
 
-CairoSVG renders the same ``ce_`` artwork the browser uses as its favicon. If
-CairoSVG is unavailable, a procedural fallback icon keeps the script usable
-with only the Python standard library.
+CairoSVG renders the same ``ce_`` artwork the browser uses as its favicon.
+Pillow redraws that artwork when CairoSVG is unavailable, and a procedural
+fallback keeps the script usable with only the Python standard library.
 """
 
 import math
@@ -27,6 +27,27 @@ TARGETS = (
     (128, "128x128.png"),
     (32, "32x32.png"),
 )
+ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+# Wordmark rendering for the Pillow renderer; mirrors the favicon SVG.
+TEXT = "ce_"
+TEXT_WIDTH = 0.72
+TEXT_CENTER_Y = 0.54
+CORNER_RADIUS = 8 / 48
+BG_COLOR = (0x22, 0x22, 0x22)
+TEXT_GRADIENT = (
+    (0.00, (0x00, 0xEE, 0x76)),
+    (0.20, (0x00, 0xFF, 0x7F)),
+    (0.40, (0x00, 0xFA, 0x9A)),
+    (0.60, (0x00, 0xEE, 0xEE)),
+    (0.80, (0x00, 0xFF, 0xFF)),
+    (1.00, (0xFF, 0xFF, 0xFF)),
+)
+FONT_CANDIDATES = (
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "segoeuib.ttf"),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+)
 
 BG_TOP = (0.12, 0.08, 0.33)
 BG_BOTTOM = (0.02, 0.58, 0.72)
@@ -40,29 +61,18 @@ LETTER_BOTTOM = (0.42, 0.94, 1.00)
 def main():
     """Render every target icon and write PNG, ICO, and ICNS files."""
     os.makedirs(ICON_DIR, exist_ok=True)
+    renderer = choose_renderer()
     pngs = {}
-    use_svg = os.path.isfile(SVG_PATH)
-    if not use_svg:
-        print(f"warning: {SVG_PATH} is missing; using the fallback icon")
 
     for size, name in TARGETS:
-        data = None
-        if use_svg:
-            try:
-                data = render_svg_png(size)
-            except Exception as err:
-                print(f"warning: cannot render {SVG_PATH}: {err}; using fallback icon")
-                use_svg = False
-        if data is None:
-            data = render_fallback_png(size)
-
-        pngs[size] = data
+        pngs[size] = renderer(size)
         path = os.path.join(ICON_DIR, name)
         write_file(path, pngs[size])
         print(f"{path} {size}x{size} {os.path.getsize(path)} bytes")
 
     ico_path = os.path.join(ICON_DIR, "icon.ico")
-    write_file(ico_path, encode_ico(pngs[256]))
+    ico_pngs = [(size, pngs[size] if size in pngs else renderer(size)) for size in ICO_SIZES]
+    write_file(ico_path, encode_ico(ico_pngs))
     print(f"{ico_path} {os.path.getsize(ico_path)} bytes")
 
     icns_path = os.path.join(ICON_DIR, "icon.icns")
@@ -70,11 +80,125 @@ def main():
     print(f"{icns_path} {os.path.getsize(icns_path)} bytes")
 
 
+def choose_renderer():
+    """Pick the best available renderer: CairoSVG, then Pillow, then procedural."""
+    if os.path.isfile(SVG_PATH):
+        try:
+            render_svg_png(32)
+            return render_svg_png
+        except Exception as err:
+            print(f"warning: cannot render {SVG_PATH}: {err}")
+    else:
+        print(f"warning: {SVG_PATH} is missing")
+
+    try:
+        render_pillow_png(32)
+        return render_pillow_png
+    except Exception as err:
+        print(f"warning: cannot draw the icon with Pillow: {err}")
+
+    print("warning: using the procedural fallback icon")
+    return render_fallback_png
+
+
 def render_svg_png(size):
     """Render the favicon SVG to PNG bytes at one square size."""
     import cairosvg
 
     return cairosvg.svg2png(url=SVG_PATH, output_width=size, output_height=size)
+
+
+def render_pillow_png(size):
+    """Redraw the favicon artwork with Pillow when CairoSVG is unavailable."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    scale = 4 if size <= 256 else 2
+    hi = size * scale
+    icon = Image.new("RGBA", (hi, hi), (0, 0, 0, 0))
+    ImageDraw.Draw(icon).rounded_rectangle(
+        (0, 0, hi - 1, hi - 1),
+        radius=round(hi * CORNER_RADIUS),
+        fill=BG_COLOR + (255,),
+    )
+
+    mask = _text_mask(hi)
+    box = mask.getbbox()
+    if box is None:
+        buffer = io.BytesIO()
+        icon.resize((size, size), Image.LANCZOS).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    fill = Image.new("RGBA", (hi, hi), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(fill)
+    top, bottom = box[1], box[3]
+    span = max(1, bottom - top - 1)
+
+    for y in range(top, bottom):
+        draw.line([(0, y), (hi, y)], fill=_gradient_at((y - top) / span) + (255,))
+
+    icon.paste(fill, (0, 0), mask)
+
+    buffer = io.BytesIO()
+    icon.resize((size, size), Image.LANCZOS).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _font_path():
+    """Return the first usable bold sans font, or ``None`` for Pillow's default."""
+    for path in FONT_CANDIDATES:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _text_mask(hi):
+    """Rasterise ``TEXT`` at ``TEXT_WIDTH`` of the icon, centered on ``TEXT_CENTER_Y``."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    path = _font_path()
+    canvas = (hi * 2, hi * 2)
+    origin = (hi // 2, hi // 2)
+
+    def draw_with(font):
+        image = Image.new("L", canvas, 0)
+        ImageDraw.Draw(image).text(origin, TEXT, font=font, fill=255)
+        return image
+
+    font = ImageFont.truetype(path, max(8, hi // 2)) if path else ImageFont.load_default()
+    box = draw_with(font).getbbox()
+    if box is None:
+        return Image.new("L", (hi, hi), 0)
+
+    if path:
+        width = box[2] - box[0]
+        font_size = max(4, round((hi // 2) * (hi * TEXT_WIDTH) / max(1, width)))
+        font = ImageFont.truetype(path, font_size)
+
+    text = draw_with(font)
+    box = text.getbbox()
+    if box is None:
+        return Image.new("L", (hi, hi), 0)
+
+    glyphs = text.crop(box)
+    mask = Image.new("L", (hi, hi), 0)
+    left = round((hi - glyphs.width) / 2)
+    top = round(hi * TEXT_CENTER_Y - glyphs.height / 2)
+    mask.paste(glyphs, (left, top))
+    return mask
+
+
+def _gradient_at(t):
+    """Interpolate the favicon text gradient at position ``t`` in 0..1."""
+    t = min(1.0, max(0.0, t))
+
+    for (start, low), (end, high) in zip(TEXT_GRADIENT, TEXT_GRADIENT[1:]):
+        if t <= end:
+            k = (t - start) / (end - start)
+            return tuple(round(low[i] + (high[i] - low[i]) * k) for i in range(3))
+
+    return TEXT_GRADIENT[-1][1]
 
 
 def render_fallback_png(size):
@@ -257,11 +381,20 @@ def encode_png(width, height, rgba):
     )
 
 
-def encode_ico(png):
-    """Wrap a 256x256 PNG in a single-image Vista-style ICO container."""
-    header = struct.pack("<HHH", 0, 1, 1)
-    entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(png), 22)
-    return header + entry + png
+def encode_ico(pngs):
+    """Wrap ``(size, png)`` pairs in a multi-resolution ICO container."""
+    header = struct.pack("<HHH", 0, 1, len(pngs))
+    offset = 6 + 16 * len(pngs)
+    entries = []
+
+    for size, png in pngs:
+        dimension = 0 if size >= 256 else size
+        entries.append(
+            struct.pack("<BBBBHHII", dimension, dimension, 0, 0, 1, 32, len(png), offset)
+        )
+        offset += len(png)
+
+    return header + b"".join(entries) + b"".join(png for _, png in pngs)
 
 
 def encode_icns(pngs):

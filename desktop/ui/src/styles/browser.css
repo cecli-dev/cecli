@@ -500,7 +500,6 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   flex: 1;
   min-height: 160px;
   overflow: auto;
-  scrollbar-gutter: stable;
   background: var(--browser-canvas-bg);
 }
 
