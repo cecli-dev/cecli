@@ -209,29 +209,40 @@ async def run_cmd_async(
     reader_task = asyncio.create_task(read_stream(process.stdout))
     interrupt_task = asyncio.create_task(interrupt_event.wait())
 
-    done, pending = await asyncio.wait(
-        {reader_task, interrupt_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
+    try:
+        done, pending = await asyncio.wait(
+            {reader_task, interrupt_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
-    if interrupt_task in done:
-        # Interrupted
-        for task in pending:
-            task.cancel()
-        try:
-            process.terminate()
-        except ProcessLookupError:
-            pass  # process already finished
+        if interrupt_task in done:
+            # Interrupted
+            for task in pending:
+                task.cancel()
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass  # process already finished
+            await process.wait()
+            return 1, "Interrupted"
+
+        # Not interrupted, wait for process to finish
         await process.wait()
-        return 1, "Interrupted"
+        # wait for reader to finish
+        if not reader_task.done():
+            await reader_task
 
-    # Not interrupted, wait for process to finish
-    await process.wait()
-    # wait for reader to finish
-    if not reader_task.done():
-        await reader_task
+        return process.returncode, _clean_output("".join(output))
+    finally:
+        # The event waiter never completes on the normal path, and a task left
+        # parked in the event's waiter deque keeps its future (and the task)
+        # alive for as long as the coder's interrupt_event lives. Cancel and
+        # reap both tasks on every exit path instead of leaking one per command.
+        for task in (interrupt_task, reader_task):
+            if not task.done():
+                task.cancel()
 
-    return process.returncode, _clean_output("".join(output))
+        await asyncio.gather(interrupt_task, reader_task, return_exceptions=True)
 
 
 def run_cmd_pexpect(command, verbose=False, cwd=None, should_print=True):

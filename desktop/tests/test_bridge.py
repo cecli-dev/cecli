@@ -373,6 +373,35 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(body["messages"][2]["toolCalls"][0]["name"], "ReadFile")
         self.assertEqual(body["subagents"], [])
 
+    def test_history_hydration_keeps_transcripts_out_of_state(self) -> None:
+        self.wait_ready()
+
+        status, _ = self.request("POST", "/api/prompt", {"text": "spawn worker"})
+        self.assertEqual(status, 202)
+        self.wait_state(
+            lambda value: any(
+                agent.get("sessionId") == "child-1" for agent in value.get("subagents") or []
+            )
+        )
+
+        status, history = self.request("GET", "/api/history")
+        self.assertEqual(status, 200)
+        self.assertTrue(history["subagents"][0]["messages"])
+
+        status, state = self.request("GET", "/api/state")
+        self.assertEqual(status, 200)
+        agent = next(item for item in state["subagents"] if item["sessionId"] == "child-1")
+        self.assertNotIn("messages", agent)
+        self.assertNotIn("diffs", agent)
+
+        status, sessions = self.request("GET", "/api/sessions")
+        self.assertEqual(status, 200)
+        summary = next(
+            item for item in sessions["sessions"][0]["subagents"] if item["sessionId"] == "child-1"
+        )
+        self.assertNotIn("messages", summary)
+        self.assertNotIn("diffs", summary)
+
     def test_workflow_runs_as_a_prompt(self) -> None:
         self.wait_ready()
 

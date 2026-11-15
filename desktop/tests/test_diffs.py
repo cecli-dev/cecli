@@ -140,7 +140,8 @@ class BridgeHistoryTest(unittest.TestCase):
         bridge.status = "ready"
         bridge.session_id = "s1"
 
-        async def call_extension(method, params):
+        async def call_extension(method, params, apply_details=True):
+            self.assertFalse(apply_details)
             self.assertEqual(method, "cecli/history")
             return {
                 "messages": [],

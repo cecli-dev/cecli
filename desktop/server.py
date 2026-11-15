@@ -308,8 +308,14 @@ class AcpBridge:
         """Number of pending permission requests for the sidebar badge."""
         return len(self._pending_permissions)
 
-    async def call_extension(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Call one ``cecli/*`` extension on the live child and cache details."""
+    async def call_extension(
+        self, method: str, params: dict[str, Any], apply_details: bool = True
+    ) -> dict[str, Any]:
+        """Call one ``cecli/*`` extension on the live child and cache details.
+
+        ``apply_details=False`` skips the cache for extensions that return bulk
+        conversation data (``cecli/history``) instead of a registry snapshot.
+        """
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
 
@@ -319,7 +325,10 @@ class AcpBridge:
         except (AcpError, asyncio.TimeoutError) as err:
             raise BridgeError(502, str(err) or f"{method} failed") from err
 
-        if isinstance(result, dict):
+        # Skip caching for callers that return bulk conversation data; merging
+        # it into the cached sub-agent tree would republish full transcripts in
+        # every state and session payload.
+        if isinstance(result, dict) and apply_details:
             self._apply_details(result)
         return result if isinstance(result, dict) else {}
 
@@ -404,7 +413,8 @@ class AcpBridge:
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
 
-        result = await self.call_extension("cecli/history", {})
+        # Never fold this into the cached tree: it carries full conversations.
+        result = await self.call_extension("cecli/history", {}, apply_details=False)
         diffs = result.get("diffs")
         messages = result.get("messages")
         subagents = result.get("subagents")
@@ -879,7 +889,15 @@ class AcpBridge:
                 key = str(child_id)
                 entry = self.subagents.setdefault(key, {"sessionId": key})
                 was_removed = entry.get("removed", False)
-                entry.update(item)
+                # Transcripts are replayed from ``cecli/history`` on demand, so
+                # never cache them in the sidebar tree.
+                entry.update(
+                    {
+                        field: value
+                        for field, value in item.items()
+                        if field not in ("messages", "diffs")
+                    }
+                )
                 entry["sessionId"] = key
                 if was_removed:
                     entry["removed"] = True
