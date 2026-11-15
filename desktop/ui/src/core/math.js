@@ -13,7 +13,7 @@ export function render_math_html(source, { display_mode = false } = {}) {
       strict: false,
       trust: false,
       output: 'htmlAndMathml',
-      errorColor: '#d93a4a',
+      errorColor: 'var(--danger)',
     });
   } catch (error) {
     return `<span class="math-error">${escape_math_text(text)}</span>`;

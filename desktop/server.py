@@ -1669,6 +1669,11 @@ class DesktopServer:
                 )
             return self._json(200, payload)
 
+        if method == "GET" and path == "/api/theme":
+            if self.conf is None:
+                return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+            return self._json(200, {"ok": True, "theme": self.conf.theme()})
+
         if method == "GET" and path == "/api/state":
             bridge = self.sessions.get(self._query_bridge(query))
             snapshot = self.sessions.snapshot(bridge.bridge_id)
@@ -1838,6 +1843,8 @@ class DesktopServer:
             return await self._new_session(body)
         if path == "/api/permission":
             return await self._permission(body)
+        if path == "/api/theme":
+            return await self._theme_config(body)
         if path == "/api/config":
             return await self._config(body)
         if path == "/api/restart":
@@ -2562,6 +2569,23 @@ class DesktopServer:
         except BrowserError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(202, {"ok": True, **result})
+
+    async def _theme_config(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        theme = data.get("theme")
+        if theme not in ("dark", "light"):
+            return self._json(400, {"ok": False, "error": "theme must be 'dark' or 'light'"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+
+        try:
+            settings = self.conf.set_theme(theme)
+        except (OSError, ValueError) as err:
+            return self._json(500, {"ok": False, "error": f"could not save desktop config: {err}"})
+
+        return self._json(202, {"ok": True, **settings})
 
     async def _browser_config(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
@@ -3816,12 +3840,17 @@ class DesktopServer:
             page = path.read_text(encoding="utf-8")
         except OSError:
             return self._json(404, {"ok": False, "error": "not found"})
+        snippets = []
         if self.token:
-            snippet = (
+            snippets.append(
                 f'<meta name="cecli-token" content="{self.token}">'
                 f'<script>window.__CECLI_TOKEN__="{self.token}";</script>'
             )
-            page = page.replace("</head>", snippet + "</head>", 1)
+        theme = self.conf.theme() if self.conf is not None else None
+        if theme:
+            snippets.append(f'<script>window.__CECLI_THEME__="{theme}";</script>')
+        if snippets:
+            page = page.replace("</head>", "".join(snippets) + "</head>", 1)
         return 200, page.encode("utf-8"), "text/html; charset=utf-8"
 
     def _serve_static(self, relative: str) -> tuple[int, bytes, str]:

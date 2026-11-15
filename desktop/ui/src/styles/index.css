@@ -2,29 +2,30 @@
 
 @import "tailwindcss";
 
+/* Catppuccin Latte palette for daisyUI components. */
 :root {
   color-scheme: light;
 
-  --color-base-100: #ffffff;
-  --color-base-200: #f7f7f9;
-  --color-base-300: #ececf1;
-  --color-base-content: #202124;
-  --color-primary: #6f5bf0;
-  --color-primary-content: #ffffff;
-  --color-secondary: #8b7bff;
-  --color-secondary-content: #ffffff;
-  --color-accent: #10a37f;
-  --color-accent-content: #ffffff;
-  --color-neutral: #202124;
-  --color-neutral-content: #f4f4f7;
-  --color-info: #3b82f6;
-  --color-info-content: #ffffff;
-  --color-success: #0f9d76;
-  --color-success-content: #ffffff;
-  --color-warning: #b7791f;
-  --color-warning-content: #ffffff;
-  --color-error: #d93a4a;
-  --color-error-content: #ffffff;
+  --color-base-100: #f7f8fb;
+  --color-base-200: #e6e9ef;
+  --color-base-300: #dce0e8;
+  --color-base-content: #4c4f69;
+  --color-primary: #8839ef;
+  --color-primary-content: #f7f8fb;
+  --color-secondary: #7287fd;
+  --color-secondary-content: #f7f8fb;
+  --color-accent: #179299;
+  --color-accent-content: #f7f8fb;
+  --color-neutral: #4c4f69;
+  --color-neutral-content: #eff1f5;
+  --color-info: #1e66f5;
+  --color-info-content: #f7f8fb;
+  --color-success: #40a02b;
+  --color-success-content: #f7f8fb;
+  --color-warning: #df8e1d;
+  --color-warning-content: #3a2a09;
+  --color-error: #d20f39;
+  --color-error-content: #f7f8fb;
 
   --radius-selector: 0.75rem;
   --radius-field: 0.625rem;
@@ -36,6 +37,7 @@
   --noise: 0;
 }
 @import "./base.css";
+@import "./theme.css";
 @import "./backdrop.css";
 @import "./glass.css";
 @import "./layout.css";

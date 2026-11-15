@@ -29,6 +29,8 @@ import {
   upload_browser_files,
 } from '../core/browser-api.js';
 
+import { read_theme_color, subscribe_theme } from '../core/theme.js';
+
 const SPECIAL_KEYS = new Set([
   'Enter',
   'Backspace',
@@ -56,6 +58,12 @@ const MAX_VIEWPORT_HEIGHT = 1080;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 const ZOOM_STEP = 1.2;
+
+let canvas_background = '';
+
+subscribe_theme(() => {
+  canvas_background = '';
+});
 
 const GLOBE_ICON = html`
   <svg
@@ -1714,7 +1722,7 @@ export class BrowserPanel extends LitElement {
 
     const { ctx, css_width, css_height, dpr } = canvas;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#14161b';
+    ctx.fillStyle = canvas_background_color();
     ctx.fillRect(0, 0, css_width, css_height);
 
     const width = bitmap.width || bitmap.naturalWidth || 0;
@@ -1767,7 +1775,7 @@ export class BrowserPanel extends LitElement {
 
     const { ctx, css_width, css_height, dpr } = canvas;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#14161b';
+    ctx.fillStyle = canvas_background_color();
     ctx.fillRect(0, 0, css_width, css_height);
   }
 
@@ -2268,6 +2276,11 @@ export class BrowserPanel extends LitElement {
     this._error = error && error.message ? error.message : String(error || 'Unknown browser error');
     this.requestUpdate();
   }
+}
+
+function canvas_background_color() {
+  if (!canvas_background) canvas_background = read_theme_color('--browser-canvas-bg', '#232634');
+  return canvas_background;
 }
 
 customElements.define('browser-panel', BrowserPanel);

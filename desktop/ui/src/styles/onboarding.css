@@ -187,13 +187,13 @@
 }
 
 .modal-btn--danger {
-  color: #b42c3c;
-  background: #fdf2f3;
-  border-color: #f3d4d8;
+  color: var(--danger-text);
+  background: var(--danger-tint);
+  border-color: var(--danger-line);
 }
 
 .modal-btn--danger:hover:not(:disabled) {
-  color: #8f1f2c;
-  background: #fbe9eb;
-  border-color: #e6b8bf;
+  color: var(--danger-text-strong);
+  background: var(--danger-tint-strong);
+  border-color: var(--danger-line-strong);
 }

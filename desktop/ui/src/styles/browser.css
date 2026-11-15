@@ -71,7 +71,7 @@ browser-panel {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #c6c7cf;
+  background: var(--neutral-dot);
 }
 
 .browser-status-text[data-state="live"]::before {
@@ -194,7 +194,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(17, 20, 45, 0.16);
+  box-shadow: var(--shadow-strong);
 }
 
 .browser-menu-item {
@@ -273,7 +273,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   height: 13px;
   border-radius: 50%;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-thumb);
   transition: transform 0.15s ease;
 }
 
@@ -296,7 +296,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
 .browser-url:focus {
   border-color: var(--accent-a);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(111, 91, 240, 0.16);
+  box-shadow: var(--shadow-focus-soft);
 }
 
 .browser-url:disabled {
@@ -312,7 +312,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   flex: none;
   height: 28px;
   padding: 0 10px;
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: 0.74rem;
   font-weight: 600;
   cursor: pointer;
@@ -335,11 +335,11 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
-  color: #a32836;
+  color: var(--danger-text-muted);
   font-size: 0.74rem;
   line-height: 1.4;
-  background: #fdf2f3;
-  border-bottom: 1px solid #f3d4d8;
+  background: var(--danger-tint);
+  border-bottom: 1px solid var(--danger-line);
 }
 
 .browser-error-text {
@@ -476,7 +476,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   border: 1px solid var(--border);
   border-radius: 50%;
   color: var(--text-dim);
-  background: #ffffff;
+  background: var(--surface);
   font-family: inherit;
   font-size: 1rem;
   line-height: 1;
@@ -501,7 +501,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   min-height: 160px;
   overflow: auto;
   scrollbar-gutter: stable;
-  background: #14161b;
+  background: var(--browser-canvas-bg);
 }
 
 .browser-stage {
@@ -523,7 +523,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
 }
 
 .browser-canvas:focus-visible {
-  outline: 2px solid rgba(111, 91, 240, 0.85);
+  outline: 2px solid var(--focus-ring-strong);
   outline-offset: -2px;
 }
 
@@ -537,7 +537,8 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   gap: 9px;
   padding: 22px 18px;
   text-align: center;
-  background: radial-gradient(circle at 50% 0%, rgba(139, 123, 255, 0.08), transparent 62%), var(--surface);
+  /* background: radial-gradient(circle at 50% 0%, var(--accent-tint-subtle), transparent 62%), var(--surface); */
+  background: var(--surface);
 }
 
 .browser-empty-icon {
@@ -546,7 +547,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   width: 38px;
   height: 38px;
   color: var(--accent-a);
-  background: rgba(111, 91, 240, 0.08);
+  background: var(--accent-soft);
   border-radius: 12px;
 }
 
@@ -618,20 +619,20 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
 }
 
 .browser-btn--primary {
-  color: #ffffff;
+  color: var(--on-accent);
   background: var(--accent-gradient);
   border-color: transparent;
 }
 
 .browser-btn--primary:hover:not(:disabled) {
-  color: #ffffff;
+  color: var(--on-accent);
   filter: brightness(1.04);
 }
 
 .browser-spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(111, 91, 240, 0.18);
+  border: 2px solid var(--accent-soft-strong);
   border-top-color: var(--accent-a);
   border-radius: 50%;
   animation: browser-spin 0.8s linear infinite;
@@ -814,7 +815,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: rgba(10, 11, 15, 0.55);
+  background: var(--overlay-strong);
   backdrop-filter: blur(2px);
 }
 
@@ -831,7 +832,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
-  box-shadow: 0 18px 48px rgba(10, 12, 20, 0.28);
+  box-shadow: var(--shadow-dialog);
 }
 
 .browser-dialog-title {
@@ -866,7 +867,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
 .browser-dialog-input:focus {
   border-color: var(--accent-a);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(111, 91, 240, 0.16);
+  box-shadow: var(--shadow-focus-soft);
 }
 
 .browser-dialog-actions {
@@ -888,7 +889,7 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   font-weight: 600;
   text-align: center;
   pointer-events: none;
-  background: rgba(111, 91, 240, 0.14);
+  background: var(--accent-soft-strong);
   border: 2px dashed var(--accent-a);
   border-radius: 12px;
 }
@@ -909,6 +910,6 @@ browser-panel[data-collapsed] .browser-panel > :not(.browser-head) {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  box-shadow: 0 8px 22px rgba(10, 12, 20, 0.2);
+  box-shadow: var(--shadow-float);
   transform: translateX(-50%);
 }

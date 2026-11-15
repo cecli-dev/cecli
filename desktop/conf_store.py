@@ -159,6 +159,24 @@ class ConfStore:
         model = config.get("model") or config.get("agent-model")
         return model if isinstance(model, str) and model.strip() else None
 
+    def theme(self) -> str | None:
+        """The desktop light/dark theme stored at the top level of desktop.yml."""
+        return _normalize_theme(_read_yaml(self.desktop_path).get("theme"))
+
+    def set_theme(self, theme: str) -> dict[str, Any]:
+        """Persist the desktop theme in desktop.yml, preserving other keys."""
+        normalized = _normalize_theme(theme)
+        if normalized is None:
+            raise ValueError(f"Unsupported theme: {theme!r}")
+
+        data = _read_yaml_for_write(self.desktop_path)
+        if data is None:
+            raise ValueError("desktop.yml is not valid YAML; refusing to overwrite it")
+
+        data["theme"] = normalized
+        _atomic_dump(self.desktop_path, data)
+        return {"theme": normalized}
+
     def key_bindings(self) -> dict[str, str]:
         """Desktop key bindings, copied once from the TUI config when absent.
 
@@ -347,6 +365,15 @@ class ConfStore:
         desktop = _read_yaml(path).get("desktop")
         folders = desktop.get("folders") if isinstance(desktop, dict) else None
         return folders if isinstance(folders, list) else None
+
+
+def _normalize_theme(value: Any) -> str | None:
+    """Return `dark` or `light` for a stored theme value."""
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("dark", "light"):
+            return normalized
+    return None
 
 
 def _as_bool(value: Any) -> bool:

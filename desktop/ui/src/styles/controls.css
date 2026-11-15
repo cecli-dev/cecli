@@ -53,7 +53,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-dim);
-  background-color: #ffffff;
+  background-color: var(--surface);
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
     linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
@@ -77,7 +77,7 @@
 .picker-select option,
 .picker-select optgroup {
   color: var(--text);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 /* ---------------------------------------------------------- strip actions */
@@ -141,7 +141,7 @@
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
-  background: #ececf1;
+  background: var(--neutral-tint);
 }
 
 .usage-fill {
@@ -154,7 +154,7 @@
 }
 
 .usage-fill[data-level="warn"] {
-  background: #d9a441;
+  background: var(--warn-bright);
 }
 
 .usage-fill[data-level="high"] {
@@ -164,22 +164,22 @@
 /* --------------------------------------------------------------- jump badge */
 
 .strip-badge.jump-badge {
-  border-color: #000000;
-  color: #ffffff;
-  background: #000000;
+  border-color: var(--inverse-chip-bg);
+  color: var(--inverse-text);
+  background: var(--inverse-chip-bg);
 }
 
 .strip-badge.jump-badge:hover {
-  border-color: #000000;
-  color: #ffffff;
-  background: #1a1a1a;
+  border-color: var(--inverse-chip-bg);
+  color: var(--inverse-text);
+  background: var(--inverse-chip-bg-hover);
 }
 
 .strip-badge.jump-badge:focus-visible {
-  border-color: #000000;
-  color: #ffffff;
-  background: #000000;
-  outline: 2px solid rgba(111, 91, 240, 0.6);
+  border-color: var(--inverse-chip-bg);
+  color: var(--inverse-text);
+  background: var(--inverse-chip-bg);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

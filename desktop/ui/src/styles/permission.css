@@ -12,10 +12,10 @@
   max-width: 760px;
   margin: 0;
   padding: 16px 18px;
-  border: 1px solid #f0dcb3;
+  border: 1px solid var(--warning-line);
   border-radius: 18px;
-  background: #fffdf7;
-  box-shadow: 0 12px 30px -18px rgba(183, 121, 31, 0.35);
+  background: var(--warning-surface);
+  box-shadow: var(--shadow-warning);
   animation: rise 0.22s ease;
 }
 
@@ -34,7 +34,7 @@
   height: 30px;
   border-radius: 9px;
   color: var(--warn);
-  background: #fdf3e2;
+  background: var(--warning-tint);
 }
 
 .perm-icon svg {
@@ -48,7 +48,7 @@
 
 .perm-title {
   margin: 0;
-  color: #3a2f18;
+  color: var(--warning-text);
   font-size: 13.6px;
   font-weight: 620;
   letter-spacing: -0.01em;
@@ -57,7 +57,7 @@
 .perm-tool {
   margin: 2px 0 0;
   overflow: hidden;
-  color: #8a6d2f;
+  color: var(--warning-text-dim);
   font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -68,10 +68,10 @@
   margin: 0 0 12px;
   padding: 10px 12px;
   overflow: auto;
-  border: 1px solid #f1e6cf;
+  border: 1px solid var(--warning-line-soft);
   border-radius: 10px;
   color: var(--text-dim);
-  background: #ffffff;
+  background: var(--surface);
   font-size: 12.6px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -89,7 +89,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   color: var(--text);
-  background: #ffffff;
+  background: var(--surface);
   font-size: 12.7px;
   font-weight: 550;
   cursor: pointer;
@@ -97,23 +97,23 @@
 }
 
 .perm-option:hover:not(:disabled) {
-  border-color: #bfbfc9;
+  border-color: var(--muted-line);
   background: var(--surface-muted);
 }
 
 .perm-option--allow {
-  border-color: #bfe9d8;
-  color: #0b6b50;
-  background: #eefaf5;
+  border-color: var(--success-line-strong);
+  color: var(--success-text-strong);
+  background: var(--success-tint);
 }
 
 .perm-option--reject {
   color: var(--text-muted);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .perm-option.is-chosen {
-  box-shadow: inset 0 0 0 1px rgba(16, 163, 127, 0.35);
+  box-shadow: var(--shadow-inset-success);
 }
 
 .perm-option:disabled {
@@ -133,12 +133,12 @@
 
 .perm-status[data-kind="allow_once"],
 .perm-status[data-kind="allow_always"] {
-  color: #0b7a5c;
+  color: var(--success-text);
 }
 
 .perm-status[data-kind="reject_once"],
 .perm-status[data-kind="reject_always"] {
-  color: #b42c3c;
+  color: var(--danger-text);
 }
 
 .permission-card.is-resolved {

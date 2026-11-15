@@ -108,6 +108,8 @@ All responses are JSON unless noted. Unknown paths return 404.
 | POST   | `/api/new_session`| `{"cwd": "..."}` optional              | 202; 409 if busy |
 | POST   | `/api/permission` | `{"requestId": 7, "optionId": "y"}` or `{"requestId": 7, "optionId": null}` | 200 `{"ok": true}`; 404 unknown requestId |
 | POST   | `/api/config`     | `{"configId": "mode", "value": "..."}`| 202 `{"ok": true}` |
+| GET    | `/api/theme`      | -                                      | 200 `{"ok": true, "theme": "dark"\|null}` |
+| POST   | `/api/theme`      | `{"theme": "dark"}`                   | 202 `{"ok": true, "theme": "dark"}`; 400 for an unsupported value |
 | POST   | `/api/paste`      | `{bridgeId?, data?, mimeType?}`        | 200 `{ok, path, contextFiles}` for an image; `{ok, text}` when the clipboard only has text; 404 when empty. Without `data` it reads the host clipboard like the TUI `/paste` command, saves the image to a temp file, and adds the path to the chat. |
 | POST   | `/api/restart`    | -                                      | 202, kills and respawns the child |
 
@@ -366,6 +368,13 @@ persists `browser.launch_on_startup` in `desktop.yml` through
 `POST /api/browser/config`, and the server starts the browser during launch
 when that setting is true. Closing also detaches every session from the shared
 browser-harness endpoint so later turns do not reconnect to a dead port.
+
+The light/dark choice is stored as the top-level `theme` key (`dark` or
+`light`) in `desktop.yml`. `GET /api/theme` returns the stored value or `null`,
+and `POST /api/theme` with `{theme}` persists it. The server injects the stored
+theme into the index page as `window.__CECLI_THEME__` so it applies before the
+first paint; the UI falls back to its cached theme or the system preference
+when the key is unset.
 
 `POST /api/background` with `{bridgeId?, action: "list"}` returns
 `{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns

@@ -1,0 +1,152 @@
+/* Dark theme tokens. Add another `body.<variant>` block for future themes. */
+
+/* Catppuccin Frappe tokens. Elevated surfaces follow Material dark guidance. */
+body.dark {
+  color-scheme: dark;
+
+  --color-base-100: #393c53;
+  --color-base-200: #414559;
+  --color-base-300: #51576d;
+  --color-base-content: #c6d0f5;
+  --color-primary: #ca9ee6;
+  --color-primary-content: #232634;
+  --color-secondary: #babbf1;
+  --color-secondary-content: #232634;
+  --color-accent: #81c8be;
+  --color-accent-content: #232634;
+  --color-neutral: #c6d0f5;
+  --color-neutral-content: #232634;
+  --color-info: #8caaee;
+  --color-info-content: #232634;
+  --color-success: #a6d189;
+  --color-success-content: #232634;
+  --color-warning: #e5c890;
+  --color-warning-content: #3a2a09;
+  --color-error: #e78284;
+  --color-error-content: #232634;
+
+  --text-strong: #dce3fb;
+  --text: #c6d0f5;
+  --text-dim: #b5bfe2;
+  --text-muted: #a5adce;
+  --text-faint: #838ba7;
+
+  --surface: #393c53;
+  --surface-muted: #414559;
+  --surface-sunken: #292c3c;
+
+  --border: #414559;
+  --border-strong: #51576d;
+
+  --accent-a: #ca9ee6;
+  --accent-b: #babbf1;
+  --accent-c: #81c8be;
+  --accent-hover: #d6b3ed;
+  --accent-gradient: linear-gradient(135deg, #babbf1 0%, #ca9ee6 100%);
+  --positive: #a6d189;
+  --danger: #e78284;
+  --warn: #e5c890;
+  --ok: #81c8be;
+
+  --accent-soft: rgba(202, 158, 230, 0.16);
+  --accent-soft-strong: rgba(202, 158, 230, 0.24);
+  --accent-tint: rgba(202, 158, 230, 0.14);
+  --accent-tint-strong: rgba(202, 158, 230, 0.22);
+  --accent-tint-subtle: rgba(202, 158, 230, 0.09);
+  --accent-line: rgba(202, 158, 230, 0.35);
+  --accent-line-soft: rgba(202, 158, 230, 0.2);
+  --accent-line-strong: rgba(202, 158, 230, 0.55);
+  --accent-line-faint: rgba(202, 158, 230, 0.3);
+  --accent-text: #ca9ee6;
+  --accent-text-strong: #d9b9f0;
+  --accent-text-deep: #e7d3f6;
+  --accent-text-line: rgba(202, 158, 230, 0.5);
+  --accent-text-line-strong: rgba(217, 185, 240, 0.8);
+  --user-bubble-bg: rgba(140, 170, 238, 0.22);
+  --user-bubble-text: #dbe5ff;
+  --on-accent: #232634;
+
+  --success-soft: rgba(166, 209, 137, 0.16);
+  --success-glow: rgba(129, 200, 190, 0.08);
+  --success-ring: rgba(129, 200, 190, 0.45);
+  --success-tint: rgba(166, 209, 137, 0.12);
+  --success-line: rgba(166, 209, 137, 0.35);
+  --success-line-strong: rgba(166, 209, 137, 0.5);
+  --success-text: #a6d189;
+  --success-text-strong: #b9dfa0;
+
+  --danger-soft: rgba(231, 130, 132, 0.16);
+  --danger-tint: rgba(231, 130, 132, 0.12);
+  --danger-tint-strong: rgba(231, 130, 132, 0.18);
+  --danger-line: rgba(231, 130, 132, 0.32);
+  --danger-line-strong: rgba(231, 130, 132, 0.45);
+  --danger-text: #e78284;
+  --danger-text-strong: #f0a3a5;
+  --danger-text-muted: #ed9092;
+
+  --warning-soft: rgba(229, 200, 144, 0.45);
+  --warning-tint: rgba(229, 200, 144, 0.12);
+  --warning-surface: #3a3545;
+  --warning-line: rgba(229, 200, 144, 0.35);
+  --warning-line-soft: rgba(229, 200, 144, 0.25);
+  --warning-text: #e5c890;
+  --warning-text-dim: #d4bc85;
+  --warning-text-accent: #e5c890;
+  --warn-bright: #e5c890;
+
+  --neutral-tint: #414559;
+  --neutral-tint-hover: #4a4f66;
+  --neutral-line: #51576d;
+  --neutral-dot: #626880;
+  --muted-line: #626880;
+
+  --code-bg: #292c3c;
+  --code-border: #414559;
+  --code-text: #c6d0f5;
+  --code-block-text: #dce3fb;
+  --code-header-bg: #353849;
+  --code-surface: #292c3c;
+  --diff-bg: #292c3c;
+  --diff-text: #c6d0f5;
+
+  --inverse-bg: #c6d0f5;
+  --inverse-bg-hover: #dce3fb;
+  --inverse-text: #232634;
+  --inverse-chip-bg: #c6d0f5;
+  --inverse-chip-bg-hover: #dce3fb;
+
+  --overlay: rgba(0, 0, 0, 0.6);
+  --overlay-strong: rgba(0, 0, 0, 0.72);
+  --backdrop: #303446;
+  --backdrop-accent: rgba(202, 158, 230, 0.14);
+  --backdrop-accent-alt: rgba(129, 200, 190, 0.06);
+
+  --scrollbar-thumb: #51576d;
+  --scrollbar-color: #51576d;
+
+  --focus-ring: rgba(202, 158, 230, 0.75);
+  --focus-ring-soft: rgba(202, 158, 230, 0.5);
+  --focus-ring-strong: rgba(202, 158, 230, 0.95);
+
+  --ccli-glass-bg: rgba(48, 52, 70, 0.82);
+  --ccli-glass-border: #414559;
+  --ccli-glass-border-strong: #51576d;
+
+  --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-popover: 0 18px 44px rgba(0, 0, 0, 0.5);
+  --shadow-raised: 0 14px 34px rgba(0, 0, 0, 0.45);
+  --shadow-toast: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.3);
+  --shadow-jump: 0 6px 20px rgba(0, 0, 0, 0.4);
+  --shadow-strong: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-brand: 0 4px 12px -4px rgba(0, 0, 0, 0.6);
+  --shadow-warning: 0 12px 30px -18px rgba(0, 0, 0, 0.6);
+  --shadow-dialog: 0 18px 48px rgba(0, 0, 0, 0.55);
+  --shadow-float: 0 8px 22px rgba(0, 0, 0, 0.45);
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-focus-soft: 0 0 0 2px rgba(202, 158, 230, 0.24);
+  --shadow-focus: 0 0 0 3px rgba(202, 158, 230, 0.16);
+  --shadow-inset-success: inset 0 0 0 1px rgba(129, 200, 190, 0.45);
+}

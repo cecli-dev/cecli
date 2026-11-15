@@ -2,6 +2,7 @@ import { LitElement, html } from 'lit';
 
 import { active_agent_location } from '../core/format.js';
 import { StoreController, store } from '../core/store.js';
+import { get_theme, subscribe_theme, toggle_theme } from '../core/theme.js';
 
 
 const PANE_ICONS = {
@@ -29,6 +30,15 @@ const BRAND_PHRASES = [
 
 const BRAND_PHRASE = BRAND_PHRASES[Math.floor(Math.random() * BRAND_PHRASES.length)];
 
+const SUN_ICON = html`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+  <circle cx="12" cy="12" r="4"></circle>
+  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+</svg>`;
+
+const MOON_ICON = html`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 7.5 7.5 0 1 0 20 14.5z"></path>
+</svg>`;
+
 export class AppHeader extends LitElement {
   static properties = {
     chatCollapsed: { type: Boolean },
@@ -41,6 +51,20 @@ export class AppHeader extends LitElement {
     this.chatCollapsed = false;
     this.sidebarCollapsed = false;
     this.workbenchCollapsed = false;
+    this._theme = get_theme();
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._unsubscribe_theme = subscribe_theme((theme) => {
+      this._theme = theme;
+      this.requestUpdate();
+    });
+  }
+
+  disconnectedCallback() {
+    this._unsubscribe_theme?.();
+    super.disconnectedCallback();
   }
 
   createRenderRoot() {
@@ -62,7 +86,16 @@ export class AppHeader extends LitElement {
           : ''}
 
 
-        <div class="pane-toggles" role="group" aria-label="Panel visibility">
+        <div class="pane-toggles" role="group" aria-label="View options">
+          <button
+            class="pane-toggle theme-toggle"
+            type="button"
+            data-theme=${this._theme}
+            aria-pressed=${this._theme === 'dark'}
+            aria-label=${this._theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title=${this._theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            @click=${this._toggle_theme}
+          >${this._theme === 'dark' ? SUN_ICON : MOON_ICON}</button>
           <button
             class="pane-toggle"
             type="button"
@@ -94,6 +127,12 @@ export class AppHeader extends LitElement {
       </header>
     `;
   }
+
+  _toggle_theme() {
+    this._theme = toggle_theme();
+    this.requestUpdate();
+  }
+
   _toggle_pane(pane) {
     this.dispatchEvent(
       new CustomEvent('toggle-pane', { detail: { pane }, bubbles: true, composed: true }),

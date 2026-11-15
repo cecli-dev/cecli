@@ -2,39 +2,159 @@
 
 /* ---------------------------------------------------------------- tokens */
 
+/* Catppuccin Latte tokens. Dark variants live in theme.css. */
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  --text: #202124;
-  --text-dim: #4b4d57;
-  --text-muted: #8b8d98;
+  --text-strong: #3b3e55;
+  --text: #4c4f69;
+  --text-dim: #5c5f77;
+  --text-muted: #7c7f93;
+  --text-faint: #9ca0b0;
 
-  --surface: #ffffff;
-  --surface-muted: #f7f7f9;
-  --border: #e6e6ea;
-  --border-strong: #d7d7de;
+  --surface: #f7f8fb;
+  --surface-muted: #e6e9ef;
+  --surface-sunken: #dce0e8;
 
-  --ccli-glass-bg: rgba(255, 255, 255, 0.82);
-  --ccli-glass-border: #e6e6ea;
-  --ccli-glass-border-strong: #d0d0d8;
+  --border: #ccd0da;
+  --border-strong: #bcc0cc;
+
+  --accent-a: #8839ef;
+  --accent-b: #7287fd;
+  --accent-c: #179299;
+  --accent-hover: #7527d6;
+  --accent-gradient: linear-gradient(135deg, #7287fd 0%, #8839ef 100%);
+  --positive: #40a02b;
+  --danger: #d20f39;
+  --warn: #df8e1d;
+  --ok: #179299;
+
+  --accent-soft: rgba(136, 57, 239, 0.08);
+  --accent-soft-strong: rgba(136, 57, 239, 0.14);
+  --accent-tint: #eedffd;
+  --accent-tint-strong: #e4cefc;
+  --accent-tint-subtle: #f5edfe;
+  --accent-line: #d4b3f8;
+  --accent-line-soft: #e8d8fb;
+  --accent-line-strong: #bf8ff4;
+  --accent-line-faint: #cb9ff6;
+  --accent-text: #7a2ed6;
+  --accent-text-strong: #6421b8;
+  --accent-text-deep: #4c1d87;
+  --accent-text-line: rgba(122, 46, 214, 0.35);
+  --accent-text-line-strong: rgba(100, 33, 184, 0.7);
+  --user-bubble-bg: #dfeafd;
+  --user-bubble-text: #1c3a5e;
+  --on-accent: #f7f8fb;
+
+  --success-soft: rgba(64, 160, 43, 0.1);
+  --success-glow: rgba(23, 146, 153, 0.05);
+  --success-ring: rgba(23, 146, 153, 0.35);
+  --success-tint: #e6f4e1;
+  --success-line: #c4e3b8;
+  --success-line-strong: #aad89a;
+  --success-text: #2f7a20;
+  --success-text-strong: #246118;
+
+  --danger-soft: rgba(210, 15, 57, 0.1);
+  --danger-tint: #fbe1e6;
+  --danger-tint-strong: #f8d5dc;
+  --danger-line: #f3bcc6;
+  --danger-line-strong: #efa6b2;
+  --danger-text: #b30c30;
+  --danger-text-strong: #8e0926;
+  --danger-text-muted: #c90e36;
+
+  --warning-soft: rgba(223, 142, 29, 0.35);
+  --warning-tint: #fbeed6;
+  --warning-surface: #fffaf0;
+  --warning-line: #f4d9a8;
+  --warning-line-soft: #f8e6c4;
+  --warning-text: #5c3a05;
+  --warning-text-dim: #91600f;
+  --warning-text-accent: #9a5b11;
+  --warn-bright: #df8e1d;
+
+  --neutral-tint: #e6e9ef;
+  --neutral-tint-hover: #dce0e8;
+  --neutral-line: #bcc0cc;
+  --neutral-dot: #acb0be;
+  --muted-line: #9ca0b0;
+
+  --code-bg: #e6e9ef;
+  --code-border: #ccd0da;
+  --code-text: #4c4f69;
+  --code-block-text: #3b3e55;
+  --code-header-bg: #dce0e8;
+  --code-surface: #eff1f5;
+  --diff-bg: #f7f8fb;
+  --diff-text: #4c4f69;
+
+  --inverse-bg: #4c4f69;
+  --inverse-bg-hover: #3b3e55;
+  --inverse-text: #eff1f5;
+  --inverse-chip-bg: #4c4f69;
+  --inverse-chip-bg-hover: #3b3e55;
+
+  --overlay: rgba(76, 79, 105, 0.32);
+  --overlay-strong: rgba(35, 38, 52, 0.55);
+  --backdrop: #eff1f5;
+  --backdrop-accent: rgba(136, 57, 239, 0.1);
+  --backdrop-accent-alt: rgba(23, 146, 153, 0.05);
+
+  --scrollbar-thumb: #bcc0cc;
+  --scrollbar-color: #bcc0cc;
+
+  --focus-ring: rgba(136, 57, 239, 0.6);
+  --focus-ring-soft: rgba(136, 57, 239, 0.45);
+  --focus-ring-strong: rgba(136, 57, 239, 0.85);
+
+  --ccli-glass-bg: rgba(247, 248, 251, 0.82);
+  --ccli-glass-border: #ccd0da;
+  --ccli-glass-border-strong: #bcc0cc;
   --ccli-glass-blur: blur(22px) saturate(140%);
-  --shadow-panel: 0 10px 30px rgba(17, 20, 45, 0.05), 0 1px 2px rgba(17, 20, 45, 0.04);
-  --shadow-soft: 0 8px 24px rgba(17, 20, 45, 0.07);
+
+  --shadow-panel: 0 10px 30px rgba(76, 79, 105, 0.05), 0 1px 2px rgba(76, 79, 105, 0.04);
+  --shadow-soft: 0 8px 24px rgba(76, 79, 105, 0.07);
+  --shadow-popover: 0 18px 44px rgba(76, 79, 105, 0.16);
+  --shadow-raised: 0 14px 34px rgba(76, 79, 105, 0.14);
+  --shadow-toast: 0 10px 24px -12px rgba(76, 79, 105, 0.5);
+  --shadow-card: 0 2px 10px rgba(76, 79, 105, 0.04);
+  --shadow-md: 0 6px 20px rgba(76, 79, 105, 0.06);
+  --shadow-jump: 0 6px 20px rgba(76, 79, 105, 0.22);
+  --shadow-strong: 0 10px 30px rgba(76, 79, 105, 0.16);
+  --shadow-brand: 0 4px 12px -4px rgba(76, 79, 105, 0.35);
+  --shadow-warning: 0 12px 30px -18px rgba(223, 142, 29, 0.35);
+  --shadow-dialog: 0 18px 48px rgba(35, 38, 52, 0.28);
+  --shadow-float: 0 8px 22px rgba(35, 38, 52, 0.2);
+  --shadow-thumb: 0 1px 2px rgba(35, 38, 52, 0.2);
+  --shadow-focus-soft: 0 0 0 2px rgba(136, 57, 239, 0.16);
+  --shadow-focus: 0 0 0 3px rgba(136, 57, 239, 0.1);
+  --shadow-inset-success: inset 0 0 0 1px rgba(23, 146, 153, 0.35);
+
+  --cli-bg: #232634;
+  --cli-elevated: #292c3c;
+  --cli-border: #414559;
+  --cli-text: #c6d0f5;
+  --cli-muted: #a5adce;
+  --cli-faint: #838ba7;
+  --cli-hover: #414559;
+  --cli-active: #51576d;
+  --cli-surface: #1b1e2b;
+  --cli-input: #292c3c;
+  --cli-warning: #e5c890;
+  --cli-error: #e78284;
+  --cli-info: #b5bfe2;
+  --cli-placeholder: #737994;
+  --cli-selection: #51576d;
+
+  --browser-canvas-bg: #232634;
 
   --radius-xl: 26px;
   --radius-lg: 20px;
   --radius-md: 14px;
   --radius-sm: 10px;
-
-  --accent-a: #6f5bf0;
-  --accent-b: #8b7bff;
-  --accent-c: #10a37f;
-  --accent-gradient: linear-gradient(135deg, #8b7bff 0%, #6f5bf0 100%);
-  --positive: #0f9d76;
-  --danger: #d93a4a;
-  --warn: #b7791f;
-  --ok: #10a37f;
 }
 
 /* ------------------------------------------------------------------ reset */
@@ -57,7 +177,7 @@ body {
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.5;
-  background: #ffffff;
+  background: var(--backdrop);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -78,13 +198,13 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(111, 91, 240, 0.6);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cfcfd7 transparent;
+  scrollbar-color: var(--scrollbar-color) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -93,7 +213,7 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #d4d4dc;
+  background: var(--scrollbar-thumb);
   border-radius: 999px;
 }
 

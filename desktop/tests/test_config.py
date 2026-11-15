@@ -232,6 +232,34 @@ class ConfStoreTest(unittest.TestCase):
         self.assertFalse(store.ensure_browser_settings()["launch_on_startup"])
         self.assertEqual(self.desktop_path.read_text(encoding="utf-8"), "- one\n")
 
+    def test_theme_defaults_unset_and_persists(self) -> None:
+        self.desktop_path.write_text(
+            yaml.safe_dump({"browser": {"launch_on_startup": True}}), encoding="utf-8"
+        )
+        store = self.store()
+
+        self.assertIsNone(store.theme())
+
+        settings = store.set_theme("dark")
+
+        self.assertEqual(settings["theme"], "dark")
+        self.assertEqual(store.theme(), "dark")
+        data = yaml.safe_load(self.desktop_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["theme"], "dark")
+        self.assertTrue(data["browser"]["launch_on_startup"])
+
+        with self.assertRaises(ValueError):
+            store.set_theme("system")
+
+    def test_theme_refuses_to_rewrite_a_malformed_file(self) -> None:
+        self.desktop_path.write_text("theme: [dark\n", encoding="utf-8")
+        store = self.store()
+
+        with self.assertRaises(ValueError):
+            store.set_theme("light")
+
+        self.assertEqual(self.desktop_path.read_text(encoding="utf-8"), "theme: [dark\n")
+
     def test_invalid_folder_is_reported_not_raised(self) -> None:
         self.project_path.parent.mkdir(parents=True, exist_ok=True)
         self.desktop_path.write_text(

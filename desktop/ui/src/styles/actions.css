@@ -44,7 +44,7 @@ actions-menu {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 18px 44px rgba(17, 20, 45, 0.16);
+  box-shadow: var(--shadow-popover);
 }
 
 .metrics-panel {
@@ -151,7 +151,7 @@ actions-menu {
 }
 
 .actions-item:focus-visible {
-  outline: 2px solid rgba(111, 91, 240, 0.45);
+  outline: 2px solid var(--focus-ring-soft);
   outline-offset: -2px;
 }
 
@@ -202,7 +202,7 @@ actions-menu {
 
 /* Keep the logs summary focus ring consistent with the icon buttons */
 .strip-actions .logs summary:focus-visible {
-  outline: 2px solid rgba(111, 91, 240, 0.45);
+  outline: 2px solid var(--focus-ring-soft);
   outline-offset: 2px;
 }
 
