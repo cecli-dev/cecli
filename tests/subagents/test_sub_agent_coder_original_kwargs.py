@@ -59,6 +59,7 @@ class TestSubAgentCoderOriginalKwargs:
             mock_instance.spawn = AsyncMock(return_value=(MagicMock(), mock_info))
             MockService.get_instance.return_value = mock_instance
 
+            MockService.get_primary_uuid.return_value = "parent-uuid"
             # Create SubAgentCoder using the create class method
             sub_agent = await SubAgentCoder.create(from_coder=mock_coder)
 

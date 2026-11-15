@@ -90,6 +90,36 @@ def _needs_pcre2(pattern):
 _GREP_PCRE_CACHE = {}
 
 
+def _utf8_locale_env():
+    """Return an env copy that forces a UTF-8 locale for Cygwin/MSYS search tools.
+
+    Git for Windows' GNU grep only supports ``-P`` and locale-aware case folding
+    (``-i`` combined with ``-F``/``-P``) when the locale is UTF-8. Otherwise grep
+    reports ``-P`` as unsupported or exits with an obscure error code (1536) and
+    no output, which looks like an empty search result.
+    """
+    if os.name != "nt":
+        return None
+
+    env = os.environ.copy()
+    active_locale = env.get("LC_ALL") or env.get("LC_CTYPE") or env.get("LANG") or ""
+    if "utf" not in active_locale.lower():
+        env["LC_ALL"] = "C.UTF-8"
+        env["LANG"] = "C.UTF-8"
+    return env
+
+
+def _search_tool_env(tool_path):
+    """Return a locale environment for GNU grep/ag, or None when unneeded."""
+    if os.name != "nt" or not tool_path:
+        return None
+
+    name = Path(str(tool_path)).stem.lower()
+    if name not in ("grep", "ag"):
+        return None
+    return _utf8_locale_env()
+
+
 def _grep_supports_pcre(tool_path):
     """Probe whether GNU grep supports PCRE via -P."""
     import subprocess
@@ -103,6 +133,7 @@ def _grep_supports_pcre(tool_path):
             input="",
             capture_output=True,
             timeout=5,
+            env=_search_tool_env(tool_path),
             text=True,
         )
         supported = result.returncode in (0, 1)
@@ -488,6 +519,7 @@ def _run_grep_subprocess(cmd_args, cwd=None):
             cmd_args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            env=_search_tool_env(cmd_args[0] if cmd_args else None),
             text=True,
             encoding="utf-8",
             errors="replace",
