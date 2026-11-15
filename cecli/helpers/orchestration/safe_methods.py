@@ -339,8 +339,7 @@ def _safe_dir(obj: Any) -> list:
         a
         for a in all_attrs
         if not a.startswith("_")
-        and a
-        not in (
+        and a not in (
             "__builtins__",
             "__cached__",
             "__doc__",

@@ -528,6 +528,12 @@ class Coder(metaclass=UsageMeta):
     ):
         from cecli.helpers.agents.service import AgentService
 
+        # Always initialize original_kwargs: Coder.create() reads it when
+        # switching coders (from_coder.original_kwargs), and instances built
+        # outside create() (e.g. SubAgentCoder) would otherwise raise
+        # AttributeError when accessed.
+        self.original_kwargs = {}
+
         # initialize from args.map_cache_dir
         self.coroutines = coroutines
         # Per-instance tool and server filtering dictionaries
