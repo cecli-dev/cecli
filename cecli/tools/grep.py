@@ -5,8 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import oslex
-
 from cecli.helpers.file_exclusions import DEFAULT_EXCLUDE_DIRS as SHARED_EXCLUDE_DIRS
 from cecli.helpers.file_exclusions import GREP_EXTRA_EXCLUDE_DIRS
 from cecli.helpers.hashline import strip_hashline
@@ -436,12 +434,12 @@ def _build_powershell_search_script(
     parts = ["Get-ChildItem", "-LiteralPath", _ps_quote(search_dir_path), "-Recurse", "-File"]
 
     if file_pattern != "*":
-        if "," in file_pattern:
-            globs = [g.strip() for g in file_pattern.split(",") if g.strip()]
-            if globs:
-                parts.extend(["-Include", ", ".join(_ps_quote(g) for g in globs)])
-        else:
-            parts.extend(["-Filter", _ps_quote(file_pattern)])
+        globs = _split_glob_patterns(file_pattern)
+        if len(globs) == 1:
+            parts.extend(["-Filter", _ps_quote(globs[0])])
+        elif globs:
+            name_filter = " -or ".join(f"$_.Name -like {_ps_quote(glob)}" for glob in globs)
+            parts.extend(["|", "Where-Object", "{", name_filter, "}"])
 
     exclude_regex = _build_powershell_exclude_regex(exclude_cecli=exclude_cecli)
     if exclude_regex:
@@ -493,6 +491,7 @@ def _run_grep_subprocess(cmd_args, cwd=None):
             text=True,
             encoding="utf-8",
             errors="replace",
+            stdin=subprocess.DEVNULL,
             cwd=cwd,
         )
         return proc.returncode, proc.stdout
