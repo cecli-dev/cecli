@@ -144,8 +144,8 @@ Use the tool installation so cecli doesn't interfere with your development envir
 
 12. **Quality of Life**
   * [ ] Add hot keys support for running repeatable commands like switching between preferred models
-  * [ ] Creator mode (from `/creator`) that will help users import and create skills and sub agents as needed
-  * [ ] Scheduled background jobs that can be ran on repeat at an interval while the program is active
+  * [x] Creator mode (from `/creator`) that will help users import and create skills and sub agents as needed
+  * [x] Scheduled background jobs that can be ran on repeat at an interval while the program is active
   * [ ] Support audio and video inputs across providers
 
 ### All Contributors (Both Cecli and Aider main)
