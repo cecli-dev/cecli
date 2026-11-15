@@ -1756,13 +1756,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             return "```bash\nbrowser-harness <<'PY'\nprint(page_info())\nPY\n```"
 
         if get_windows_parent_process_name() in ("pwsh.exe", "powershell.exe"):
-            return (
-                "```powershell\n"
-                "@'\n"
-                "print(page_info())\n"
-                "'@ | browser-harness\n"
-                "```"
-            )
+            return "```powershell\n" "@'\n" "print(page_info())\n" "'@ | browser-harness\n" "```"
 
         return (
             "```bat\n"
@@ -1770,7 +1764,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             "echo print(page_info()) | browser-harness\n"
             "rem Multi-line program (one quoted string per line):\n"
             "powershell -NoProfile -Command \"'import os','print(os.getcwd())' |"
-            " browser-harness\"\n"
+            ' browser-harness"\n'
             "```"
         )
 

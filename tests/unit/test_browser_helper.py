@@ -262,7 +262,10 @@ def test_browser_automation_context_uses_pipeline_under_cmd(monkeypatch):
     context = AgentCoder.get_browser_automation_context(coder)
 
     assert "echo print(page_info()) | browser-harness" in context
-    assert """powershell -NoProfile -Command "'import os','print(os.getcwd())' | browser-harness""" in context
+    assert (
+        """powershell -NoProfile -Command "'import os','print(os.getcwd())' | browser-harness"""
+        in context
+    )
     assert "```bat" in context
     assert """< script.py""" not in context
     assert "<<" not in context
