@@ -217,6 +217,14 @@ class ConversationFiles:
 
         return current_mtime > cached_mtime
 
+    def is_tracked(self, fname: str) -> bool:
+        """Whether the conversation already carries this file's contents.
+
+        Only tracked files have a baseline the diffs are relative to; a file
+        that was never in context must not be added just to report an edit.
+        """
+        return os.path.abspath(fname) in self._file_contents_original
+
     def generate_diff(self, fname: str) -> Optional[str]:
         """
         Generate diff between cached content and current file content.
@@ -234,6 +242,7 @@ class ConversationFiles:
         # Read current content using coder.io.read_text()
         coder = self.get_coder()
         rel_fname = coder.get_rel_fname(fname)
+        current_mtime = os.path.getmtime(abs_fname) if os.path.exists(abs_fname) else 0
         try:
             current_content = coder.io.read_text(abs_fname, silent=True)
             if coder.hashlines:
@@ -244,6 +253,9 @@ class ConversationFiles:
         # Check if current_content is None (file doesn't exist or can't be read)
         if current_content is None:
             return None
+
+        # Record the mtime we just read so has_file_changed() stops re-reading the file
+        self._file_timestamps[abs_fname] = current_mtime
 
         # Get the last snapshot (use file cache as fallback for backward compatibility)
         snapshot_content = self._file_contents_snapshot.get(
@@ -270,12 +282,14 @@ class ConversationFiles:
 
         return diff_text if diff_text.strip() else None
 
-    def update_file_diff(self, fname: str) -> Optional[str]:
+    def update_file_diff(self, fname: str, queue: bool = False) -> Optional[str]:
         """
         Update diff for file and add diff message to conversation.
 
         Args:
             fname: Absolute file path
+            queue: Defer insertion to the next prompt rebuild so the message
+                lands after the tool result that caused the edit
 
         Returns:
             Diff string or None if no changes
@@ -320,11 +334,16 @@ class ConversationFiles:
                 ),
             }
 
-            ConversationService.get_manager(coder).add_message(
+            message_kwargs = dict(
                 message_dict=diff_message,
                 tag=MessageTag.DIFFS,
                 hash_key=("file_diff_user", rel_fname, content_hash),
             )
+            manager = ConversationService.get_manager(coder)
+            if queue:
+                manager.queue_message(**message_kwargs)
+            else:
+                manager.add_message(**message_kwargs)
 
         return diff
 

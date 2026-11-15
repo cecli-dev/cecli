@@ -500,6 +500,7 @@ class Tool(BaseTool):
                     cls._emit_diff_event(coder, rel_path, original_content, new_content)
 
                     coder.files_edited_by_tools.add(rel_path)
+                    cls._queue_tracked_diff(coder, abs_path)
                     if getattr(coder, "uuid", None):
                         ConversationService.get_chunks(coder).notify_file_edited(abs_path)
 
@@ -880,6 +881,28 @@ class Tool(BaseTool):
         )
         if diff.strip():
             io.diff_event(rel_path, diff)
+
+    @classmethod
+    def _queue_tracked_diff(cls, coder, abs_path):
+        """Queue the model-facing diff for a file the conversation tracks.
+
+        Files that were never in context have no baseline to diff against, so
+        they are skipped rather than pulling their full contents into the
+        prompt. Insertion is deferred so the diff sorts after this tool result.
+        """
+        from cecli.helpers.conversation import ConversationService
+
+        if not getattr(coder, "uuid", None) or not getattr(coder, "file_diffs", True):
+            return
+
+        try:
+            files = ConversationService.get_files(coder)
+
+            if files.is_tracked(abs_path):
+                files.update_file_diff(abs_path, queue=True)
+        except Exception:
+            # Bookkeeping must never fail an edit that already landed
+            pass
 
     @classmethod
     def _apply_create(cls, coder, file_path_key, file_edits, create_edits, change_id, dry_run):
