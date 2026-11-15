@@ -457,7 +457,10 @@ class Tool(BaseTool):
 
                 # Generate hashline for the entire file
                 hashed_content, _ = hashline_formatted(content, file_name=abs_path)
-                hashed_lines = hashed_content.splitlines()
+                # HashPos joins logical lines with "\n" and omits a final terminator, so
+                # splitting on "\n" preserves trailing blank lines that splitlines() drops.
+                # An empty file has no logical lines; split("\n") would yield [""].
+                hashed_lines = hashed_content.split("\n") if content else []
                 if not hashed_lines:
                     error_outputs.append(
                         cls.format_error(
@@ -470,13 +473,6 @@ class Tool(BaseTool):
                         )
                     )
                     continue
-
-                # hashline_formatted may omit a trailing blank line present in content.splitlines()
-                max_hashed_idx = len(hashed_lines) - 1
-                s_idx = min(s_idx, max_hashed_idx)
-                e_idx = min(e_idx, max_hashed_idx)
-                start_line_idx = min(start_line_idx, max_hashed_idx)
-                end_line_idx = min(end_line_idx, max_hashed_idx)
 
                 # Extract the context window from hashed lines
                 # context_hashed_lines = hashed_lines[start_line_idx : end_line_idx + 1]
