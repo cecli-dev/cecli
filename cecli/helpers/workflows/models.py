@@ -28,6 +28,7 @@ class TaskConfig:
     timeout: Optional[float] = None  # minutes
     continue_on_error: Optional[bool] = None
     save_to: Optional[str] = None
+    post_run: Any = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {"prompt": self.prompt}
@@ -39,6 +40,8 @@ class TaskConfig:
             data["continue_on_error"] = self.continue_on_error
         if self.save_to is not None:
             data["save_to"] = self.save_to
+        if self.post_run is not None:
+            data["post_run"] = self.post_run
         return data
 
 
@@ -136,6 +139,8 @@ class WorkflowConfig:
             prompt = task_data.get("prompt")
             if prompt is None:
                 raise ValueError(f"workflow task requires a 'prompt' key: {task_data!r}")
+            post_run = task_data.get("post_run")
+
             tasks.append(
                 TaskConfig(
                     prompt=_interp(interpolate_env_vars, prompt),
@@ -146,6 +151,7 @@ class WorkflowConfig:
                     ),
                     timeout=task_data.get("timeout"),
                     continue_on_error=task_data.get("continue_on_error"),
+                    post_run=post_run,
                     save_to=(
                         _interp(interpolate_env_vars, task_data["save_to"])
                         if task_data.get("save_to") is not None

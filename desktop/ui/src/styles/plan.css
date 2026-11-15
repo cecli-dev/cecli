@@ -3,9 +3,9 @@
 .plan-card {
   margin: 9px 0 12px;
   overflow: hidden;
-  border: 1px solid #ddd8ff;
+  border: 1px solid var(--accent-line);
   border-radius: 16px;
-  background: #fbfaff;
+  background: var(--accent-tint-subtle);
 }
 
 .plan-head {
@@ -14,8 +14,8 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid #ece8ff;
-  color: #5b4bd8;
+  border-bottom: 1px solid var(--accent-line-soft);
+  color: var(--accent-text);
   font-size: 10.5px;
   font-weight: 650;
   letter-spacing: 0.09em;
@@ -54,14 +54,14 @@
   width: 15px;
   height: 15px;
   margin-top: 2px;
-  border: 1.5px solid #c9c9d2;
+  border: 1.5px solid var(--neutral-line);
   border-radius: 50%;
 }
 
 .plan-item[data-status="completed"] {
   color: var(--text-muted);
   text-decoration: line-through;
-  text-decoration-color: #c9c9d2;
+  text-decoration-color: var(--neutral-line);
 }
 
 .plan-item[data-status="completed"] .plan-mark {
@@ -71,13 +71,13 @@
 
 .plan-item[data-status="completed"] .plan-mark::after {
   content: "\2713";
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: 9px;
   font-weight: 800;
 }
 
 .plan-item[data-status="in_progress"] .plan-mark {
-  border-color: #d9d3ff;
+  border-color: var(--accent-line);
   border-top-color: var(--accent-a);
   animation: spin 0.9s linear infinite;
 }
@@ -87,5 +87,5 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #c9c9d2;
+  background: var(--neutral-line);
 }

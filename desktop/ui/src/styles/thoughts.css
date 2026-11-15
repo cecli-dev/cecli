@@ -5,7 +5,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fafafa;
+  background: var(--surface-sunken);
 }
 
 .thought summary {
@@ -45,7 +45,7 @@
   padding: 4px 15px 14px;
   overflow: auto;
   border-top: 1px solid var(--border);
-  color: #6b6d78;
+  color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 12.2px;
   font-style: italic;
@@ -75,7 +75,7 @@
 .thought[open] {
   width: 100%;
   border-radius: 12px;
-  background: #fafafa;
+  background: var(--surface-sunken);
 }
 
 .thought[open] summary {

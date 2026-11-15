@@ -3,14 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#eff1f5">
   <title>cecli desktop</title>
   <link rel="icon" type="image/svg+xml" href="/static/cecli-temp-logo-favicon.svg">
-  <script type="module" crossorigin src="/static/assets/index-BtsR7hFu.js"></script>
-  <link rel="stylesheet" crossorigin href="/static/assets/index-Bv4N0Xb6.css">
+  <script type="module" crossorigin src="/static/assets/index--vaMLh97.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/assets/index-AF47C265.css">
 </head>
 <body>
+  <script>
+    try {
+      const stored = window.__CECLI_THEME__ || localStorage.getItem('cecli.theme');
+      const dark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.body.classList.add('dark');
+    } catch (error) {
+      // Ignore storage or matchMedia restrictions; the app will apply a default.
+    }
+  </script>
   <cecli-app></cecli-app>
 </body>
 </html>

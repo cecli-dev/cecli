@@ -1,7 +1,10 @@
 import { LitElement, html, nothing } from 'lit';
 
-import { SEND_ICON, STOP_ICON } from '../core/constants.js';
-import { get_prompt_history } from '../core/api.js';
+import { PLUS_ICON, SEND_ICON, STOP_ICON } from '../core/constants.js';
+import { binding_label, matches_key_binding } from '../core/key-bindings.js';
+import { get_prompt_history, paste_clipboard } from '../core/api.js';
+import { context_path, group_context_files } from '../core/format.js';
+import { push_toast } from '../core/notices.js';
 import { session } from '../core/session.js';
 import { StoreController, selectors, store } from '../core/store.js';
 
@@ -12,6 +15,7 @@ export class ComposerBar extends LitElement {
     super();
     this._store = new StoreController(this, store);
     this._has_text = false;
+    this._pasting = false;
     this._sending = false;
     this._applied_revision = 0;
     this._completions = [];
@@ -62,20 +66,22 @@ export class ComposerBar extends LitElement {
 
   render() {
     const state = this._store.state;
+    const context_files = selectors.active_context_files(state);
     const active_agent = selectors.active_agent(state);
     const busy = active_agent ? Boolean(active_agent.running) : state.busy;
+    const status = selectors.composer_status(state);
     const retry_visible = selectors.retry_visible(state);
     const show_stop = busy && !this._has_text;
+    const bindings = state.key_bindings;
+    const submit_label = binding_label(bindings, 'submit');
+    const newline_label = binding_label(bindings, 'newline');
+    const stop_label = binding_label(bindings, 'stop');
     const disabled = show_stop
       ? false
       : this._sending || state.status !== 'ready' || !this._has_text;
 
     return html`
       <footer class="composer">
-        <div class="busy-indicator" ?hidden=${!busy}>
-          <span class="spinner" aria-hidden="true"></span>
-          <span>${selectors.busy_text(state)}</span>
-        </div>
         ${this._render_completions()}
         <div class="composer-box">
           <textarea
@@ -88,19 +94,34 @@ export class ComposerBar extends LitElement {
             @input=${this._on_input}
             @keydown=${this._on_keydown}
           ></textarea>
-          <button
-            class="send-btn"
-            type="button"
-            data-mode=${show_stop ? 'stop' : 'send'}
-            aria-label=${show_stop ? 'Stop this turn' : 'Send message'}
-            ?disabled=${disabled}
-            @click=${this._on_send_click}
-          >${show_stop ? STOP_ICON : SEND_ICON}</button>
+          <div class="composer-actions">
+            <div class="composer-add">
+              <button
+                class="add-btn"
+                type="button"
+                aria-label="Manage extensions and context"
+                @click=${this._open_extensions}
+              >${PLUS_ICON}${context_files.length
+                ? html`<span class="add-count" aria-hidden="true">
+                    ${context_files.length}
+                  </span>`
+                : nothing}</button>
+              ${this._render_context_popover(context_files)}
+            </div>
+            <button
+              class="send-btn"
+              type="button"
+              data-mode=${show_stop ? 'stop' : 'send'}
+              aria-label=${show_stop ? 'Stop this turn' : 'Send message'}
+              ?disabled=${disabled}
+              @click=${this._on_send_click}
+            >${show_stop ? STOP_ICON : SEND_ICON}</button>
+          </div>
         </div>
         <div class="composer-meta">
           <span class="hint">${busy
-            ? 'Enter to steer · Shift+Enter for newline · ↑ for history · Esc to stop'
-            : 'Enter to send · Shift+Enter for newline · ↑ for history · Esc to stop'}</span>
+            ? `${submit_label} to steer · ${newline_label} for newline · ↑ for history · ${stop_label} to stop`
+            : `${submit_label} to send · ${newline_label} for newline · ↑ for history · ${stop_label} to stop`}</span>
           <div class="composer-state">
             <button
               class="retry-btn"
@@ -108,13 +129,51 @@ export class ComposerBar extends LitElement {
               ?hidden=${!retry_visible}
               @click=${this._retry}
             >Retry last</button>
-            <span class="turn-status" data-state=${state.turn_state}>
-              <span class="turn-dot" aria-hidden="true"></span>
-              <span>${selectors.turn_label(state)}</span>
+            <span
+              class="turn-status"
+              data-state=${status.turn_state}
+              data-kind=${status.kind}
+            >
+              ${status.turn_state === 'running'
+                ? html`<span class="spinner" aria-hidden="true"></span>`
+                : html`<span class="turn-dot" aria-hidden="true"></span>`}
+              <span>${status.label}</span>
             </span>
           </div>
         </div>
       </footer>
+    `;
+  }
+
+  _open_extensions() {
+    document.dispatchEvent(
+      new CustomEvent('cecli:open-registry', { detail: { tab: 'context' } }),
+    );
+  }
+
+  _render_context_popover(files) {
+    const groups = group_context_files(files).filter((group) => group.items.length);
+
+    return html`
+      <div class="composer-context-popover" role="tooltip">
+        <h4 class="composer-context-title">Context</h4>
+        ${groups.length
+          ? groups.map(
+              (group) => html`
+                <section class="composer-context-section">
+                  <h5 class="composer-context-section-title">${group.label}</h5>
+                  <ul class="composer-context-list">
+                    ${group.items.map((item) => {
+                      const path = context_path(item);
+
+                      return html`<li class="composer-context-item" title=${path}>${path}</li>`;
+                    })}
+                  </ul>
+                </section>
+              `,
+            )
+          : html`<p class="composer-context-empty">No files in context</p>`}
+      </div>
     `;
   }
 
@@ -128,6 +187,16 @@ export class ComposerBar extends LitElement {
 
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }
+
+  _insert_newline() {
+    const textarea = this._textarea();
+    if (!textarea) return;
+
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.setRangeText('\n', start, end, 'end');
+    this._on_input();
   }
 
   _on_input() {
@@ -146,14 +215,24 @@ export class ComposerBar extends LitElement {
     if (this._completions.length) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
-        const delta = event.key === 'ArrowDown' ? 1 : -1;
-        const count = this._completions.length;
-        this._completion_index = (this._completion_index + delta + count) % count;
-        this.requestUpdate();
+        this._cycle_completion(event.key === 'ArrowDown' ? 1 : -1);
         return;
       }
 
-      if ((event.key === 'Tab' || event.key === 'ArrowRight') && !event.shiftKey && !event.isComposing) {
+      if (event.key === 'Tab' && !event.isComposing) {
+        event.preventDefault();
+        this._cycle_completion(event.shiftKey ? -1 : 1);
+        return;
+      }
+
+      if (
+        event.key === 'ArrowRight' &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         this._accept_completion();
         return;
@@ -169,10 +248,18 @@ export class ComposerBar extends LitElement {
 
     if (this._handle_history_key(event)) return;
 
-    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    const bindings = this._store.state.key_bindings;
+    if (matches_key_binding(bindings, 'submit', event)) {
+      event.preventDefault();
+      this._submit();
+      return;
+    }
 
-    event.preventDefault();
-    this._submit();
+    if (matches_key_binding(bindings, 'newline', event)) {
+      event.preventDefault();
+      this._insert_newline();
+    }
+
   }
 
   _on_send_click() {
@@ -231,14 +318,57 @@ export class ComposerBar extends LitElement {
   }
 
   _on_global_keydown(event) {
-    if (event.target?.closest?.('terminal-panel, cli-panel')) return;
-    if (event.key !== 'Escape' || !this._is_busy()) return;
+    if (event.target?.closest?.('cli-panel')) return;
+    const bindings = this._store.state.key_bindings;
+
+    if (matches_key_binding(bindings, 'paste', event)) {
+      const textarea = this._textarea();
+      const editable = event.target?.closest?.('input, textarea, [contenteditable="true"]');
+      if (editable && editable !== textarea) return;
+
+      event.preventDefault();
+      this._paste_clipboard();
+      return;
+    }
+
+    if (!matches_key_binding(bindings, 'stop', event) || !this._is_busy()) return;
 
     const textarea = this._textarea();
     if (document.activeElement === textarea && textarea.value.trim()) return;
 
     event.preventDefault();
     session.cancel_turn();
+  }
+
+  async _paste_clipboard() {
+    if (this._pasting) return;
+    this._pasting = true;
+
+    try {
+      const result = await paste_clipboard(store.state.bridge_id);
+      if (result?.path) {
+        push_toast(store, 'Pasted image into the chat', 'info');
+      } else if (result?.text) {
+        this._insert_text(result.text);
+      } else {
+        push_toast(store, 'No image or text in the clipboard', 'error');
+      }
+    } catch (error) {
+      push_toast(store, error.message, 'error');
+    } finally {
+      this._pasting = false;
+    }
+  }
+
+  _insert_text(text) {
+    const textarea = this._textarea();
+    if (!textarea) return;
+
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.setRangeText(text, start, end, 'end');
+    textarea.focus();
+    this._on_input();
   }
 
   _is_busy() {
@@ -293,7 +423,10 @@ export class ComposerBar extends LitElement {
     const seq = ++this._completion_seq;
     this._completion_timer = setTimeout(async () => {
       try {
-        const result = await session.complete(value);
+        const result = await session.complete(
+          value,
+          this._store.state.active_agent_session_id,
+        );
         if (seq !== this._completion_seq) return;
 
         const suggestions = Array.isArray(result?.suggestions) ? result.suggestions : [];
@@ -308,6 +441,14 @@ export class ComposerBar extends LitElement {
     }, 120);
   }
 
+  _cycle_completion(delta) {
+    const count = this._completions.length;
+    if (!count) return;
+
+    this._completion_index = (this._completion_index + delta + count) % count;
+    this.requestUpdate();
+  }
+
   _select_completion(index) {
     this._completion_index = index;
     this._accept_completion();
@@ -320,7 +461,17 @@ export class ComposerBar extends LitElement {
     const value = textarea.value;
     const choice = String(this._completions[this._completion_index]);
     const start = Math.max(0, Math.min(this._completion_start, value.length));
-    const insert = choice.startsWith('/') && start === 0 ? `${choice} ` : choice;
+    const mention = value[start] === '@';
+    const quoted = mention && value[start + 1] === '"';
+    const directory = choice.endsWith('/');
+    let insert = choice;
+
+    if (mention) {
+      insert = quoted ? `@"${choice}${directory ? '' : '"'}` : choice;
+      if (!directory) insert += ' ';
+    } else if (choice.startsWith('/') && start === 0) {
+      insert = `${choice} `;
+    }
 
     textarea.value = value.slice(0, start) + insert;
     const end = textarea.value.length;

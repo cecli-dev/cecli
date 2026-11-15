@@ -25,6 +25,10 @@ class MockCoder:
         self.hashlines = False
         self.add_cache_headers = False  # Default to False for tests
 
+    def get_rel_fname(self, fname):
+        """Path relative to the coder root; tests use the path unchanged."""
+        return fname
+
     @property
     def done_messages(self):
         """Get DONE messages from ConversationManager."""
@@ -342,6 +346,63 @@ class TestConversationFiles:
 
             # File should now be detected as changed
             assert self.files.has_file_changed(temp_file)
+        finally:
+            if os.path.exists(temp_file):
+                os.unlink(temp_file)
+
+    def test_is_tracked(self):
+        """Only files already cached for the prompt count as tracked."""
+        import os
+        import tempfile
+
+        fd, temp_file = tempfile.mkstemp()
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write("content")
+
+            assert not self.files.is_tracked(temp_file)
+
+            self.files._file_contents_original[os.path.abspath(temp_file)] = "content"
+
+            assert self.files.is_tracked(temp_file)
+        finally:
+            os.unlink(temp_file)
+
+    def test_update_file_diff_queue_defers_message(self, monkeypatch):
+        """A queued diff lands on the next prompt rebuild, not during the edit."""
+        import os
+        import tempfile
+
+        fd, temp_file = tempfile.mkstemp()
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write("Original content")
+
+            def read_text(path, silent=False):
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read()
+
+            monkeypatch.setattr(self.test_coder.io, "read_text", read_text)
+            self.files.add_file(temp_file)
+
+            with open(temp_file, "w") as f:
+                f.write("Modified content")
+
+            diff = self.files.update_file_diff(temp_file, queue=True)
+
+            assert diff and "Modified content" in diff
+
+            manager = ConversationService.get_manager(self.test_coder)
+
+            assert manager.get_messages_dict(MessageTag.DIFFS) == []
+
+            manager.flush_queue()
+
+            messages = manager.get_messages_dict(MessageTag.DIFFS)
+
+            assert len(messages) == 1
+            assert "has been updated" in messages[0]["content"]
+            assert not self.files.has_file_changed(temp_file)
         finally:
             if os.path.exists(temp_file):
                 os.unlink(temp_file)

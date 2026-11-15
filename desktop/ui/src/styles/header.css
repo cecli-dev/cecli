@@ -25,7 +25,7 @@
   height: 26px;
   border-radius: 8px;
   object-fit: cover;
-  box-shadow: 0 4px 12px -4px rgba(17, 20, 45, 0.35);
+  box-shadow: var(--shadow-brand);
 }
 
 

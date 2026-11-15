@@ -579,6 +579,7 @@ class Coder(metaclass=UsageMeta):
         self.suggest_shell_commands = suggest_shell_commands
         self.detect_urls = detect_urls
         self.args = args
+        self.original_kwargs = {}
 
         # Init metadata should not persist between initializations
         self.init_metadata = {}

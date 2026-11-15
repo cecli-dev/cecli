@@ -189,7 +189,10 @@ class Tool(BaseTool):
                                 if not info.independent
                                 and not info.detached
                                 and info.status
-                                not in (SubAgentStatus.FINISHED, SubAgentStatus.ERROR)
+                                not in (
+                                    SubAgentStatus.FINISHED,
+                                    SubAgentStatus.ERROR,
+                                )
                             ]
 
                             if not non_dependent_active:

@@ -2,9 +2,8 @@ import base64
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
-
-import oslex
 
 from cecli.helpers.file_exclusions import DEFAULT_EXCLUDE_DIRS as SHARED_EXCLUDE_DIRS
 from cecli.helpers.file_exclusions import GREP_EXTRA_EXCLUDE_DIRS
@@ -91,6 +90,36 @@ def _needs_pcre2(pattern):
 _GREP_PCRE_CACHE = {}
 
 
+def _utf8_locale_env():
+    """Return an env copy that forces a UTF-8 locale for Cygwin/MSYS search tools.
+
+    Git for Windows' GNU grep only supports ``-P`` and locale-aware case folding
+    (``-i`` combined with ``-F``/``-P``) when the locale is UTF-8. Otherwise grep
+    reports ``-P`` as unsupported or exits with an obscure error code (1536) and
+    no output, which looks like an empty search result.
+    """
+    if os.name != "nt":
+        return None
+
+    env = os.environ.copy()
+    active_locale = env.get("LC_ALL") or env.get("LC_CTYPE") or env.get("LANG") or ""
+    if "utf" not in active_locale.lower():
+        env["LC_ALL"] = "C.UTF-8"
+        env["LANG"] = "C.UTF-8"
+    return env
+
+
+def _search_tool_env(tool_path):
+    """Return a locale environment for GNU grep/ag, or None when unneeded."""
+    if os.name != "nt" or not tool_path:
+        return None
+
+    name = Path(str(tool_path)).stem.lower()
+    if name not in ("grep", "ag"):
+        return None
+    return _utf8_locale_env()
+
+
 def _grep_supports_pcre(tool_path):
     """Probe whether GNU grep supports PCRE via -P."""
     import subprocess
@@ -104,6 +133,7 @@ def _grep_supports_pcre(tool_path):
             input="",
             capture_output=True,
             timeout=5,
+            env=_search_tool_env(tool_path),
             text=True,
         )
         supported = result.returncode in (0, 1)
@@ -435,7 +465,12 @@ def _build_powershell_search_script(
     parts = ["Get-ChildItem", "-LiteralPath", _ps_quote(search_dir_path), "-Recurse", "-File"]
 
     if file_pattern != "*":
-        parts.extend(["-Filter", _ps_quote(file_pattern)])
+        globs = _split_glob_patterns(file_pattern)
+        if len(globs) == 1:
+            parts.extend(["-Filter", _ps_quote(globs[0])])
+        elif globs:
+            name_filter = " -or ".join(f"$_.Name -like {_ps_quote(glob)}" for glob in globs)
+            parts.extend(["|", "Where-Object", "{", name_filter, "}"])
 
     exclude_regex = _build_powershell_exclude_regex(exclude_cecli=exclude_cecli)
     if exclude_regex:
@@ -475,6 +510,25 @@ def _build_powershell_search_script(
         parts.extend(["-Context", f"{context_before},{context_after}"])
 
     return " ".join(parts)
+
+
+def _run_grep_subprocess(cmd_args, cwd=None):
+    """Execute a search tool directly without shell quoting/re-wrapping."""
+    try:
+        proc = subprocess.run(
+            cmd_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=_search_tool_env(cmd_args[0] if cmd_args else None),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdin=subprocess.DEVNULL,
+            cwd=cwd,
+        )
+        return proc.returncode, proc.stdout
+    except Exception as e:
+        return 1, str(e)
 
 
 def _encode_powershell_command(script, powershell_path):
@@ -874,6 +928,26 @@ class Tool(BaseTool):
                 else:
                     search_dir_path = Path(repo.root) / expanded_directory
 
+                # Normalize path-prefixed file_glob (e.g. "dir/file.py" or "dir/*.py")
+                # because GNU grep --include and PowerShell -Filter only match basenames.
+                if (
+                    file_pattern
+                    and file_pattern != "*"
+                    and "," not in file_pattern
+                    and ("/" in file_pattern or "\\" in file_pattern)
+                ):
+                    candidate = search_dir_path / Path(file_pattern)
+                    if candidate.is_file():
+                        search_dir_path = candidate
+                        file_pattern = "*"
+                    elif (
+                        candidate.parent.is_dir()
+                        and "*" not in str(Path(file_pattern).parent)
+                        and "?" not in str(Path(file_pattern).parent)
+                    ):
+                        search_dir_path = candidate.parent
+                        file_pattern = candidate.name
+
                 null_separated = tool_name in ("rg", "grep")
 
                 if tool_name == "powershell":
@@ -948,7 +1022,7 @@ class Tool(BaseTool):
                             count_cmd_parts.append("-rc")
                         else:
                             # -I skips binary files, matching the content pass.
-                            count_cmd_parts.extend(["-rnc", "-I"])
+                            count_cmd_parts.extend(["-rnc", "-I", "-H"])
                         count_cmd = (
                             count_cmd_parts
                             + case_flag
@@ -958,7 +1032,6 @@ class Tool(BaseTool):
                             + null_flag
                             + ["--", pattern, str(search_dir_path)]
                         )
-                        count_string = oslex.join(count_cmd)
 
                         # Source-level caps: bound matches per file and line length so
                         # post-processing never sees unbounded content.
@@ -977,6 +1050,8 @@ class Tool(BaseTool):
 
                         # --- PASS2: Build content with context ---
                         base_cmd = [tool_path, "-n"]
+                        if tool_name == "grep":
+                            base_cmd.append("-H")
                         if tool_name == "rg":
                             base_cmd.extend(
                                 [
@@ -999,11 +1074,9 @@ class Tool(BaseTool):
                             + exclude_args
                             + ["--", pattern, str(search_dir_path)]
                         )
-                        content_string = oslex.join(content_cmd)
+                        return count_cmd, content_cmd
 
-                        return count_string, content_string
-
-                    count_string, content_string = _build_commands(use_regex)
+                    count_cmd_args, content_cmd_args = _build_commands(use_regex)
 
                 # --- PASS1: Get match counts (fast, no context) ---
                 counts = {}
@@ -1014,11 +1087,9 @@ class Tool(BaseTool):
                         f"⛭ Counting matches with {tool_name}: '{pattern}' in {directory}",
                         type="tool-result",
                     )
-                    count_status, count_output = run_cmd_subprocess(
-                        count_string,
-                        verbose=coder.verbose,
+                    count_status, count_output = _run_grep_subprocess(
+                        count_cmd_args,
                         cwd=coder.root,
-                        should_print=False,
                     )
                     if count_status in (0, 1, 2):
                         counts = _parse_count_output(count_output, null_separated=null_separated)
@@ -1034,14 +1105,12 @@ class Tool(BaseTool):
 
                     if should_try_alternate:
                         alternate_regex = not use_regex
-                        alternate_count_string, alternate_content_string = _build_commands(
+                        alternate_count_cmd, alternate_content_cmd = _build_commands(
                             alternate_regex
                         )
-                        alternate_status, alternate_output = run_cmd_subprocess(
-                            alternate_count_string,
-                            verbose=coder.verbose,
+                        alternate_status, alternate_output = _run_grep_subprocess(
+                            alternate_count_cmd,
                             cwd=coder.root,
-                            should_print=False,
                         )
                         alternate_counts = {}
                         if alternate_status in (0, 1, 2):
@@ -1054,8 +1123,7 @@ class Tool(BaseTool):
                             counts = alternate_counts
                             count_status = alternate_status
                             count_output = alternate_output
-                            count_string = alternate_count_string
-                            content_string = alternate_content_string
+                            content_cmd_args = alternate_content_cmd
                             op_result["regex"] = use_regex
 
                             if requested_regex is True:
@@ -1101,12 +1169,18 @@ class Tool(BaseTool):
                     f"⛭ Executing {tool_name}: '{pattern}' in {directory}",
                     type="tool-result",
                 )
-                content_status, content_output = run_cmd_subprocess(
-                    content_string,
-                    verbose=coder.verbose,
-                    cwd=coder.root,
-                    should_print=False,
-                )
+                if tool_name == "powershell":
+                    content_status, content_output = run_cmd_subprocess(
+                        content_string,
+                        verbose=coder.verbose,
+                        cwd=coder.root,
+                        should_print=False,
+                    )
+                else:
+                    content_status, content_output = _run_grep_subprocess(
+                        content_cmd_args,
+                        cwd=coder.root,
+                    )
 
                 output_content = content_output or ""
 

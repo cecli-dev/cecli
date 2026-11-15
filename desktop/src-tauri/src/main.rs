@@ -12,6 +12,17 @@ use std::os::unix::process::CommandExt;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+const DARK_THEME: &str = "dark";
+const LIGHT_THEME: &str = "light";
+
+/// Bundled logo used for the window icon.
+///
+/// Windows resolves `default_window_icon()` from the executable's icon resource,
+/// which is only present when the binary is linked with one. Debug builds run
+/// through `cargo run` have none, so the title bar falls back to the generic
+/// system placeholder. Embedding the PNG keeps the real logo in that case.
+const WINDOW_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+
 /// Owns the Python bridge child process for the lifetime of the application.
 struct BridgeState(Mutex<Option<Child>>);
 
@@ -70,10 +81,18 @@ fn main() {
     });
 }
 
-/// Force WebKitGTK's software rendering paths, which avoid blank or flickering
-/// windows under some Linux and WSL GPU stacks.
+/// Opt into WebKitGTK's software rendering paths for blank or flickering
+/// windows caused by some Linux and WSL GPU stacks.
 #[cfg(target_os = "linux")]
 fn configure_webkit() {
+    let enabled = env::var("CECLI_SOFTWARE_WEBKIT")
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false);
+
+    if !enabled {
+        return;
+    }
+
     env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
 }
@@ -615,16 +634,22 @@ fn wait_for_bridge(child: &mut Child, port: u16, timeout: Duration) -> io::Resul
 fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("http://127.0.0.1:{port}/").parse()?;
 
+    let theme = initial_theme();
+
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         // A blank-looking title avoids WM fallback to the app identifier.
         .title(" ")
         .inner_size(1180.0, 840.0)
         .min_inner_size(720.0, 520.0)
-        .theme(Some(tauri::Theme::Light))
-        .background_color(tauri::webview::Color(242, 240, 255, 255));
+        .background_color(webview_background(&theme));
 
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone())?;
+    let window_icon = app
+        .default_window_icon()
+        .cloned()
+        .or_else(|| tauri::image::Image::from_bytes(WINDOW_ICON_PNG).ok());
+
+    if let Some(icon) = window_icon {
+        builder = builder.icon(icon)?;
     }
 
     #[cfg(target_os = "macos")]
@@ -633,14 +658,50 @@ fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Er
     }
 
     let window = builder.build()?;
-    set_native_titlebar(&window);
+    set_window_theme(&window, &theme);
+    spawn_theme_watcher(window.clone());
 
     Ok(())
 }
 
+/// Track the persisted theme so the chrome follows in-app toggles.
+fn spawn_theme_watcher<R: tauri::Runtime>(window: tauri::WebviewWindow<R>) {
+    thread::spawn(move || {
+        let mut current = initial_theme();
+
+        loop {
+            thread::sleep(Duration::from_millis(750));
+
+            let Some(next) = stored_theme() else {
+                continue;
+            };
+
+            if next == current {
+                continue;
+            }
+
+            current = next.clone();
+            let target = window.clone();
+            let _ = window.run_on_main_thread(move || set_window_theme(&target, &next));
+        }
+    });
+}
+
+fn set_window_theme<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>, theme: &str) {
+    let dark = is_dark_theme(theme);
+    let native_theme = if dark {
+        tauri::Theme::Dark
+    } else {
+        tauri::Theme::Light
+    };
+
+    let _ = window.set_theme(Some(native_theme));
+    set_native_titlebar(window, dark);
+}
+
 /// Tint the Windows 11 caption and border to match the app backdrop.
 #[cfg(windows)]
-fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>, dark: bool) {
     use windows::Win32::Graphics::Dwm::{
         DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
     };
@@ -648,10 +709,13 @@ fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
     let Ok(hwnd) = window.hwnd() else {
         return;
     };
+
     // COLORREF is 0x00BBGGRR, not RGB.
-    let caption: u32 = 0x00fff0f2;
-    let text: u32 = 0x0033231f;
-    let border: u32 = 0x00eae6e6;
+    let (caption, text, border): (u32, u32, u32) = if dark {
+        (0x00463430, 0x00f5d0c6, 0x00594541)
+    } else {
+        (0x00f5f1ef, 0x00694f4c, 0x00dad0cc)
+    };
     let size = std::mem::size_of::<u32>() as u32;
 
     unsafe {
@@ -677,7 +741,7 @@ fn set_native_titlebar<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
 }
 
 #[cfg(not(windows))]
-fn set_native_titlebar<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>) {}
+fn set_native_titlebar<R: tauri::Runtime>(_window: &tauri::WebviewWindow<R>, _dark: bool) {}
 
 /// Ask the bridge to stop, then force it down after a short grace period.
 fn terminate(child: &mut Child) {
@@ -723,4 +787,68 @@ fn force_kill(child: &mut Child) {
 
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Match the first paint to the persisted theme, then to the system scheme.
+fn initial_theme() -> String {
+    if let Some(stored) = stored_theme() {
+        return stored;
+    }
+
+    if system_prefers_dark() {
+        return DARK_THEME.to_string();
+    }
+
+    LIGHT_THEME.to_string()
+}
+
+/// Read `theme:` from the desktop config so the window opens in the right palette.
+fn stored_theme() -> Option<String> {
+    let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))?;
+    let path = env::var_os("CECLI_DESKTOP_FOLDERS_FILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(home).join(".cecli").join("desktop.yml"));
+
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        if key.trim() != "theme" {
+            return None;
+        }
+
+        let value = value.trim().trim_matches(|ch| ch == '"' || ch == '\'');
+        matches!(value, DARK_THEME | LIGHT_THEME).then(|| value.to_string())
+    })
+}
+
+fn is_dark_theme(theme: &str) -> bool {
+    theme.eq_ignore_ascii_case(DARK_THEME)
+}
+
+fn webview_background(theme: &str) -> tauri::webview::Color {
+    if is_dark_theme(theme) {
+        tauri::webview::Color(0x30, 0x34, 0x46, 0xff)
+    } else {
+        tauri::webview::Color(0xef, 0xf1, 0xf5, 0xff)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn system_prefers_dark() -> bool {
+    use gtk::prelude::*;
+
+    let Some(settings) = gtk::Settings::default() else {
+        return false;
+    };
+
+    settings.is_gtk_application_prefer_dark_theme()
+        || settings
+            .gtk_theme_name()
+            .is_some_and(|name| name.to_lowercase().contains("dark"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn system_prefers_dark() -> bool {
+    false
 }

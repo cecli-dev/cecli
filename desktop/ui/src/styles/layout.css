@@ -18,7 +18,8 @@
 }
 
 .chat-panel {
-  flex: 1 1 0;
+  flex: 0 1 720px;
+  margin-inline: auto;
   min-width: 0;
   display: flex;
   flex-direction: column;

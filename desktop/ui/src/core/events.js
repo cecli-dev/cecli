@@ -33,6 +33,10 @@ export function handle_event(store, payload, hooks = {}) {
       break;
     case 'update':
       if (!update_matches_session(store, payload)) break;
+      if (payload.update?.sessionUpdate === 'command_complete') {
+        handle_command_complete(payload.update, hooks);
+        break;
+      }
       handle_update(store, payload.update || {}, payload.sessionId, payload.bridgeId);
       break;
     case 'permission':
@@ -255,6 +259,13 @@ function handle_prompt_done(store, payload, hooks) {
 
   if (payload && payload.stopReason === 'cancelled') push_log(store, 'turn cancelled', 'info');
   if (typeof hooks.on_prompt_done === 'function') hooks.on_prompt_done();
+}
+
+/** React to a generation-time command finishing. */
+function handle_command_complete(update, hooks) {
+  if (typeof hooks.on_command_complete === 'function') {
+    hooks.on_command_complete(update.command || '', update);
+  }
 }
 
 /** React to permission_resolved: keep the chosen card and other pending ones. */

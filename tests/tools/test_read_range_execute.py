@@ -158,6 +158,47 @@ class TestReadFileExecute:
         if hasattr(self, "test_file") and os.path.exists(self.test_file):
             os.unlink(self.test_file)
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "line1\nline2",
+            "line1\nline2\n",
+            "line1\nline2\n\n",
+            "line1\n\n\n",
+            "\n",
+            "\n\n",
+            "line1\r\n\r\n",
+        ],
+    )
+    @pytest.mark.parametrize("range_end", ["000@", "@L999"])
+    def test_read_preserves_trailing_blank_lines(
+        self, mock_coder, mock_file_context, mock_chunks, mock_manager, content, range_end
+    ):
+        from cecli.helpers.hashline import hashline_formatted, strip_hashline
+
+        self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
+        try:
+            # Exercise the real formatter: its output has no final line terminator.
+            with (
+                patch("cecli.tools.read_file.hashline_formatted", side_effect=hashline_formatted),
+                patch.object(
+                    self.Tool, "format_model_response", wraps=self.Tool.format_model_response
+                ) as format_response,
+            ):
+                result = self.Tool.execute(
+                    self.coder,
+                    [{"file_path": self.test_file, "range_start": "@000", "range_end": range_end}],
+                )
+            format_response.assert_called_once()
+            args = format_response.call_args.args
+            assert args[2:4] == (0, len(content.splitlines()) - 1)
+            assert len(args[4]) == len(content.splitlines())
+            assert strip_hashline("\n".join(args[4])) == "\n".join(content.splitlines())
+            assert "Retrieved context for 1 operation(s)" in str(result)
+            mock_file_context.update_file_context.assert_called_once()
+        finally:
+            self._teardown()
+
     # =========================================================================
     # Line Number Parsing (both_structured, both digits)
     # =========================================================================
@@ -397,6 +438,22 @@ class TestReadFileExecute:
             show = [{"file_path": self.test_file, "range_start": "@L1", "range_end": "@L1"}]
             result = self.Tool.execute(self.coder, show)
             assert "only_line" in str(result)
+        finally:
+            self._teardown()
+
+    def test_trailing_blank_line_full_read(
+        self, mock_coder, mock_file_context, mock_chunks, mock_manager
+    ):
+        """Full-file read (@000..000@) succeeds when file ends with a trailing blank line."""
+        content = "line1\nline2\nline3\n\n"
+        self._setup(mock_coder, mock_file_context, mock_chunks, mock_manager, content)
+        try:
+            show = [{"file_path": self.test_file, "range_start": "@000", "range_end": "000@"}]
+            result = self.Tool.execute(self.coder, show)
+            result_str = str(result)
+            assert "Retrieved context" in result_str
+            assert "line1" in result_str
+            assert "line3" in result_str
         finally:
             self._teardown()
 

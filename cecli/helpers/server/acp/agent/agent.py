@@ -22,6 +22,7 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
 from cecli import __version__
+from cecli.helpers.completion import find_at_mention
 from cecli.helpers.server.acp.agent.config import SessionConfig, current_value
 from cecli.helpers.server.acp.agent.mcp import ClientMcpServers
 from cecli.helpers.server.acp.agent.transport import (
@@ -63,7 +64,16 @@ HIDDEN_COMMANDS = {
 
 # Commands safe to run without waiting for the current turn to finish.
 # Steering them would hand the text to the model instead of executing it.
-MID_TURN_COMMANDS = {"reap-agent"}
+# This mirrors the commands the TUI dispatches immediately while generating.
+MID_TURN_COMMANDS = {
+    "btw",
+    "creator",
+    "queue",
+    "reap-agent",
+    "spawn-agent",
+    "workspace",
+    "workflows",
+}
 
 _DEFERRED = object()
 
@@ -329,6 +339,7 @@ class AcpAgent:
             "session/set_mode": self._on_set_mode,
             "cecli/state": self._on_cecli_state,
             "cecli/history": self._on_cecli_history,
+            "cecli/panels": self._on_cecli_panels,
             "cecli/skill": self._on_cecli_skill,
             "cecli/hook": self._on_cecli_hook,
             "cecli/mcp": self._on_cecli_mcp,
@@ -429,7 +440,10 @@ class AcpAgent:
 
         name = text.strip().split()[0][1:]
         alias = CommandRegistry.resolve_alias(name)
-        if (alias[0] if alias else name) not in MID_TURN_COMMANDS:
+        command_name = alias[0] if alias else name
+        if command_name not in MID_TURN_COMMANDS:
+            return False
+        if command_name == "queue" and _queue_is_run_command(text, alias):
             return False
 
         self._loop.create_task(self._run_command(coder, text, target_agent_uuid))
@@ -438,11 +452,21 @@ class AcpAgent:
     async def _run_command(
         self, coder: Any, text: str, target_agent_uuid: str | None = None
     ) -> None:
-        """Run a command outside the turn loop, logging any failure."""
+        """Run a command outside the turn loop, then report it to the client."""
+        from cecli.commands.utils.registry import CommandRegistry
+
+        name = text.strip().split()[0][1:]
+        alias = CommandRegistry.resolve_alias(name)
+        command_name = alias[0] if alias else name
+        ok = True
+
         try:
             await coder.commands.run(text, coder=coder, target_agent_uuid=target_agent_uuid)
         except Exception as err:
+            ok = False
             log(f"could not run command {text.split()[0]}: {err!r}")
+
+        self.send_update({"sessionUpdate": "command_complete", "command": command_name, "ok": ok})
 
     def _on_cecli_steer(self, params: dict, request_id: Any) -> dict:
         """Inject a prompt into the running turn instead of queueing a new one."""
@@ -583,6 +607,45 @@ class AcpAgent:
             "diffs": _conversation_diffs(coder),
         }
 
+    def _on_cecli_panels(self, params: dict, request_id: Any) -> dict:
+        """Return every agent's todo list and the workspace's aside exchanges."""
+        from cecli.helpers.agents.service import AgentService
+        from cecli.helpers.asides import get_asides
+
+        coder = self._coder()
+        if coder is None:
+            return {"agents": [], "asides": []}
+
+        service = AgentService.get_instance(coder)
+        primary_uuid = str(getattr(coder, "uuid", ""))
+        agents = [
+            {
+                "uuid": primary_uuid,
+                "name": "primary",
+                "label": "primary",
+                "status": "running" if self.in_prompt() else "idle",
+                "todos": _todo_entries(coder),
+            }
+        ]
+
+        for agent_uuid, info in service.sub_agents.items():
+            agent_uuid = str(agent_uuid)
+            if agent_uuid == primary_uuid:
+                continue
+            name = getattr(info, "name", None) or "sub-agent"
+            agents.append(
+                {
+                    "uuid": agent_uuid,
+                    "name": name,
+                    "label": f"{name} {agent_uuid[:3]}",
+                    "status": getattr(getattr(info, "status", None), "value", "running"),
+                    "todos": _todo_entries(getattr(info, "coder", None)),
+                }
+            )
+
+        asides = [{"prompt": aside.prompt, "response": aside.response} for aside in get_asides()]
+        return {"agents": agents, "asides": asides}
+
     def _on_cecli_skill(self, params: dict, request_id: Any) -> dict:
         """Load, remove, include or exclude a skill on the serialised coder."""
         coder = self._require_coder()
@@ -716,14 +779,17 @@ class AcpAgent:
         return _DEFERRED
 
     def _on_cecli_context(self, params: dict, request_id: Any) -> dict:
-        """Add or remove a file from the coder's editable or read-only context."""
+        """Add or remove a file from a coder's context lists."""
         coder = self._require_coder()
+        agent_session_id = params.get("agentSessionId")
+        if isinstance(agent_session_id, str) and agent_session_id:
+            coder = self._coder_for_session(agent_session_id) or coder
         action = params.get("action")
         path = params.get("path")
         if action not in ("add", "remove") or not isinstance(path, str) or not path:
             raise AcpError(INVALID_PARAMS, "action and path are required")
 
-        root = self.cwd or os.getcwd()
+        root = str(getattr(coder, "root", None) or self.cwd or os.getcwd())
         absolute = path if os.path.isabs(path) else os.path.abspath(os.path.join(root, path))
         read_only = bool(params.get("readOnly"))
 
@@ -731,8 +797,7 @@ class AcpAgent:
             target = coder.abs_read_only_fnames if read_only else coder.abs_fnames
             target.add(absolute)
         else:
-            coder.abs_fnames.discard(absolute)
-            coder.abs_read_only_fnames.discard(absolute)
+            _remove_context_path(coder, absolute)
 
         self._emit_state(scope=SCOPE_CONTEXT)
         return {"contextFiles": self._context_state(coder)}
@@ -740,6 +805,9 @@ class AcpAgent:
     def _on_cecli_complete(self, params: dict, request_id: Any) -> dict:
         """Return shell-style completion candidates for the desktop composer."""
         coder = self._require_coder()
+        agent_session_id = params.get("agentSessionId")
+        if isinstance(agent_session_id, str) and agent_session_id:
+            coder = self._coder_for_session(agent_session_id) or coder
         text = params.get("text")
         if not isinstance(text, str):
             raise AcpError(INVALID_PARAMS, "text is required")
@@ -1388,6 +1456,31 @@ class AcpAgent:
             raise AcpError(INTERNAL_ERROR, "cecli is not ready")
         return coder
 
+    def _coder_for_session(self, session_id: str) -> Any:
+        """Return the live coder for a child ACP session, if one exists."""
+        from cecli.helpers.agents.service import AgentService
+
+        subagent = next(
+            (item for item in self.subagents.values() if item.session_id == session_id),
+            None,
+        )
+        if subagent is None:
+            return None
+
+        service = AgentService.get_instance(self._require_coder())
+        info = service.sub_agents.get(subagent.agent_uuid)
+        if info is None:
+            info = next(
+                (
+                    item
+                    for item in service.sub_agents.values()
+                    if str(getattr(getattr(item, "coder", None), "uuid", ""))
+                    == str(subagent.agent_uuid)
+                ),
+                None,
+            )
+        return getattr(info, "coder", None) if info else None
+
     def _empty_state(self) -> dict[str, Any]:
         return {
             "activity": "idle",
@@ -1478,8 +1571,42 @@ class AcpAgent:
         return result
 
     def _context_state(self, coder: Any) -> list[dict[str, Any]]:
-        root = self.cwd or os.getcwd()
+        """Describe every file attached to a coder, labelled by its role."""
+        root = str(getattr(coder, "root", None) or self.cwd or os.getcwd())
         result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(path: str, read_only: bool, kind: str, implicit: bool = False) -> None:
+            absolute = path if os.path.isabs(path) else os.path.abspath(os.path.join(root, path))
+            if absolute in seen:
+                return
+
+            seen.add(absolute)
+            try:
+                relative = os.path.relpath(absolute, root)
+            except ValueError:
+                relative = absolute
+
+            result.append(
+                {
+                    "path": relative,
+                    "absolutePath": absolute,
+                    "readOnly": read_only,
+                    "kind": kind,
+                    "implicit": implicit,
+                }
+            )
+
+        rules = getattr(coder, "abs_rules_fnames", None) or set()
+        for path in sorted(rules):
+            add(path, True, "rules")
+
+        if not rules:
+            for fallback_name in ("AGENTS.md", "CLAUDE.md"):
+                fallback_path = os.path.join(root, fallback_name)
+                if os.path.isfile(fallback_path):
+                    add(fallback_path, True, "rules", implicit=True)
+
         groups = (
             (getattr(coder, "abs_fnames", set()), False),
             (getattr(coder, "abs_read_only_fnames", set()), True),
@@ -1488,11 +1615,7 @@ class AcpAgent:
 
         for paths, read_only in groups:
             for path in sorted(paths):
-                try:
-                    relative = os.path.relpath(path, root)
-                except ValueError:
-                    relative = path
-                result.append({"path": relative, "absolutePath": path, "readOnly": read_only})
+                add(path, read_only, _context_kind(path))
 
         return result
 
@@ -1618,6 +1741,113 @@ class AcpAgent:
 
 PATH_COMPLETION_COMMANDS = {"/add", "/read-only", "/read-only-stub", "/rules", "/load", "/save"}
 MAX_COMPLETIONS = 50
+
+ARTIFACT_EXTENSIONS = {
+    ".7z",
+    ".a",
+    ".avi",
+    ".bin",
+    ".bmp",
+    ".bz2",
+    ".class",
+    ".dat",
+    ".db",
+    ".dll",
+    ".doc",
+    ".docx",
+    ".dylib",
+    ".eot",
+    ".exe",
+    ".flac",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".m4a",
+    ".mkv",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".o",
+    ".odp",
+    ".ods",
+    ".odt",
+    ".ogg",
+    ".otf",
+    ".pdf",
+    ".png",
+    ".ppt",
+    ".pptx",
+    ".pyc",
+    ".rar",
+    ".so",
+    ".sqlite",
+    ".sqlite3",
+    ".tar",
+    ".tgz",
+    ".tif",
+    ".tiff",
+    ".ttf",
+    ".wav",
+    ".webm",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".xls",
+    ".xlsx",
+    ".xz",
+    ".zip",
+}
+
+
+CONTEXT_PATH_ATTRIBUTES = (
+    "abs_fnames",
+    "abs_read_only_fnames",
+    "abs_read_only_stubs_fnames",
+    "abs_rules_fnames",
+)
+
+
+def _remove_context_path(coder: Any, path: str) -> None:
+    """Drop *path* from every context list on *coder* that holds it."""
+    for attribute in CONTEXT_PATH_ATTRIBUTES:
+        paths = getattr(coder, attribute, None)
+        if paths is not None:
+            paths.discard(path)
+
+
+def _context_kind(path: str) -> str:
+    """Classify a context path as a plain text file or a binary artifact."""
+    extension = os.path.splitext(path)[1].lower()
+    return "artifact" if extension in ARTIFACT_EXTENSIONS else "context"
+
+
+def _todo_entries(coder: Any) -> list[dict[str, Any]]:
+    """Parse one coder's formatted ``todo.txt`` into ACP-style plan entries."""
+    if coder is None:
+        return []
+
+    try:
+        path = coder.abs_root_path(coder.local_agent_folder("todo.txt"))
+        if not os.path.isfile(path):
+            return []
+        content = coder.io.read_text(path) or ""
+    except Exception:
+        return []
+
+    statuses = {"✓": "completed", "→": "in_progress", "○": "pending"}
+    entries = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        marker, _, task = line.partition(" ")
+        status = statuses.get(marker)
+        if status is None or not task.strip():
+            continue
+        entries.append({"content": task.strip(), "status": status})
+    return entries
 
 
 def _conversation_history(coder: Any, limit: int = 400) -> list[dict[str, Any]]:
@@ -1769,10 +1999,9 @@ def _complete(coder: Any, text: str) -> dict[str, Any]:
     descriptions: dict[str, str] = {}
     start = 0
 
-    if "@" in text:
-        at_index = text.rfind("@")
-        prefix = text[at_index + 1 :]
-        start = at_index + 1
+    mention = find_at_mention(text)
+    if mention is not None:
+        start, prefix, _ = mention
         suggestions = _mention_completions(coder, prefix)
     elif text.startswith("/"):
         parts = text.split(maxsplit=1)
@@ -1928,6 +2157,16 @@ def _require_cwd(params: dict) -> str:
 
 def _new_session_id() -> str:
     return uuid.uuid4().hex
+
+
+def _queue_is_run_command(text: str, alias: tuple | None) -> bool:
+    """True when *text* runs the prompt queue instead of managing it."""
+    if alias is not None:
+        return alias[1] == "run"
+
+    _, _, args = text.strip().partition(" ")
+    parts = args.split(maxsplit=1)
+    return bool(parts) and parts[0].lower() == "run"
 
 
 def _log_user_input(coder: Any, text: str) -> None:

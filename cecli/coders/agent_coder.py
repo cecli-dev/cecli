@@ -29,7 +29,7 @@ from cecli.helpers.similarity import (
 from cecli.helpers.skills import SkillsManager
 from cecli.hooks import HookIntegration
 from cecli.mcp import LocalServer, McpServerManager
-from cecli.run_cmd import get_shell_info
+from cecli.run_cmd import get_shell_info, get_windows_parent_process_name
 from cecli.tools.utils.base_tool import BaseTool
 from cecli.tools.utils.registry import ToolRegistry
 from cecli.utils import copy_tool_call, tool_call_to_dict
@@ -1728,17 +1728,45 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         result = '<context name="browser_automation" from="harness">\n'
         result += "## Browser Automation\n\n"
         result += (
-            "`browser-harness` drives a real Chrome/Chromium browser. Run it with a heredoc;"
-            " cecli sets `BU_CDP_URL` automatically so it attaches to a CDP browser:\n\n"
-            "```bash\n"
-            "browser-harness <<'PY'\n"
-            "print(page_info())\n"
-            "PY\n"
-            "```"
+            "`browser-harness` drives a real Chrome/Chromium browser. It reads the Python"
+            " program from stdin; cecli sets `BU_CDP_URL` automatically so it attaches to"
+            " a CDP browser:\n\n"
         )
+        result += AgentCoder._browser_harness_example()
         result += "\n</context>"
 
         return result
+
+    @staticmethod
+    def _browser_harness_example():
+        """Return a browser-harness invocation for the shell that will run it.
+
+        Only bash has here-documents, so the example depends on which shell
+        actually executes the command: a bash heredoc on POSIX, a PowerShell
+        here-string when PowerShell is in control, and a pipeline under
+        cmd.exe. ``get_windows_parent_process_name`` is the same signal
+        ``run_cmd`` uses to decide whether a Windows command runs under
+        PowerShell, so the example matches real execution semantics.
+
+        A here-string cannot be nested inside ``powershell -Command "..."``
+        (PowerShell reports a missing ``'@`` terminator), so the cmd.exe form
+        pipes single-quoted strings instead of using a file or a heredoc.
+        """
+        if platform.system() != "Windows":
+            return "```bash\nbrowser-harness <<'PY'\nprint(page_info())\nPY\n```"
+
+        if get_windows_parent_process_name() in ("pwsh.exe", "powershell.exe"):
+            return "```powershell\n" "@'\n" "print(page_info())\n" "'@ | browser-harness\n" "```"
+
+        return (
+            "```bat\n"
+            "rem One-line program:\n"
+            "echo print(page_info()) | browser-harness\n"
+            "rem Multi-line program (one quoted string per line):\n"
+            "powershell -NoProfile -Command \"'import os','print(os.getcwd())' |"
+            ' browser-harness"\n'
+            "```"
+        )
 
     def get_servers_context(self):
         """

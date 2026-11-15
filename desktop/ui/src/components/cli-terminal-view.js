@@ -6,12 +6,14 @@ import '@xterm/xterm/css/xterm.css';
 import { TerminalWriteQueue } from '../core/terminal-write-queue.js';
 import { open_terminal_socket, start_terminal, stop_terminal } from '../core/terminal-api.js';
 import { TerminalClient } from '../core/terminal-client.js';
+import { read_theme_color } from '../core/theme.js';
 
 const HIDDEN_CLOSE_MS = 5 * 60 * 1000;
 
 export class CliTerminalView extends LitElement {
   static properties = {
     bridge_id: { type: String },
+    terminal_id: { type: String },
     active: { type: Boolean },
     terminal_meta: { attribute: false },
     live_bridges: { attribute: false },
@@ -20,6 +22,7 @@ export class CliTerminalView extends LitElement {
   constructor() {
     super();
     this.bridge_id = '';
+    this.terminal_id = '';
     this.active = false;
     this.terminal_meta = {};
     this.live_bridges = null;
@@ -114,7 +117,7 @@ export class CliTerminalView extends LitElement {
     session.socket_open = false;
 
     try {
-      await stop_terminal(this.bridge_id);
+      await stop_terminal(session.bridge_id, session.terminal_id);
     } catch (error) {
       /* already stopped */
     }
@@ -123,21 +126,65 @@ export class CliTerminalView extends LitElement {
     this.requestUpdate();
   }
 
+  _pipe_backend() {
+    const meta = this.terminal_meta || {};
+    return (meta.effectiveBackend || meta.backend) === 'pipe';
+  }
+
+  /**
+   * Whether the shell echoes what the user types.
+   *
+   * PowerShell runs its interactive loop over the pipe, so it prints a prompt
+   * and echoes keystrokes itself. ``cmd /Q`` keeps quiet, so those keystrokes
+   * have to be echoed client side instead.
+   */
+  _shell_echoes() {
+    const shell = String((this.terminal_meta || {}).shell || '').toLowerCase();
+    return shell.endsWith('powershell.exe') || shell.endsWith('pwsh.exe');
+  }
+
+  /**
+   * Echo keystrokes locally for the line-oriented pipe backend.
+   *
+   * ``cmd /Q`` keeps the pipe shell from echoing keystrokes, so without this
+   * the user types blindly until the command output arrives. Newlines use
+   * ``\n`` because xterm is configured with ``convertEol``.
+   */
+  _echo_local(session, data) {
+    const terminal = session?.terminal;
+    if (!terminal) return;
+
+    let out = '';
+    for (const char of data) {
+      const code = char.codePointAt(0);
+      if (char === '\r' || char === '\n') out += '\n';
+      else if (code === 0x7f || code === 0x08) out += '\b \b';
+      else if (code === 0x03) out += '^C\n';
+      else if (code === 0x1b) break; // Escape sequences (arrows, etc.) are not echoed.
+      else if (code >= 0x20) out += char;
+    }
+
+    if (out) terminal.write(out);
+  }
+
   _session() {
     if (!this.bridge_id) return null;
-    let session = this._sessions.get(this.bridge_id);
+    const key = this._session_key();
+    let session = this._sessions.get(key);
 
     if (!session) {
       const host = document.createElement('div');
       host.className = 'cli-xterm-host';
       host.dataset.bridge = this.bridge_id;
+      host.dataset.terminal = this.terminal_id;
       session = {
-        key: this.bridge_id, host, terminal: null, fit: null, client: null,
+        key, bridge_id: this.bridge_id, terminal_id: this.terminal_id,
+        host, terminal: null, fit: null, client: null,
         queue: null, opened: false, starting: false, failed: false, socket_open: false,
         status: '', pending_since: null, resize_observer: null, idle_timer: null,
         gap_attempts: 0,
       };
-      this._sessions.set(this.bridge_id, session);
+      this._sessions.set(key, session);
     }
 
     return session;
@@ -164,12 +211,7 @@ export class CliTerminalView extends LitElement {
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 12,
       scrollback: 5000,
-      theme: {
-        background: '#0f1115',
-        foreground: '#e6e7eb',
-        cursor: '#e6e7eb',
-        selectionBackground: '#3a4a66',
-      },
+      theme: terminal_theme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -179,15 +221,29 @@ export class CliTerminalView extends LitElement {
     session.fit = fit;
     session.queue = new TerminalWriteQueue((data) => terminal.write(data));
 
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown' || event.key !== 'Enter' || !event.shiftKey) return true;
+      if (!this.active || this._session() !== session) return true;
+
+      event.preventDefault();
+      session.client?.send_input('\n');
+      return false;
+    });
     terminal.onData((data) => {
-      if (this.active && this._session() === session) session.client?.send_input(data);
+      if (!(this.active && this._session() === session)) return;
+      if (this._pipe_backend() && !this._shell_echoes()) this._echo_local(session, data);
+      session.client?.send_input(data);
     });
     terminal.onResize(({ cols, rows }) => {
       if (this.active && this._session() === session) session.client?.resize(cols, rows);
     });
     terminal.onBell(() => {
       if (this._session() === session) {
-        this.dispatchEvent(new CustomEvent('terminal-attention', { bubbles: true, composed: true }));
+        this.dispatchEvent(new CustomEvent('terminal-attention', {
+          detail: { terminal_id: this.terminal_id },
+          bubbles: true,
+          composed: true,
+        }));
       }
     });
 
@@ -208,17 +264,21 @@ export class CliTerminalView extends LitElement {
     try {
       if (restart) {
         try {
-          await stop_terminal(session.key);
+          await stop_terminal(session.bridge_id, session.terminal_id);
         } catch (error) {
           /* already stopped */
         }
       }
 
-      const result = await start_terminal(session.key);
-      const terminal = result?.terminal || {};
-      const since = session.pending_since ?? (terminal.seq || 0);
+      const result = await start_terminal(session.bridge_id, session.terminal_id);
+      this.dispatchEvent(new CustomEvent('terminal-state', {
+        detail: result?.terminals || null,
+        bubbles: true,
+        composed: true,
+      }));
+      const since = session.pending_since ?? 0;
       session.pending_since = null;
-      const socket = open_terminal_socket(session.key, since);
+      const socket = open_terminal_socket(session.bridge_id, since, session.terminal_id);
 
       session.client = new TerminalClient(socket, {
         on_data: (data) => session.queue?.enqueue(data),
@@ -289,7 +349,7 @@ export class CliTerminalView extends LitElement {
     if (this.bridge_id) live.add(this.bridge_id);
 
     for (const [key, session] of this._sessions) {
-      if (live.has(key)) continue;
+      if (live.has(session.bridge_id)) continue;
       this._dispose_session(session);
       this._sessions.delete(key);
       if (this._attached === session) this._attached = null;
@@ -330,6 +390,10 @@ export class CliTerminalView extends LitElement {
     session.idle_timer = null;
   }
 
+  _session_key() {
+    return `${this.bridge_id}::${this.terminal_id}`;
+  }
+
   _dispose_session(session) {
     this._cancel_timer(session);
     session.resize_observer?.disconnect();
@@ -342,6 +406,15 @@ export class CliTerminalView extends LitElement {
     session.terminal = null;
     session.host.remove();
   }
+}
+
+function terminal_theme() {
+  return {
+    background: read_theme_color('--cli-surface', '#1b1e2b'),
+    foreground: read_theme_color('--cli-text', '#c6d0f5'),
+    cursor: read_theme_color('--cli-text', '#c6d0f5'),
+    selectionBackground: read_theme_color('--cli-selection', '#51576d'),
+  };
 }
 
 customElements.define('cli-terminal-view', CliTerminalView);

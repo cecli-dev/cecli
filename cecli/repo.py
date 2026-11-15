@@ -40,7 +40,12 @@ ANY_GIT_ERROR += [
 ]
 ANY_GIT_ERROR = tuple(ANY_GIT_ERROR)
 
-git.Git.USE_SHELL = False
+# ``git`` is None when GitPython failed to import (for example because no git
+# executable is on PATH). Guard the configuration so git-less environments stay
+# importable instead of raising an AttributeError that surfaces far away as
+# "cannot import name 'Coder' from 'cecli.coders'".
+if git is not None:
+    git.Git.USE_SHELL = False
 
 # A malformed git tree can make ``next(iterator)`` raise IndexError without
 # advancing. Cap the retries so traversal cannot spin forever while holding

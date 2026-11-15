@@ -16,6 +16,7 @@ import datetime
 import hashlib
 import ipaddress
 import json
+import mimetypes
 import os
 import secrets
 import shutil
@@ -23,6 +24,7 @@ import signal
 import socket
 import struct
 import sys
+import tempfile
 import time
 import urllib.parse
 import uuid
@@ -306,8 +308,14 @@ class AcpBridge:
         """Number of pending permission requests for the sidebar badge."""
         return len(self._pending_permissions)
 
-    async def call_extension(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Call one ``cecli/*`` extension on the live child and cache details."""
+    async def call_extension(
+        self, method: str, params: dict[str, Any], apply_details: bool = True
+    ) -> dict[str, Any]:
+        """Call one ``cecli/*`` extension on the live child and cache details.
+
+        ``apply_details=False`` skips the cache for extensions that return bulk
+        conversation data (``cecli/history``) instead of a registry snapshot.
+        """
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
 
@@ -317,7 +325,10 @@ class AcpBridge:
         except (AcpError, asyncio.TimeoutError) as err:
             raise BridgeError(502, str(err) or f"{method} failed") from err
 
-        if isinstance(result, dict):
+        # Skip caching for callers that return bulk conversation data; merging
+        # it into the cached sub-agent tree would republish full transcripts in
+        # every state and session payload.
+        if isinstance(result, dict) and apply_details:
             self._apply_details(result)
         return result if isinstance(result, dict) else {}
 
@@ -339,6 +350,21 @@ class AcpBridge:
         try:
             await self._request("cecli/browser", payload, timeout=10.0)
             self._browser_announced = True
+        except (AcpError, asyncio.TimeoutError):
+            return
+
+    async def clear_browser(self) -> None:
+        """Detach the child from a browser the desktop no longer owns."""
+        self.shared_browser = None
+        self._browser_announced = False
+
+        if self.status != "ready" or self.session_id is None:
+            return
+
+        try:
+            await self._request(
+                "cecli/browser", {"sessionId": self.session_id, "action": "clear"}, timeout=10.0
+            )
         except (AcpError, asyncio.TimeoutError):
             return
 
@@ -367,20 +393,28 @@ class AcpBridge:
         await self.prompt(f"/workflows run {name.strip()}")
         return {"ok": True, "workflow": name.strip()}
 
-    async def complete(self, text: str) -> dict[str, Any]:
-        """Return composer completion candidates for the current coder."""
+    async def complete(self, text: str, agent_session_id: str | None = None) -> dict[str, Any]:
+        """Return composer completion candidates for a coder.
+
+        ``agent_session_id`` targets a child session; it defaults to the primary
+        coder.
+        """
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
         if not isinstance(text, str):
             raise BridgeError(400, "text is required")
-        return await self.call_extension("cecli/complete", {"text": text})
+        params = {"text": text}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return await self.call_extension("cecli/complete", params)
 
     async def history(self) -> dict[str, Any]:
         """Return each coder's conversation stream for transcript replay."""
         if self.status != "ready" or self.session_id is None:
             raise BridgeError(409, "The agent is not ready")
 
-        result = await self.call_extension("cecli/history", {})
+        # Never fold this into the cached tree: it carries full conversations.
+        result = await self.call_extension("cecli/history", {}, apply_details=False)
         diffs = result.get("diffs")
         messages = result.get("messages")
         subagents = result.get("subagents")
@@ -390,11 +424,26 @@ class AcpBridge:
             "diffs": diffs if isinstance(diffs, list) else [],
         }
 
-    async def set_context(self, action: str, path: str, read_only: bool = False) -> dict[str, Any]:
-        """Add or remove a context file on the child."""
-        return await self.call_extension(
-            "cecli/context", {"action": action, "path": path, "readOnly": read_only}
-        )
+    async def session_panels(self) -> dict[str, Any]:
+        """Return the active session's agent todos and aside exchanges."""
+        return await self.call_extension("cecli/panels", {})
+
+    async def set_context(
+        self,
+        action: str,
+        path: str,
+        read_only: bool = False,
+        agent_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Add or remove a context file on a coder.
+
+        ``agent_session_id`` targets a child session; it defaults to the primary
+        coder.
+        """
+        params = {"action": action, "path": path, "readOnly": read_only}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return await self.call_extension("cecli/context", params)
 
     async def send_subagent_message(self, child_session_id: str, text: str) -> dict[str, Any]:
         """Deliver a message to one sub-agent session."""
@@ -840,7 +889,15 @@ class AcpBridge:
                 key = str(child_id)
                 entry = self.subagents.setdefault(key, {"sessionId": key})
                 was_removed = entry.get("removed", False)
-                entry.update(item)
+                # Transcripts are replayed from ``cecli/history`` on demand, so
+                # never cache them in the sidebar tree.
+                entry.update(
+                    {
+                        field: value
+                        for field, value in item.items()
+                        if field not in ("messages", "diffs")
+                    }
+                )
                 entry["sessionId"] = key
                 if was_removed:
                     entry["removed"] = True
@@ -1245,6 +1302,16 @@ class SessionManager:
             return_exceptions=True,
         )
 
+    async def clear_browser(self) -> None:
+        """Forget the shared browser and tell every session to detach."""
+        self.browser_endpoint = None
+
+        bridges = list(self.sessions.values())
+        await asyncio.gather(
+            *(bridge.clear_browser() for bridge in bridges),
+            return_exceptions=True,
+        )
+
     def allow_root(self, path: str) -> None:
         """Let an explicitly configured workspace spawn its session."""
         real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
@@ -1408,6 +1475,7 @@ class DesktopServer:
         if self.sessions is not None:
             self.sessions.background_event_sink = self._on_background_event
         self._browser_sync_task: asyncio.Task[Any] | None = None
+        self.browser_autostart_task: asyncio.Task[Any] | None = None
 
     @property
     def bridge(self) -> AcpBridge:
@@ -1593,7 +1661,18 @@ class DesktopServer:
                 state = self._browser_bridge().snapshot()
             except BrowserError as err:
                 return self._json(err.status, {"ok": False, "error": str(err)})
-            return self._json(200, {"ok": True, **state})
+
+            payload: dict[str, Any] = {"ok": True, **state}
+            if self.conf is not None:
+                payload["launchOnStartup"] = bool(
+                    self.conf.browser_settings().get("launch_on_startup")
+                )
+            return self._json(200, payload)
+
+        if method == "GET" and path == "/api/theme":
+            if self.conf is None:
+                return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+            return self._json(200, {"ok": True, "theme": self.conf.theme()})
 
         if method == "GET" and path == "/api/state":
             bridge = self.sessions.get(self._query_bridge(query))
@@ -1610,6 +1689,21 @@ class DesktopServer:
             except BridgeError as err:
                 return self._json(err.status, {"ok": False, "error": str(err)})
             return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
+
+        if method == "GET" and path == "/api/session/panels":
+            bridge = self.sessions.get(self._query_bridge(query))
+            try:
+                result = await bridge.session_panels()
+            except BridgeError as err:
+                return self._json(err.status, {"ok": False, "error": str(err)})
+            return self._json(
+                200,
+                {
+                    "ok": True,
+                    "agents": result.get("agents") or [],
+                    "asides": result.get("asides") or [],
+                },
+            )
 
         if method == "GET" and path == "/api/prompt-history":
             bridge = self.sessions.get(self._query_bridge(query))
@@ -1706,6 +1800,10 @@ class DesktopServer:
                 return await self._browser_download(body)
             if suffix == "external":
                 return await self._browser_external(body)
+            if suffix == "config":
+                return await self._browser_config(body)
+            if suffix == "close":
+                return await self._browser_close(body)
             if suffix == "drop":
                 return await self._browser_drop(body)
             if suffix == "tab/close":
@@ -1735,6 +1833,8 @@ class DesktopServer:
             return await self._close_session(body)
         if path == "/api/prompt":
             return await self._prompt(body)
+        if path == "/api/paste":
+            return await self._paste(body)
         if path == "/api/cancel":
             bridge = self._bridge_from(body)
             await bridge.cancel()
@@ -1743,6 +1843,8 @@ class DesktopServer:
             return await self._new_session(body)
         if path == "/api/permission":
             return await self._permission(body)
+        if path == "/api/theme":
+            return await self._theme_config(body)
         if path == "/api/config":
             return await self._config(body)
         if path == "/api/restart":
@@ -1778,6 +1880,7 @@ class DesktopServer:
                 "configPath": str(self.conf.desktop_path),
                 "desktopConfigPath": str(self.conf.desktop_path),
                 "globalConfigPath": str(self.conf.global_path),
+                "keyBindings": self.conf.key_bindings(),
                 "projectConfigPath": str(self.conf.project_path),
             },
         )
@@ -2054,7 +2157,7 @@ class DesktopServer:
         if not isinstance(text, str):
             return self._json(400, {"ok": False, "error": "text is required"})
         try:
-            result = await bridge.complete(text)
+            result = await bridge.complete(text, data.get("agentSessionId"))
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(200, {"ok": True, **result})
@@ -2129,7 +2232,12 @@ class DesktopServer:
             else:
                 if action not in ("add", "remove") or not isinstance(name, str):
                     return self._json(400, {"ok": False, "error": "action and path are required"})
-                result = await bridge.set_context(action, name, bool(data.get("readOnly")))
+                result = await bridge.set_context(
+                    action,
+                    name,
+                    bool(data.get("readOnly")),
+                    data.get("agentSessionId"),
+                )
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
 
@@ -2153,6 +2261,51 @@ class DesktopServer:
 
         _append_prompt_history(bridge.workspace, text.strip())
         return self._json(202, {"ok": True, "steered": steered})
+
+    async def _paste(self, body: bytes) -> tuple[int, bytes, str]:
+        """Save a clipboard image to a temp file, then add it to the chat."""
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+
+        try:
+            bridge = self.sessions.get_mutation(data.get("bridgeId"))
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        encoded = data.get("data")
+        try:
+            if isinstance(encoded, str) and encoded:
+                path = await asyncio.to_thread(
+                    _write_pasted_image, encoded, str(data.get("mimeType") or "image/png")
+                )
+                text = ""
+            else:
+                path, text = await asyncio.to_thread(_grab_clipboard_paste)
+        except (ValueError, binascii.Error) as err:
+            return self._json(400, {"ok": False, "error": str(err)})
+        except Exception as err:
+            return self._json(500, {"ok": False, "error": f"clipboard read failed: {err}"})
+
+        if path is None:
+            if text:
+                return self._json(200, {"ok": True, "text": text})
+            return self._json(404, {"ok": False, "error": "no image or text in clipboard"})
+
+        try:
+            result = await bridge.set_context("add", str(path))
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        context_files = result.get("contextFiles") if isinstance(result, dict) else None
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "path": str(path),
+                "contextFiles": context_files if isinstance(context_files, list) else [],
+            },
+        )
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body) if body else {}
@@ -2230,6 +2383,19 @@ class DesktopServer:
 
         self._announce_browser(state)
         return self._json(202, {"ok": True, **state})
+
+    async def autostart_browser(self) -> None:
+        """Launch the browser in the background when desktop.yml asks for it."""
+        if self.browser is None:
+            return
+
+        try:
+            state = await self._browser_bridge().start()
+        except BrowserError as err:
+            print(f"warning: could not start the browser: {err}", file=sys.stderr, flush=True)
+            return
+
+        self._announce_browser(state)
 
     async def _browser_open(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
@@ -2389,6 +2555,55 @@ class DesktopServer:
         except BrowserError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         return self._json(202, {"ok": True, **result})
+
+    async def _theme_config(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        theme = data.get("theme")
+        if theme not in ("dark", "light"):
+            return self._json(400, {"ok": False, "error": "theme must be 'dark' or 'light'"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+
+        try:
+            settings = self.conf.set_theme(theme)
+        except (OSError, ValueError) as err:
+            return self._json(500, {"ok": False, "error": f"could not save desktop config: {err}"})
+
+        return self._json(202, {"ok": True, **settings})
+
+    async def _browser_config(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        if not isinstance(data.get("launchOnStartup"), bool):
+            return self._json(400, {"ok": False, "error": "launchOnStartup must be a boolean"})
+        if self.conf is None:
+            return self._json(503, {"ok": False, "error": "desktop config is unavailable"})
+
+        try:
+            settings = self.conf.set_browser_launch_on_startup(data["launchOnStartup"])
+        except (OSError, ValueError) as err:
+            return self._json(500, {"ok": False, "error": f"could not save desktop config: {err}"})
+
+        return self._json(202, {"ok": True, "launchOnStartup": settings["launch_on_startup"]})
+
+    async def _browser_close(self, body: bytes) -> tuple[int, bytes, str]:
+        data = self._decode_json(body) if body else {}
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        try:
+            await self._browser_bridge().shutdown()
+        except BrowserError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+
+        state = self._browser_bridge().snapshot()
+        clear = getattr(self.sessions, "clear_browser", None)
+        if clear is not None:
+            await clear()
+
+        return self._json(202, {"ok": True, **state})
 
     async def _browser_drop(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body)
@@ -2869,6 +3084,10 @@ class DesktopServer:
         """Dispatch one POST /api/terminal/* control call."""
         if suffix == "start":
             return await self._terminal_start(body)
+        if suffix == "new":
+            return await self._terminal_start(body, fresh=True)
+        if suffix == "close":
+            return await self._terminal_close(body)
         if suffix == "stop":
             return await self._terminal_stop(body)
         if suffix == "input":
@@ -2877,18 +3096,66 @@ class DesktopServer:
             return await self._terminal_resize(body)
         return self._json(404, {"ok": False, "error": "not found"})
 
-    async def _terminal_start(self, body: bytes) -> tuple[int, bytes, str]:
-        """Lazily spawn the workspace shell and return its state."""
+    def _terminal_session(self, bridge_id: str, data: dict[str, Any]) -> Any:
+        """Resolve a requested terminal id or fall back to the bridge's latest."""
+        terminal_id = data.get("terminalId")
+        if isinstance(terminal_id, str) and terminal_id:
+            session = self.terminal.get_by_id(terminal_id)
+            if session is None or str(session.bridge_id) != str(bridge_id):
+                raise TerminalError(404, "terminal not found")
+
+            return session
+
+        return self.terminal.get(bridge_id)
+
+    async def _terminal_start(self, body: bytes, fresh: bool = False) -> tuple[int, bytes, str]:
+        """Lazily spawn a workspace shell and return its state."""
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get_or_create(bridge.bridge_id, bridge.workspace)
+            terminal_id = data.get("terminalId")
+            if isinstance(terminal_id, str) and terminal_id:
+                session = self._terminal_session(bridge.bridge_id, data)
+            elif fresh:
+                session = self.terminal.create(bridge.bridge_id, bridge.workspace)
+            else:
+                session = self.terminal.get_or_create(bridge.bridge_id, bridge.workspace)
             await session.start()
         except BridgeError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
         except TerminalError as err:
             return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(200, {"ok": True, "terminal": session.state()})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": session.state(),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
+
+    async def _terminal_close(self, body: bytes) -> tuple[int, bytes, str]:
+        """Close one terminal session and forget its retained buffer."""
+        try:
+            data = self._body_json(body)
+            bridge = self.sessions.get(data.get("bridgeId"))
+            terminal_id = data.get("terminalId")
+            if not isinstance(terminal_id, str) or not terminal_id:
+                raise TerminalError(400, "terminalId is required")
+            session = self._terminal_session(bridge.bridge_id, data)
+            await self.terminal.close_by_id(session.id)
+        except BridgeError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        except TerminalError as err:
+            return self._json(err.status, {"ok": False, "error": str(err)})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": self.terminal.state(bridge.bridge_id),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
 
     async def _cli_terminal(
         self, action: str, bridge_id: str, terminal_id: str, params: dict[str, Any]
@@ -2930,17 +3197,29 @@ class DesktopServer:
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            await self.terminal.stop(bridge.bridge_id)
-        except BridgeError as err:
-            return self._json(err.status, {"ok": False, "error": str(err)})
-        return self._json(200, {"ok": True, "terminal": self.terminal.state(bridge.bridge_id)})
+            terminal_id = data.get("terminalId")
+            if isinstance(terminal_id, str) and terminal_id:
+                session = self._terminal_session(bridge.bridge_id, data)
+                await self.terminal.stop_by_id(session.id)
+            else:
+                await self.terminal.stop(bridge.bridge_id)
+        except (BridgeError, TerminalError) as err:
+            return self._json(getattr(err, "status", 400), {"ok": False, "error": str(err)})
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "terminal": self.terminal.state(bridge.bridge_id),
+                "terminals": self.terminal.terminals(bridge.bridge_id),
+            },
+        )
 
     async def _terminal_input(self, body: bytes) -> tuple[int, bytes, str]:
         """Write bytes to the PTY without ever logging them."""
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get(bridge.bridge_id)
+            session = self._terminal_session(bridge.bridge_id, data)
             if session is None or not session.running:
                 raise TerminalError(409, "terminal is not running")
             payload = data.get("data")
@@ -2961,7 +3240,7 @@ class DesktopServer:
         try:
             data = self._body_json(body)
             bridge = self.sessions.get(data.get("bridgeId"))
-            session = self.terminal.get(bridge.bridge_id)
+            session = self._terminal_session(bridge.bridge_id, data)
             if session is None or not session.running:
                 raise TerminalError(409, "terminal is not running")
             session.resize(data.get("cols"), data.get("rows"))
@@ -3001,7 +3280,11 @@ class DesktopServer:
         except BridgeError as err:
             await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
             return
-        session = self.terminal.get(bridge.bridge_id)
+        try:
+            session = self._terminal_session(bridge.bridge_id, data)
+        except TerminalError as err:
+            await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
+            return
         if session is None:
             await self._write_json(writer, 409, {"ok": False, "error": "terminal is not running"})
             return
@@ -3146,7 +3429,14 @@ class DesktopServer:
         except BridgeError as err:
             await self._write_json(writer, err.status, {"ok": False, "error": str(err)})
             return
-        session = self.terminal.get(bridge.bridge_id)
+        terminal_id = _optional_str(query_body(query).get("terminalId"))
+        session = (
+            self.terminal.get_by_id(terminal_id)
+            if terminal_id
+            else self.terminal.get(bridge.bridge_id)
+        )
+        if session is not None and str(session.bridge_id) != str(bridge.bridge_id):
+            session = None
         if session is None:
             await self._write_json(writer, 404, {"ok": False, "error": "terminal is not running"})
             return
@@ -3477,7 +3767,9 @@ class DesktopServer:
             await bridge.resolve_permission(params.get("requestId"), params.get("optionId"))
             return {"ok": True}
         if command == "complete.get":
-            return await bridge.complete(str(params.get("text") or ""))
+            return await bridge.complete(
+                str(params.get("text") or ""), params.get("agentSessionId")
+            )
         if command == "history.get":
             return await bridge.history()
         if command == "state.details":
@@ -3520,6 +3812,7 @@ class DesktopServer:
                 command.split(".", 1)[1],
                 str(params.get("path")),
                 bool(params.get("readOnly")),
+                params.get("agentSessionId"),
             )
 
         raise BridgeError(400, f"unknown command: {command}")
@@ -3533,12 +3826,17 @@ class DesktopServer:
             page = path.read_text(encoding="utf-8")
         except OSError:
             return self._json(404, {"ok": False, "error": "not found"})
+        snippets = []
         if self.token:
-            snippet = (
+            snippets.append(
                 f'<meta name="cecli-token" content="{self.token}">'
                 f'<script>window.__CECLI_TOKEN__="{self.token}";</script>'
             )
-            page = page.replace("</head>", snippet + "</head>", 1)
+        theme = self.conf.theme() if self.conf is not None else None
+        if theme:
+            snippets.append(f'<script>window.__CECLI_THEME__="{theme}";</script>')
+        if snippets:
+            page = page.replace("</head>", "".join(snippets) + "</head>", 1)
         return 200, page.encode("utf-8"), "text/html; charset=utf-8"
 
     def _serve_static(self, relative: str) -> tuple[int, bytes, str]:
@@ -3873,6 +4171,7 @@ async def run_server(config: ServerConfig) -> None:
         token=config.token,
     )
     conf = ConfStore(config.workspace)
+    conf.ensure_browser_settings()
     onboarding = OnboardingService(manager, conf)
     browser = BrowserBridge()
     terminal = TerminalManager(
@@ -3949,6 +4248,8 @@ async def run_server(config: ServerConfig) -> None:
         )
     if config.open_browser:
         asyncio.create_task(_open_browser(url))
+    if conf.browser_settings().get("launch_on_startup"):
+        app.browser_autostart_task = asyncio.create_task(app.autostart_browser())
     terminal_reaper = asyncio.create_task(_terminal_reaper_loop(terminal))
 
     try:
@@ -3967,6 +4268,10 @@ async def run_server(config: ServerConfig) -> None:
             finally:
                 terminal_reaper.cancel()
                 await asyncio.gather(terminal_reaper, return_exceptions=True)
+                autostart = app.browser_autostart_task
+                if autostart is not None:
+                    autostart.cancel()
+                    await asyncio.gather(autostart, return_exceptions=True)
                 await browser.shutdown()
 
 
@@ -4115,6 +4420,39 @@ def _append_prompt_history(workspace: str, text: str) -> None:
                 handle.write(f"+{line}\n".encode("utf-8"))
     except OSError:
         pass
+
+
+def _write_pasted_image(encoded: str, mime_type: str) -> Path:
+    """Decode a base64 image into a fresh temp file for the chat."""
+    if not mime_type.startswith("image/"):
+        raise ValueError("mimeType must be an image")
+
+    suffix = mimetypes.guess_extension(mime_type) or ".png"
+    if suffix == ".jpe":
+        suffix = ".jpg"
+
+    payload = base64.b64decode(encoded, validate=True)
+    if not payload:
+        raise ValueError("image data is empty")
+
+    directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
+    path = directory / f"clipboard_image-{uuid.uuid4().hex}{suffix}"
+    path.write_bytes(payload)
+    return path
+
+
+def _grab_clipboard_paste() -> tuple[Path | None, str]:
+    """Mirror the TUI /paste command: image to a temp file, else clipboard text."""
+    from cecli.commands.paste import PasteCommand
+
+    image = PasteCommand._grab_clipboard_image(None)
+    if image is not None and hasattr(image, "save"):
+        directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
+        path = directory / f"clipboard_image-{uuid.uuid4().hex}.png"
+        image.save(path, "PNG")
+        return path, ""
+
+    return None, PasteCommand._read_clipboard_text(None)
 
 
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:

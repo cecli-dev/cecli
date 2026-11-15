@@ -444,3 +444,83 @@ def test_replay_offsets_fix_a_contract():
     assert replay_offsets(3, 2, 1, False) == (1, 1)
     assert replay_offsets(3, 0, 3, False) == (3, 3)
     assert replay_offsets(3, 3, 10, True) == (0, 0)
+
+
+def test_create_makes_multiple_terminals_and_close_repoints_latest():
+    async def run():
+        manager = make_manager()
+        first = manager.create("b1", "/tmp")
+        second = manager.create("b1", "/tmp")
+        assert first.id == "term:b1:1"
+        assert second.id == "term:b1:2"
+
+        await first.start()
+        await second.start()
+
+        state = manager.state("b1")
+        assert [item["id"] for item in state["terminals"]] == [first.id, second.id]
+        assert state["id"] == second.id
+
+        await manager.close_by_id(second.id)
+        assert manager.get("b1") is first
+        assert [item["id"] for item in manager.terminals("b1")] == [first.id]
+
+        await manager.shutdown()
+
+    asyncio.run(run())
+
+
+def test_server_new_close_and_targeted_restart_routes():
+    async def run():
+        manager = make_manager()
+        bridge = FakeBridge({"commands": []})
+        server = DesktopServer(FakeSessions(bridge), Path("."), cli_enabled=True)
+        server.terminal = manager
+
+        status, payload, _ = await server._route(
+            "POST", "/api/terminal/new", b'{"bridgeId": "s1"}', {}
+        )
+        data = json.loads(payload)
+        assert status == 200
+        assert data["terminal"]["id"] == "term:s1:1"
+        assert [item["id"] for item in data["terminals"]] == ["term:s1:1"]
+
+        status, payload, _ = await server._route(
+            "POST", "/api/terminal/new", b'{"bridgeId": "s1"}', {}
+        )
+        data = json.loads(payload)
+        assert status == 200
+        assert data["terminal"]["id"] == "term:s1:2"
+
+        status, _, _ = await server._route(
+            "POST",
+            "/api/terminal/close",
+            json.dumps({"bridgeId": "s1", "terminalId": "term:s1:2"}).encode(),
+            {},
+        )
+        assert status == 200
+        assert [item["id"] for item in manager.terminals("s1")] == ["term:s1:1"]
+        assert manager.get("s1").id == "term:s1:1"
+
+        status, _, _ = await server._route(
+            "POST",
+            "/api/terminal/stop",
+            json.dumps({"bridgeId": "s1", "terminalId": "term:s1:1"}).encode(),
+            {},
+        )
+        assert status == 200
+
+        status, payload, _ = await server._route(
+            "POST",
+            "/api/terminal/start",
+            json.dumps({"bridgeId": "s1", "terminalId": "term:s1:1"}).encode(),
+            {},
+        )
+        data = json.loads(payload)
+        assert status == 200
+        assert data["terminal"]["id"] == "term:s1:1"
+        assert data["terminal"]["running"] is True
+
+        await manager.shutdown()
+
+    asyncio.run(run())

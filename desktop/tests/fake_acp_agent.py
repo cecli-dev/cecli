@@ -23,6 +23,7 @@ _config_options: list[dict[str, Any]] = []
 _pending_prompt: dict[str, Any] | None = None
 _permission_seq = 0
 _announced_subagents: set[str] = set()
+_context_paths: set[str] = set()
 _hooks: list[dict[str, Any]] = [
     {
         "name": "guard",
@@ -377,6 +378,56 @@ def state_details() -> dict[str, Any]:
     }
 
 
+def session_panels() -> dict[str, Any]:
+    """Agent todo lists and asides returned by ``cecli/panels`` in tests."""
+    return {
+        "agents": [
+            {
+                "uuid": "primary-uuid",
+                "name": "primary",
+                "label": "primary",
+                "status": "idle",
+                "todos": [
+                    {"content": "Inspect the workspace", "status": "completed"},
+                    {"content": "Write the answer", "status": "in_progress"},
+                ],
+            },
+            {
+                "uuid": "child-uuid",
+                "name": "worker",
+                "label": "worker chi",
+                "status": "running",
+                "todos": [{"content": "Check the tests", "status": "pending"}],
+            },
+        ],
+        "asides": [{"prompt": "what is this?", "response": "A fake aside."}],
+    }
+
+
+def handle_context(request_id: Any, params: dict[str, Any]) -> None:
+    """Track added context paths so the bridge can refresh its details."""
+    action = params.get("action")
+    path = params.get("path")
+
+    if action == "add" and isinstance(path, str):
+        _context_paths.add(path)
+    elif action == "remove" and isinstance(path, str):
+        _context_paths.discard(path)
+    else:
+        error(request_id, -32602, "unknown context action")
+        return
+
+    result(
+        request_id,
+        {
+            "contextFiles": [
+                {"path": os.path.basename(item), "absolutePath": item, "readOnly": False}
+                for item in sorted(_context_paths)
+            ]
+        },
+    )
+
+
 def handle_hook(request_id: Any, params: dict[str, Any]) -> None:
     """Enable or disable one fake hook and return the refreshed list."""
     name = params.get("name")
@@ -576,6 +627,8 @@ def dispatch(message: dict[str, Any]) -> None:
         handle_complete(request_id, params)
     elif method == "cecli/state":
         result(request_id, state_details())
+    elif method == "cecli/panels":
+        result(request_id, session_panels())
     elif method == "cecli/hook":
         handle_hook(request_id, params)
     elif method == "cecli/history":
@@ -586,8 +639,10 @@ def dispatch(message: dict[str, Any]) -> None:
         handle_steer(request_id, params)
     elif method == "cecli/subagent/message":
         handle_subagent_message(request_id, params)
-    elif method in ("cecli/skill", "cecli/mcp", "cecli/context"):
+    elif method in ("cecli/skill", "cecli/mcp"):
         result(request_id, {"ok": True})
+    elif method == "cecli/context":
+        handle_context(request_id, params)
     elif request_id is not None:
         error(request_id, -32601, f"Method not found: {method}")
 

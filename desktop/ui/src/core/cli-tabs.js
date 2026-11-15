@@ -28,6 +28,16 @@ export function shell_key(workspace) {
   return `shell:${workspace}`;
 }
 
+export function shell_tab_key(workspace, terminal_id = '') {
+  return terminal_id ? `${shell_key(workspace)}:${terminal_id}` : shell_key(workspace);
+}
+
+export function shell_tab_label(terminal) {
+  const id = String(terminal?.id || '');
+  const generation = id.includes(':') ? id.slice(id.lastIndexOf(':') + 1) : '';
+  return generation && /^\d+$/.test(generation) ? `Shell ${generation}` : 'Shell';
+}
+
 export function bg_key(bridge_id, command_key) {
   return `bg:${bridge_id || 'unknown'}:${command_key}`;
 }

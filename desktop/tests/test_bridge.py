@@ -15,6 +15,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import socket
 import struct
 import subprocess
@@ -318,6 +319,48 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(body["history"][-1], "remember me")
         self.assertIn("+remember me", history_file.read_text(encoding="utf-8"))
 
+    def test_paste_writes_temp_image_and_adds_context(self) -> None:
+        self.wait_ready()
+
+        payload = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii")
+        status, body = self.request(
+            "POST", "/api/paste", {"data": payload, "mimeType": "image/png"}
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        path = Path(body["path"])
+        self.addCleanup(shutil.rmtree, path.parent, True)
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.read_bytes(), b"\x89PNG\r\n\x1a\n")
+        self.assertEqual([item["absolutePath"] for item in body["contextFiles"]], [str(path)])
+
+        status, body = self.request(
+            "POST", "/api/paste", {"data": payload, "mimeType": "image/png"}
+        )
+
+        self.assertEqual(status, 200)
+        replacement = Path(body["path"])
+        self.addCleanup(shutil.rmtree, replacement.parent, True)
+        self.assertNotEqual(replacement, path)
+        self.assertEqual(
+            [item["absolutePath"] for item in body["contextFiles"]],
+            [str(path), str(replacement)],
+        )
+
+    def test_session_panels_route(self) -> None:
+        self.wait_ready()
+
+        status, body = self.request("GET", "/api/session/panels")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["agents"]), 2)
+        self.assertEqual(body["agents"][0]["todos"][1]["status"], "in_progress")
+        self.assertEqual(body["agents"][1]["label"], "worker chi")
+        self.assertEqual(body["asides"][0]["prompt"], "what is this?")
+        self.assertEqual(body["asides"][0]["response"], "A fake aside.")
+
     def test_history_replays_the_conversation_stream(self) -> None:
         self.wait_ready()
 
@@ -330,6 +373,35 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(body["messages"][1]["content"], "Hi, I can help.")
         self.assertEqual(body["messages"][2]["toolCalls"][0]["name"], "ReadFile")
         self.assertEqual(body["subagents"], [])
+
+    def test_history_hydration_keeps_transcripts_out_of_state(self) -> None:
+        self.wait_ready()
+
+        status, _ = self.request("POST", "/api/prompt", {"text": "spawn worker"})
+        self.assertEqual(status, 202)
+        self.wait_state(
+            lambda value: any(
+                agent.get("sessionId") == "child-1" for agent in value.get("subagents") or []
+            )
+        )
+
+        status, history = self.request("GET", "/api/history")
+        self.assertEqual(status, 200)
+        self.assertTrue(history["subagents"][0]["messages"])
+
+        status, state = self.request("GET", "/api/state")
+        self.assertEqual(status, 200)
+        agent = next(item for item in state["subagents"] if item["sessionId"] == "child-1")
+        self.assertNotIn("messages", agent)
+        self.assertNotIn("diffs", agent)
+
+        status, sessions = self.request("GET", "/api/sessions")
+        self.assertEqual(status, 200)
+        summary = next(
+            item for item in sessions["sessions"][0]["subagents"] if item["sessionId"] == "child-1"
+        )
+        self.assertNotIn("messages", summary)
+        self.assertNotIn("diffs", summary)
 
     def test_workflow_runs_as_a_prompt(self) -> None:
         self.wait_ready()

@@ -116,14 +116,16 @@ workarounds described in [TAURI.md](TAURI.md).
   scrollbar. Client-side zoom controls do not change the emulated page viewport,
   and wheel scrolling hands off from the page into the zoomed canvas at page
   scroll boundaries. The browser, background, and workflows headers collapse
-  their sections when clicked. Chat and the workbench split the remaining width,
+  their sections when clicked. The workbench takes up all remaining width beside the chat,
   header toggles collapse the sidebar, chat, or workbench, and the emulated page
   fills the pane up to a 1920x1080 viewport.
 - The browser preview handles JavaScript dialogs, file pickers, downloads,
   promptable permissions, IME composition, cursor feedback, clipboard copy, and
   file/text drops. Frames stream over a binary WebSocket (with the SSE endpoint
-  as a fallback), and an "Open in default browser" action provides the
-  screen-reader-accessible escape hatch from the canvas preview.
+  as a fallback). A vertical settings menu provides the screen-reader-accessible
+  escape hatch from the canvas preview (open the page in the default browser or
+  close the mirrored browser), plus a Start on Launch switch that persists
+  `browser.launch_on_startup` in `desktop.yml`.
 - A registry panel at the bottom of the sidebar for toggling skills and MCP
   servers and running workflows.
 

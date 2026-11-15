@@ -1,27 +1,40 @@
 import { LitElement, html, nothing } from 'lit';
 
 const MAX_LINES = 2000;
+const FOLLOW_SLACK_PX = 20;
 
 export class CliLogView extends LitElement {
   static properties = {
     entries: { attribute: false },
-    workspace_key: { type: String },
+    bridge_id: { type: String },
+    floor: { type: Number },
+    active: { type: Boolean },
   };
 
   constructor() {
     super();
     this.entries = [];
-    this.workspace_key = '';
+    this.bridge_id = '';
+    this.floor = 0;
+    this.active = false;
     this._rendered = [];
     this._follow = true;
     this._jump = false;
+    this._scroll_frame = null;
   }
 
   createRenderRoot() {
     return this;
   }
 
+  disconnectedCallback() {
+    this._cancel_scroll();
+    super.disconnectedCallback();
+  }
+
   updated() {
+    if (!this.active) return;
+
     this._sync_lines();
   }
 
@@ -40,12 +53,28 @@ export class CliLogView extends LitElement {
     const host = this.querySelector('.cli-log');
     if (!host) return;
 
-    const limit = Math.max(0, this.entries.length - MAX_LINES);
-    const visible = this.entries.slice(limit);
-    const same_prefix = this._rendered.length <= visible.length
-      && this._rendered.every((entry, index) => entry.seq === visible[index].seq);
+    const visible = this._visible_entries();
+    const first_visible = visible.length ? Number(visible[0].seq) || 0 : Infinity;
+    let dropped = 0;
 
-    if (!same_prefix) {
+    while (dropped < this._rendered.length && (Number(this._rendered[dropped].seq) || 0) < first_visible) {
+      dropped += 1;
+    }
+
+    if (dropped && dropped >= this._rendered.length) {
+      host.replaceChildren();
+      this._rendered = [];
+    } else if (dropped) {
+      for (let index = 0; index < dropped; index += 1) host.firstElementChild?.remove();
+      this._rendered = this._rendered.slice(dropped);
+    }
+
+    const aligned = !this._rendered.length || (
+      this._rendered.length <= visible.length
+      && this._rendered.every((entry, index) => entry.seq === visible[index].seq)
+    );
+
+    if (!aligned) {
       host.replaceChildren();
       this._rendered = [];
     }
@@ -57,22 +86,61 @@ export class CliLogView extends LitElement {
     }
 
     while (host.children.length > MAX_LINES) host.firstElementChild?.remove();
-    if (this._follow) host.scrollTop = host.scrollHeight;
+    if (this._rendered.length > MAX_LINES) this._rendered = this._rendered.slice(-MAX_LINES);
+
+    if (this._rendered.length && this._follow) this._schedule_scroll(host);
+  }
+
+  _visible_entries() {
+    const entries = this.entries || [];
+    const bridge_id = this.bridge_id;
+    const floor = Number(this.floor) || 0;
+
+    return entries.filter((entry) => {
+      if (entry.bridge_id && bridge_id && entry.bridge_id !== bridge_id) return false;
+      return (Number(entry.seq) || 0) > floor;
+    });
+  }
+
+  _schedule_scroll(host) {
+    if (this._scroll_frame !== null || host.offsetParent === null) return;
+
+    this._scroll_frame = requestAnimationFrame(() => {
+      this._scroll_frame = null;
+
+      if (!this.active || !this._follow) return;
+
+      const current = this.querySelector('.cli-log');
+      if (!current || current.offsetParent === null) return;
+
+      current.scrollTop = current.scrollHeight;
+    });
+  }
+
+  _cancel_scroll() {
+    if (this._scroll_frame !== null) cancelAnimationFrame(this._scroll_frame);
+    this._scroll_frame = null;
   }
 
   _on_scroll(event) {
     const host = event.currentTarget;
     const distance = host.scrollHeight - host.scrollTop - host.clientHeight;
-    this._follow = distance <= 20;
-    this._jump = !this._follow;
+    const follow = distance <= FOLLOW_SLACK_PX;
+
+    if (follow === this._follow) return;
+
+    this._follow = follow;
+    this._jump = !follow;
     this.requestUpdate();
   }
 
   _to_bottom() {
     const host = this.querySelector('.cli-log');
-    if (host) host.scrollTop = host.scrollHeight;
+    if (!host) return;
+
     this._follow = true;
     this._jump = false;
+    host.scrollTop = host.scrollHeight;
     this.requestUpdate();
   }
 }

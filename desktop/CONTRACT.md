@@ -108,6 +108,9 @@ All responses are JSON unless noted. Unknown paths return 404.
 | POST   | `/api/new_session`| `{"cwd": "..."}` optional              | 202; 409 if busy |
 | POST   | `/api/permission` | `{"requestId": 7, "optionId": "y"}` or `{"requestId": 7, "optionId": null}` | 200 `{"ok": true}`; 404 unknown requestId |
 | POST   | `/api/config`     | `{"configId": "mode", "value": "..."}`| 202 `{"ok": true}` |
+| GET    | `/api/theme`      | -                                      | 200 `{"ok": true, "theme": "dark"\|null}` |
+| POST   | `/api/theme`      | `{"theme": "dark"}`                   | 202 `{"ok": true, "theme": "dark"}`; 400 for an unsupported value |
+| POST   | `/api/paste`      | `{bridgeId?, data?, mimeType?}`        | 200 `{ok, path, contextFiles}` for an image; `{ok, text}` when the clipboard only has text; 404 when empty. Without `data` it reads the host clipboard like the TUI `/paste` command. Each image is saved to a uniquely named temp file and added to the chat, so multiple pastes accumulate instead of replacing one another. |
 | POST   | `/api/restart`    | -                                      | 202, kills and respawns the child |
 
 State snapshot:
@@ -212,14 +215,14 @@ report the truth.
   reasoning-effort selector. Mode changes are refused by the bridge, and effort
   stays under the agent's control (`/reasoning-effort` still works).
 - The composer offers bridge completion candidates for `/` commands, command
-  arguments, `@` mentions and paths; Up/Down move, Tab/Right accept, Esc closes,
-  and Enter still sends the prompt.
+  arguments, `@` mentions and paths; Up/Down or Tab/Shift+Tab move, Right accepts,
+  Esc closes, and Enter still sends the prompt.
 - Reconnect to `/api/events` automatically with backoff; resync state on open.
 - A right-hand workbench column keeps a live Chrome/Chromium preview above a
   background-command panel. The browser streams real pages over SSE and forwards
   pointer, wheel, text and key input; the command panel mirrors the TUI's active
-  tabs, command line, output and Follow control. Chat and workbench split the
-  remaining width evenly, and header toggles hide the sidebar, chat, or workbench.
+  tabs, command line, output and Follow control. The workbench takes up all
+  remaining width beside the chat, and header toggles hide the sidebar, chat, or workbench.
   The tab strip scrolls horizontally without a visible scrollbar, offers new-tab
   and hover-close controls, and the browser, background, and workflows headers
   each collapse their own section when clicked. The column hides below 940px.
@@ -276,7 +279,7 @@ loopback.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers}` |
+| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers, launchOnStartup}` |
 | POST | `/api/browser/start` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser |
 | POST | `/api/browser/open` | `{url}` | 200 `{ok, ...snapshot}`; 400 empty/invalid; 503/409 if no browser |
 | POST | `/api/browser/action` | `{action: "back"|"forward"|"reload"|"stop"}` | 202 `{ok}`; 400 unknown action |
@@ -286,6 +289,8 @@ loopback.
 | POST | `/api/browser/file-chooser` | `{files}` or `{cancel: true}` | 200 `{ok, ...snapshot}`; attaches or dismisses an intercepted chooser |
 | POST | `/api/browser/download` | `{action: "open", id}` | 202 `{ok, ...snapshot}`; 404 unknown, 409 not-ready |
 | POST | `/api/browser/external` | `{url?}` | 202 `{ok, url}`; opens the system browser |
+| POST | `/api/browser/close` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser; stops it and clears the browser-harness endpoint |
+| POST | `/api/browser/close` | `{}` | 202 `{ok, ...snapshot}`; stops the bridge and closes a browser it launched |
 | POST | `/api/browser/drop` | `{x, y, files?, text?}` | 202 `{ok, ...snapshot}`; dispatches a drag/drop |
 | POST | `/api/browser/tab/new` | `{url?}` | 202 `{ok, ...snapshot}`; 400 bad url |
 | POST | `/api/browser/tab/close` | `{tabId}` | 202 `{ok, ...snapshot}`; 404 unknown tab |
@@ -355,10 +360,21 @@ stops the shared screencast. Screencast acks are coalesced and slow to about
 3 fps after 12 seconds without input; the next input restores quality 70 and
 about 25 fps.
 
-The panel includes an "Open in default browser" button
-(`POST /api/browser/external`) as the accessibility escape hatch: the canvas is
+The panel's vertical settings menu (`POST /api/browser/external` and
+`POST /api/browser/close`) is the accessibility escape hatch: the canvas is
 not readable by screen readers, so the same page can be opened in the user's
-regular browser.
+regular browser, or the mirrored browser can be closed. The menu's switch
+persists `browser.launch_on_startup` in `desktop.yml` through
+`POST /api/browser/config`, and the server starts the browser during launch
+when that setting is true. Closing also detaches every session from the shared
+browser-harness endpoint so later turns do not reconnect to a dead port.
+
+The light/dark choice is stored as the top-level `theme` key (`dark` or
+`light`) in `desktop.yml`. `GET /api/theme` returns the stored value or `null`,
+and `POST /api/theme` with `{theme}` persists it. The server injects the stored
+theme into the index page as `window.__CECLI_THEME__` so it applies before the
+first paint; the UI falls back to its cached theme or the system preference
+when the key is unset.
 
 `POST /api/background` with `{bridgeId?, action: "list"}` returns
 `{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns
@@ -381,8 +397,9 @@ can be disabled with `--no-terminal` or `CECLI_DESKTOP_TERMINAL=0`.
 - ACP stdin/stdout stay on their pipes. The terminal is a separate process with
   `cwd` set to the workspace. POSIX hosts use a `$SHELL -i` PTY with its own
   process group, so sudo prompts and interactive commands work. Other hosts use
-  a line-oriented pipe shell (`%COMSPEC%`/cmd.exe) where stdin can answer
-  ordinary prompts but there is no resize, job control, or TUI support.
+  a line-oriented pipe shell (`pwsh.exe`, then `powershell.exe`, then
+  `%COMSPEC%`/cmd.exe on Windows) where stdin can answer ordinary prompts
+  but there is no resize, job control, or TUI support.
 - `--terminal-shell` / `CECLI_DESKTOP_TERMINAL_SHELL` overrides the shell;
   `--no-terminal` / `CECLI_DESKTOP_TERMINAL=0` disables it.
 the existing WS helpers. Binary frames are `[uint64 big-endian seq][raw PTY
@@ -416,6 +433,21 @@ kept separate from the CLI config; writes go there atomically and preserve every
 unrelated key. Legacy `desktop.folders` lists in `~/.cecli/conf.yml` or the
 project-local `<workspace>/.cecli/conf.yml` are read only when desktop.yml has no
 folders. Other settings still merge global then project (project wins).
+
+The same file can carry desktop-only browser preferences:
+
+```yaml
+browser:
+  launch_on_startup: false
+```
+
+`browser.launch_on_startup` defaults to false and is toggled from the browser
+panel's settings menu. It only affects the next desktop launch.
+
+When `desktop.yml` has no top-level `key-bindings` mapping, the first
+`GET /api/workspaces` copies the whole `tui-config.key_bindings` mapping from
+the merged CLI config into it. An existing desktop mapping is never overwritten,
+so the desktop can adopt more TUI bindings over time without another source.
 `CECLI_DESKTOP_CONF_FILE`, `CECLI_DESKTOP_GLOBAL_CONF`, and
 `CECLI_DESKTOP_FOLDERS_FILE` override those paths (used by tests). When no
 folders are configured the server starts with zero sessions; `--workspace` only
@@ -423,7 +455,7 @@ establishes the allowed root and default cwd, it does not auto-open a session.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, desktopConfigPath, globalConfigPath, projectConfigPath}` |
+| GET | `/api/workspaces` | - | `{ok, workspaces, configPath, desktopConfigPath, globalConfigPath, projectConfigPath, keyBindings}` |
 | POST | `/api/workspaces` | `{path, name?, enable_on_startup?}` | 201 `{ok, workspace, bridgeId, sessions}` |
 | POST | `/api/workspaces/update` | `{path, name?, enable_on_startup?}` | 200 `{ok, workspace, bridgeId, sessions}` |
 | DELETE | `/api/workspaces` | `{path}` | 200 `{ok, closed, sessions}` |
@@ -484,18 +516,28 @@ required (400 otherwise). Relevant additions:
 | GET | `/api/state?bridgeId=...` | - | one bridge snapshot plus `sessions` |
 | POST | `/api/sessions` | `{cwd?, title?}` | 201 `{bridgeId, state}` |
 | POST | `/api/sessions/close` | `{bridgeId}` | 200 `{sessions}` |
-| POST | `/api/complete` | `{bridgeId?, text}` | 200 `{suggestions, descriptions, start}` |
+| POST | `/api/complete` | `{bridgeId?, text, agentSessionId?}` | 200 `{suggestions, descriptions, start}` |
 | GET | `/api/history?bridgeId=...` | - | `{messages, subagents}` conversation replay |
+| GET | `/api/session/panels?bridgeId=...` | - | `{agents, asides}` current todo lists and aside exchanges |
 | GET | `/api/prompt-history?bridgeId=...` | - | `{history}` composer recall entries, oldest first |
 | POST | `/api/details` | `{bridgeId}` | snapshot with registry lists |
 | POST | `/api/subagent/message` | `{bridgeId, sessionId, text}` | 200 `{result}` |
 | POST | `/api/subagent/cancel` | `{bridgeId, sessionId}` | 202 |
-| POST | `/api/skills|mcp|workflows|context` | `{bridgeId, action, name, ...}` | 200 `{result}` |
+| POST | `/api/skills|mcp|workflows|context` | `{bridgeId, action, name, agentSessionId?, ...}` | 200 `{result}` |
+
+`agentSessionId` optionally targets a child session for `complete` and
+`context.add|remove`; it defaults to the primary coder. The WebSocket commands
+`complete.get` and `context.add|remove` take the same parameter.
 
 Snapshots add `bridgeId`, `primary`, `title`, `activity`, `activityDetail`, `subagents`,
 `detailsSupported`, `skills`, `mcpServers`, `workflows`, `contextFiles`, and
 permission entries tagged with `bridgeId`. SSE `status`, `session`, `update`,
 `permission`, `details`, `subagents`, and `sessions` events also carry `bridgeId`.
+
+`contextFiles` entries are `{path, absolutePath, readOnly, kind, implicit}`. `kind`
+is `rules`, `context`, or `artifact`; `implicit` marks convention rules
+(`AGENTS.md`/`CLAUDE.md`) picked up without an explicit `/rules` entry.
+
 The primary parent cannot be closed, and a busy parent cannot be closed.
 Workflow runs execute as `/workflows run <name>` in the primary session rather
 than as a separate child session.

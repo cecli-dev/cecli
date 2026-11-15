@@ -6,8 +6,7 @@
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--color-base-300);
-  background: color-mix(in oklab, var(--color-base-100) 92%, transparent);
-  backdrop-filter: blur(18px);
+  background: var(--backdrop);
 }
 
 .sidebar-head {

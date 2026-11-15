@@ -21,6 +21,8 @@ export class AssistantTurn extends LitElement {
   constructor() {
     super();
     this._open_ids = new Set();
+    this._seen_edit_ids = new Set();
+    this._auto_opened_edits = false;
   }
 
   willUpdate() {
@@ -29,6 +31,30 @@ export class AssistantTurn extends LitElement {
     for (const part_id of this._open_ids) {
       if (!known_ids.has(part_id)) this._open_ids.delete(part_id);
     }
+
+    for (const part_id of this._seen_edit_ids) {
+      if (!known_ids.has(part_id)) this._seen_edit_ids.delete(part_id);
+    }
+
+    this._auto_opened_edits = false;
+
+    for (const part of this.item.parts) {
+      if (part.type !== 'diff' || this._seen_edit_ids.has(part.id)) continue;
+
+      this._seen_edit_ids.add(part.id);
+      this._open_ids.add(part.id);
+      this._auto_opened_edits = true;
+    }
+  }
+
+  updated() {
+    if (!this._auto_opened_edits) return;
+
+    this._auto_opened_edits = false;
+
+    this.dispatchEvent(
+      new CustomEvent('transcript-layout', { bubbles: true, composed: true }),
+    );
   }
 
   createRenderRoot() {
@@ -37,22 +63,24 @@ export class AssistantTurn extends LitElement {
 
   render() {
     const pills = this.item.parts.filter(is_pill_part);
+    const edits = pills.filter((part) => part.type === 'diff');
+    const tool_pills = pills.filter((part) => part.type !== 'diff');
     const content = this.item.parts.filter((part) => !is_pill_part(part));
 
     return html`
       <div class="msg msg--assistant" data-turn=${this.item.turn}>
         <div class="msg-body">
-          ${pills.length
+          ${tool_pills.length
             ? html`<div class="assistant-pills">
                 ${repeat(
-                  pills,
+                  tool_pills,
                   (part) => part.id,
                   (part) => this._render_pill(part),
                 )}
               </div>`
             : nothing}
           ${repeat(
-            pills.filter((part) => this._open_ids.has(part.id)),
+            tool_pills.filter((part) => this._open_ids.has(part.id)),
             (part) => `${part.id}-panel`,
             (part) => this._render_panel(part),
           )}
@@ -61,6 +89,22 @@ export class AssistantTurn extends LitElement {
             (part) => part.id,
             (part) => this._render_part(part),
           )}
+          ${edits.length
+            ? html`<div class="assistant-edits">
+                ${repeat(
+                  edits,
+                  (part) => part.id,
+                  (part) => html`
+                    <div class="assistant-edit">
+                      ${this._render_pill(part)}
+                      ${this._open_ids.has(part.id)
+                        ? this._render_panel(part)
+                        : nothing}
+                    </div>
+                  `,
+                )}
+              </div>`
+            : nothing}
         </div>
       </div>
     `;
@@ -141,7 +185,6 @@ export class AssistantTurn extends LitElement {
     if (part.type === 'diff') {
       return html`
         <div class="assistant-pill-panel">
-          <div class="pill-panel-head"><span>Edited ${part.file}</span></div>
           <div class="diff-panel">
             ${repeat(
               diff_lines(part.diff),

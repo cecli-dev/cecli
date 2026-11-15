@@ -12,10 +12,11 @@ references, delete operations, and ``@000`` empty-file markers.
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
+from cecli.helpers.conversation import ConversationService, MessageTag
 from cecli.tools import write_file
 
 
@@ -30,7 +31,7 @@ class DummyIO:
         self.outputs.append(str(msg))
         self._last_type = type
 
-    def read_text(self, path):
+    def read_text(self, path, silent=False):
         return Path(path).read_text()
 
     def _detect_newline(self, path):
@@ -742,3 +743,99 @@ def test_format_output_renders_created_text(tmp_path):
     output = preview_output(coder, edits)
 
     assert "+hello" in output
+
+
+class TestQueueTrackedDiff:
+    """WriteFile must report its own edits back through the diff channel."""
+
+    @staticmethod
+    def make_coder(file_diffs=True):
+        return SimpleNamespace(uuid="coder", file_diffs=file_diffs, io=Mock())
+
+    def test_skips_files_not_in_context(self):
+        """An untracked file has no baseline, so it must not be added."""
+        files = Mock()
+        files.is_tracked.return_value = False
+
+        with patch.object(ConversationService, "get_files", return_value=files):
+            write_file.Tool._queue_tracked_diff(self.make_coder(), "/tmp/readme.md")
+
+        files.update_file_diff.assert_not_called()
+
+    def test_queues_diff_for_tracked_file(self):
+        """A tracked file's edit is queued for the next prompt rebuild."""
+        files = Mock()
+        files.is_tracked.return_value = True
+
+        with patch.object(ConversationService, "get_files", return_value=files):
+            write_file.Tool._queue_tracked_diff(self.make_coder(), "/tmp/readme.md")
+
+        files.update_file_diff.assert_called_once_with("/tmp/readme.md", queue=True)
+
+    def test_skips_when_file_diffs_disabled(self):
+        """With --no-file-diffs the file block is reloaded, so no diff is queued."""
+        with patch.object(ConversationService, "get_files") as get_files:
+            write_file.Tool._queue_tracked_diff(self.make_coder(file_diffs=False), "/tmp/readme.md")
+
+        get_files.assert_not_called()
+
+    def test_skips_coder_without_conversation(self):
+        """Coders outside a conversation (plain dumps, previews) have no tracker."""
+        coder = SimpleNamespace(io=Mock())
+
+        with patch.object(ConversationService, "get_files") as get_files:
+            write_file.Tool._queue_tracked_diff(coder, "/tmp/readme.md")
+
+        get_files.assert_not_called()
+
+    def test_bookkeeping_failure_does_not_escape(self):
+        """A failed diff must not turn a successful edit into an error."""
+        files = Mock()
+        files.is_tracked.return_value = True
+        files.update_file_diff.side_effect = RuntimeError("boom")
+
+        with patch.object(ConversationService, "get_files", return_value=files):
+            write_file.Tool._queue_tracked_diff(self.make_coder(), "/tmp/readme.md")
+
+        files.update_file_diff.assert_called_once()
+
+    def test_execute_queues_conversation_diff(self, tmp_path):
+        """A successful edit reports itself back to the model as a diff."""
+        coder = DummyCoder(tmp_path)
+        coder.uuid = "write-file-diff-test"
+        coder.hashlines = False
+        coder.file_diffs = True
+
+        path = tmp_path / "example.py"
+        path.write_text("alpha\nbeta\n")
+
+        files = ConversationService.get_files(coder)
+        manager = ConversationService.get_manager(coder)
+        files.reset()
+        manager.reset()
+
+        try:
+            files.add_file(str(path.resolve()))
+
+            edits = [
+                {
+                    "file_path": str(path),
+                    "operation": "replace",
+                    "start_line": "alpha",
+                    "end_line": "alpha",
+                    "text": "gamma",
+                }
+            ]
+            result = write_file.Tool.execute(coder, edits=edits).to_dict()
+
+            assert result["errors"] == []
+
+            manager.flush_queue()
+
+            diffs = manager.get_messages_dict(MessageTag.DIFFS)
+
+            assert len(diffs) == 1
+            assert "has been updated" in diffs[0]["content"]
+            assert "+gamma" in diffs[0]["content"]
+        finally:
+            ConversationService.destroy_instances(coder.uuid)

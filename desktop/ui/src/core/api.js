@@ -68,6 +68,16 @@ export async function get_history(bridge_id) {
   return response.json();
 }
 
+/** GET one bridge's agent todos and aside exchanges. */
+export async function get_session_panels(bridge_id) {
+  const query = bridge_id ? `?bridgeId=${encodeURIComponent(bridge_id)}` : '';
+  const response = await fetch(`/api/session/panels${query}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`session panels request failed (${response.status})`);
+  return response.json();
+}
+
 /** GET one bridge's persisted prompt history, oldest entry first. */
 export async function get_prompt_history(bridge_id) {
   const query = bridge_id ? `?bridgeId=${encodeURIComponent(bridge_id)}` : '';
@@ -164,9 +174,15 @@ export async function get_copilot_status() {
 }
 
 /** POST composer text and return completion candidates. */
-export async function post_complete(bridge_id, text) {
+export async function post_complete(bridge_id, text, agent_session_id = null) {
   return post_json('/api/complete', {
     ...(bridge_id ? { bridgeId: bridge_id } : {}),
+    ...(agent_session_id ? { agentSessionId: agent_session_id } : {}),
     text,
   });
+}
+
+/** Paste an image from the desktop host clipboard into the chat. */
+export async function paste_clipboard(bridge_id) {
+  return post_json('/api/paste', bridge_id ? { bridgeId: bridge_id } : {});
 }

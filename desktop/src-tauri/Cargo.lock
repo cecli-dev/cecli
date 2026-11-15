@@ -308,6 +308,7 @@ dependencies = [
 name = "cecli-desktop"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "libc",
  "tauri",
  "tauri-build",
@@ -3249,6 +3250,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http",
+ "image",
  "jni",
  "libc",
  "log",

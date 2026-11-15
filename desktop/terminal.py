@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 import struct
 import subprocess
@@ -430,7 +431,7 @@ class PipeTerminalSession(TerminalSession):
             lock = self._write_lock = asyncio.Lock()
         async with lock:
             try:
-                process.stdin.write(data)
+                process.stdin.write(_pipe_newlines(data))
                 await process.stdin.drain()
             except (ConnectionError, OSError) as err:
                 raise TerminalError(409, f"terminal is not writable: {err}") from err
@@ -572,6 +573,21 @@ class ConPtyTerminalSession(PipeTerminalSession):
         self._mark_exit(code if code is not None else -1)
 
 
+def _default_shell() -> str:
+    """Pick the best available interactive shell.
+
+    Windows prefers PowerShell 7 (``pwsh.exe``), then Windows PowerShell 5.1
+    (``powershell.exe``), and only falls back to ``%COMSPEC%``/``cmd.exe``.
+    """
+    if os.name == "nt":
+        for candidate in ("pwsh.exe", "powershell.exe"):
+            found = shutil.which(candidate)
+            if found:
+                return found
+        return os.environ.get("COMSPEC") or "cmd.exe"
+    return os.environ.get("SHELL") or "/bin/sh"
+
+
 class TerminalManager:
     """Owns per-bridge terminal generations with retention and TTL."""
 
@@ -593,12 +609,7 @@ class TerminalManager:
         if not requested:
             requested = "pty" if os.name == "posix" else "pipe"
         self.backend = requested
-        if shell:
-            self.shell = shell
-        elif os.name == "posix":
-            self.shell = os.environ.get("SHELL") or "/bin/sh"
-        else:
-            self.shell = os.environ.get("COMSPEC") or "cmd.exe"
+        self.shell = shell or _default_shell()
         self.limit = limit
         self.exited_ttl = TERMINAL_EXITED_TTL
         self._terminals: dict[str, TerminalSession] = {}
@@ -635,7 +646,15 @@ class TerminalManager:
         ]
 
     def get_or_create(self, bridge_id: str, workspace: str) -> TerminalSession:
-        """Create or reuse a shell; ConPTY falls back to pipe on Windows only."""
+        """Reuse the bridge's live shell or create a new generation."""
+        session = self.get(str(bridge_id))
+        if session is not None and session.ended_at is None:
+            return session
+
+        return self.create(bridge_id, workspace)
+
+    def create(self, bridge_id: str, workspace: str) -> TerminalSession:
+        """Create a new shell for the workspace; ConPTY falls back to pipe."""
         conpty_fallback = False
         if self.backend == "conpty" and not self.available():
             if os.name != "nt":
@@ -650,9 +669,6 @@ class TerminalManager:
         if not workspace or not os.path.isdir(workspace):
             workspace = os.getcwd()
         bridge_key = str(bridge_id)
-        session = self.get(bridge_key)
-        if session is not None and session.ended_at is None:
-            return session
         retained = sum(1 for item in self._terminals.values() if str(item.bridge_id) == bridge_key)
         if retained >= TERMINAL_MAX_PER_BRIDGE:
             self._drop_expired()
@@ -709,7 +725,13 @@ class TerminalManager:
         self._terminals.pop(str(terminal_id), None)
         bridge_key = str(session.bridge_id)
         if self._latest.get(bridge_key) == str(terminal_id):
-            self._latest.pop(bridge_key, None)
+            remaining = [
+                key for key, item in self._terminals.items() if str(item.bridge_id) == bridge_key
+            ]
+            if remaining:
+                self._latest[bridge_key] = remaining[-1]
+            else:
+                self._latest.pop(bridge_key, None)
         await session.stop()
         return True
 
@@ -756,11 +778,25 @@ class TerminalManager:
             "shell": self.shell,
             "endedAt": None,
             "exitCode": None,
+            "terminals": self.terminals(bridge_id),
         }
         if session is not None:
             base.update(session.state())
             base["backend"] = self.backend
         return base
+
+
+def _pipe_newlines(data: bytes) -> bytes:
+    """Normalize bare carriage returns into CRLF for pipe shells.
+
+    ``cmd.exe`` reading from a pipe only treats a command as submitted once a
+    line feed arrives; a lone ``\r`` (what terminals send for Enter) is
+    silently swallowed, so commands appear to do nothing.
+    """
+
+    if b"\r" not in data:
+        return data
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\r\n")
 
 
 def _pipe_shell_command(shell: str) -> str:
@@ -770,7 +806,10 @@ def _pipe_shell_command(shell: str) -> str:
     if os.name == "nt":
         lowered = shell.lower()
         if lowered.endswith(("powershell.exe", "pwsh.exe")):
-            return f"{quoted} -NoLogo -NoProfile -NoExit -Command -"
+            # No ``-Command -``: with redirected stdin that flag disables the
+            # interactive loop, so PowerShell would print no prompt and never
+            # echo keystrokes. Running it plain keeps the console behaviour.
+            return f"{quoted} -NoLogo -NoProfile -NoExit"
         return f"{quoted} /Q /K"
     return quoted
 

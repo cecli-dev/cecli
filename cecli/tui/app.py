@@ -25,6 +25,7 @@ from cecli.decoding import safe_open
 from cecli.editor import pipe_editor
 from cecli.helpers import queues
 from cecli.helpers.agents.service import AgentService
+from cecli.helpers.completion import find_at_mention
 from cecli.helpers.coroutines import is_active
 from cecli.helpers.file_system import FileSystemService
 from cecli.io import CommandCompletionException
@@ -2140,16 +2141,12 @@ class TUI(App):
         commands = self.worker.coder.commands
         active_coder = AgentService.get_instance(self.worker.coder).foreground_coder
 
-        # Only return early for non-commands ending with space
-        # For commands, we want to allow completion with empty string partial
-        if len(text) and text[-1] == " " and not text.startswith("/"):
+        # Commands and open quoted mentions may legitimately contain spaces
+        mention = find_at_mention(text)
+        if mention is None and text.endswith(" ") and not text.startswith("/"):
             return
-
-        if "@" in text:
-            # Symbol completion triggered by @
-            # Find the @ and get the prefix after it
-            at_index = text.rfind("@")
-            prefix = text[at_index + 1 :]
+        if mention is not None:
+            _, prefix, _ = mention
             suggestions = self._get_symbol_completions(prefix)
         elif text.startswith("/"):
             # Command completion
@@ -2281,11 +2278,14 @@ class TUI(App):
                     prefix = current_text[: current_text.rfind(parts[-1])]
                     return prefix + completion
                 return parts[0] + " " + completion
-        elif "@" in current_text:
-            # Replace from @ onwards with the symbol
-            at_index = current_text.rfind("@")
-            return current_text[:at_index] + completion + " "
         else:
+            mention = find_at_mention(current_text)
+            if mention is not None:
+                at_index, _, quoted = mention
+                if quoted:
+                    return f'{current_text[:at_index]}@"{completion}" '
+                return current_text[:at_index] + completion + " "
+
             # Replace last word with completion
             words = current_text.rsplit(maxsplit=1)
             if len(words) > 1:

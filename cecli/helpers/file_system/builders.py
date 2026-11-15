@@ -56,12 +56,15 @@ class GitBuilder:
         Returns:
             List of staged file paths relative to root
         """
-        result = subprocess.check_output(
-            ["git", "diff", "--cached", "--name-only", "-z"],
-            cwd=root,
-            text=True,
-        )
-        return [p for p in result.split("\0") if p]
+        try:
+            result = subprocess.check_output(
+                ["git", "diff", "--cached", "--name-only", "-z"],
+                cwd=root,
+                text=True,
+            )
+            return [p for p in result.split("\0") if p]
+        except (subprocess.CalledProcessError, OSError):
+            return []
 
     @staticmethod
     def get_head_sha(root: str) -> str:
@@ -81,7 +84,7 @@ class GitBuilder:
                 text=True,
                 stderr=subprocess.DEVNULL,
             ).strip()
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, OSError):
             return ""
 
     @staticmethod

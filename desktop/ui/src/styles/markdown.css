@@ -8,6 +8,10 @@
   overflow-wrap: anywhere;
 }
 
+.md-pending {
+  white-space: pre-wrap;
+}
+
 .md > :first-child {
   margin-top: 0;
 }
@@ -24,7 +28,7 @@
 .md h2,
 .md h3 {
   margin: 22px 0 10px;
-  color: #0d0e10;
+  color: var(--text-strong);
   font-weight: 640;
   letter-spacing: -0.02em;
   line-height: 1.3;
@@ -35,7 +39,7 @@
 .md h3 { font-size: 1.1em; }
 
 .md strong {
-  color: #000000;
+  color: var(--text-strong);
   font-weight: 650;
 }
 
@@ -48,23 +52,23 @@
 }
 
 .md a {
-  color: #5b4bd8;
+  color: var(--accent-text);
   text-decoration: underline;
-  text-decoration-color: rgba(91, 75, 216, 0.35);
+  text-decoration-color: var(--accent-text-line);
   text-underline-offset: 2px;
 }
 
 .md a:hover {
-  color: #4636c4;
-  text-decoration-color: rgba(70, 54, 196, 0.7);
+  color: var(--accent-text-strong);
+  text-decoration-color: var(--accent-text-line-strong);
 }
 
 .md code {
   padding: 1px 5px;
-  border: 1px solid #e8e8ee;
+  border: 1px solid var(--code-border);
   border-radius: 6px;
-  color: #3b3b46;
-  background: #f5f5f8;
+  color: var(--code-text);
+  background: var(--code-bg);
   font-family: var(--font-mono);
   font-size: 0.88em;
 }
@@ -86,10 +90,10 @@
 .md blockquote {
   margin: 0 0 13px;
   padding: 8px 14px;
-  border-left: 2px solid #c9c2ff;
+  border-left: 2px solid var(--accent-line-strong);
   border-radius: 0 10px 10px 0;
   color: var(--text-dim);
-  background: #faf9ff;
+  background: var(--accent-tint-subtle);
 }
 
 .md blockquote p:last-child {
@@ -108,7 +112,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #f7f7f9;
+  background: var(--code-surface);
 }
 
 .code-head {
@@ -118,7 +122,7 @@
   gap: 10px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border);
-  background: #f2f2f5;
+  background: var(--code-header-bg);
 }
 
 .code-lang {
@@ -143,7 +147,7 @@
 .code-copy:hover {
   color: var(--text);
   border-color: var(--border-strong);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .code-block pre {
@@ -155,7 +159,7 @@
 .code-block code {
   padding: 0;
   border: 0;
-  color: #30313a;
+  color: var(--code-block-text);
   background: transparent;
   font-family: var(--font-mono);
   font-size: 12.8px;

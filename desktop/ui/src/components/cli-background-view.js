@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { open_cli_stream } from '../core/cli-api.js';
 import { CliStreamState } from '../core/cli-stream.js';
 import { TerminalWriteQueue } from '../core/terminal-write-queue.js';
+import { read_theme_color } from '../core/theme.js';
 
 const HIDDEN_CLOSE_MS = 5 * 60 * 1000;
 const RECONNECT_MS = 1000;
@@ -106,12 +107,7 @@ export class CliBackgroundView extends LitElement {
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 12,
       scrollback: 5000,
-      theme: {
-        background: '#0f1115',
-        foreground: '#e6e7eb',
-        cursor: '#e6e7eb',
-        selectionBackground: '#3a4a66',
-      },
+      theme: terminal_theme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -284,6 +280,15 @@ export class CliBackgroundView extends LitElement {
       }
     });
   }
+}
+
+function terminal_theme() {
+  return {
+    background: read_theme_color('--cli-surface', '#1b1e2b'),
+    foreground: read_theme_color('--cli-text', '#c6d0f5'),
+    cursor: read_theme_color('--cli-text', '#c6d0f5'),
+    selectionBackground: read_theme_color('--cli-selection', '#51576d'),
+  };
 }
 
 customElements.define('cli-background-view', CliBackgroundView);
