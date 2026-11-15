@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import platform
+import re
 import subprocess
 import sys
 from io import BytesIO
@@ -25,7 +26,7 @@ def run_cmd(command, verbose=False, error_print=None, cwd=None, should_print=Tru
         return 1, error_message
 
 
-def get_windows_parent_process_name(names=("powershell.exe", "cmd.exe")):
+def get_windows_parent_process_name(names=("pwsh.exe", "powershell.exe", "cmd.exe")):
     try:
         current_process = psutil.Process()
         while True:
@@ -44,7 +45,7 @@ def get_windows_parent_process_name(names=("powershell.exe", "cmd.exe")):
 def get_shell_info():
     """Return a human-readable description of the shell cecli is running in."""
     if platform.system() == "Windows":
-        parent_process = get_windows_parent_process_name(("powershell.exe", "pwsh.exe", "cmd.exe"))
+        parent_process = get_windows_parent_process_name()
         if parent_process in ("powershell.exe", "pwsh.exe"):
             return f"PowerShell ({parent_process})"
 
@@ -69,12 +70,7 @@ def run_cmd_subprocess(
         # Determine the appropriate shell
         if platform.system() == "Windows":
             parent_process = get_windows_parent_process_name()
-            if parent_process == "powershell.exe":
-                # Silence progress/error streams at the source to prevent CLIXML
-                silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
-                cmd_bytes = silenced_command.encode("utf-16-le")
-                encoded = base64.b64encode(cmd_bytes).decode()
-                command = f"powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
+            command = wrap_windows_powershell_command(command, parent_process)
         if verbose:
             print("Running command:", command)
             print("SHELL:", shell)
@@ -132,18 +128,14 @@ async def run_cmd_async(
     if verbose:
         print("Using run_cmd_async:", command)
 
+    raw_command = command
     shell = os.environ.get("SHELL", "/bin/sh")
     parent_process = None
 
     # Determine the appropriate shell
     if platform.system() == "Windows":
         parent_process = get_windows_parent_process_name()
-        if parent_process == "powershell.exe":
-            # Silence progress/error streams at the source to prevent CLIXML
-            silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
-            cmd_bytes = silenced_command.encode("utf-16-le")
-            encoded = base64.b64encode(cmd_bytes).decode()
-            command = f"powershell -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
+        command = wrap_windows_powershell_command(command, parent_process)
 
     if verbose:
         print("Running command:", command)
@@ -160,7 +152,7 @@ async def run_cmd_async(
             return await loop.run_in_executor(
                 None,
                 run_cmd_subprocess,
-                command,
+                raw_command,
                 verbose,
                 cwd,
                 encoding,
@@ -181,7 +173,7 @@ async def run_cmd_async(
         return await loop.run_in_executor(
             None,
             run_cmd_subprocess,
-            command,
+            raw_command,
             verbose,
             cwd,
             encoding,
@@ -312,3 +304,21 @@ def _clean_output(output):
             filtered.append(line)
         return "\n".join(filtered)
     return output
+
+
+def wrap_windows_powershell_command(command, parent_process):
+    """Wrap command for PowerShell (pwsh or Windows PowerShell) with CLIXML silenced."""
+    if parent_process not in ("pwsh.exe", "powershell.exe"):
+        return command
+    if re.match(
+        r'^\s*(?:"[^"]*(?:pwsh|powershell)(?:\.exe)?"|\S*(?:pwsh|powershell)(?:\.exe)?)\s+.*-EncodedCommand\s+',
+        command,
+        re.IGNORECASE,
+    ):
+        return command
+    exe = "pwsh" if parent_process == "pwsh.exe" else "powershell"
+    # Silence progress/error streams at the source to prevent CLIXML
+    silenced_command = f"$ProgressPreference='SilentlyContinue'; {command}"
+    cmd_bytes = silenced_command.encode("utf-16-le")
+    encoded = base64.b64encode(cmd_bytes).decode()
+    return f"{exe} -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}"
