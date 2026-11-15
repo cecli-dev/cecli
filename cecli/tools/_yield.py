@@ -188,7 +188,8 @@ class Tool(BaseTool):
                                 for info in refreshed_children
                                 if not info.independent
                                 and not info.detached
-                                and info.status not in (
+                                and info.status
+                                not in (
                                     SubAgentStatus.FINISHED,
                                     SubAgentStatus.ERROR,
                                 )

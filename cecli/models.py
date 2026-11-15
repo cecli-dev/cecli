@@ -1526,7 +1526,8 @@ class Model(ModelSettings):
                     continue
 
                 is_rate_limit = (
-                    ex_info.name in (
+                    ex_info.name
+                    in (
                         "RateLimitError",
                         "RouterRateLimitError",
                     )
