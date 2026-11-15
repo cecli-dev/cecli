@@ -344,7 +344,8 @@ class BridgeTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, replacement.parent, True)
         self.assertNotEqual(replacement, path)
         self.assertEqual(
-            [item["absolutePath"] for item in body["contextFiles"]], [str(replacement)]
+            [item["absolutePath"] for item in body["contextFiles"]],
+            [str(path), str(replacement)],
         )
 
     def test_session_panels_route(self) -> None:

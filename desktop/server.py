@@ -2292,7 +2292,6 @@ class DesktopServer:
                 return self._json(200, {"ok": True, "text": text})
             return self._json(404, {"ok": False, "error": "no image or text in clipboard"})
 
-        await self._remove_stale_pasted_image(bridge, path)
         try:
             result = await bridge.set_context("add", str(path))
         except BridgeError as err:
@@ -2307,19 +2306,6 @@ class DesktopServer:
                 "contextFiles": context_files if isinstance(context_files, list) else [],
             },
         )
-
-    async def _remove_stale_pasted_image(self, bridge: "AcpBridge", path: Path) -> None:
-        """Drop an earlier paste with the same basename, like the TUI /paste command."""
-        for item in bridge.details.get("contextFiles") or []:
-            existing = item.get("absolutePath") if isinstance(item, dict) else None
-            if not existing or item.get("readOnly"):
-                continue
-            if Path(existing).name != path.name or Path(existing) == path:
-                continue
-            try:
-                await bridge.set_context("remove", existing)
-            except BridgeError:
-                continue
 
     async def _new_session(self, body: bytes) -> tuple[int, bytes, str]:
         data = self._decode_json(body) if body else {}
@@ -4450,7 +4436,7 @@ def _write_pasted_image(encoded: str, mime_type: str) -> Path:
         raise ValueError("image data is empty")
 
     directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
-    path = directory / f"clipboard_image{suffix}"
+    path = directory / f"clipboard_image-{uuid.uuid4().hex}{suffix}"
     path.write_bytes(payload)
     return path
 
@@ -4462,7 +4448,7 @@ def _grab_clipboard_paste() -> tuple[Path | None, str]:
     image = PasteCommand._grab_clipboard_image(None)
     if image is not None and hasattr(image, "save"):
         directory = Path(tempfile.mkdtemp(prefix="cecli-paste-"))
-        path = directory / "clipboard_image.png"
+        path = directory / f"clipboard_image-{uuid.uuid4().hex}.png"
         image.save(path, "PNG")
         return path, ""
 

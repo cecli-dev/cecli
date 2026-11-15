@@ -110,7 +110,7 @@ All responses are JSON unless noted. Unknown paths return 404.
 | POST   | `/api/config`     | `{"configId": "mode", "value": "..."}`| 202 `{"ok": true}` |
 | GET    | `/api/theme`      | -                                      | 200 `{"ok": true, "theme": "dark"\|null}` |
 | POST   | `/api/theme`      | `{"theme": "dark"}`                   | 202 `{"ok": true, "theme": "dark"}`; 400 for an unsupported value |
-| POST   | `/api/paste`      | `{bridgeId?, data?, mimeType?}`        | 200 `{ok, path, contextFiles}` for an image; `{ok, text}` when the clipboard only has text; 404 when empty. Without `data` it reads the host clipboard like the TUI `/paste` command, saves the image to a temp file, and adds the path to the chat. |
+| POST   | `/api/paste`      | `{bridgeId?, data?, mimeType?}`        | 200 `{ok, path, contextFiles}` for an image; `{ok, text}` when the clipboard only has text; 404 when empty. Without `data` it reads the host clipboard like the TUI `/paste` command. Each image is saved to a uniquely named temp file and added to the chat, so multiple pastes accumulate instead of replacing one another. |
 | POST   | `/api/restart`    | -                                      | 202, kills and respawns the child |
 
 State snapshot:
