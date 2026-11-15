@@ -19,6 +19,7 @@ class TestSubAgentCoderOriginalKwargs:
         # Create a mock AgentCoder to act as from_coder
         mock_coder = MagicMock(spec=AgentCoder)
         mock_coder.uuid = "parent-uuid"
+        mock_coder.edit_format = "agent"
         mock_coder.args = MagicMock()
         mock_coder.args.max_reflections = 3
         mock_coder.args.max_tool_calls = 25
@@ -29,6 +30,27 @@ class TestSubAgentCoderOriginalKwargs:
         mock_coder.primary_root = "."
         mock_coder.repo = None
         mock_coder.original_kwargs = {}
+
+        # Instance attributes on a real coder that Coder.create() copies.
+        # They are set in __init__, so a class-specced MagicMock has no
+        # defaults for them.
+        mock_coder.abs_fnames = []
+        mock_coder.abs_read_only_fnames = []
+        mock_coder.abs_read_only_stubs_fnames = []
+        mock_coder.abs_rules_fnames = []
+        mock_coder.coder_commit_hashes = set()
+        mock_coder.commands = MagicMock()
+        mock_coder.ignore_mentions = set()
+        mock_coder.file_watcher = None
+        mock_coder.mcp_manager = MagicMock()
+        mock_coder.registered_tools = {"included": set(), "excluded": set()}
+        mock_coder.registered_servers = {"included": set(), "excluded": set()}
+        mock_coder.auto_memory = True
+        mock_coder.parent_uuid = None
+        mock_coder.summarizer = None
+        mock_coder.tui = None
+        mock_coder.prompt_queue = []
+        mock_coder._queue_counter = 0
 
         with patch("cecli.helpers.agents.service.AgentService") as MockService:
             mock_instance = MagicMock()
