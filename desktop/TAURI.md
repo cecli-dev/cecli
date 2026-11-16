@@ -394,7 +394,7 @@ PyPI, so an rc build needs the matching `cecli-dev` rc published first.
    `server.py` are present; `CECLI_DESKTOP_UV` overrides the uv path.
 2. `ensure_runtime` provisions `<runtime>/<spec>/` when `.cecli-ready` is
    missing or names a different spec: `uv venv --python 3.12 --managed-python`
-   followed by `uv pip install --python <venv>/bin/python <spec>`.
+   followed by `uv pip install --native-tls --python <venv>/bin/python <spec>`.
    `UV_PYTHON_INSTALL_DIR` points at `<runtime>/python`, so deleting the
    runtime directory also removes CPython.
 3. The bridge runs from the provisioned interpreter with

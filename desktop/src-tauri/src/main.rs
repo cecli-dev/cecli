@@ -470,6 +470,8 @@ fn provision_runtime(
     install
         .arg("pip")
         .arg("install")
+        // --native-tls: trust the OS store so corporate TLS interception does not fail.
+        .arg("--native-tls")
         .arg("--python")
         .arg(python)
         .arg("--no-progress")
