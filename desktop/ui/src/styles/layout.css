@@ -33,6 +33,34 @@
   display: none;
 }
 
+.workspace-shell[data-workbench-collapsed='true'] .chat-panel {
+  flex: 1 1 0;
+}
+
+.workspace-shell[data-workbench-collapsed='true'] .transcript-frame,
+.workspace-shell[data-workbench-collapsed='true'] .transcript,
+.workspace-shell[data-workbench-collapsed='true'] .msg,
+.workspace-shell[data-workbench-collapsed='true'] .permission-region,
+.workspace-shell[data-workbench-collapsed='true'] .permission-card,
+.workspace-shell[data-workbench-collapsed='true'] .composer-dock {
+  max-width: none;
+}
+
+@media (max-width: 940px) {
+  .chat-panel {
+    flex: 1 1 0;
+  }
+
+  .transcript-frame,
+  .transcript,
+  .msg,
+  .permission-region,
+  .permission-card,
+  .composer-dock {
+    max-width: none;
+  }
+}
+
 @media (max-width: 940px) {
   .workspace-shell[data-chat-collapsed='true'] .chat-panel {
     display: flex;
