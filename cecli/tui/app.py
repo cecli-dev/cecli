@@ -82,6 +82,8 @@ class TUI(App):
     def __init__(self, coder_worker, output_queue, input_queue, args):
         """Initialize the cecli TUI app."""
         super().__init__()
+
+        patch_textual_kitty_alt_modifier()
         self.worker = coder_worker
         self.output_queue = output_queue
         self.input_queue = input_queue
@@ -2453,6 +2455,74 @@ class TUI(App):
             file_list.update_files()
         except Exception:
             pass
+
+
+def patch_textual_kitty_alt_modifier():
+    """Restore the alt modifier for Kitty keys that report associated text.
+
+    Textual drops ``alt`` from the key name whenever a Kitty protocol sequence
+    includes the associated-text field. That makes bindings such as ``alt+v``
+    unreachable on terminals that enable the protocol (Windows Terminal,
+    WezTerm, kitty, ...). Re-add the modifier after Textual parses the sequence.
+    """
+    from functools import lru_cache
+
+    from textual import events
+
+    try:
+        from textual._xterm_parser import (
+            XTermParser,
+            _character_to_key,
+            _re_extended_key,
+        )
+    except ImportError:
+        return
+
+    if getattr(XTermParser, "_cecli_kitty_alt_patched", False):
+        return
+
+    original_parse = XTermParser._parse_extended_key
+
+    def parse_extended_key(self, sequence):
+        keys = original_parse(self, sequence)
+
+        if not keys:
+            return keys
+
+        match = _re_extended_key.fullmatch(sequence)
+
+        if match is None:
+            return keys
+
+        codes, _ = match.groups()
+        parts = codes.split(";")
+
+        if len(parts) < 3 or not parts[2]:
+            return keys
+
+        try:
+            modifier_bits = int(parts[1].split(":")[0]) - 1
+            base_char = chr(int(parts[0].split(":")[0]))
+        except (TypeError, ValueError):
+            return keys
+
+        if not modifier_bits & 2 or not base_char.isprintable() or base_char.isspace():
+            return keys
+
+        modifiers = ["shift"] if modifier_bits & 1 else []
+
+        for bit, modifier in enumerate(("alt", "ctrl", "super", "hyper", "meta"), 1):
+            if modifier_bits & (1 << bit):
+                modifiers.append(modifier)
+
+        modifiers.sort()
+        key = "+".join([*modifiers, _character_to_key(base_char)])
+        character = keys[0].character if len(keys) == 1 else None
+
+        return [events.Key(key, character)]
+
+    XTermParser._parse_extended_key = lru_cache(maxsize=1024)(parse_extended_key)
+    XTermParser._cecli_kitty_alt_patched = True
 
 
 def patch_color_name_to_rgb():

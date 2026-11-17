@@ -53,3 +53,22 @@ def test_bind_key_can_register_non_priority_binding(tui_instance):
     bindings = tui_instance._bindings.key_to_bindings["enter"]
     assert bindings
     assert not any(binding.priority for binding in bindings)
+
+
+def test_kitty_alt_modifier_is_restored_for_associated_text():
+    """Kitty sequences with associated text must keep the alt modifier."""
+    from textual._xterm_parser import XTermParser
+
+    from cecli.tui.app import patch_textual_kitty_alt_modifier
+
+    patch_textual_kitty_alt_modifier()
+
+    parser = XTermParser()
+    keys = list(parser._sequence_to_key_events("\x1b[118;3;118u"))
+    assert [(key.key, key.character) for key in keys] == [("alt+v", "v")]
+
+    keys = list(parser._sequence_to_key_events("\x1b[118;4;86u"))
+    assert [(key.key, key.character) for key in keys] == [("alt+shift+v", "V")]
+
+    keys = list(parser._sequence_to_key_events("\x1b[118;3u"))
+    assert [(key.key, key.character) for key in keys] == [("alt+v", None)]
