@@ -1,8 +1,9 @@
 """Tests for execute_workflow and per-step post_run routing. No real LLM calls."""
 
+import json
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -406,7 +407,9 @@ async def test_worker_session_archived_to_run_outputs(coder):
         result = await _execute(service, _wf(TaskConfig(prompt="x")), coder, run_id=4)
 
     assert result.status == "ok"
-    bp.assert_called_once()
+    assert bp.call_count == 2
+    assert bp.call_args.kwargs["workflow"]["status"] == "ok"
+    assert bp.call_args_list[0].kwargs["workflow"]["status"] == "running"
     assert bp.call_args.kwargs.get("agent_name") == "wf:demo"
     path = wp.call_args.args[2]
     assert path.name == "session.json"
@@ -510,3 +513,55 @@ async def test_switch_coder_mid_run_preserves_remaining_queue(coder):
     assert service.new_worker.received == ["middle", "end"]
     assert service.new_worker.prompt_queue == []
     assert [t.status for t in result.tasks] == ["ok", "ok", "ok"]
+
+
+@pytest.mark.asyncio
+async def test_interrupted_run_resumes_at_recorded_step(coder):
+    worker = make_worker()
+    worker.args = None
+    coder.args = None
+    service = FakeService(worker)
+    wf = _wf(
+        TaskConfig(prompt="start", name="start"),
+        TaskConfig(prompt="middle", name="middle"),
+        TaskConfig(prompt="end", name="end"),
+    )
+
+    from cecli.helpers.workflows import outputs
+
+    session_path = outputs.run_output_dir(wf.name, 3, "2026-01-01T00:00:00+00:00") / "session.json"
+    session_path.write_text(
+        json.dumps(
+            {
+                "workflow": {
+                    "name": wf.name,
+                    "status": "running",
+                    "definition_hash": wf.definition_hash(),
+                    "step": "middle",
+                    "prompt": "OVERRIDE",
+                    "statuses": {"start": ["ok", "done"]},
+                    "pid": 999999,
+                    "host": "elsewhere",
+                    "updated_at": "2026-01-01T00:00:00+00:00",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch(
+            "cecli.helpers.sessions.payload.apply_payload",
+            new=AsyncMock(return_value=(True, None)),
+        ),
+        patch("cecli.helpers.conversation.service.ConversationService.get_chunks"),
+        patch("cecli.helpers.sessions.payload.build_payload", return_value={"ok": True}),
+    ):
+        result = await _execute(service, wf, coder, run_id=4)
+
+    assert result.status == "ok"
+    assert result.resumed_from == "middle"
+    assert worker.received == ["OVERRIDE", "end"]
+    assert [t.status for t in result.tasks] == ["ok", "ok", "ok"]
+    saved = json.loads(session_path.read_text(encoding="utf-8"))
+    assert saved["workflow"]["status"] == "resumed"

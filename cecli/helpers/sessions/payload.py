@@ -9,7 +9,9 @@ from cecli import models
 from cecli.helpers.conversation import ConversationService, MessageTag
 
 
-def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None) -> Dict:
+def build_payload(
+    coder, io, session_name: str, agent_name: Optional[str] = None, workflow: Optional[Dict] = None
+) -> Dict:
     """Build a session payload dictionary from a coder's current state.
 
     ``agent_name`` is the sub-agent type when saving a sub-agent and ``None``
@@ -79,6 +81,9 @@ def build_payload(coder, io, session_name: str, agent_name: Optional[str] = None
             "total_cost": coder.total_cost,
         },
     }
+
+    if workflow is not None:
+        payload["workflow"] = workflow
 
     return payload
 

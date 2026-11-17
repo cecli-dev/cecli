@@ -42,11 +42,16 @@ def save_output(
     return str(path)
 
 
+def workflow_output_dir(wf_name: str) -> Path:
+    """Directory holding every run's artifacts for *wf_name*."""
+    return outputs_root() / _safe(wf_name)
+
+
 def run_output_dir(
     wf_name: str, run_id: Optional[int] = None, started_at: Optional[str] = None
 ) -> Path:
     """The persistent directory for one run's artifacts (created on demand)."""
-    directory = outputs_root() / _safe(wf_name) / _run_key(run_id, started_at)
+    directory = workflow_output_dir(wf_name) / _run_key(run_id, started_at)
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
