@@ -159,6 +159,11 @@ export async function get_directory_suggestions(path) {
   return get_json(`/api/fs/dirs${query}`);
 }
 
+/** Create a missing directory for the workspace path input. */
+export async function create_directory(path) {
+  return post_json('/api/fs/mkdir', { path });
+}
+
 /** GET onboarding status and provider options. */
 export async function get_onboarding_status() {
   return get_json('/api/onboarding/status');

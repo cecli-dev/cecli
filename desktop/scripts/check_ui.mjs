@@ -17,7 +17,7 @@ try {
 }
 
 if (actual !== expected) {
-  console.error('static/ is stale; run `npm run ui:build` and commit the output');
+  console.error('static/ is stale; run `npm run ui:build`');
   process.exit(1);
 }
 
@@ -30,7 +30,7 @@ if (!existsSync(index_path)) {
 }
 
 const page = readFileSync(index_path, 'utf8');
-for (const match of page.matchAll(/\/static\/(assets\/[^"']+)/g)) {
+for (const match of page.matchAll(/\/static\/(assets\/[^"'?]+)/g)) {
   if (!existsSync(join(static_root, match[1]))) {
     console.error(`static/${match[1]} is missing; run \`npm run ui:build\``);
     process.exit(1);

@@ -19,9 +19,9 @@ python3 desktop/server.py --workspace /path/to/your/project
 ```
 
 Then open <http://127.0.0.1:8765>. The workspace defaults to the current
-directory, and that directory is the project the agent edits. A built UI ships
-in `static/`; after changing `ui/`, rebuild it with `cd desktop && npm install &&
-npm run ui:build`.
+directory, and that directory is the project the agent edits. The UI in `static/`
+is generated and not committed; build it first with `cd desktop && npm install &&
+npm run ui:build` (or run `npm run dev`, which builds it automatically).
 
 Useful flags:
 
@@ -153,7 +153,7 @@ duplicate state updates.
 - A working `cecli` installation and whatever API keys your normal `cecli`
   session uses.
 - Node 20.19+ or 22.12+ and npm only when rebuilding the UI or the Tauri app.
-  The Python bridge and the committed `static/` output need no Node at runtime.
+  The Python bridge and the generated `static/` output need no Node at runtime.
 - The optional terminal panel runs a shell in the workspace. POSIX hosts use a
   PTY (`$SHELL -i`), so sudo prompts and interactive commands work; Windows and
   no resize or TUI support. It is enabled by default on loopback; disable it
@@ -176,6 +176,7 @@ duplicate state updates.
 cd desktop
 npm install
 npm run ui:build        # Vite -> desktop/static
+npm run ui:build:stable # opt-in: stable index.js/index.css names
 npm run ui:dev          # optional: Vite dev server, proxies /api to :8765
 npm run ui:check        # fail if static/ does not match ui/ sources
 npm run test:ui         # node:test reducers, snapshots, session actions
@@ -186,13 +187,19 @@ python3 desktop/tests/test_bridge.py -v   # 22 tests, fake ACP agent, no model c
 
 `npm run ui:dev` serves `ui/` on Vite's port and proxies `/api` to an already
 running bridge at <http://127.0.0.1:8765>; production always uses the Vite
-build in `static/`. Run `npm run ui:check` before committing UI changes: it
-compares the source hash recorded by the last build and exits non-zero if
-`static/` is stale.
+build in `static/`. Run `npm run ui:check` to confirm the last build matches
+the current `ui/` sources; it compares the recorded source hash and exits
+non-zero when `static/` is stale.
 
-`ui/` is the only hand-edited frontend source; `static/index.html` and the
-content-hashed `static/assets/` bundles are build output. The build records a
-hash of `ui/` plus `package.json` in `static/.build-hash`, so `npm run ui:check`
+`npm run ui:build:stable` emits `static/assets/index.js` and `index.css` instead
+of new `index-<hash>` files on every source change. It still adds a
+`?v=<source-hash>` query to the references in `static/index.html`, so browsers
+do not serve a stale bundle from the immutable asset cache. Use it for repeated
+local builds; release builds keep the default content-hashed filenames.
+
+`ui/` is the only hand-edited frontend source; `static/` is generated build
+output and is ignored by git. The build records a hash of `ui/` plus
+`package.json` in `static/.build-hash`, so `npm run ui:check`
 catches a forgotten rebuild. The bridge denies dotfiles, so that hash file is
 never served.
 

@@ -1819,6 +1819,8 @@ class DesktopServer:
         if path.startswith("/api/terminal/"):
             return await self._terminal_route(path[len("/api/terminal/") :], body)
 
+        if path == "/api/fs/mkdir":
+            return self._make_directory(body)
         if path == "/api/workspaces":
             return await self._add_workspace(body)
         if path == "/api/workspaces/update":
@@ -1920,6 +1922,8 @@ class DesktopServer:
                     "parent": parent,
                     "prefix": prefix,
                     "separator": os.sep,
+                    "exists": os.path.exists(expanded),
+                    "isDir": os.path.isdir(expanded),
                     "entries": [],
                     "truncated": False,
                 },
@@ -1944,10 +1948,35 @@ class DesktopServer:
                 "parent": parent,
                 "prefix": prefix,
                 "separator": os.sep,
+                "exists": os.path.exists(expanded),
+                "isDir": os.path.isdir(expanded),
                 "entries": entries,
                 "truncated": truncated,
             },
         )
+
+    def _make_directory(self, body: bytes) -> tuple[int, bytes, str]:
+        """Create a missing folder, including parents, for a new workspace."""
+        data = self._decode_json(body)
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON"})
+        path = data.get("path")
+        if not isinstance(path, str) or not path.strip():
+            return self._json(400, {"ok": False, "error": "path is required"})
+
+        target = os.path.expandvars(os.path.expanduser(path.strip()))
+        if not os.path.isabs(target):
+            base = getattr(self.sessions, "default_workspace", os.getcwd())
+            target = os.path.join(base, target)
+        target = os.path.abspath(target)
+        try:
+            os.makedirs(target, exist_ok=True)
+        except OSError as err:
+            return self._json(400, {"ok": False, "error": f"Could not create folder: {err}"})
+
+        if not os.path.isdir(target):
+            return self._json(400, {"ok": False, "error": f"Path is not a folder: {target}"})
+        return self._json(200, {"ok": True, "path": target})
 
     async def _add_workspace(self, body: bytes) -> tuple[int, bytes, str]:
         """Validate and persist a folder, then start its session."""

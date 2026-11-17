@@ -131,7 +131,7 @@ desktop/
   scripts/check_ui.mjs      fails when static/ is stale or incomplete
   scripts/gen_icons.py      renders the PNG/ICO/ICNS icons from the favicon SVG
   server.py                 the bridge the shell launches (unchanged)
-  static/                   Vite build output served by the bridge
+  static/                   Vite build output (generated, git-ignored)
   tests/                    bridge tests with a fake ACP agent
   src-tauri/
     Cargo.toml              tauri 2, serde, serde_json; rust-version 1.77.2

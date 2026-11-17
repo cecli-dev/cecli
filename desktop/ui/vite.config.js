@@ -8,6 +8,17 @@ import { defineConfig } from 'vite';
 import { build_hash_path, source_hash } from './build-hash.mjs';
 
 const ui_root = dirname(fileURLToPath(import.meta.url));
+
+const stable_asset_plugin = {
+  name: 'cecli-stable-assets',
+  apply: 'build',
+  enforce: 'post',
+  transformIndexHtml(html) {
+    const version = source_hash(ui_root);
+    return html.replace(/(\/static\/assets\/[^"'?]+\.(?:js|css))/g, `$1?v=${version}`);
+  },
+};
+
 const build_hash = {
   name: 'cecli-build-hash',
   apply: 'build',
@@ -16,10 +27,10 @@ const build_hash = {
   },
 };
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
   root: ui_root,
   base: command === 'serve' ? '/' : '/static/',
-  plugins: [tailwindcss(), build_hash],
+  plugins: [tailwindcss(), ...(mode === 'stable' ? [stable_asset_plugin] : []), build_hash],
   server: {
     proxy: {
       // Keep the browser origin intact so the bridge's Origin/Host check passes.
@@ -41,5 +52,16 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     assetsDir: 'assets',
     target: 'es2022',
+    ...(mode === 'stable'
+      ? {
+          rollupOptions: {
+            output: {
+              entryFileNames: 'assets/index.js',
+              chunkFileNames: 'assets/[name].js',
+              assetFileNames: 'assets/[name][extname]',
+            },
+          },
+        }
+      : {}),
   },
 }));

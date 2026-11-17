@@ -10,6 +10,7 @@
     "build": "node scripts/run_tauri.mjs build",
     "ui:dev": "vite --config ui/vite.config.js",
     "ui:build": "vite build --config ui/vite.config.js",
+    "ui:build:stable": "vite build --config ui/vite.config.js --mode stable",
     "ui:watch": "vite build --config ui/vite.config.js --watch",
     "ui:check": "node scripts/check_ui.mjs",
     "test:ui": "node --test ui/tests/*.test.js",
