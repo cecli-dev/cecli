@@ -258,6 +258,23 @@ mcp-servers:
       ]
 ```
 
+### SpecStream (Paid Service)
+
+SpecStream MCP connects cecli to live web search, page extraction, and structured web research with source URLs and read times for every value.
+
+**Free sign-up credit.** New accounts start with $10 of credit (no card required). Beyond that, usage is pay-as-you-go with a quoted maximum approved before any run starts (see [pricing](https://specstream.ai/pricing) and the [MCP docs](https://specstream.ai/docs/mcp)).
+
+```yaml
+mcp-servers:
+  mcpServers:
+    specstream:
+      transport: http
+      url: https://api.specstream.ai/mcp
+      # Sign in with OAuth on first connect, or pass an API key:
+      # headers:
+      #   Authorization: "Bearer <your SPECSTREAM_API_KEY>"
+```
+
 ### You.com Search (Paid Service)
 
 You.com MCP provides live web and news search with LLM-ready results, useful when the model needs current information — release notes, library docs, error messages — beyond its training cutoff, and as the search complement to `/web` (search first, then scrape the best result).
