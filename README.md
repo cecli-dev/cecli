@@ -11,6 +11,7 @@
 [Documentation](https://cecli.dev/docs/)
 [Discord Chat](https://discord.gg/AX9ZEA7nJn)
 [Issue Queue](https://github.com/cecli-dev/cecli/issues)
+[Code Signing Policy](CODE_SIGNING_POLICY.md)
 
 
 ## Installation Instructions
@@ -478,3 +479,8 @@ Use the tool installation so cecli doesn't interfere with your development envir
 </tr>
 </tbody>
 </table>
+
+
+## License
+
+Apache License 2.0. See [LICENSE.txt](LICENSE.txt).

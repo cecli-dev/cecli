@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Default artifact configuration for the cecli desktop Windows NSIS installer.
+     product-name must match "productName" in desktop/src-tauri/tauri.conf.json.
+     ce_ is the UI brand; the packaged product is named cecli and the bundled
+     executable is ce-underscore.
+     Keep this in sync with the "Initial version" configuration in SignPath. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <pe-file product-name="cecli" product-version="${version}">
+    <authenticode-sign />
+  </pe-file>
+</artifact-configuration>

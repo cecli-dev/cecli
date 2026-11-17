@@ -1,8 +1,8 @@
 {
-  "name": "cecli-desktop",
+  "name": "ce-underscore",
   "private": true,
   "version": "0.1.0",
-  "description": "Tauri v2 shell for the cecli desktop bridge and UI",
+  "description": "Tauri v2 shell for the ce-underscore bridge and UI",
   "type": "module",
   "scripts": {
     "tauri": "node scripts/run_tauri.mjs",

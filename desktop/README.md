@@ -1,4 +1,4 @@
-# cecli desktop
+# ce-underscore
 
 A local, clean chat interface for [cecli](../README.md). The browser
 talks to a tiny Python bridge on localhost, and the bridge talks to a real

@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def fetch(url: str, destination: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "cecli-desktop-build"})
+    request = urllib.request.Request(url, headers={"User-Agent": "ce-underscore-build"})
 
     with urllib.request.urlopen(request) as response, destination.open("wb") as handle:
         shutil.copyfileobj(response, handle)

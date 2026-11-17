@@ -31,6 +31,18 @@ wget -qO- https://cecli.dev/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://cecli.dev/install.ps1 | iex"
 ```
 
+## Desktop app
+
+The `ce-underscore` application wraps cecli in a native window and drives it over the Agent Client Protocol. Installers are built from the same release tag as the CLI, so the app version matches the tag, and the cecli runtime it installs on first launch is pinned to that same version (for example `v0.1.0`).
+
+| Platform | Installer |
+| --- | --- |
+| Windows (x64) | [ce-underscore-windows-x64-setup.exe](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-windows-x64-setup.exe) |
+| macOS (Apple Silicon) | [ce-underscore-macos-arm64.dmg](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-macos-arm64.dmg) |
+| Linux (x64) | [AppImage](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.AppImage) · [deb](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.deb) · [rpm](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.rpm) |
+
+See [all releases and binaries](https://github.com/cecli-dev/cecli/releases) for older versions. Windows installers are Authenticode-signed; see the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md).
+
 ## Install with uv
 
 You can install cecli with uv:
@@ -111,6 +123,10 @@ cecli --terminal-setup
 ```
 
 On first run to configure keybindings for the program (notably `shift+enter`). Support for terminals is ongoing so feel free to make a github issue or chat in the discord for us to figure out what's needed to support automatically setting up a given terminal.
+
+## Code signing policy
+
+Windows installers distributed through GitHub releases are Authenticode-signed. Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpathfoundation.org/). See the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md) for team roles, signing scope, and the privacy policy.
 
 ## Next steps...
 

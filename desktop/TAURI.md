@@ -1,4 +1,4 @@
-# cecli desktop: Tauri v2 shell
+# ce-underscore: Tauri v2 shell
 
 A Tauri v2 wrapper that turns the local bridge into a normal desktop window.
 The Rust shell starts `desktop/server.py` on a free loopback port, waits for it
@@ -533,7 +533,7 @@ What was verified in this tree:
 
 - `cargo fmt --check` and `cargo check --manifest-path src-tauri/Cargo.toml`
 - `cargo build --manifest-path src-tauri/Cargo.toml` produced
-  `src-tauri/target/debug/cecli-desktop`
+  `src-tauri/target/debug/ce-underscore`
 - a 15-second launch smoke test opened the window, started the Python bridge,
   and reached a real `cecli --acp` session
 - `npm run ui:build` (Vite: 50 modules -> hashed `static/assets/index-*.js` and

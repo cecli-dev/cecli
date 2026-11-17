@@ -376,6 +376,7 @@ fn configure_bridge(command: &mut Command, workspace: &Path, port: u16, cecli: O
 /// Prefer the `cecli` shipped next to the app over whatever is on PATH.
 fn bundled_cecli() -> Option<String> {
     let name = cecli_binary_name();
+    let current_exe = env::current_exe().ok();
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Some(dir) = current_exe_dir() {
@@ -389,7 +390,7 @@ fn bundled_cecli() -> Option<String> {
 
     candidates
         .into_iter()
-        .find(|path| path.is_file())
+        .find(|path| path.is_file() && Some(path.as_path()) != current_exe.as_deref())
         .map(|path| path.display().to_string())
 }
 
