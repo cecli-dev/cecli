@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- Default artifact configuration for the cecli desktop Windows NSIS installer.
+     actions/upload-artifact delivers the installer as a ZIP, so the root element
+     must be zip-file with the PE file nested inside.
      product-name must match "productName" in desktop/src-tauri/tauri.conf.json.
      ce_ is the UI brand; the packaged product is named cecli and the bundled
      executable is ce-underscore.
@@ -8,7 +10,9 @@
   <parameters>
     <parameter name="version" required="true" />
   </parameters>
-  <pe-file product-name="cecli" product-version="${version}">
-    <authenticode-sign />
-  </pe-file>
+  <zip-file>
+    <pe-file path="*.exe" product-name="cecli" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
 </artifact-configuration>
