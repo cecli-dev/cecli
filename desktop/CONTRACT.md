@@ -261,6 +261,11 @@ loopback.
   browser leaves its window state untouched.
   The mode is resolved per launch and persists no window setting; attaching to
   an existing browser leaves its window state untouched.
+- Theme: the bridge follows the desktop light/dark theme. Dark launches add
+  `--force-dark-mode`; both directions are enforced on every attached page with
+  `Emulation.setEmulatedMedia` for `prefers-color-scheme`, so `POST /api/theme`
+  updates the live page without a relaunch. An unset theme clears the override
+  and follows the system preference.
 - Launch: detached with `--remote-debugging-port`, `--user-data-dir`,
   `--no-first-run`, `--no-default-browser-check`, the window flags for the
   resolved mode, and the background-throttling disable flags, then `about:blank`.
@@ -279,7 +284,7 @@ loopback.
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
-| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers, launchOnStartup}` |
+| GET | `/api/browser/state` | - | 200 `{ok, available, running, browser, executable, windowMode, theme, profile, port, cdpUrl, url, title, error, viewport, frames, subscribers, launchOnStartup}` |
 | POST | `/api/browser/start` | `{}` | 202 `{ok, ...snapshot}`; 503 if no browser |
 | POST | `/api/browser/open` | `{url}` | 200 `{ok, ...snapshot}`; 400 empty/invalid; 503/409 if no browser |
 | POST | `/api/browser/action` | `{action: "back"|"forward"|"reload"|"stop"}` | 202 `{ok}`; 400 unknown action |
@@ -375,6 +380,9 @@ and `POST /api/theme` with `{theme}` persists it. The server injects the stored
 theme into the index page as `window.__CECLI_THEME__` so it applies before the
 first paint; the UI falls back to its cached theme or the system preference
 when the key is unset.
+The browser bridge receives the same value at startup and applies it to the
+preview page with `Emulation.setEmulatedMedia`, so the page's
+`prefers-color-scheme` matches the desktop UI in both directions.
 
 `POST /api/background` with `{bridgeId?, action: "list"}` returns
 `{ok, commands}`; with `{bridgeId?, action: "output", key}` it returns

@@ -39,6 +39,7 @@ from browser_bridge import (  # noqa: E402
     _normalize_upload_files,
     _resolve_window_mode,
     _safe_filename,
+    _theme_flags,
     _wheel_params,
     _window_flags,
     find_browser,
@@ -277,6 +278,53 @@ class WindowModeTests(unittest.TestCase):
                 kwargs = popen.call_args.kwargs
                 self.assertTrue(kwargs.get("start_new_session"))
                 self.assertTrue(callable(kwargs.get("preexec_fn")))
+
+
+class ThemeTests(unittest.IsolatedAsyncioTestCase):
+    def test_theme_flags_only_force_dark(self) -> None:
+        self.assertEqual(_theme_flags("dark"), ["--force-dark-mode"])
+        self.assertEqual(_theme_flags("light"), [])
+        self.assertEqual(_theme_flags(None), [])
+
+    def test_launch_args_include_theme_flag(self) -> None:
+        dark = _launch_args("/usr/bin/chrome", 9222, "/tmp/profile", "headless", "dark")
+        self.assertIn("--force-dark-mode", dark)
+
+        light = _launch_args("/usr/bin/chrome", 9222, "/tmp/profile", "headless", "light")
+        self.assertNotIn("--force-dark-mode", light)
+
+    def test_snapshot_normalizes_the_theme(self) -> None:
+        self.assertEqual(BrowserBridge(theme="dark").snapshot()["theme"], "dark")
+        self.assertIsNone(BrowserBridge(theme="banana").snapshot()["theme"])
+
+    async def test_set_theme_emulates_media_on_the_active_session(self) -> None:
+        bridge = BrowserBridge(theme="light")
+        session = mock.Mock()
+        session.closed = False
+        session.send = mock.AsyncMock(return_value={})
+        bridge._session = session
+
+        await bridge.set_theme("dark")
+
+        session.send.assert_awaited_once_with(
+            "Emulation.setEmulatedMedia",
+            {"features": [{"name": "prefers-color-scheme", "value": "dark"}]},
+            timeout=5.0,
+        )
+        self.assertEqual(bridge.snapshot()["theme"], "dark")
+
+    async def test_set_theme_without_a_theme_clears_the_override(self) -> None:
+        bridge = BrowserBridge(theme="dark")
+        session = mock.Mock()
+        session.closed = False
+        session.send = mock.AsyncMock(return_value={})
+        bridge._session = session
+
+        await bridge.set_theme(None)
+
+        session.send.assert_awaited_once_with(
+            "Emulation.setEmulatedMedia", {"features": []}, timeout=5.0
+        )
 
 
 def _server_frame(payload: bytes, opcode: int = 0x1) -> bytes:

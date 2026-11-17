@@ -2600,6 +2600,9 @@ class DesktopServer:
         except (OSError, ValueError) as err:
             return self._json(500, {"ok": False, "error": f"could not save desktop config: {err}"})
 
+        if self.browser is not None:
+            await self.browser.set_theme(theme)
+
         return self._json(202, {"ok": True, **settings})
 
     async def _browser_config(self, body: bytes) -> tuple[int, bytes, str]:
@@ -4202,7 +4205,7 @@ async def run_server(config: ServerConfig) -> None:
     conf = ConfStore(config.workspace)
     conf.ensure_browser_settings()
     onboarding = OnboardingService(manager, conf)
-    browser = BrowserBridge()
+    browser = BrowserBridge(theme=conf.theme())
     terminal = TerminalManager(
         enabled=config.terminal_enabled and is_loopback_host(config.host),
         shell=config.terminal_shell,
