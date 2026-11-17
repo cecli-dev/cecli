@@ -33,6 +33,20 @@
   display: none;
 }
 
+.workspace-shell[data-workbench-collapsed='true'] .chat-panel {
+  flex: 1 1 0;
+  max-width: 960px;
+}
+
+.workspace-shell[data-workbench-collapsed='true'] .transcript-frame,
+.workspace-shell[data-workbench-collapsed='true'] .transcript,
+.workspace-shell[data-workbench-collapsed='true'] .msg,
+.workspace-shell[data-workbench-collapsed='true'] .permission-region,
+.workspace-shell[data-workbench-collapsed='true'] .permission-card,
+.workspace-shell[data-workbench-collapsed='true'] .composer-dock {
+  max-width: 960px;
+}
+
 @media (max-width: 940px) {
   .workspace-shell[data-chat-collapsed='true'] .chat-panel {
     display: flex;

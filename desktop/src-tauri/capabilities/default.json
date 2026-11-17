@@ -13,6 +13,7 @@
   },
   "permissions": [
     "core:default",
+    "core:webview:allow-set-webview-zoom",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text"
   ]

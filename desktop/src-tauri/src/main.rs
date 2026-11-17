@@ -642,6 +642,7 @@ fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Er
         // A blank-looking title avoids WM fallback to the app identifier.
         .title(" ")
         .inner_size(1180.0, 840.0)
+        .zoom_hotkeys_enabled(true)
         .min_inner_size(720.0, 520.0)
         .background_color(webview_background(&theme));
 
