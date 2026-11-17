@@ -235,6 +235,7 @@ class RunResult:
     run_id: Optional[int] = None
     log_path: Optional[str] = None
     worktree: Optional[Dict[str, Any]] = None
+    resumed_from: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the run outcome, including the worker's worktree record."""
@@ -250,6 +251,7 @@ class RunResult:
             "run_id": self.run_id,
             "log_path": self.log_path,
             "worktree": self.worktree,
+            "resumed_from": self.resumed_from,
         }
 
     @classmethod

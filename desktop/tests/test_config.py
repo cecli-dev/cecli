@@ -433,6 +433,8 @@ class EmptyWorkspaceServerTest(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual([entry["name"] for entry in payload["entries"]], ["alpha", "alpine"])
+        self.assertFalse(payload["exists"])
+        self.assertFalse(payload["isDir"])
 
         status, payload = self._request(
             f"/api/fs/dirs?path={urllib.parse.quote(str(projects) + os.sep)}"
@@ -442,6 +444,23 @@ class EmptyWorkspaceServerTest(unittest.TestCase):
             [entry["name"] for entry in payload["entries"]],
             ["alpha", "alpine", "beta"],
         )
+        self.assertTrue(payload["exists"])
+        self.assertTrue(payload["isDir"])
+
+    def test_make_directory_endpoint(self) -> None:
+        target = self.root / "created" / "nested"
+
+        status, payload = self._request("/api/fs/mkdir", method="POST", body={"path": str(target)})
+
+        self.assertEqual(status, 200)
+        self.assertTrue(target.is_dir())
+        self.assertEqual(payload["path"], str(target))
+
+    def test_make_directory_rejects_a_missing_path(self) -> None:
+        status, payload = self._request("/api/fs/mkdir", method="POST", body={})
+
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
 
     def test_onboarding_providers_list_copilot(self) -> None:
         status, payload = self._request("/api/onboarding/providers")
@@ -469,17 +488,22 @@ class EmptyWorkspaceServerTest(unittest.TestCase):
             time.sleep(0.05)
         raise AssertionError("server did not start listening")
 
-    def _request(self, path: str) -> tuple[int, dict]:
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{self.port}{path}", timeout=2.0
-            ) as response:
-                import json
+    def _request(
+        self, path: str, method: str = "GET", body: dict | None = None
+    ) -> tuple[int, dict]:
+        import json
 
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}",
+            data=data,
+            method=method,
+            headers={"Content-Type": "application/json"} if data else {},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=2.0) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as err:
-            import json
-
             try:
                 return err.code, json.loads(err.read().decode("utf-8"))
             finally:

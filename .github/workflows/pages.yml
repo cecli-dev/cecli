@@ -79,4 +79,4 @@ jobs:
 
       - name: Run linkchecker
         run: |
-          linkchecker --ignore-url='.+\\.(mp4|mov|avi)' https://cecli.dev
+          linkchecker --ignore-url='.+\.(mp4|mov|avi)' --ignore-url='github\.com/cecli-dev/cecli/releases' https://cecli.dev

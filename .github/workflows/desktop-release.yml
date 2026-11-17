@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
 
@@ -110,21 +111,21 @@ jobs:
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-linux-x64-appimage
+          name: ce-underscore-linux-x64-appimage
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/appimage/*.AppImage
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-linux-x64-deb
+          name: ce-underscore-linux-x64-deb
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/deb/*.deb
 
       - name: Upload rpm
         uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-linux-x64-rpm
+          name: ce-underscore-linux-x64-rpm
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/rpm/*.rpm
 
@@ -190,9 +191,59 @@ jobs:
             --config src-tauri/tauri.version.conf.json \
             --bundles nsis
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify installer version matches tag
+        shell: bash
+        working-directory: desktop
+        run: |
+          installer=$(ls src-tauri/target/release/bundle/nsis/*.exe | head -1)
+          case "$installer" in
+            *"_${CECLI_APP_VERSION}_"*) ;;
+            *)
+              echo "::error::installer '$installer' does not match CECLI_APP_VERSION=${CECLI_APP_VERSION}"
+              exit 1
+              ;;
+          esac
+          echo "Installer version matches ${CECLI_APP_VERSION}: $installer"
+
+      - name: Upload unsigned installer for signing
+        if: startsWith(github.ref, 'refs/tags/')
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-windows-x64
+          name: signpath-input-windows
+          if-no-files-found: error
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          archive: false
+
+      - name: Sign installer with SignPath
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
+          skip-decompress: true
+          parameters: |
+            version: "${{ env.CECLI_APP_VERSION }}"
+
+      - name: Upload signed installer
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ce-underscore-windows-x64
+          if-no-files-found: error
+          path: signed/*.exe
+
+      - name: Upload unsigned installer (non-tag builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ce-underscore-windows-x64
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/nsis/*.exe
 
@@ -259,7 +310,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cecli-desktop-macos-arm64
+          name: ce-underscore-macos-arm64
           if-no-files-found: error
           path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
 
@@ -282,7 +333,50 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: ce-underscore-*
           merge-multiple: true
+
+      - name: Rename desktop artifacts for release
+        shell: bash
+        run: |
+          cd artifacts
+          for file in cecli_*; do
+            if [ -e "$file" ]; then
+              mv "$file" "ce-underscore_${file#cecli_}"
+            fi
+          done
+          for file in cecli-*.rpm; do
+            if [ -e "$file" ]; then
+              mv "$file" "ce-underscore-${file#cecli-}"
+            fi
+          done
+
+      - name: Create stable desktop download names
+        shell: bash
+        run: |
+          cd artifacts
+          win=$(ls ce-underscore_*_x64-setup.exe 2>/dev/null | head -1)
+          mac=$(ls ce-underscore_*_aarch64.dmg 2>/dev/null | head -1)
+          appimage=$(ls ce-underscore_*_amd64.AppImage 2>/dev/null | head -1)
+          deb=$(ls ce-underscore_*_amd64.deb 2>/dev/null | head -1)
+          rpm=$(ls ce-underscore-*x86_64.rpm 2>/dev/null | head -1)
+          if [ -n "$win" ]; then cp "$win" ce-underscore-windows-x64-setup.exe; fi
+          if [ -n "$mac" ]; then cp "$mac" ce-underscore-macos-arm64.dmg; fi
+          if [ -n "$appimage" ]; then cp "$appimage" ce-underscore-linux-x64.AppImage; fi
+          if [ -n "$deb" ]; then cp "$deb" ce-underscore-linux-x64.deb; fi
+          if [ -n "$rpm" ]; then cp "$rpm" ce-underscore-linux-x64.rpm; fi
+          for file in \
+            ce-underscore-windows-x64-setup.exe \
+            ce-underscore-macos-arm64.dmg \
+            ce-underscore-linux-x64.AppImage \
+            ce-underscore-linux-x64.deb \
+            ce-underscore-linux-x64.rpm; do
+            if [ ! -f "$file" ]; then
+              echo "::error::missing stable download name: $file"
+              exit 1
+            fi
+          done
+          ls -l ce-underscore-*
 
       - uses: softprops/action-gh-release@v2
         with:

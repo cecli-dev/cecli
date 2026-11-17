@@ -225,6 +225,17 @@ a {
     transform: translateY(-1px);
 }
 
+.btn-secondary {
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+}
+
+.btn-secondary:hover {
+    background: var(--nav-bg);
+    transform: translateY(-1px);
+}
+
 .command-pill {
     display: inline-flex;
     align-items: center;

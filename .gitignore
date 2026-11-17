@@ -3,6 +3,7 @@
 
 # Then allow only specific directories; their contents are tracked
 !/.github
+!/.signpath
 !/cecli
 !/benchmark
 !/desktop
@@ -19,6 +20,7 @@
 !/.gitignore
 !/.pre-commit-config.yaml
 !/CHANGELOG.md
+!/CODE_SIGNING_POLICY.md
 !/CNAME
 !/CONTRIBUTING.md
 !/HISTORY.md

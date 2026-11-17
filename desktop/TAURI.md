@@ -1,4 +1,4 @@
-# cecli desktop: Tauri v2 shell
+# ce-underscore: Tauri v2 shell
 
 A Tauri v2 wrapper that turns the local bridge into a normal desktop window.
 The Rust shell starts `desktop/server.py` on a free loopback port, waits for it
@@ -131,7 +131,7 @@ desktop/
   scripts/check_ui.mjs      fails when static/ is stale or incomplete
   scripts/gen_icons.py      renders the PNG/ICO/ICNS icons from the favicon SVG
   server.py                 the bridge the shell launches (unchanged)
-  static/                   Vite build output served by the bridge
+  static/                   Vite build output (generated, git-ignored)
   tests/                    bridge tests with a fake ACP agent
   src-tauri/
     Cargo.toml              tauri 2, serde, serde_json; rust-version 1.77.2
@@ -394,7 +394,7 @@ PyPI, so an rc build needs the matching `cecli-dev` rc published first.
    `server.py` are present; `CECLI_DESKTOP_UV` overrides the uv path.
 2. `ensure_runtime` provisions `<runtime>/<spec>/` when `.cecli-ready` is
    missing or names a different spec: `uv venv --python 3.12 --managed-python`
-   followed by `uv pip install --python <venv>/bin/python <spec>`.
+   followed by `uv pip install --native-tls --python <venv>/bin/python <spec>`.
    `UV_PYTHON_INSTALL_DIR` points at `<runtime>/python`, so deleting the
    runtime directory also removes CPython.
 3. The bridge runs from the provisioned interpreter with
@@ -533,7 +533,7 @@ What was verified in this tree:
 
 - `cargo fmt --check` and `cargo check --manifest-path src-tauri/Cargo.toml`
 - `cargo build --manifest-path src-tauri/Cargo.toml` produced
-  `src-tauri/target/debug/cecli-desktop`
+  `src-tauri/target/debug/ce-underscore`
 - a 15-second launch smoke test opened the window, started the Python bridge,
   and reached a real `cecli --acp` session
 - `npm run ui:build` (Vite: 50 modules -> hashed `static/assets/index-*.js` and

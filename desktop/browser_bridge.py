@@ -220,6 +220,8 @@ LAUNCH_FLAGS = (
     "--disable-features=CalculateNativeWinOcclusion,Translate",
 )
 
+THEME_FLAG = "--force-dark-mode"
+
 
 class BrowserError(Exception):
     """A browser API failure, carrying the HTTP status it should become."""
@@ -527,9 +529,11 @@ class BrowserBridge:
         profile: str | os.PathLike[str] | None = None,
         port: int | None = None,
         window_mode: str | None = None,
+        theme: str | None = None,
     ) -> None:
         self._executable = os.path.expanduser(executable) if executable else None
         self._requested_window_mode = window_mode
+        self._theme = _normalize_theme(theme)
         profile_value = (
             profile
             or os.environ.get("CECLI_BROWSER_PROFILE")
@@ -596,6 +600,7 @@ class BrowserBridge:
             return {
                 "available": bool(executable),
                 "running": running,
+                "theme": self._theme,
                 "browser": browser_name(executable) if executable else None,
                 "executable": executable,
                 "windowMode": (
@@ -627,6 +632,7 @@ class BrowserBridge:
             return {
                 "available": False,
                 "running": False,
+                "theme": self._theme,
                 "browser": None,
                 "executable": None,
                 "windowMode": self._window_mode,
@@ -661,6 +667,14 @@ class BrowserBridge:
             self._error = str(err)
             raise
         return self.snapshot()
+
+    async def set_theme(self, theme: str | None) -> None:
+        """Match the page colour scheme to the desktop light/dark theme."""
+
+        self._theme = _normalize_theme(theme)
+        session = self._session
+        if session is not None and not session.closed:
+            await self._apply_theme(session)
 
     async def open(self, url: str) -> dict[str, Any]:
         """Navigate the shared target, normalising bare domains to https."""
@@ -1205,6 +1219,7 @@ class BrowserBridge:
                 )
             except BrowserError:
                 pass
+            await self._apply_theme(session)
             self._target_id = target_id
             self._session_unsubs = [
                 session.on("Page.frameNavigated", self._on_frame_navigated),
@@ -1259,7 +1274,7 @@ class BrowserBridge:
 
         profile = _browser_profile_arg(self._profile, executable)
         self._window_mode = _resolve_window_mode(executable, self._requested_window_mode)
-        args = _launch_args(executable, self._port, profile, self._window_mode)
+        args = _launch_args(executable, self._port, profile, self._window_mode, self._theme)
         kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
@@ -2018,6 +2033,19 @@ class BrowserBridge:
         except RuntimeError:
             return
 
+    async def _apply_theme(self, session: _CdpSession) -> None:
+        """Apply the desktop colour scheme to the attached page."""
+
+        features = (
+            [{"name": "prefers-color-scheme", "value": self._theme}]
+            if self._theme is not None
+            else []
+        )
+        try:
+            await session.send("Emulation.setEmulatedMedia", {"features": features}, timeout=5.0)
+        except BrowserError:
+            pass
+
     def _lock(self, holder: asyncio.Lock | None, name: str) -> asyncio.Lock:
         if holder is not None:
             return holder
@@ -2208,7 +2236,21 @@ def _window_flags(mode: str) -> list[str]:
     return [WINDOW_SIZE_FLAG, OFFSCREEN_POSITION_FLAG]
 
 
-def _launch_args(executable: str, port: int, profile: str, mode: str) -> list[str]:
+def _theme_flags(theme: str | None) -> list[str]:
+    """Chromium flags that make the browser chrome match the desktop theme."""
+
+    return [THEME_FLAG] if _normalize_theme(theme) == "dark" else []
+
+
+def _normalize_theme(theme: str | None) -> str | None:
+    """Return a supported light/dark theme, or None to follow the system."""
+
+    return theme if theme in ("dark", "light") else None
+
+
+def _launch_args(
+    executable: str, port: int, profile: str, mode: str, theme: str | None = None
+) -> list[str]:
     """Full Chromium command line for one launch."""
 
     return [
@@ -2217,6 +2259,7 @@ def _launch_args(executable: str, port: int, profile: str, mode: str) -> list[st
         f"--user-data-dir={profile}",
         *LAUNCH_FLAGS,
         *_window_flags(mode),
+        *_theme_flags(theme),
         "about:blank",
     ]
 

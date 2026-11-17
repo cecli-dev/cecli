@@ -20,6 +20,7 @@
 .chat-panel {
   flex: 0 1 720px;
   margin-inline: auto;
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -31,6 +32,20 @@
 .workspace-shell[data-chat-collapsed='true'] .chat-panel,
 .workspace-shell[data-workbench-collapsed='true'] .workbench-panel {
   display: none;
+}
+
+.workspace-shell[data-workbench-collapsed='true'] .chat-panel {
+  flex: 1 1 0;
+  max-width: 960px;
+}
+
+.workspace-shell[data-workbench-collapsed='true'] .transcript-frame,
+.workspace-shell[data-workbench-collapsed='true'] .transcript,
+.workspace-shell[data-workbench-collapsed='true'] .msg,
+.workspace-shell[data-workbench-collapsed='true'] .permission-region,
+.workspace-shell[data-workbench-collapsed='true'] .permission-card,
+.workspace-shell[data-workbench-collapsed='true'] .composer-dock {
+  max-width: 960px;
 }
 
 @media (max-width: 940px) {
@@ -105,4 +120,45 @@ cli-panel {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Floating composer: overlays the transcript so the scrollbar reaches the panel bottom. */
+.chat-dock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Fade transcript content out behind the floating dock. */
+.chat-dock::before {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: -1;
+  height: calc(100% + 72px);
+  background: linear-gradient(
+    to top,
+    var(--backdrop) 0,
+    var(--backdrop) calc(100% - 72px),
+    transparent 100%
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.chat-dock > * {
+  pointer-events: none;
+}
+
+/* Re-enable input only on the visible controls so the scrollbar stays draggable. */
+.chat-dock > .composer-dock > *,
+.chat-dock > permission-region .permission-card {
+  pointer-events: auto;
 }

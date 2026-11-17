@@ -1,8 +1,8 @@
 {
-  "name": "cecli-desktop",
+  "name": "ce-underscore",
   "private": true,
   "version": "0.1.0",
-  "description": "Tauri v2 shell for the cecli desktop bridge and UI",
+  "description": "Tauri v2 shell for the ce-underscore bridge and UI",
   "type": "module",
   "scripts": {
     "tauri": "node scripts/run_tauri.mjs",
@@ -10,6 +10,7 @@
     "build": "node scripts/run_tauri.mjs build",
     "ui:dev": "vite --config ui/vite.config.js",
     "ui:build": "vite build --config ui/vite.config.js",
+    "ui:build:stable": "vite build --config ui/vite.config.js --mode stable",
     "ui:watch": "vite build --config ui/vite.config.js --watch",
     "ui:check": "node scripts/check_ui.mjs",
     "test:ui": "node --test ui/tests/*.test.js",

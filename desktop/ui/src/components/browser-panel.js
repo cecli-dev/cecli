@@ -528,7 +528,7 @@ export class BrowserPanel extends LitElement {
       return this._empty_state({
         icon: GLOBE_ICON,
         title: 'Browser is not running',
-        description: 'Start a local browser to preview and interact with pages inside cecli.',
+        description: 'Start a local browser to preview and interact with pages inside ce_.',
         actions: html`
           <button
             type="button"

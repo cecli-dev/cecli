@@ -1,7 +1,7 @@
 [package]
-name = "cecli-desktop"
+name = "ce-underscore"
 version = "0.1.0"
-description = "Tauri wrapper for the cecli desktop UI"
+description = "Tauri wrapper for the ce-underscore UI"
 edition = "2021"
 rust-version = "1.77.2"
 

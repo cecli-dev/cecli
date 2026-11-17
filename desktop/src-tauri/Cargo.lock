@@ -305,7 +305,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cecli-desktop"
+name = "ce-underscore"
 version = "0.1.0"
 dependencies = [
  "gtk",

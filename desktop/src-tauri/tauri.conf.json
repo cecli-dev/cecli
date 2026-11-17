@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "cecli desktop",
+  "productName": "cecli",
   "version": "0.1.0",
   "identifier": "com.cecli.desktop",
   "build": {
@@ -20,7 +20,7 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Native desktop shell for the cecli web UI",
-    "longDescription": "cecli desktop wraps the local cecli bridge in a native window, serving the UI and SSE stream from a single loopback origin.",
+    "longDescription": "ce-underscore wraps the local cecli bridge in a native window, serving the UI and SSE stream from a single loopback origin.",
     "resources": [
       "../*.py",
       "../static/**/*"

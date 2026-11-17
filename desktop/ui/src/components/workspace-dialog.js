@@ -1,6 +1,6 @@
 import { LitElement, html, nothing } from 'lit';
 
-import { get_directory_suggestions } from '../core/api.js';
+import { create_directory, get_directory_suggestions } from '../core/api.js';
 import { session } from '../core/session.js';
 
 const SUGGESTION_DELAY = 120;
@@ -21,6 +21,8 @@ export class WorkspaceDialog extends LitElement {
     this._suggestions_open = false;
     this._active_index = -1;
     this._suggest_timer = null;
+    this._path_exists = true;
+    this._creating = false;
     this._request_seq = 0;
     this._focus_pending = false;
     this._document_listener = null;
@@ -87,6 +89,7 @@ export class WorkspaceDialog extends LitElement {
             />
           </label>
           ${this._render_suggestions()}
+          ${this._render_create_hint()}
           <label class="modal-field">
             <span>Display name</span>
             <input
@@ -108,10 +111,28 @@ export class WorkspaceDialog extends LitElement {
               ?disabled=${this._busy}
               @click=${this._submit}
             >
-              ${this._busy ? 'Adding\u2026' : 'Add workspace'}
+              ${this._busy && !this._creating ? 'Adding\u2026' : 'Add workspace'}
             </button>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  _render_create_hint() {
+    if (!this._path.trim() || this._path_exists) return nothing;
+
+    return html`
+      <div class="workspace-create-hint">
+        <span>This folder doesn't exist yet.</span>
+        <button
+          type="button"
+          class="modal-btn modal-btn--small"
+          ?disabled=${this._busy}
+          @click=${this._create_folder}
+        >
+          ${this._creating ? 'Creating…' : 'Create & add'}
+        </button>
       </div>
     `;
   }
@@ -147,6 +168,7 @@ export class WorkspaceDialog extends LitElement {
 
   _on_path(event) {
     this._path = event.target.value;
+    this._path_exists = true;
     this._queue_suggestions();
   }
 
@@ -219,11 +241,13 @@ export class WorkspaceDialog extends LitElement {
 
       this._suggestions = Array.isArray(result.entries) ? result.entries : [];
       this._suggestions_open = this._suggestions.length > 0;
+      this._path_exists = result.exists !== false;
       this._active_index = -1;
     } catch (error) {
       if (seq !== this._request_seq) return;
       this._suggestions = [];
       this._suggestions_open = false;
+      this._path_exists = true;
     }
 
     this.requestUpdate();
@@ -244,6 +268,7 @@ export class WorkspaceDialog extends LitElement {
 
   _choose(item) {
     this._path = item.path;
+    this._path_exists = true;
     if (!this._name.trim()) this._name = item.name;
     this._close_suggestions();
   }
@@ -281,6 +306,7 @@ export class WorkspaceDialog extends LitElement {
     }
 
     this._busy = true;
+    this._creating = false;
     this._error = '';
     this._close_suggestions();
     try {
@@ -290,6 +316,32 @@ export class WorkspaceDialog extends LitElement {
       this._error = error.message;
     } finally {
       this._busy = false;
+      this.requestUpdate();
+    }
+  }
+
+  async _create_folder() {
+    if (this._busy) return;
+    const path = this._path.trim();
+    if (!path) {
+      this._error = 'A folder path is required';
+      return;
+    }
+
+    this._busy = true;
+    this._creating = true;
+    this._error = '';
+    this._close_suggestions();
+    try {
+      const result = await create_directory(path);
+      this._path_exists = true;
+      await session.add_workspace(result.path || path, this._name.trim() || null);
+      this._close();
+    } catch (error) {
+      this._error = error.message;
+    } finally {
+      this._busy = false;
+      this._creating = false;
       this.requestUpdate();
     }
   }
@@ -304,6 +356,8 @@ export class WorkspaceDialog extends LitElement {
     this._suggestions_open = false;
     this._active_index = -1;
     this._stop_listening();
+    this._path_exists = true;
+    this._creating = false;
     this.open = false;
     this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true }));
   }

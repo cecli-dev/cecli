@@ -729,6 +729,7 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 202)
         reader.collect_until(lambda event: event.get("type") == "permission", timeout=8.0)
 
+    @unittest.skipUnless((ROOT / "static" / "index.html").is_file(), "run npm run ui:build")
     def test_index_page_and_assets_are_served(self) -> None:
         with urllib.request.urlopen(f"http://{self.host}:{self.port}/", timeout=5) as response:
             self.assertEqual(response.status, 200)

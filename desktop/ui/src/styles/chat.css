@@ -18,9 +18,9 @@
 .transcript-dock {
   position: absolute;
   right: 0;
-  bottom: 12px;
+  bottom: calc(var(--chat-dock-height, 132px) + 8px);
   left: 0;
-  z-index: 5;
+  z-index: 7;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,10 +39,13 @@
   max-width: 820px;
   width: 100%;
   margin: 0;
-  padding: 14px 20px 64px;
+  padding: 14px 20px
+    calc(var(--chat-dock-height, 132px) + var(--transcript-dock-height, 36px) + 20px);
   overflow-x: hidden;
   overflow-y: auto;
-  scroll-padding-bottom: 64px;
+  scroll-padding-bottom: calc(
+    var(--chat-dock-height, 132px) + var(--transcript-dock-height, 36px) + 20px
+  );
 }
 
 .transcript:focus-visible {

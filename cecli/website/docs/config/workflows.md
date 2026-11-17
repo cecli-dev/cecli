@@ -109,6 +109,14 @@ Run-time placeholders are expanded in task prompts in addition to load-time env 
 
 Because a run is a sub-agent, it doesn't block the main conversation — watch it with `/agent-tree` or the TUI sub-agent pane. Every run also appends a JSON-lines audit log to `~/.cecli/workflows/runs/<YYYY-MM-DD>/<name>.<id>.jsonl`: a `start` line (with the definition hash), one `task` line per task, and a `finish` line. Before the worker is reaped, its full session is archived to `~/.cecli/workflows/outputs/<workflow>/<run>/session.json` using the standard session format (encrypted when session encryption is enabled) — so every run, including replayed or tool-less replies, is completely reviewable on disk without ever touching the parent's context.
 
+### Crash recovery and resumption
+
+Before every step starts, the runner rewrites the run's `session.json` with the worker's full session and a `workflow` block recording the step that is about to run, its effective prompt, and the statuses of tasks that already finished. The checkpoint is written **before** the prompt executes and **before** its `post_run` hook chooses the next action. That ordering is deliberate: a hook can jump forward, backward, or stop the run, so there is no trustworthy "next step" to record afterwards — only the step that is actually starting.
+
+If the process dies abruptly, the session remains marked `running`. The next time the same workflow starts — a manual `/workflows run` or a scheduler retry after the lease expires — the runner looks for the newest resumable session whose definition hash matches, restores its conversation and file context, and stages the queue at the recorded step. That step runs again from the start (at-least-once), then its `post_run` hook decides what happens next exactly as it would have. Steps before it keep their recorded statuses and are not run again. A crash during a step or during its hook therefore re-runs that step instead of guessing an unrecorded jump target.
+
+Only `running` sessions are resumed. A run that completed, errored, or was cleanly aborted is terminal and starts fresh next time. If the workflow definition changed since the checkpoint (its definition hash differs), or the recorded step no longer exists, the old session is ignored.
+
 ## Dynamic task flow
 
 Every task is a named step. Set a task-level `post_run` to a Python callable or a string reference (`module:function` or `path.py:function`). The hook runs after the step and chooses what happens next:
@@ -140,7 +148,33 @@ def route_failure(coder, context):
 
 A failed `run-tests` queues `fix-failures` next; a successful `fix-failures` then continues to `publish`. `context.steps` is the original `{name: prompt}` map and is never mutated or duplicated: forward jumps drop the queued steps before the target, and backward jumps queue the target again (retry loops, branches). A hook that returns a jump or `False` redirects control flow; returning `True` keeps the queue moving.
 
-The hook context exposes `coder`, `workflow`, `step_name`, `prompt`, `status` (`ok`/`error`), `error`, `steps` (the original `{name: prompt}` map) and `available_steps` (a copy). A hook may be async and may take `(coder, context)` or just `(context)`.
+### The `context` object
+
+Every `post_run` hook receives a `WorkflowRunContext` describing the step that just finished and the run it belongs to:
+
+| attribute | type | meaning |
+|-----------|------|---------|
+| `coder` | coder | The worker coder that ran the step (and will run the next one). Use its `io`, `root`, etc. |
+| `workflow` | `WorkflowConfig` | The resolved workflow definition — `name`, `tasks`, `on_failure`, `persist`, `metadata`, … |
+| `task` | `TaskConfig` / `None` | The declared task for this step (`prompt`, `name`, `timeout`, `save_to`, `continue_on_error`, `post_run`), or `None` when the step name has no matching task |
+| `step_name` | `str` | Name of the step that just ran (`task-N` when unnamed) |
+| `prompt` | `str` | The prompt that was actually executed, including any override supplied by a jump |
+| `status` | `str` | `"ok"` if the step completed, `"error"` if it raised |
+| `error` | `str` / `None` | The error message when `status == "error"`, otherwise `None` |
+| `steps` | `dict[str, str]` | Immutable `{step name: original prompt}` map from the workflow definition |
+| `available_steps` | `dict[str, str]` | A fresh copy of `steps`, safe to inspect or mutate without affecting routing |
+| `directive` | any | The action set by `jump()`/`stop()`; normally you return the method result instead of reading this |
+
+Methods:
+
+| method | returns | meaning |
+|--------|---------|---------|
+| `context.jump(step, prompt=None)` | `True` | Make *step* the next action, optionally replacing its prompt entirely |
+| `context.stop()` | `False` | Drop the rest of the queue and finish the run |
+
+`status` is only `"ok"` or `"error"` inside a hook: an externally cancelled run aborts before the hook runs, and the hooks of tasks that were never executed (because an earlier step stopped the run) never run at all. `workflow` and `task` are for read-only inspection; `coder` is the live worker, so a hook can inspect or adjust worker state before the next step.
+
+A hook may be async and may take `(coder, context)` or just `(context)`.
 
 More routing patterns:
 

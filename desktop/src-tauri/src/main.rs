@@ -376,6 +376,7 @@ fn configure_bridge(command: &mut Command, workspace: &Path, port: u16, cecli: O
 /// Prefer the `cecli` shipped next to the app over whatever is on PATH.
 fn bundled_cecli() -> Option<String> {
     let name = cecli_binary_name();
+    let current_exe = env::current_exe().ok();
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Some(dir) = current_exe_dir() {
@@ -389,7 +390,7 @@ fn bundled_cecli() -> Option<String> {
 
     candidates
         .into_iter()
-        .find(|path| path.is_file())
+        .find(|path| path.is_file() && Some(path.as_path()) != current_exe.as_deref())
         .map(|path| path.display().to_string())
 }
 
@@ -470,6 +471,8 @@ fn provision_runtime(
     install
         .arg("pip")
         .arg("install")
+        // --native-tls: trust the OS store so corporate TLS interception does not fail.
+        .arg("--native-tls")
         .arg("--python")
         .arg(python)
         .arg("--no-progress")
@@ -640,6 +643,7 @@ fn build_window(app: &AppHandle, port: u16) -> Result<(), Box<dyn std::error::Er
         // A blank-looking title avoids WM fallback to the app identifier.
         .title(" ")
         .inner_size(1180.0, 840.0)
+        .zoom_hotkeys_enabled(true)
         .min_inner_size(720.0, 520.0)
         .background_color(webview_background(&theme));
 

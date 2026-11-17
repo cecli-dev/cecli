@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, List, Optional
 
+from cecli.helpers.workflows import checkpoint
 from cecli.helpers.workflows.models import RunResult, TaskResult, WorkflowConfig
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ async def execute_workflow(
 
     worker = None
     service = None
+    state = {"statuses": {}, "last_error": "", "step": "", "prompt": None}
     try:
         from cecli.helpers.agents.service import AgentService
 
@@ -68,14 +70,54 @@ async def execute_workflow(
             return result
 
         texts = [_expand(task.prompt, wf=wf, run_id=run_id) for task in wf.tasks]
-
-        worker, info = await _obtain_worker(service, coder, wf, source)
         steps = _step_map(wf, texts)
-        _stage_steps(worker, wf, steps)
+        resume = checkpoint.find_resume_session(coder, wf, steps)
 
-        state = {"statuses": {}, "last_error": ""}
+        worker, info = await _obtain_worker(service, coder, wf, source, resume)
+
+        start_step = None
+        start_prompt = None
+
+        if resume is not None:
+            restored = await checkpoint.restore_session(
+                worker, coder, wf, resume, _worker_prompt(wf)
+            )
+
+            if restored:
+                start_step = resume.step
+                start_prompt = resume.prompt
+                state["statuses"].update(resume.statuses)
+                state["step"] = start_step
+                state["prompt"] = start_prompt
+                result.resumed_from = start_step
+
+                if checkpoint.write_session_progress(
+                    worker,
+                    coder.io,
+                    wf,
+                    run_id=result.run_id,
+                    started_at=result.started_at,
+                    step=start_step,
+                    prompt=start_prompt,
+                    statuses=state["statuses"],
+                ):
+                    checkpoint.mark_resume_consumed(coder, resume)
+            else:
+                _reset_worker(worker, wf)
+
+        _stage_steps(worker, wf, steps, start=start_step, prompt=start_prompt)
         info.generate_task = asyncio.create_task(
-            _drive_steps(service, worker, info, wf, steps, state)
+            _drive_steps(
+                service,
+                worker,
+                info,
+                wf,
+                steps,
+                state,
+                run_id=result.run_id,
+                started_at=result.started_at,
+                io=coder.io,
+            )
         )
 
         try:
@@ -119,7 +161,7 @@ async def execute_workflow(
                 to_dict = getattr(record, "to_dict", None)
                 result.worktree = to_dict() if callable(to_dict) else record
 
-            _save_session(worker, coder, wf, result)
+            _save_session(worker, coder, wf, result, state)
             if not wf.persist:
                 _reap_worker(service, worker)
         result.finished_at = datetime.now(timezone.utc).isoformat()
@@ -133,7 +175,9 @@ async def execute_workflow(
 # --------------------------------------------------------------------------- #
 
 
-async def _obtain_worker(service: Any, coder: Any, wf: WorkflowConfig, source: str) -> Any:
+async def _obtain_worker(
+    service: Any, coder: Any, wf: WorkflowConfig, source: str, resume: Any = None
+) -> Any:
     """Reuse a persistent ``wf:`` worker when possible, else spawn a new one."""
 
     if wf.persist:
@@ -142,13 +186,16 @@ async def _obtain_worker(service: Any, coder: Any, wf: WorkflowConfig, source: s
             await _prepare_reused_worker(info, wf)
             return info.coder, info
 
-    return await service.spawn(
-        wf.agent_name,
-        None,
-        parent=coder,
-        auto_reap=False,
-        independent=(source == "scheduler_daemon"),
-    )
+    spawn_kwargs = {
+        "parent": coder,
+        "auto_reap": False,
+        "independent": source == "scheduler_daemon",
+    }
+
+    if resume is not None and wf.worktree and resume.payload.get("worktree"):
+        spawn_kwargs["resume_worktree"] = resume.payload["worktree"]
+
+    return await service.spawn(wf.agent_name, None, **spawn_kwargs)
 
 
 async def _await_run(info: Any) -> Any:
@@ -197,9 +244,6 @@ async def _prepare_reused_worker(info: Any, wf: WorkflowConfig) -> None:
     """Wait for an in-flight run, then reset *info*'s conversation and queue."""
     import asyncio
 
-    from cecli.helpers import command_queue
-    from cecli.helpers.conversation.service import ConversationService
-
     task = getattr(info, "generate_task", None)
     if task is not None and not task.done():
         try:
@@ -212,33 +256,12 @@ async def _prepare_reused_worker(info: Any, wf: WorkflowConfig) -> None:
             pass
 
     worker = info.coder
-
-    command_queue.clear_queue(worker)
-    worker._queue_counter = 0
-    worker._processing_queue = False
-    worker._active_queue_prompt = None
-    worker._active_queue_index = None
-    worker._drain_queue_after_command = False
-
-    # File context belongs to the run that added it; start the next one with
-    # the same empty file lists a freshly spawned worker would have.
-    worker.abs_fnames = set()
-    worker.abs_read_only_fnames = set()
-    worker.abs_read_only_stubs_fnames = set()
+    _reset_worker(worker, wf)
 
     info.summary = None
     info.error = None
     info.cancel_requested = False
     info.auto_reap = False
-
-    chunks = ConversationService.get_chunks(worker)
-    chunks.flush_removals()
-    ConversationService.get_manager(worker).reset()
-    ConversationService.get_files(worker).reset()
-    ConversationService.get_manager(worker).initialize(reformat=True)
-    chunks.reset_clear_count()
-    chunks.reset_message_tracker()
-    chunks.add_system_message(_worker_prompt(wf))
 
 
 def _worker_prompt(wf: WorkflowConfig) -> str:
@@ -341,15 +364,36 @@ def _step_map(wf: WorkflowConfig, texts: List[str]) -> dict:
     return steps
 
 
-def _stage_steps(worker, wf: WorkflowConfig, steps: dict) -> None:
-    """Load every step into the worker's prompt queue in definition order."""
+def _stage_steps(
+    worker, wf: WorkflowConfig, steps: dict, *, start: Any = None, prompt: Any = None
+) -> None:
+    """Load steps into the worker's prompt queue, optionally from *start*."""
     from cecli.helpers import command_queue
 
-    for name, prompt in steps.items():
-        command_queue.enqueue_prompt(worker, prompt, metadata={"workflow": wf.name, "step": name})
+    names = list(steps)
+
+    if start in steps:
+        names = names[names.index(start) :]
+    else:
+        start = None
+
+    for name in names:
+        text = prompt if name == start and prompt is not None else steps[name]
+        command_queue.enqueue_prompt(worker, text, metadata={"workflow": wf.name, "step": name})
 
 
-async def _drive_steps(service, worker, info, wf: WorkflowConfig, steps: dict, state: dict) -> None:
+async def _drive_steps(
+    service,
+    worker,
+    info,
+    wf: WorkflowConfig,
+    steps: dict,
+    state: dict,
+    *,
+    run_id: Any = None,
+    started_at: Any = None,
+    io: Any = None,
+) -> None:
     """Drain the step queue, running each step's ``post_run`` hook afterwards."""
     import asyncio
 
@@ -378,6 +422,17 @@ async def _drive_steps(service, worker, info, wf: WorkflowConfig, steps: dict, s
             name = metadata.get("step") or ""
             task = _task_for_step(wf, name)
             prompt = item["text"]
+            state["step"], state["prompt"] = name, prompt
+            checkpoint.write_session_progress(
+                worker,
+                io,
+                wf,
+                run_id=run_id,
+                started_at=started_at,
+                step=name,
+                prompt=prompt,
+                statuses=statuses,
+            )
             status, message = "ok", ""
 
             try:
@@ -493,21 +548,52 @@ def _should_stop(wf, failing_task) -> bool:
     return wf.on_failure == "stop"
 
 
-def _save_session(worker, coder, wf, result) -> None:
+def _save_session(worker, coder, wf, result, state: Any = None) -> None:
     """Archive the worker's session payload into the run's outputs dir.
 
     Reuses the standard session machinery (payload format, encryption,
     directory creation), so a detached run is fully reviewable on disk
-    without anything entering the parent's context.
+    without anything entering the parent's context. The payload also records
+    the last step that started, which is what a later run uses to resume.
     """
+    state = state or {}
 
-    try:
-        from cecli.helpers.sessions.payload import build_payload
-        from cecli.helpers.sessions.storage import write_payload
-        from cecli.helpers.workflows import outputs
+    checkpoint.write_session_progress(
+        worker,
+        coder.io,
+        wf,
+        run_id=result.run_id,
+        started_at=result.started_at,
+        step=state.get("step", ""),
+        prompt=state.get("prompt"),
+        status=result.status,
+        statuses=state.get("statuses"),
+    )
 
-        path = outputs.run_output_dir(wf.name, result.run_id, result.started_at) / "session.json"
-        payload = build_payload(worker, coder.io, f"workflow:{wf.name}", agent_name=wf.agent_name)
-        write_payload(worker, coder.io, path, payload)
-    except Exception:
-        logger.warning("Failed to archive workflow session for '%s'", wf.name, exc_info=True)
+
+def _reset_worker(worker, wf: WorkflowConfig) -> None:
+    """Clear a worker's queue, files and conversation for a fresh run."""
+    from cecli.helpers import command_queue
+    from cecli.helpers.conversation.service import ConversationService
+
+    command_queue.clear_queue(worker)
+    worker._queue_counter = 0
+    worker._processing_queue = False
+    worker._active_queue_prompt = None
+    worker._active_queue_index = None
+    worker._drain_queue_after_command = False
+
+    # File context belongs to the run that added it; start the next one with
+    # the same empty file lists a freshly spawned worker would have.
+    worker.abs_fnames = set()
+    worker.abs_read_only_fnames = set()
+    worker.abs_read_only_stubs_fnames = set()
+
+    chunks = ConversationService.get_chunks(worker)
+    chunks.flush_removals()
+    ConversationService.get_manager(worker).reset()
+    ConversationService.get_files(worker).reset()
+    ConversationService.get_manager(worker).initialize(reformat=True)
+    chunks.reset_clear_count()
+    chunks.reset_message_tracker()
+    chunks.add_system_message(_worker_prompt(wf))
