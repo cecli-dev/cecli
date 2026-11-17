@@ -42,6 +42,9 @@ export class TranscriptView extends LitElement {
 
     this._resize_observer = new ResizeObserver(() => this._schedule_autoscroll());
     this._resize_observer.observe(transcript);
+
+    this._dock_observer = new ResizeObserver(() => this._sync_bottom_inset());
+    this._observe_bottom_dock();
   }
 
   disconnectedCallback() {
@@ -49,6 +52,8 @@ export class TranscriptView extends LitElement {
     this._observer = null;
     if (this._resize_observer) this._resize_observer.disconnect();
     this._resize_observer = null;
+    if (this._dock_observer) this._dock_observer.disconnect();
+    this._dock_observer = null;
     this._cancel_autoscroll();
     super.disconnectedCallback();
   }
@@ -120,6 +125,42 @@ export class TranscriptView extends LitElement {
               </button>`}
         </div>
     `;
+  }
+
+  _sync_bottom_inset() {
+    const panel = this.closest('.chat-panel');
+    if (!panel) return;
+
+    const dock = this._chat_dock();
+    const strip = this.querySelector('.transcript-dock');
+    const dock_height = `${dock?.offsetHeight ?? 0}px`;
+    const strip_height = `${strip?.offsetHeight ?? 0}px`;
+
+    if (panel.style.getPropertyValue('--chat-dock-height') !== dock_height) {
+      panel.style.setProperty('--chat-dock-height', dock_height);
+    }
+
+    if (panel.style.getPropertyValue('--transcript-dock-height') !== strip_height) {
+      panel.style.setProperty('--transcript-dock-height', strip_height);
+    }
+
+    this._schedule_autoscroll();
+  }
+
+  _observe_bottom_dock() {
+    const dock = this._chat_dock();
+    if (dock) this._dock_observer.observe(dock);
+
+    const strip = this.querySelector('.transcript-dock');
+    if (strip) this._dock_observer.observe(strip);
+
+    this._sync_bottom_inset();
+
+    requestAnimationFrame(() => this._sync_bottom_inset());
+  }
+
+  _chat_dock() {
+    return this.closest('.chat-panel')?.querySelector('.chat-dock') ?? null;
   }
 
   _transcript() {

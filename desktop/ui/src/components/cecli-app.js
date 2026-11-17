@@ -65,10 +65,12 @@ export class CecliApp extends LitElement {
           ></session-sidebar>
           <main class="chat-panel">
             <transcript-view></transcript-view>
-            <permission-region></permission-region>
-            <div class="composer-dock">
-              <composer-bar></composer-bar>
-              <control-strip @open-onboarding=${this._open_onboarding}></control-strip>
+            <div class="chat-dock">
+              <permission-region></permission-region>
+              <div class="composer-dock">
+                <composer-bar></composer-bar>
+                <control-strip @open-onboarding=${this._open_onboarding}></control-strip>
+              </div>
             </div>
           </main>
           <workbench-panel></workbench-panel>

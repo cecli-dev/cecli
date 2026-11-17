@@ -6,7 +6,8 @@
   }
 
   .transcript {
-    padding: 0 16px 20px;
+    padding: 0 16px
+      calc(var(--chat-dock-height, 132px) + var(--transcript-dock-height, 36px) + 16px);
   }
 
   .empty-hero {
@@ -22,7 +23,8 @@
 @media (max-width: 720px) {
 
   .transcript {
-    padding: 0 12px 16px;
+    padding: 0 12px
+      calc(var(--chat-dock-height, 132px) + var(--transcript-dock-height, 36px) + 12px);
   }
 
   .permission-region {
