@@ -156,7 +156,7 @@ async def test_summary_and_timestamps(coder):
     worker = make_worker()
     service = FakeService(worker)
 
-    result = await _execute(service, _wf(TaskConfig(prompt="x")), coder)
+    result = await _execute(service, _wf(TaskConfig(prompt="x"), persist=False), coder)
 
     assert result.summary == "all done"
     assert result.finished_at and result.started_at
@@ -431,11 +431,11 @@ async def test_session_archive_failure_is_not_fatal(coder):
 
 
 @pytest.mark.asyncio
-async def test_persist_worker_is_not_reaped(coder):
+async def test_default_worker_is_not_reaped(coder):
     worker = make_worker()
     service = FakeService(worker)
 
-    result = await _execute(service, _wf(TaskConfig(prompt="x"), persist=True), coder)
+    result = await _execute(service, _wf(TaskConfig(prompt="x")), coder)
 
     assert result.status == "ok"
     assert service.reaped == []
