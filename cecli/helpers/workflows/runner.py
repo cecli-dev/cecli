@@ -402,12 +402,15 @@ async def _drive_steps(
     from cecli.helpers.agents.service import (
         DEFAULT_SUMMARY_INTERRUPTED,
         SubAgentStatus,
+        _subagent_event,
     )
     from cecli.helpers.workflows.hooks import WorkflowRunContext, run_task_hooks
 
     statuses = state["statuses"]
     info.status = SubAgentStatus.RUNNING
     info.cancel_requested = False
+    stop_reason, error = "end_turn", None
+    _subagent_event(worker, worker.uuid, "running")
     # run_one() drains the queue itself at the end of every prompt. Keeping this
     # flag set lets the runner own the queue and run hooks between steps.
     worker._processing_queue = True
@@ -481,14 +484,17 @@ async def _drive_steps(
             info.status = SubAgentStatus.FINISHED
             info.summary = info.summary or _fallback_summary(worker)
     except asyncio.CancelledError:
+        stop_reason = "cancelled"
         info.status = SubAgentStatus.FINISHED
         info.summary = info.summary or DEFAULT_SUMMARY_INTERRUPTED
         raise
     except Exception as exc:
+        stop_reason, error = "error", str(exc) or exc.__class__.__name__
         info.status = SubAgentStatus.ERROR
-        info.error = str(exc) or exc.__class__.__name__
+        info.error = error
         raise
     finally:
+        _subagent_event(worker, worker.uuid, "idle", stop_reason=stop_reason, error=error)
         worker._processing_queue = False
 
 
