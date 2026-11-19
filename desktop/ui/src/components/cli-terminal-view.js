@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { TerminalWriteQueue } from '../core/terminal-write-queue.js';
 import { open_terminal_socket, start_terminal, stop_terminal } from '../core/terminal-api.js';
 import { TerminalClient } from '../core/terminal-client.js';
+import { terminal_state_event } from '../core/terminal-state.js';
 import { read_theme_color } from '../core/theme.js';
 
 const HIDDEN_CLOSE_MS = 5 * 60 * 1000;
@@ -182,7 +183,7 @@ export class CliTerminalView extends LitElement {
         host, terminal: null, fit: null, client: null,
         queue: null, opened: false, starting: false, failed: false, socket_open: false,
         status: '', pending_since: null, resize_observer: null, idle_timer: null,
-        gap_attempts: 0,
+        gap_attempts: 0, disposed: false,
       };
       this._sessions.set(key, session);
     }
@@ -268,14 +269,19 @@ export class CliTerminalView extends LitElement {
         } catch (error) {
           /* already stopped */
         }
+
+        if (session.disposed) return;
       }
 
       const result = await start_terminal(session.bridge_id, session.terminal_id);
+      if (session.disposed || this._sessions.get(session.key) !== session) return;
+
       this.dispatchEvent(new CustomEvent('terminal-state', {
-        detail: result?.terminals || null,
+        detail: terminal_state_event(session.bridge_id, result?.terminals),
         bubbles: true,
         composed: true,
       }));
+
       const since = session.pending_since ?? 0;
       session.pending_since = null;
       const socket = open_terminal_socket(session.bridge_id, since, session.terminal_id);
@@ -313,7 +319,9 @@ export class CliTerminalView extends LitElement {
           if (this._session() === session) this.requestUpdate();
           const delay = Math.min(300 * 2 ** (session.gap_attempts - 1), 3000);
           setTimeout(() => {
-            if (this._sessions.get(session.key) === session) this._connect(session, false);
+            if (!session.disposed && this._sessions.get(session.key) === session) {
+              this._connect(session, false);
+            }
           }, delay);
         },
         on_exit: (message) => {
@@ -334,6 +342,8 @@ export class CliTerminalView extends LitElement {
       session.starting = false;
       session.failed = false;
     } catch (error) {
+      if (session.disposed) return;
+
       session.status = 'Terminal unavailable — use Restart';
       session.starting = false;
       session.opened = true;
@@ -395,6 +405,9 @@ export class CliTerminalView extends LitElement {
   }
 
   _dispose_session(session) {
+    if (!session || session.disposed) return;
+
+    session.disposed = true;
     this._cancel_timer(session);
     session.resize_observer?.disconnect();
     session.resize_observer = null;

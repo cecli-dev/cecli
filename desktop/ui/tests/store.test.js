@@ -237,3 +237,22 @@ test('context files group into rules, text, and artifacts', () => {
     ],
   );
 });
+
+test('background terminal updates stay out of the active view', () => {
+  const store = create_store();
+  store.set_sessions([{ bridgeId: 's1' }, { bridgeId: 's2' }], 8);
+  store.set_active('s1');
+  store.update((state) => ({
+    ...state,
+    terminal: { ...state.terminal, terminals: [{ id: 'term:s1:1' }] },
+  }));
+
+  store.set_active('s2');
+  store.update_for('s1', (state) => ({
+    ...state,
+    terminal: { ...state.terminal, terminals: [{ id: 'term:s1:2' }] },
+  }));
+
+  assert.deepEqual(store.state.terminal.terminals, []);
+  assert.deepEqual(store.state_for('s1').terminal.terminals, [{ id: 'term:s1:2' }]);
+});

@@ -197,6 +197,7 @@ export class ComposerBar extends LitElement {
     const end = textarea.selectionEnd ?? start;
     textarea.setRangeText('\n', start, end, 'end');
     this._on_input();
+    this._scroll_caret_into_view(textarea);
   }
 
   _on_input() {
@@ -219,7 +220,13 @@ export class ComposerBar extends LitElement {
         return;
       }
 
-      if (event.key === 'Tab' && !event.isComposing) {
+      if (
+        (event.key === 'Tab' || event.code === 'Tab') &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         this._cycle_completion(event.shiftKey ? -1 : 1);
         return;
@@ -231,7 +238,8 @@ export class ComposerBar extends LitElement {
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
-        !event.isComposing
+        !event.isComposing &&
+        this._caret_at_end()
       ) {
         event.preventDefault();
         this._accept_completion();
@@ -392,6 +400,7 @@ export class ComposerBar extends LitElement {
                 <button
                   type="button"
                   class="completion-item"
+                  tabindex="-1"
                   role="option"
                   data-active=${index === this._completion_index}
                   aria-selected=${index === this._completion_index}
@@ -597,6 +606,69 @@ export class ComposerBar extends LitElement {
     this._has_text = value.trim().length > 0;
     this._auto_grow();
     this.requestUpdate();
+  }
+
+  _caret_at_end() {
+    const textarea = this._textarea();
+    if (!textarea) return false;
+
+    const { selectionStart, selectionEnd, value } = textarea;
+    return selectionStart === value.length && selectionEnd === value.length;
+  }
+
+  _scroll_caret_into_view(textarea) {
+    const caret = textarea.selectionEnd ?? textarea.value.length;
+    const style = window.getComputedStyle(textarea);
+    const mirror = document.createElement('div');
+    const properties = [
+      'fontFamily',
+      'fontSize',
+      'fontStyle',
+      'fontWeight',
+      'letterSpacing',
+      'lineHeight',
+      'overflowWrap',
+      'tabSize',
+      'textTransform',
+      'wordBreak',
+      'wordSpacing',
+    ];
+
+    for (const property of properties) mirror.style[property] = style[property];
+
+    const content_width =
+      textarea.clientWidth -
+      parseFloat(style.paddingLeft) -
+      parseFloat(style.paddingRight);
+
+    mirror.style.position = 'absolute';
+    mirror.style.top = '0';
+    mirror.style.left = '-9999px';
+    mirror.style.boxSizing = 'content-box';
+    mirror.style.width = `${content_width}px`;
+    mirror.style.padding = '0';
+    mirror.style.border = '0';
+    mirror.style.visibility = 'hidden';
+    mirror.style.whiteSpace = 'pre-wrap';
+    mirror.textContent = textarea.value.slice(0, caret);
+
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+
+    const caret_top = marker.offsetTop;
+    const line_height = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+    const view_top = textarea.scrollTop;
+    const view_bottom = view_top + textarea.clientHeight;
+
+    document.body.removeChild(mirror);
+
+    if (caret_top < view_top) {
+      textarea.scrollTop = caret_top;
+    } else if (caret_top + line_height > view_bottom) {
+      textarea.scrollTop = caret_top + line_height - textarea.clientHeight;
+    }
   }
 }
 

@@ -651,6 +651,15 @@ def test_persist_and_metadata_are_parsed(isolated):
     assert wf.to_dict()["persist"] is True
 
 
+def test_persist_defaults_to_true():
+    wf = models.WorkflowConfig.from_dict({"name": "p", "tasks": [{"prompt": "x"}]})
+
+    assert wf.persist is True
+    direct = models.WorkflowConfig(name="p", tasks=[models.TaskConfig(prompt="x")])
+
+    assert direct.persist is True
+
+
 def test_persist_string_false_is_not_truthy():
     wf = models.WorkflowConfig.from_dict(
         {"name": "p", "persist": "false", "tasks": [{"prompt": "x"}]}

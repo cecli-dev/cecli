@@ -29,6 +29,7 @@ import {
   shell_tab_label,
   workspace_key,
 } from '../core/cli-tabs.js';
+import { resolve_terminal_state_event } from '../core/terminal-state.js';
 import { get_terminal_logs, push_terminal_log, subscribe_terminal_log } from '../core/log-bus.js';
 import { StoreController, store } from '../core/store.js';
 import { CHEVRON_ICON } from '../core/constants.js';
@@ -273,7 +274,7 @@ export class CliPanel extends LitElement {
       if (bridge !== this.bridge_id || generation !== this._state_generation) return;
       this._background_supported = true;
       if (result.workspace && result.workspace !== this.workspace_key) return;
-      this._apply_terminals(result.terminals);
+      this._apply_terminals(result.terminals, bridge);
       this._apply_state(result.background, { baseline });
     } catch (error) {
       if (bridge !== this.bridge_id) return;
@@ -286,7 +287,7 @@ export class CliPanel extends LitElement {
   _on_poll_state(result, meta) {
     if (meta.bridge_id !== this.bridge_id) return;
     this._background_supported = true;
-    this._apply_terminals(result.terminals);
+    this._apply_terminals(result.terminals, meta.bridge_id);
     this._apply_state(result.background, { baseline: meta.baseline });
   }
 
@@ -402,7 +403,7 @@ export class CliPanel extends LitElement {
     try {
       const result = await create_terminal(this.bridge_id);
       const terminal_id = result?.terminal?.id || '';
-      this._apply_terminals(result?.terminals);
+      this._apply_terminals(result?.terminals, this.bridge_id);
       this._terminals_signature = '';
       this._sync_shell_tabs();
       if (terminal_id) this._select_tab(shell_tab_key(this.workspace_key, terminal_id));
@@ -416,7 +417,7 @@ export class CliPanel extends LitElement {
 
     const terminals = (this._store.state.terminal?.terminals || [])
       .filter((terminal) => terminal.id !== tab.terminal_id);
-    this._apply_terminals(terminals);
+    this._apply_terminals(terminals, tab.bridge_id || this.bridge_id);
     this._terminals_signature = '';
     this._remove_tab_local(tab.key);
 
@@ -504,10 +505,10 @@ export class CliPanel extends LitElement {
     this._set_tabs(this.tabs, this.active_key);
   }
 
-  _apply_terminals(terminals) {
-    if (!Array.isArray(terminals)) return;
+  _apply_terminals(terminals, bridge_id = this.bridge_id) {
+    if (!Array.isArray(terminals) || !bridge_id) return;
 
-    store.update((state) => ({
+    store.update_for(bridge_id, (state) => ({
       ...state,
       terminal: { ...state.terminal, terminals },
     }));
@@ -666,7 +667,10 @@ export class CliPanel extends LitElement {
   }
 
   _on_terminal_state(event) {
-    this._apply_terminals(event.detail);
+    const update = resolve_terminal_state_event(event.detail, this.bridge_id);
+    if (!update) return;
+
+    this._apply_terminals(update.terminals, update.bridge_id);
   }
 
   _on_shell_attention(event) {

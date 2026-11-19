@@ -157,6 +157,12 @@ cli-panel {
   pointer-events: none;
 }
 
+/* Modals mount inside the floating dock, so lift the dock above the
+   transcript dock while one is open; otherwise agent pills paint over it. */
+.chat-dock:has(.modal-backdrop) {
+  z-index: 8;
+}
+
 /* Re-enable input only on the visible controls so the scrollbar stays draggable. */
 .chat-dock > .composer-dock > *,
 .chat-dock > permission-region .permission-card {

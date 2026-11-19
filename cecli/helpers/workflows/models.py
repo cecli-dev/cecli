@@ -64,7 +64,7 @@ class WorkflowConfig:
     skills: List[str] = field(default_factory=list)
     servers: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
-    persist: bool = False
+    persist: bool = True
     on_failure: str = "stop"
     catch_up: Optional[bool] = None  # None: use the scheduler default
     source_path: Optional[str] = None
@@ -195,7 +195,7 @@ class WorkflowConfig:
             skills=[_interp(interpolate_env_vars, s) for s in data.get("skills") or []],
             servers=[_interp(interpolate_env_vars, s) for s in data.get("servers") or []],
             metadata=(dict(data["metadata"]) if isinstance(data.get("metadata"), dict) else {}),
-            persist=_as_bool(data.get("persist")),
+            persist=_as_bool(data.get("persist"), default=True),
             on_failure=str(data.get("on_failure") or "stop"),
             catch_up=None if data.get("catch_up") is None else bool(data.get("catch_up")),
             source_path=str(source_path) if source_path else None,

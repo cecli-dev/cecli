@@ -1160,7 +1160,9 @@ class AgentCoder(Coder):
                 # conclusion, so let the turn end instead of prompting for more work.
                 if not self._todo_list_is_complete():
                     self.reflected_message = (
-                        "Continue with your task. If you have completed it, call the `Yield` tool."
+                        '<context name="yield_check" from="harness">'
+                        "No tools called, did you mean to yield? If not, please continue with your task."
+                        "</context>"
                     )
                     return True
 

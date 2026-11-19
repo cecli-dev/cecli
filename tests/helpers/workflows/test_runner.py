@@ -152,11 +152,25 @@ async def test_command_task_does_not_stall_the_queue(coder):
 
 
 @pytest.mark.asyncio
-async def test_summary_and_timestamps(coder):
+async def test_reports_running_and_idle_lifecycle(coder):
     worker = make_worker()
     service = FakeService(worker)
 
     result = await _execute(service, _wf(TaskConfig(prompt="x")), coder)
+
+    assert result.status == "ok"
+    events = worker.io.subagent_event.call_args_list
+    assert [call.args[1] for call in events] == ["running", "idle"]
+    assert all(call.args[0] == "worker-uuid" for call in events)
+    assert events[1].kwargs == {"stop_reason": "end_turn", "error": None}
+
+
+@pytest.mark.asyncio
+async def test_summary_and_timestamps(coder):
+    worker = make_worker()
+    service = FakeService(worker)
+
+    result = await _execute(service, _wf(TaskConfig(prompt="x"), persist=False), coder)
 
     assert result.summary == "all done"
     assert result.finished_at and result.started_at
@@ -431,11 +445,11 @@ async def test_session_archive_failure_is_not_fatal(coder):
 
 
 @pytest.mark.asyncio
-async def test_persist_worker_is_not_reaped(coder):
+async def test_default_worker_is_not_reaped(coder):
     worker = make_worker()
     service = FakeService(worker)
 
-    result = await _execute(service, _wf(TaskConfig(prompt="x"), persist=True), coder)
+    result = await _execute(service, _wf(TaskConfig(prompt="x")), coder)
 
     assert result.status == "ok"
     assert service.reaped == []
