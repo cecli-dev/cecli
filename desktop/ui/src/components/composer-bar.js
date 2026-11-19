@@ -219,7 +219,13 @@ export class ComposerBar extends LitElement {
         return;
       }
 
-      if (event.key === 'Tab' && !event.isComposing) {
+      if (
+        (event.key === 'Tab' || event.code === 'Tab') &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.isComposing
+      ) {
         event.preventDefault();
         this._cycle_completion(event.shiftKey ? -1 : 1);
         return;
@@ -231,7 +237,8 @@ export class ComposerBar extends LitElement {
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
-        !event.isComposing
+        !event.isComposing &&
+        this._caret_at_end()
       ) {
         event.preventDefault();
         this._accept_completion();
@@ -392,6 +399,7 @@ export class ComposerBar extends LitElement {
                 <button
                   type="button"
                   class="completion-item"
+                  tabindex="-1"
                   role="option"
                   data-active=${index === this._completion_index}
                   aria-selected=${index === this._completion_index}
@@ -597,6 +605,14 @@ export class ComposerBar extends LitElement {
     this._has_text = value.trim().length > 0;
     this._auto_grow();
     this.requestUpdate();
+  }
+
+  _caret_at_end() {
+    const textarea = this._textarea();
+    if (!textarea) return false;
+
+    const { selectionStart, selectionEnd, value } = textarea;
+    return selectionStart === value.length && selectionEnd === value.length;
   }
 }
 
