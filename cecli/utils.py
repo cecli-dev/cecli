@@ -319,7 +319,7 @@ def get_self_upgrade_command():
         return ["pipx", "upgrade", "cecli-dev"]
 
     if _is_uv_tool_env():
-        return ["uv", "tool", "upgrade", "cecli-dev"]
+        return ["uv", "tool", "upgrade", "--native-tls", "cecli-dev"]
 
     return get_pip_install(["cecli-dev"])
 
