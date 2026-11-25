@@ -269,6 +269,7 @@ class AgentCoder(Coder):
                     # "directory_structure",
                     "environment_info",
                     "browser_automation",
+                    "app_automation",
                     # "git_status",
                     # "symbol_outline",
                     "todo_list",
@@ -499,6 +500,7 @@ class AgentCoder(Coder):
             block_types = [
                 "environment_info",
                 "browser_automation",
+                "app_automation",
                 "directory_structure",
                 "git_status",
                 "symbol_outline",
@@ -543,6 +545,8 @@ class AgentCoder(Coder):
             content = self.get_skills_context()
         elif block_name == "browser_automation":
             content = self.get_browser_automation_context()
+        elif block_name == "app_automation":
+            content = self.get_app_automation_context()
         elif block_name == "servers":
             content = self.get_servers_context()
         elif block_name == "orchestration":
@@ -1767,6 +1771,60 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             "rem Multi-line program (one quoted string per line):\n"
             "powershell -NoProfile -Command \"'import os','print(os.getcwd())' |"
             ' browser-harness"\n'
+            "```"
+        )
+
+    def get_app_automation_context(self):
+        """
+        Generate a brief app-harness usage context block.
+
+        Returns None when app-harness and its bridge are not installed.
+        """
+        from cecli.helpers.app_harness import is_app_harness_available
+
+        if not is_app_harness_available():
+            return None
+
+        result = '<context name="app_automation" from="harness">\n'
+        result += "## App Automation\n\n"
+        result += (
+            "`app-harness` drives native desktop apps through the accessibility tree."
+            " Read Python from stdin, snapshot the window, then act and verify.\n\n"
+        )
+        result += AgentCoder._app_harness_example()
+        result += "\n</context>"
+
+        return result
+
+    @staticmethod
+    def _app_harness_example():
+        """Return an app-harness invocation for the shell that will run it."""
+
+        if platform.system() != "Windows":
+            return (
+                "```bash\n"
+                "app-harness --window \"<title>\" - <<'PY'\n"
+                "print(windows())\n"
+                "PY\n"
+                "```"
+            )
+
+        if get_windows_parent_process_name() in ("pwsh.exe", "powershell.exe"):
+            return (
+                "```powershell\n"
+                "@'\n"
+                "print(windows())\n"
+                '\'@ | app-harness --window "<title>" -\n'
+                "```"
+            )
+
+        return (
+            "```bat\n"
+            "rem One-line program:\n"
+            'echo print(windows()) | app-harness --window "<title>" -\n'
+            "rem Multi-line program (one quoted string per line):\n"
+            "powershell -NoProfile -Command \"'import os','print(os.getcwd())' |"
+            ' app-harness --window "<title>" -"\n'
             "```"
         )
 

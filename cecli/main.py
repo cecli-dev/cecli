@@ -582,6 +582,11 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     # Keep git from launching a pager that waits for input nobody can provide.
     os.environ["GIT_PAGER"] = "cat"
 
+    # Fedora Remix (and some images) set NO_AT_BRIDGE=1, which hides every GTK
+    # app from AT-SPI; child processes inherit this, so GUI apps the agent
+    # launches stay reachable by app-harness.
+    os.environ["NO_AT_BRIDGE"] = "0"
+
     from cecli.signals import ReloadProgramSignal
 
     attach_debug_thread_monitor(argv)

@@ -1,6 +1,6 @@
 ---
 name: creator
-description: A user helper that creates and configures cecli extensions (skills, MCP servers, hooks, custom tools, commands, workflows) and project/global config.
+description: A user helper that creates and configures cecli extensions (skills, MCP servers, hooks, custom tools, commands, workflows, app recipes) and project/global config.
 auto_reap: true
 agent-config:
   creator_mode: true
@@ -39,6 +39,13 @@ You create and maintain cecli extensions and configuration:
 - **custom tools** (`Tool` classes loaded from tools directories)
 - **custom commands** (`CustomCommand` classes loaded via `custom.command-paths`)
 - **workflows** (YAML workflow definitions)
+- **app recipes** (`app-recipes/<app>.yml` app-harness recipes for driving native apps)
+
+App recipes are file-backed and use the `app_recipe` extension type. Supply
+`content` as a YAML document (the `.yml` schema documented in the App Harness
+docs), or a `config` mapping, and ManageExtensions writes
+`<scope>/app-recipes/<name>.yml` and reloads the recipe registry. Prefer
+`.yml`; keep the recipe declarative (selectors and notes, no code).
 - **project/global configuration** (persisted to `creator.yml` through the `ManageExtensions` tool)
 
 Do not implement general application features, fix unrelated bugs, or debug the
@@ -62,6 +69,7 @@ Common locations:
 - Sub-agents: `.cecli/subagents/*.md`, `~/.cecli/subagents/*.md`
 - Hooks: `~/.cecli/hooks/*.py` or the `hooks:` config section
 - Workflows: `.cecli/workflows/*.yml`, `~/.cecli/workflows/*.yml`
+- App recipes: `app-recipes/*.yml` under `.cecli/`, `.agents/`, `~/.cecli/`, or `~/.agents/`
 - Custom commands: paths listed under `custom.command-paths`
 
 These are read/reference only — the `ManageExtensions` tool owns all writes.

@@ -492,3 +492,16 @@ def _clone_server(server, io=None, verbose=False):
     import copy
 
     return type(server)(copy.deepcopy(server.config), io=io, verbose=verbose)
+
+
+def reload_app_recipes(coder, config=None) -> list:
+    """Re-read bundled and external app recipes so new files are visible."""
+
+    try:
+        from cecli.helpers.app_harness.recipes import reload_recipes
+
+        count = reload_recipes()
+    except Exception as exc:
+        return [f"App recipe reload failed: {exc}"]
+
+    return [f"App recipes reloaded ({count} available)"]

@@ -3,7 +3,8 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,8 @@ use std::time::{Duration, Instant};
 use std::os::unix::process::CommandExt;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+
+mod bridge_mode;
 
 const DARK_THEME: &str = "dark";
 const LIGHT_THEME: &str = "light";
@@ -26,17 +29,38 @@ const WINDOW_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
 /// Owns the Python bridge child process for the lifetime of the application.
 struct BridgeState(Mutex<Option<Child>>);
 
+/// In-process app-harness bridge hosted by the desktop window.
+struct BridgeHostState {
+    shutdown: Arc<AtomicBool>,
+    join: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
 static RESOURCE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 static APP_DATA_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
+/// Process entry point. Mode dispatch happens before Tauri initializes.
 fn main() {
+    match bridge_mode::parse_mode(env::args_os().skip(1)) {
+        bridge_mode::Mode::Desktop => run_desktop(),
+        mode => std::process::exit(bridge_mode::run(mode)),
+    }
+}
+
+/// Open the desktop window, hosting the Python UI and the app-harness bridge.
+fn run_desktop() {
     #[cfg(target_os = "linux")]
     configure_webkit();
 
+    let bridge_host = start_bridge_host();
+
     let app = match tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .setup(move |app| {
+            if let Some(host) = bridge_host {
+                app.manage(host);
+            }
+
             let workspace = resolve_workspace();
             eprintln!("cecli desktop workspace: {}", workspace.display());
             let port = resolve_port()?;
@@ -77,8 +101,87 @@ fn main() {
                     }
                 }
             }
+
+            stop_bridge_host(app_handle);
         }
     });
+}
+
+/// Reuse a healthy bridge, otherwise serve one on a background thread.
+///
+/// Returns `None` when another process already publishes `bridge.json` or the
+/// thread cannot start. A failure is logged and never aborts the GUI: the UI
+/// keeps working without native app control.
+fn start_bridge_host() -> Option<BridgeHostState> {
+    if let Some(file) = ce_app_bridge::server::read_bridge_file() {
+        if ce_app_bridge::server::ping(&file, Duration::from_millis(500)) {
+            eprintln!("app-harness bridge already running on port {}", file.port);
+            return None;
+        }
+    }
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&shutdown);
+    let (port_tx, port_rx) = std::sync::mpsc::channel();
+
+    let join = match thread::Builder::new()
+        .name("ce-app-bridge".to_string())
+        .spawn(
+            move || match ce_app_bridge::server::serve(ce_app_bridge::default_backend(), flag) {
+                Ok(handle) => {
+                    let _ = port_tx.send(Ok(handle.port));
+                    handle.join();
+                }
+                Err(error) => {
+                    let _ = port_tx.send(Err(error.to_string()));
+                }
+            },
+        ) {
+        Ok(join) => join,
+        Err(error) => {
+            eprintln!("app-harness bridge thread failed: {error}");
+            return None;
+        }
+    };
+
+    match port_rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(Ok(port)) => eprintln!("app-harness bridge listening on http://127.0.0.1:{port}"),
+        Ok(Err(error)) => eprintln!("app-harness bridge failed to start: {error}"),
+        Err(error) => eprintln!("app-harness bridge did not report a port: {error}"),
+    }
+
+    Some(BridgeHostState {
+        shutdown,
+        join: Mutex::new(Some(join)),
+    })
+}
+
+/// Signal the hosted bridge and give it a moment to remove `bridge.json`.
+fn stop_bridge_host(app_handle: &AppHandle) {
+    let Some(state) = app_handle.try_state::<BridgeHostState>() else {
+        return;
+    };
+
+    state.shutdown.store(true, Ordering::SeqCst);
+
+    let Ok(mut guard) = state.join.lock() else {
+        return;
+    };
+
+    let Some(handle) = guard.take() else {
+        return;
+    };
+
+    let deadline = Instant::now() + Duration::from_millis(1000);
+
+    while !handle.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    // Joining a live accept loop would block exit; leave that thread behind.
+    if handle.is_finished() {
+        let _ = handle.join();
+    }
 }
 
 /// Opt into WebKitGTK's software rendering paths for blank or flickering
