@@ -46,7 +46,8 @@ check_deb() {
     return 0
   fi
 
-  if dpkg-deb --contents "$deb" | grep -qE '(^|/)usr/bin/ce-underscore$'; then
+  # Do not use grep -q: it closes the pipe early, and pipefail treats the SIGPIPE as failure.
+  if dpkg-deb --contents "$deb" | grep -E '(^|/)usr/bin/ce-underscore$' >/dev/null; then
     printf 'deb ok: %s\n' "$deb"
     return 0
   fi
@@ -67,10 +68,13 @@ check_appimage() {
 
   local extract_dir
   extract_dir="$(mktemp -d)"
+  local appimage_abs
+  # Extraction cd's into a temp dir, so anchor the AppImage path first.
+  appimage_abs="$(realpath "$appimage")"
   # shellcheck disable=SC2064
   trap "rm -rf '$extract_dir'" RETURN
 
-  if ! (cd "$extract_dir" && "$appimage" --appimage-extract >/dev/null 2>&1); then
+  if ! (cd "$extract_dir" && "$appimage_abs" --appimage-extract >/dev/null 2>&1); then
     printf 'warning: could not extract %s; skipping\n' "$appimage" >&2
     return 0
   fi
@@ -99,7 +103,7 @@ check_rpm() {
     return 0
   fi
 
-  if rpm -qlp "$rpm" | grep -qE '^/usr/bin/ce-underscore$'; then
+  if rpm -qlp "$rpm" | grep -E '^/usr/bin/ce-underscore$' >/dev/null; then
     printf 'rpm ok: %s\n' "$rpm"
     return 0
   fi
