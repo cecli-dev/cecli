@@ -34,6 +34,8 @@ jobs:
           draft: true
           prerelease: ${{ steps.channel.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          body: |
+            **Code signing policy:** Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md) for signing scope and team roles.
 
   linux:
     name: Linux packages (x64)
@@ -252,11 +254,61 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Build NSIS installer
+      - name: Build app executable
         shell: bash
         working-directory: desktop
         run: |
           npm run tauri build -- \
+            --config src-tauri/tauri.release.conf.json \
+            --config src-tauri/tauri.version.conf.json \
+            --no-bundle
+
+      - name: Upload unsigned app for signing
+        if: startsWith(github.ref, 'refs/tags/')
+        id: upload-unsigned-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-windows-app
+          if-no-files-found: error
+          path: target/release/ce-underscore.exe
+
+      - name: Sign app executable with SignPath
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-app
+          github-artifact-id: ${{ steps.upload-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-app
+          skip-decompress: false
+          parameters: |
+            version: "${{ env.CECLI_APP_VERSION }}"
+
+      - name: Verify signed app executable
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem signed-app/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "SignPath did not return a signed executable" }
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "Signed app status: $($sig.Status)" }
+          Write-Output "Signed app: $($exe.Name) / $($sig.SignerCertificate.Subject)"
+
+      - name: Replace app executable with signed build
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: cp signed-app/ce-underscore.exe target/release/ce-underscore.exe
+
+      - name: Build NSIS installer
+        shell: bash
+        working-directory: desktop
+        run: |
+          npm run tauri bundle -- \
             --config src-tauri/tauri.release.conf.json \
             --config src-tauri/tauri.version.conf.json \
             --bundles nsis
@@ -291,7 +343,9 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          signing-policy-slug: release-signing
+          # Installer configuration is the project default ("Initial version", slug: initial)
+          artifact-configuration-slug: initial
           github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 3600

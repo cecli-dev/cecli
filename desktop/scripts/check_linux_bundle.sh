@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify that the built Linux bundles expose /usr/bin/ce-underscore.
 #
-# Tauri installs the main binary there when productName is ce-underscore. This
+# Tauri installs the main binary there because mainBinaryName is ce-underscore. This
 # script only inspects artifacts; it never installs or runs the app.
 #
 #   check_linux_bundle.sh [bundle-dir]
