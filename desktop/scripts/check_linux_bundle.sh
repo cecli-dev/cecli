@@ -46,8 +46,9 @@ check_deb() {
     return 0
   fi
 
+  # dpkg-deb lists "mode owner ... path" and may omit the "./" path prefix.
   # Do not use grep -q: it closes the pipe early, and pipefail treats the SIGPIPE as failure.
-  if dpkg-deb --contents "$deb" | grep -E '(^|/)usr/bin/ce-underscore$' >/dev/null; then
+  if dpkg-deb --contents "$deb" | grep -E '(^|/|[[:space:]])usr/bin/ce-underscore$' >/dev/null; then
     printf 'deb ok: %s\n' "$deb"
     return 0
   fi
