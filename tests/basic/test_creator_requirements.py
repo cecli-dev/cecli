@@ -57,7 +57,7 @@ def test_creator_context_lists_installed_modules(monkeypatch):
 
     block = AgentCoder.get_creator_requirements_context(coder)
 
-    assert '<context name="creator_requirements"' in block
+    assert '<harness type="creator_requirements"' in block
     assert "Python 3.14.0 environment" in block
     assert "requests, rich, yaml" in block
     assert "Distribution names may" in block

@@ -16,6 +16,7 @@ RELOAD_FUNCS = {
     "custom_tool": "reload_custom_tools",
     "custom_command": "reload_custom_commands",
     "workflow": "reload_workflows",
+    "app_recipe": "reload_app_recipes",
     "config": "reload_creator_extensions",
 }
 
@@ -219,7 +220,7 @@ def validate_apply_to(apply_to, entry_type, name=None) -> list:
     if not targets:
         return []
 
-    if entry_type in ("custom_tool", "custom_command", "workflow"):
+    if entry_type in ("custom_tool", "custom_command", "workflow", "app_recipe"):
         raise ToolError(
             f"apply_to is not supported for type '{entry_type}': paths, commands and "
             "workflows are session-wide. Use type 'config' with an agent-config.* or "

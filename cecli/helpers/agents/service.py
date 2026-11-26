@@ -17,6 +17,7 @@ from uuid import uuid4
 import cecli.models as models
 from cecli.helpers import nested
 from cecli.helpers.agents.tree import AgentTree
+from cecli.helpers.conversation import wrap_context
 from cecli.helpers.coroutines import fire_and_forget
 
 logger = logging.getLogger(__name__)
@@ -1227,8 +1228,8 @@ class AgentService:
     async def _inject_sub_agent_result(self, info: SubAgentInfo) -> None:
         """Inject the sub-agent's result (summary/error) into the parent's conversation.
 
-        Adds a single user message containing a typed ``<context
-        name="sub_agent_result">`` block so the parent coder (and therefore the
+        Adds a single user message containing a typed ``<harness
+        type="sub_agent_result">`` block so the parent coder (and therefore the
         LLM) sees what the sub-agent produced. No synthetic assistant reply is
         fabricated on the model's behalf. Uses unique hash keys so multiple
         sub-agent completions don't overwrite each other.
@@ -1266,12 +1267,7 @@ class AgentService:
         else:
             return
 
-        user_content = (
-            '<context name="sub_agent_result" from="harness">\n'
-            f"{header}\n"
-            f"{body}\n"
-            "</context>"
-        )
+        user_content = wrap_context("sub_agent_result", f"{header}\n{body}")
 
         with self._get_lock(self._conversation_locks, info.parent_uuid):
             ConversationService.get_manager(parent_coder).add_message(

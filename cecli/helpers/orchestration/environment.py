@@ -19,6 +19,7 @@ import traceback
 from typing import Any
 
 from cecli.helpers import nested, responses
+from cecli.helpers.conversation import wrap_context
 from cecli.helpers.orchestration.agent_proxy import AgentProxy
 from cecli.helpers.orchestration.safe_methods import (
     GatherResult,
@@ -544,8 +545,9 @@ def build_orchestration_context_block(agent_config: dict[str, Any]) -> str | Non
 
     orchestration_config = agent_config.get("orchestration", {})
 
-    context = """<context name="orchestration" from="harness">
-The `Orchestrate` tool runs Python in a sandbox where you can script other tools programmatically. 
+    context = wrap_context(
+        "orchestration",
+        """The `Orchestrate` tool runs Python in a sandbox where you can script other tools programmatically. 
 Use it for batch, loop-heavy, and repeat-able workflows.
 The sandbox is stateless between calls — variables don't persist. To carry values across calls, use `state` (per-agent) or `shared_state` (cross-agent).
 You may need to explore the below primitives to understand how to use the sandbox effectively.
@@ -574,8 +576,8 @@ Pre-imported, read-only: `re`, `math`, `itertools`, `collections`, `datetime`, `
 - Keyword args only; `gather()` takes named tasks
 - Do not touch private (`_`) attributes or `__builtins__`
 - Always `await` tool calls
-- Inspect tool results with `Agent.peek()` / `Agent.get_value()`
-</context>"""
+- Inspect tool results with `Agent.peek()` / `Agent.get_value()`""",
+    )
 
     # Task 6: Append sandbox configuration overrides when non-empty
     if orchestration_config:

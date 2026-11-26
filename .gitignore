@@ -20,6 +20,8 @@
 !/.gitignore
 !/.pre-commit-config.yaml
 !/CHANGELOG.md
+!/Cargo.lock
+!/Cargo.toml
 !/CODE_SIGNING_POLICY.md
 !/CNAME
 !/CONTRIBUTING.md

@@ -1,8 +1,10 @@
 # Code Signing Policy
 
-Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpathfoundation.org/).
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
-Windows installers (`.exe`) for the **cecli desktop application** (`ce-underscore`, branded **ce_** in the interface) are signed with this certificate. The desktop application is a shell that drives the `cecli` coding agent in Agent Client Protocol (ACP) mode; both are part of this project and built from the source code in this repository. Installers are produced by the [Desktop Release workflow](.github/workflows/desktop-release.yml) on GitHub-hosted runners, and every signing request is manually approved before a release is published. The installer's product metadata is `cecli`; the installed application executable is `ce-underscore`.
+Windows release artifacts for the **cecli desktop application** (`ce-underscore`, branded **ce_** in the interface) are signed with this certificate. The desktop application is a shell that drives the `cecli` coding agent in Agent Client Protocol (ACP) mode; both are part of this project and built from the source code in this repository. Release builds run in the [Desktop Release workflow](.github/workflows/desktop-release.yml) on GitHub-hosted runners from `v*` tags, and every signing request is manually approved before a release is published.
+
+Each release signs the installed application executable (`ce-underscore.exe`) first, then the NSIS installer that bundles it (`cecli_<version>_x64-setup.exe`, published as `ce-underscore_<version>_x64-setup.exe`). The installer and the application executable both carry the product metadata `cecli`. The uninstaller that the installer generates at installation time is not signed. Test-signed artifacts are never published; a release is only published after both release-signing requests complete.
 
 Only artifacts built from this repository are signed. Third-party components bundled inside the installer (for example the [uv](https://github.com/astral-sh/uv) sidecar) are upstream open-source binaries and are not signed with this certificate. On first launch, the desktop application uses uv to install the `cecli` runtime from PyPI; that runtime is built and published by this project.
 
@@ -19,4 +21,4 @@ This program will not transfer any information to other networked systems unless
 
 ## Scope
 
-This policy covers the Windows installers for the cecli desktop application built by this repository. Packages published to [PyPI](https://pypi.org/project/cecli-dev/) and Linux/macOS artifacts are not Authenticode-signed.
+This policy covers the Windows application executable and the Windows installers for the cecli desktop application built by this repository. Packages published to [PyPI](https://pypi.org/project/cecli-dev/) and Linux/macOS artifacts are not Authenticode-signed.

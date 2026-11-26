@@ -6,6 +6,21 @@
     ],
     "macOS": {
       "entitlements": "entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "preInstallScript": "../scripts/stop_bridge_before_update.sh",
+        "postInstallScript": "../scripts/stop_bridge_before_update.sh"
+      },
+      "rpm": {
+        "preInstallScript": "../scripts/stop_bridge_before_update.sh",
+        "postInstallScript": "../scripts/stop_bridge_before_update.sh"
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "../scripts/nsis-hooks.nsh"
+      }
     }
   }
 }

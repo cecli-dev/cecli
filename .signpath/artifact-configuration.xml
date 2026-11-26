@@ -4,7 +4,9 @@
      must be zip-file with the PE file nested inside.
      product-name must match "productName" in desktop/src-tauri/tauri.conf.json.
      ce_ is the UI brand; the packaged product is named cecli and the bundled
-     executable is ce-underscore.
+     Keep this in sync with the "Initial version" (slug: initial) configuration
+     in SignPath. The application executable is signed separately with the
+     windows-app configuration; see windows-app.xml.
      Keep this in sync with the "Initial version" configuration in SignPath. -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <parameters>

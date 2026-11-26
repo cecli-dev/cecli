@@ -41,7 +41,7 @@ The `ce-underscore` application wraps cecli in a native window and drives it ove
 | macOS (Apple Silicon) | [ce-underscore-macos-arm64.dmg](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-macos-arm64.dmg) |
 | Linux (x64) | [AppImage](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.AppImage) · [deb](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.deb) · [rpm](https://github.com/cecli-dev/cecli/releases/latest/download/ce-underscore-linux-x64.rpm) |
 
-See [all releases and binaries](https://github.com/cecli-dev/cecli/releases) for older versions. Windows installers are Authenticode-signed; see the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md).
+See [all releases and binaries](https://github.com/cecli-dev/cecli/releases) for older versions. Windows release artifacts (the `ce-underscore.exe` application and the NSIS installer) are Authenticode-signed; see the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md).
 
 ## Install with uv
 
@@ -126,7 +126,7 @@ On first run to configure keybindings for the program (notably `shift+enter`). S
 
 ## Code signing policy
 
-Windows installers distributed through GitHub releases are Authenticode-signed. Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpathfoundation.org/). See the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md) for team roles, signing scope, and the privacy policy.
+Windows installers and the bundled `ce-underscore.exe` are Authenticode-signed. **Code signing policy:** Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md) for team roles, signing scope, and the privacy policy.
 
 ## Next steps...
 

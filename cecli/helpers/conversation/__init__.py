@@ -4,6 +4,7 @@ from .integration import ConversationChunks
 from .manager import ConversationManager
 from .service import ConversationService
 from .tags import MessageTag
+from .wrapper import mark_untrusted_harness_tags, wrap_context
 
 __all__ = [
     "ConversationService",
@@ -12,4 +13,6 @@ __all__ = [
     "ConversationChunks",
     "MessageTag",
     "BaseMessage",
+    "wrap_context",
+    "mark_untrusted_harness_tags",
 ]

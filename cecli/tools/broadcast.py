@@ -236,7 +236,11 @@ class Tool(BaseTool):
         Returns a short mode string describing how the message was delivered.
         """
         from cecli.helpers.agents.service import SubAgentInfo
-        from cecli.helpers.conversation import ConversationService, MessageTag
+        from cecli.helpers.conversation import (
+            ConversationService,
+            MessageTag,
+            wrap_context,
+        )
         from cecli.helpers.coroutines import is_active
 
         sender_name = agent_service.get_agent_name(sender_coder) or "primary"
@@ -245,12 +249,14 @@ class Tool(BaseTool):
         sender_coder.io.subagent_event(
             str(target_uuid), "message", sender_uuid=sender_uuid, text=message
         )
-        message = (
-            f"<context name='message' from='{sender_name} ({sender_uuid})'>\n"
-            f"{message}\n\n"
-            "[Respond with the `Broadcast` tool to relay information "
-            "back to other agents as needed]\n"
-            "</context>"
+        message = wrap_context(
+            "message",
+            (
+                f"{message}\n\n"
+                "[Respond with the `Broadcast` tool to relay information "
+                "back to other agents as needed]"
+            ),
+            from_source=f"{sender_name} ({sender_uuid})",
         )
 
         if not isinstance(info, SubAgentInfo):

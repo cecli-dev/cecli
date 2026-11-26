@@ -9,6 +9,7 @@ Reasoning effort maps to ``generationConfig.thinkingConfig`` via
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from ..runtime import VERIFY_SSL, make_client
@@ -28,6 +29,14 @@ from ..types import (
 from ..utils import split_data_url, sse_json_lines, system_prompt
 
 DEFAULT_TIMEOUT = 120.0
+
+#: Documented dummy signature that waives ``functionCall`` thought-signature
+#: validation for calls the model never generated (e.g. history transferred
+#: from another provider). See the Gemini thought-signature FAQ.
+DUMMY_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
+#: First Gemini major version that validates replayed ``functionCall`` parts.
+_SIGNATURE_MAJOR_VERSION = 3
 
 #: Per-stream tool-call index map (``call_id -> index``), reset by
 
@@ -51,9 +60,9 @@ def gemini_payload(
     # text part makes the model re-invoke the tool instead of consuming the
     # result.
     call_meta = _build_call_meta(messages)
-    # Gemini 3.x requires a native ``thoughtSignature`` on every replayed
-    # ``functionCall`` part; messages from other providers cannot provide one,
-    # so their calls are dropped to text (see :func:`_requires_thought_signatures`).
+    # Gemini 3/4 validate the current turn's replayed ``functionCall`` parts.
+    # Calls without a native signature get the documented dummy signature (see
+    # :func:`_requires_thought_signatures`).
     require_signatures = _requires_thought_signatures(resolved)
 
     payload: Dict[str, Any] = {
@@ -115,22 +124,37 @@ def gemini_payload(
 def gemini_thinking_config(resolved: Dict[str, Any], effort: str) -> Dict[str, Any]:
     """Map reasoning_effort to Gemini thinkingConfig.
 
-    Mirrors litellm ``VertexGeminiConfig._map_reasoning_effort_to_thinking_level``:
-    Gemini 3+ models use ``thinkingLevel`` + ``includeThoughts`` instead of the
-    older ``thinkingBudget``. gemini-3-flash supports the "minimal" level.
+    Gemini 3 and 4 use ``thinkingLevel`` + ``includeThoughts`` instead of the
+    older ``thinkingBudget``. Gemini 3 Flash (before 3.8) accepts the
+    "minimal" level; Gemini 4 does not, but Hydrogen/Neon add "xhigh".
     """
     route = (resolved.get("route") or "").lower()
-    is_gemini3flash = "gemini-3" in route and "flash" in route
+    major, minor = _gemini_version(route)
     include = effort != "disable" and effort != "none"
 
-    level_map = {
-        "minimal": "minimal" if is_gemini3flash else "low",
-        "low": "low",
-        "medium": "medium" if is_gemini3flash else "high",
-        "high": "high",
-        "disable": "minimal" if is_gemini3flash else "low",
-        "none": "minimal" if is_gemini3flash else "low",
-    }
+    if major >= 4:
+        allow_xhigh = "hydrogen" in route or "neon" in route
+        level_map = {
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh" if allow_xhigh else "high",
+            "disable": "low",
+            "none": "low",
+        }
+    else:
+        is_gemini3flash = major == 3 and "flash" in route
+        supports_minimal = is_gemini3flash and minor < 8
+        level_map = {
+            "minimal": "minimal" if supports_minimal else "low",
+            "low": "low",
+            "medium": "medium" if is_gemini3flash else "high",
+            "high": "high",
+            "disable": "minimal" if supports_minimal else "low",
+            "none": "minimal" if supports_minimal else "low",
+        }
+
     level = level_map.get(effort, "high")
     return {"thinkingLevel": level, "includeThoughts": include}
 
@@ -147,7 +171,7 @@ def gemini_content(
     tool results become ``functionResponse`` parts that echo the original call
     id/signature when available. Assistant turns replay prior thought parts
     (with their ``thoughtSignature``) for multi-turn reasoning.
-    ``require_signatures`` is set for Gemini 3.x targets, which reject
+    ``require_signatures`` is set for Gemini 3/4 targets, which reject
     ``functionCall`` parts without a native signature (see
     :func:`_requires_thought_signatures`).
     """
@@ -242,18 +266,31 @@ def normalize_gemini_response(data: Dict[str, Any], model: str) -> CompletionRes
     provider_fields: Dict[str, Any] = {}
     finish = None
     saw_function_call = False
-    thought_signature = None
+    response_signature = None
 
     for candidate in data.get("candidates") or []:
         content = candidate.get("content") or {}
 
         for part in content.get("parts") or []:
+            sig = part.get("thoughtSignature")
+
             if "text" in part:
                 if part.get("thought"):
                     text = part.get("text") or ""
-                    parts.append(ReasoningPart(text=text, redacted=not text))
+                    reasoning_part = ReasoningPart(text=text, redacted=not text)
+
+                    if sig:
+                        reasoning_part.provider_metadata["signature"] = sig
+
+                    parts.append(reasoning_part)
                 else:
-                    parts.append(TextPart(text=part.get("text") or ""))
+                    text_part = TextPart(text=part.get("text") or "")
+
+                    if sig:
+                        text_part.provider_metadata["signature"] = sig
+                        response_signature = sig
+
+                    parts.append(text_part)
 
             if "functionCall" in part:
                 fc = part["functionCall"]
@@ -266,29 +303,31 @@ def normalize_gemini_response(data: Dict[str, Any], model: str) -> CompletionRes
 
                 # Gemini attaches thoughtSignature as a SIBLING of the
                 # functionCall part, not as a field inside it.
-                sig = part.get("thoughtSignature") or fc.get("signature")
+                sig = sig or fc.get("signature")
+
                 if sig:
                     call_part.provider_metadata["signature"] = sig
 
                 parts.append(call_part)
 
         if candidate.get("thoughtSignature"):
-            thought_signature = candidate["thoughtSignature"]
+            response_signature = candidate["thoughtSignature"]
 
         finish = _map_finish_reason(candidate.get("finishReason"))
 
     if saw_function_call:
         finish = "tool_calls"
 
-    if thought_signature:
-        # Echo the thoughtSignature back on the next request (the encoder
-        # replays prior thought parts with it). Keep the raw camelCase field
-        # plus the snake_case alias the cecli request pipeline reads.
-        provider_fields["thoughtSignature"] = thought_signature
-        provider_fields["thought_signature"] = thought_signature
+    if response_signature:
+        # Content-level ``thoughtSignature`` is invalid; the encoder attaches
+        # this to the part that carried it. Keep the snake_case alias the cecli
+        # request pipeline reads so it does not replace a real signature with
+        # its dummy validator.
+        provider_fields["response_signature"] = response_signature
+        provider_fields["thought_signature"] = response_signature
 
-    # Preserve raw thought parts for verbatim replay, and per-call functionCall
-    # signatures so tool results echo the original id/signature.
+    # Preserve raw thought parts (and their signatures) for verbatim replay,
+    # plus per-call functionCall signatures so tool calls echo their originals.
     thought_parts = []
     for p in parts:
         if isinstance(p, ReasoningPart):
@@ -334,11 +373,19 @@ def parse_gemini_chunk(data: Dict[str, Any]) -> Optional[CompletionChunk]:
         content = candidate.get("content") or {}
 
         for part in content.get("parts") or []:
+            sig = part.get("thoughtSignature")
+
             if "text" in part:
                 if part.get("thought"):
                     reasoning.append(part["text"])
                 else:
                     parts.append(part["text"])
+
+                # A text-only response carries its signature on the final part
+                # (often an empty text part streamed just before the stop).
+                if sig:
+                    chunk.provider_specific_fields["response_signature"] = sig
+                    chunk.provider_specific_fields["thought_signature"] = sig
 
             if "functionCall" in part:
                 fc = part["functionCall"]
@@ -364,12 +411,14 @@ def parse_gemini_chunk(data: Dict[str, Any]) -> Optional[CompletionChunk]:
 
                 # Capture the native thoughtSignature (a sibling of functionCall)
                 # so streamed tool calls can echo it back on the next turn.
-                sig = part.get("thoughtSignature")
-
                 if sig:
                     chunk.provider_specific_fields.setdefault("function_call_signatures", {})[
                         call_id
                     ] = sig
+
+        if candidate.get("thoughtSignature"):
+            chunk.provider_specific_fields["response_signature"] = candidate["thoughtSignature"]
+            chunk.provider_specific_fields["thought_signature"] = candidate["thoughtSignature"]
 
         if candidate.get("finishReason"):
             chunk.finish_reason = _map_finish_reason(candidate.get("finishReason"))
@@ -388,6 +437,7 @@ def parse_gemini_chunk(data: Dict[str, Any]) -> Optional[CompletionChunk]:
         and not chunk.tool_calls
         and not chunk.finish_reason
         and not chunk.usage
+        and not chunk.provider_specific_fields
     ):
         return None
 
@@ -451,15 +501,16 @@ def _gemini_usage(usage_raw: Dict[str, Any]) -> Optional[Usage]:
 
 
 def _requires_thought_signatures(resolved: Dict[str, Any]) -> bool:
-    """Whether the target model requires a signature on replayed functionCall parts.
+    """Whether the target model validates signatures on replayed functionCall parts.
 
-    Gemini 3.x demands the native ``thoughtSignature`` (an opaque encrypted
-    blob) on every ``functionCall`` part replayed in history; without it the
-    API rejects the request with a 400. Older models (e.g. gemini-2.5-pro)
-    accept signature-less replays. Messages from other providers never carry a
-    Gemini signature, so for 3.x targets the encoder drops those calls to text.
+    Gemini 3 and newer (including the Gemini 4 family) require the native
+    ``thoughtSignature`` on the first ``functionCall`` part of each step of the
+    current turn; without it the API rejects the request with a 400. Older
+    models (e.g. gemini-2.5-pro) accept signature-less replays.
     """
-    return "gemini-3" in (resolved.get("route") or "").lower()
+    major, _minor = _gemini_version((resolved.get("route") or "").lower())
+
+    return major >= _SIGNATURE_MAJOR_VERSION
 
 
 def _build_call_meta(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -467,7 +518,7 @@ def _build_call_meta(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     Signatures come from ``provider_specific_fields["function_call_signatures"]``
     (captured by :func:`normalize_gemini_response` from native ``functionCall``
-    parts) so ``functionResponse`` parts echo the original id/signature.
+    parts), falling back to the per-call provider fields other shims populate.
     """
     meta: Dict[str, Any] = {}
 
@@ -485,9 +536,14 @@ def _build_call_meta(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                 continue
 
             fn = tc.get("function") or {}
+            call_psf = tc.get("provider_specific_fields") or {}
             meta[call_id] = {
                 "name": fn.get("name", ""),
-                "signature": signatures.get(call_id),
+                "signature": (
+                    signatures.get(call_id)
+                    or call_psf.get("thought_signature")
+                    or call_psf.get("thoughtSignature")
+                ),
             }
 
     return meta
@@ -513,15 +569,15 @@ def _tool_content(
 ) -> Dict[str, Any]:
     """Encode a tool-result message as a ``functionResponse`` user Content.
 
-    On Gemini 3.x targets the matching ``functionCall`` was dropped to text
-    when no signature was available, so the result is downgraded to a plain
-    text part too (a ``functionResponse`` without its ``functionCall`` would
-    be rejected or ignored).
+    Emit the structured ``functionResponse`` whenever the originating call is
+    known, regardless of signature: :func:`_model_content` supplies a dummy
+    signature for replayed calls on signature-validating models, so the result
+    must keep matching a real ``functionCall`` part.
     """
     meta = _call_meta(name_by_call_id, msg.get("tool_call_id"))
     name = meta.get("name") or ""
 
-    if name and (meta.get("signature") or not require_signatures):
+    if name:
         fr: Dict[str, Any] = {
             "name": name,
             "response": {"output": msg.get("content") or ""},
@@ -531,32 +587,25 @@ def _tool_content(
         if call_id:
             fr["id"] = call_id
 
-        part_dict: Dict[str, Any] = {"functionResponse": fr}
+        return {"role": "user", "parts": [{"functionResponse": fr}]}
 
-        if require_signatures and meta.get("signature"):
-            part_dict["thoughtSignature"] = meta["signature"]
-
-        return {"role": "user", "parts": [part_dict]}
-
-    # No matching functionCall recorded (or it was dropped for a
-    # signature-requiring model) -- fall back to plain text.
+    # No matching functionCall recorded -- fall back to plain text.
     return {"role": "user", "parts": [{"text": msg.get("content") or ""}]}
 
 
 def _model_content(msg: Dict[str, Any], require_signatures: bool = False) -> Dict[str, Any]:
-    """Encode an assistant message, replaying prior thought parts.
+    """Encode an assistant message, replaying prior thought parts and signatures.
 
-    Gemini requires the full thinking turn (thought parts + ``thoughtSignature``)
-    echoed back in the history for multi-turn reasoning, even when thoughts are
-    hidden. The parts/signature captured by :func:`normalize_gemini_response`
-    live on ``provider_specific_fields``; when an upstream consumer dropped
-    them, fall back to reconstructing a single thought part from
-    ``reasoning_content``.
+    Stateless Gemini histories must resend thought parts (and their signatures)
+    exactly as received. Signatures captured by
+    :func:`normalize_gemini_response` live on ``provider_specific_fields``; when
+    an upstream consumer dropped them, fall back to reconstructing a single
+    thought part from ``reasoning_content``.
 
-    Gemini 3.x also requires a native ``thoughtSignature`` on every replayed
-    ``functionCall`` part. Foreign messages never carry one, so on those models
-    the call is dropped and surfaced as a text part instead of failing with a
-    400 (see :func:`_requires_thought_signatures`).
+    Gemini 3/4 reject replayed ``functionCall`` parts without a signature.
+    Foreign messages never carry one, so those calls receive the documented
+    dummy signature instead of being dropped to text (which would lose the
+    tool-call structure the following ``functionResponse`` must match).
     """
     psf = msg.get("provider_specific_fields") or {}
     thought_parts = psf.get("thought_parts") or []
@@ -604,13 +653,15 @@ def _model_content(msg: Dict[str, Any], require_signatures: bool = False) -> Dic
 
         sig = call_signatures.get(tc["id"]) if tc.get("id") else None
 
-        # A signature-requiring model cannot replay a call without its native
-        # signature (foreign messages never have one). Drop the functionCall
-        # and surface the call as text so the turn stays coherent; the
-        # matching tool result is downgraded to text by _tool_content too.
+        if not sig:
+            call_psf = tc.get("provider_specific_fields") or {}
+            sig = call_psf.get("thought_signature") or call_psf.get("thoughtSignature")
+
+        # Gemini 3/4 validate the current turn's functionCalls. Foreign calls
+        # (or parallel calls after the first) have no native signature, so use
+        # the documented dummy instead of rewriting the call as text.
         if require_signatures and not sig:
-            parts.append({"text": f"[tool call: {fn.get('name', '')}({json.dumps(args)})]"})
-            continue
+            sig = DUMMY_THOUGHT_SIGNATURE
 
         fc: Dict[str, Any] = {"name": fn.get("name", ""), "args": args}
 
@@ -619,18 +670,36 @@ def _model_content(msg: Dict[str, Any], require_signatures: bool = False) -> Dic
 
         part_dict: Dict[str, Any] = {"functionCall": fc}
 
-        if require_signatures and sig:
+        if sig:
             part_dict["thoughtSignature"] = sig
 
         parts.append(part_dict)
 
-    content_dict: Dict[str, Any] = {"role": "model", "parts": parts}
-    signature = psf.get("thoughtSignature") or psf.get("thought_signature")
+    # Replay the response-level signature on the part that carried it. A
+    # Content-level ``thoughtSignature`` is rejected by the API ("Cannot find
+    # field"), so it must live on a part.
+    signature = _message_signature(psf)
 
-    if signature and signature != "skip_thought_signature_validator":
-        content_dict["thoughtSignature"] = signature
+    if signature:
+        target = None
 
-    return content_dict
+        if any("functionCall" in part for part in parts):
+            target = next(
+                (
+                    part
+                    for part in parts
+                    if "functionCall" in part and "thoughtSignature" not in part
+                ),
+                None,
+            )
+
+        if target is None and parts:
+            target = parts[-1]
+
+        if target is not None:
+            target.setdefault("thoughtSignature", signature)
+
+    return {"role": "model", "parts": parts}
 
 
 def _encode_contents(
@@ -739,6 +808,27 @@ def _gemini_user_parts(content: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         parts.append({"text": json.dumps(part)})
 
     return parts
+
+
+def _gemini_version(route: str) -> tuple[int, int]:
+    """Return the ``(major, minor)`` Gemini version encoded in a route."""
+    match = re.search(r"gemini-(\d+)(?:\.(\d+))?", route or "")
+
+    if not match:
+        return 0, 0
+
+    return int(match.group(1)), int(match.group(2) or 0)
+
+
+def _message_signature(psf: Dict[str, Any]) -> Optional[str]:
+    """Return a real (non-dummy) response-level thought signature from ``psf``."""
+    for key in ("response_signature", "thoughtSignature", "thought_signature"):
+        signature = psf.get(key)
+
+        if signature and signature != DUMMY_THOUGHT_SIGNATURE:
+            return signature
+
+    return None
 
 
 __all__ = [

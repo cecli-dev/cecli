@@ -11,6 +11,7 @@ from cecli.utils import is_image_file
 
 from .service import ConversationService
 from .tags import DEFAULT_TAG_PRIORITY, MessageTag
+from .wrapper import wrap_context
 
 
 class ConversationChunks:
@@ -308,23 +309,24 @@ class ConversationChunks:
             editable_rel_files = sorted([coder.get_rel_fname(f) for f in coder.abs_fnames])
 
         # Format reminder content
-        reminder_lines = ['<context name="file_list">']
+        reminder_lines = []
         if readonly_rel_files:
             reminder_lines.append("Read-only files:")
             for f in readonly_rel_files:
                 reminder_lines.append(f"  - {f}")
 
         if editable_rel_files:
-            if len(reminder_lines) > 1:  # Add separator if we already have readonly files
+            if reminder_lines:  # Add separator if we already have readonly files
                 reminder_lines.append("")
             reminder_lines.append("Editable files:")
             for f in editable_rel_files:
                 reminder_lines.append(f"  - {f}")
 
         use_reminders = getattr(coder.args, "use_reminders", True)
-        if use_reminders and len(reminder_lines) > 1:  # Only add reminder if there are files
-            reminder_lines.append("</context>\n")
-            reminder_content = "\n".join(reminder_lines)
+        if use_reminders and reminder_lines:  # Only add reminder if there are files
+            reminder_content = (
+                wrap_context("file_list", "\n".join(reminder_lines), from_source=None) + "\n"
+            )
             ConversationService.get_manager(coder).add_message(
                 message_dict={
                     "role": "user",
@@ -532,11 +534,7 @@ class ConversationChunks:
             # Create user message
             user_msg = {
                 "role": "user",
-                "content": (
-                    f'<context name="user_rules" from="harness" source="{rel_fname}">\n'
-                    f"{content}"
-                    "\n</context>"
-                ),
+                "content": wrap_context("user_rules", content, source=rel_fname),
             }
 
             # Add to ConversationManager with RULES tag
@@ -801,8 +799,8 @@ class ConversationChunks:
         """
         Add static context blocks to conversation (priority 50).
 
-        Static blocks include: environment_info, browser_automation, directory_structure,
-        skills, servers, sub_agents
+        Static blocks include: environment_info, browser_automation, app_automation,
+        directory_structure, skills, servers, sub_agents
         """
         coder = self.get_coder()
         if not coder:
@@ -823,6 +821,10 @@ class ConversationChunks:
                 block = coder.get_cached_context_block("browser_automation")
                 if block:
                     message_blocks["browser_automation"] = block
+            if "app_automation" in coder.allowed_context_blocks:
+                block = coder.get_cached_context_block("app_automation")
+                if block:
+                    message_blocks["app_automation"] = block
             if "directory_structure" in coder.allowed_context_blocks:
                 block = coder.get_cached_context_block("directory_structure")
                 if block:
@@ -1241,35 +1243,37 @@ class ConversationChunks:
 
         tool_list_json = json.dumps(tool_descriptions, indent=2)
 
-        inline_tool_instructions = (
-            '<context name="tool_list">\n'
-            "You are in copy/paste mode. Since the LLM API transport is unavailable, "
-            "you MUST embed tool calls directly in your response content using one of the "
-            "following formats. The system will parse these out and execute them.\n\n"
-            "Available tools:\n"
-            f"{tool_list_json}\n\n"
-            "TOOL CALLING FORMATS (use any of these):\n\n"
-            "1. XML Function Format:\n"
-            "   <function=ToolName>\n"
-            "   <parameter=param_name>param_value_json</parameter>\n"
-            "   </function>\n\n"
-            "   Example:\n"
-            "   <function=Local--ReadFile>\n"
-            '   <parameter=read>[{"file_path": "example.py", "range_start": "def hello",'
-            ' "range_end": "def goodbye"}]</parameter>\n'
-            "   </function>\n\n"
-            "2. JSON Tool-Call Format:\n"
-            '   Embed a JSON object with "name" and "arguments" keys.\n\n'
-            "   Example:\n"
-            '   {"name": "Local--ReadFile", "arguments": {"read": [{"file_path": "example.py",'
-            ' "range_start": "class A", "range_end": "class Z"}]}}\n\n'
-            "3. Bracket Format:\n"
-            "   [ToolName(key1=value1, key2=value2)]\n\n"
-            "   Example:\n"
-            '   [Local--ReadFile(read=[{"file_path": "example.py", "range_start": "class A"}])]\n\n'
-            "IMPORTANT: Use the FULL prefixed tool name "
-            '(e.g., "Local--ReadFile" not just "ReadFile").\n'
-            "</context>"
+        inline_tool_instructions = wrap_context(
+            "tool_list",
+            (
+                "You are in copy/paste mode. Since the LLM API transport is unavailable, "
+                "you MUST embed tool calls directly in your response content using one of the "
+                "following formats. The system will parse these out and execute them.\n\n"
+                "Available tools:\n"
+                f"{tool_list_json}\n\n"
+                "TOOL CALLING FORMATS (use any of these):\n\n"
+                "1. XML Function Format:\n"
+                "   <function=ToolName>\n"
+                "   <parameter=param_name>param_value_json</parameter>\n"
+                "   </function>\n\n"
+                "   Example:\n"
+                "   <function=Local--ReadFile>\n"
+                '   <parameter=read>[{"file_path": "example.py", "range_start": "def hello",'
+                ' "range_end": "def goodbye"}]</parameter>\n'
+                "   </function>\n\n"
+                "2. JSON Tool-Call Format:\n"
+                '   Embed a JSON object with "name" and "arguments" keys.\n\n'
+                "   Example:\n"
+                '   {"name": "Local--ReadFile", "arguments": {"read": [{"file_path": "example.py",'
+                ' "range_start": "class A", "range_end": "class Z"}]}}\n\n'
+                "3. Bracket Format:\n"
+                "   [ToolName(key1=value1, key2=value2)]\n\n"
+                "   Example:\n"
+                '   [Local--ReadFile(read=[{"file_path": "example.py", "range_start": "class A"}])]\n\n'
+                "IMPORTANT: Use the FULL prefixed tool name "
+                '(e.g., "Local--ReadFile" not just "ReadFile").'
+            ),
+            from_source=None,
         )
 
         ConversationService.get_manager(coder).add_message(
@@ -1284,7 +1288,9 @@ class ConversationChunks:
         If the string is a critical_reminders block, shuffle all bulleted points
         to prevent the model from developing 'boilerplate blindness.'
         """
-        if not content.strip().startswith('<context name="critical_reminders">'):
+        if not content.strip().startswith(
+            ('<harness type="critical_reminders">', '<context name="critical_reminders">')
+        ):
             return content
 
         lines = content.splitlines()

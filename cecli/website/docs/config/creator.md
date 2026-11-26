@@ -1,7 +1,7 @@
 ---
 parent: Configuration
 nav_order: 24
-description: Use creator mode to add skills, MCP servers, hooks, tools, commands, workflows, and settings that persist across sessions.
+description: Use creator mode to add skills, MCP servers, hooks, tools, commands, workflows, app recipes, and settings that persist across sessions.
 ---
 
 # Creator Mode
@@ -15,6 +15,7 @@ Use creator mode when the request is about extending cecli itself — not when y
 - add a hook
 - create a custom tool or slash command
 - define a workflow
+- add an app-harness recipe for a native application
 - change persistent settings
 
 ## Starting Creator Mode
@@ -44,6 +45,7 @@ When building custom tools or commands, the creator sees a `creator_requirements
 | Create a custom tool | `/creator add a tool that summarizes long logs` | `.cecli/tools/<name>.py`, registered on reload |
 | Create a slash command | `/creator add a /deploy command` | `.cecli/commands/<name>.py` plus `custom.command-paths` |
 | Define a workflow | `/creator triage open issues every morning` | `.cecli/workflows/<name>.yml` with an optional schedule |
+| Add an app recipe | `/creator add an app-harness recipe for CapCut` | `.cecli/app-recipes/<app>.yml` with selectors, keys, help, and gotchas |
 | Change settings | `/creator make model X the default locally` | The setting deep-merged into `creator.yml` |
 
 Examples of what changes:

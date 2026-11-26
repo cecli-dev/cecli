@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from cecli.helpers.creator import (
+    app_recipe_helpers,
     config_helpers,
     custom_command_helpers,
     custom_tool_helpers,
@@ -20,10 +21,20 @@ from cecli.tools.utils.responses import ToolResponse
 from cecli.tools.validations import ToolValidations
 
 ACTIONS = ("add", "update", "remove", "list")
-TYPES = ("mcp_server", "hook", "skill", "custom_tool", "custom_command", "workflow", "config")
+TYPES = (
+    "mcp_server",
+    "hook",
+    "skill",
+    "custom_tool",
+    "custom_command",
+    "workflow",
+    "app_recipe",
+    "config",
+)
 SCOPES = ("global", "local")
 
 _EXTENSION_MODULES = {
+    "app_recipe": app_recipe_helpers,
     "mcp_server": mcp_helpers,
     "hook": hook_helpers,
     "skill": skills_helpers,
@@ -74,7 +85,8 @@ class Tool(BaseTool):
                         "type": "string",
                         "description": (
                             "Entry name: the file/dir name for skill, custom_tool, "
-                            "custom_command and workflow entries; the dict key (or dotted "
+                            "custom_command, workflow and app_recipe entries; the dict key "
+                            "(or dotted "
                             "config key path for type 'config') for mcp_server, hook and "
                             "config entries."
                         ),
@@ -89,7 +101,8 @@ class Tool(BaseTool):
                         "type": "string",
                         "description": (
                             "Full file content for file-backed entries, e.g. a SKILL.md "
-                            "body, a custom tool .py source, or a workflow yml document."
+                            "body, a custom tool .py source, a workflow yml document, or an "
+                            "app recipe YAML/JSON document."
                         ),
                     },
                     "apply_to": {
@@ -131,7 +144,8 @@ class Tool(BaseTool):
         action: str
             One of add, update, remove, list.
         type: str
-            One of mcp_server, hook, skill, custom_tool, custom_command, workflow, config.
+            One of mcp_server, hook, skill, custom_tool, custom_command, workflow,
+            app_recipe, config.
         scope: str
             'global' writes ~/.cecli/creator.yml, 'local' writes <root>/.cecli/creator.yml.
         name: str
@@ -142,7 +156,8 @@ class Tool(BaseTool):
             Optional full file content for file-backed entries.
         apply_to: list
             Agent names or fnmatch patterns to scope the change to. Empty means
-            the shared config; unsupported for custom_tool/custom_command/workflow.
+            the shared config; unsupported for custom_tool/custom_command/workflow/
+            app_recipe.
 
         Returns
         -------

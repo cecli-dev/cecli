@@ -24,6 +24,7 @@ Repository = "https://github.com/dwash96/cecli"
 
 [project.scripts]
 "cecli" = "cecli.main:main"
+"app-harness" = "cecli.helpers.app_harness.cli:main"
 
 [tool.setuptools.dynamic]
 dependencies = { file = "requirements/requirements.in" }
@@ -38,6 +39,10 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["cecli*"]
 
+[tool.setuptools.package-data]
+"cecli.helpers.app_harness" = ["README.md"]
+"cecli.helpers.app_harness.recipes.defaults" = ["*.yml"]
+
 [tool.uv]
 exclude-newer = "2 days"
 exclude-newer-package = { "py-cymbal" = "0 days", "cecli-browser-harness" = "0 days" }
@@ -51,5 +56,5 @@ write_to = "cecli/_version.py"
 local_scheme = "no-local-version"
 
 [tool.codespell]
-skip = "*.svg,*.scss,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*,desktop/static/*,desktop/package-lock.json,desktop/src-tauri/Cargo.lock,desktop/src-tauri/icons/*"
+skip = "*.svg,*.scss,Gemfile.lock,tests/fixtures/*,cecli/website/assets/*,desktop/static/*,desktop/package-lock.json,desktop/src-tauri/Cargo.lock,desktop/src-tauri/icons/*,desktop/app-bridge/*,desktop/src-tauri/src/*,desktop/src-tauri/target/*"
 write-changes = true

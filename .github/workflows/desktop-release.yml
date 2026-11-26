@@ -34,6 +34,8 @@ jobs:
           draft: true
           prerelease: ${{ steps.channel.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          body: |
+            **Code signing policy:** Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](https://github.com/cecli-dev/cecli/blob/main/CODE_SIGNING_POLICY.md) for signing scope and team roles.
 
   linux:
     name: Linux packages (x64)
@@ -56,10 +58,21 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: .
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint the app-harness bridge
+        run: cargo clippy -p ce-app-bridge --all-targets -- -D warnings
+
+      - name: Test the app-harness bridge
+        run: cargo test -p ce-app-bridge
 
       - name: Resolve runtime spec and app version
         shell: bash
@@ -132,32 +145,37 @@ jobs:
             --config src-tauri/tauri.rpm.version.conf.json \
             --bundles rpm
 
+      - name: Verify Linux packages expose ce-underscore
+        shell: bash
+      - name: Verify Linux packages expose ce-underscore
+        shell: bash
+        run: bash desktop/scripts/check_linux_bundle.sh target/release/bundle
+
       - name: Upload AppImage
-        uses: actions/upload-artifact@v4
         with:
           name: ce-underscore-linux-x64-appimage
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          path: target/release/bundle/appimage/*.AppImage
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
           name: ce-underscore-linux-x64-deb
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/deb/*.deb
+          path: target/release/bundle/deb/*.deb
 
       - name: Upload rpm
         uses: actions/upload-artifact@v4
         with:
           name: ce-underscore-linux-x64-rpm
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/rpm/*.rpm
+          path: target/release/bundle/rpm/*.rpm
 
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
-          bundle_dir=desktop/src-tauri/target/release/bundle
+          bundle_dir=target/release/bundle
           mkdir -p release-assets
           for file in "$bundle_dir"/appimage/*.AppImage "$bundle_dir"/deb/*.deb "$bundle_dir"/rpm/*.rpm; do
             name=$(basename "$file")
@@ -195,7 +213,11 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: .
+
+      - name: Test the app-harness bridge
+        shell: bash
+        run: cargo test -p ce-app-bridge
 
       - name: Resolve runtime spec and app version
         shell: bash
@@ -232,11 +254,61 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Build NSIS installer
+      - name: Build app executable
         shell: bash
         working-directory: desktop
         run: |
           npm run tauri build -- \
+            --config src-tauri/tauri.release.conf.json \
+            --config src-tauri/tauri.version.conf.json \
+            --no-bundle
+
+      - name: Upload unsigned app for signing
+        if: startsWith(github.ref, 'refs/tags/')
+        id: upload-unsigned-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-windows-app
+          if-no-files-found: error
+          path: target/release/ce-underscore.exe
+
+      - name: Sign app executable with SignPath
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-app
+          github-artifact-id: ${{ steps.upload-unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-app
+          skip-decompress: false
+          parameters: |
+            version: "${{ env.CECLI_APP_VERSION }}"
+
+      - name: Verify signed app executable
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem signed-app/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "SignPath did not return a signed executable" }
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "Signed app status: $($sig.Status)" }
+          Write-Output "Signed app: $($exe.Name) / $($sig.SignerCertificate.Subject)"
+
+      - name: Replace app executable with signed build
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: cp signed-app/ce-underscore.exe target/release/ce-underscore.exe
+
+      - name: Build NSIS installer
+        shell: bash
+        working-directory: desktop
+        run: |
+          npm run tauri bundle -- \
             --config src-tauri/tauri.release.conf.json \
             --config src-tauri/tauri.version.conf.json \
             --bundles nsis
@@ -245,7 +317,7 @@ jobs:
         shell: bash
         working-directory: desktop
         run: |
-          installer=$(ls src-tauri/target/release/bundle/nsis/*.exe | head -1)
+          installer=$(ls ../target/release/bundle/nsis/*.exe | head -1)
           case "$installer" in
             *"_${CECLI_APP_VERSION}_"*) ;;
             *)
@@ -262,7 +334,7 @@ jobs:
         with:
           name: signpath-input-windows
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          path: target/release/bundle/nsis/*.exe
 
       - name: Sign installer with SignPath
         if: startsWith(github.ref, 'refs/tags/')
@@ -271,7 +343,9 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          signing-policy-slug: release-signing
+          # Installer configuration is the project default ("Initial version", slug: initial)
+          artifact-configuration-slug: initial
           github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 3600
@@ -294,7 +368,7 @@ jobs:
         with:
           name: ce-underscore-windows-x64
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          path: target/release/bundle/nsis/*.exe
 
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -333,7 +407,11 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: .
+
+      - name: Test the app-harness bridge
+        shell: bash
+        run: cargo test -p ce-app-bridge
 
       - name: Resolve runtime spec and app version
         shell: bash
@@ -382,14 +460,14 @@ jobs:
         with:
           name: ce-underscore-macos-arm64
           if-no-files-found: error
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          path: target/release/bundle/dmg/*.dmg
 
       - name: Stage release assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           mkdir -p release-assets
-          dmg=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          dmg=$(ls target/release/bundle/dmg/*.dmg | head -1)
           name=$(basename "$dmg")
           name=${name//cecli_/ce-underscore_}
           cp "$dmg" "release-assets/$name"

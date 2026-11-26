@@ -14,6 +14,8 @@ from typing import Any, Dict, Optional
 from cecli.helpers.model_config.pipeline import get_default_config
 from cecli.helpers.model_providers import ModelProviderManager
 
+from .identifiers import is_gemini_4
+
 #: Built-in provider defaults (base URLs / key env). Custom providers (chutes,
 #: ...) are resolved from cecli PROVIDER_CONFIGS.
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
@@ -134,7 +136,12 @@ def resolve_model_config(model: str) -> Dict[str, Any]:
     elif provider == "anthropic":
         family = "messages"
     elif provider == "gemini":
-        family = "gemini"
+        # Gemini 4 uses the stateless Interactions wire; Gemini 3 and older
+        # models keep the generateContent wire.
+        if is_gemini_4(provider, route, llm_block):
+            family = "interactions"
+        else:
+            family = "gemini"
     else:
         family = "chat"
 

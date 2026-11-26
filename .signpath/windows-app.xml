@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Artifact configuration for the ce-underscore desktop executable.
+     The executable is signed before the NSIS installer is built, so the
+     installed application carries the same release signature as the installer.
+     actions/upload-artifact delivers the executable as a ZIP, so the root element
+     must be zip-file with the PE file nested inside.
+     product-name must match "productName" in desktop/src-tauri/tauri.conf.json.
+     Keep this in sync with the "windows-app" configuration in SignPath. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="*.exe" product-name="cecli" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

@@ -31,6 +31,11 @@ def is_gemini(provider: Optional[str], route: str, record: Optional[Dict[str, An
     return "gemini" in _haystack(provider, route, record)
 
 
+def is_gemini_4(provider: Optional[str], route: str, record: Optional[Dict[str, Any]]) -> bool:
+    """True when the model is a Gemini 4-series model."""
+    return "gemini-4" in (route or "").lower()
+
+
 def is_github_copilot(
     provider: Optional[str], route: str, record: Optional[Dict[str, Any]]
 ) -> bool:

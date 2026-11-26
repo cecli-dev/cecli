@@ -5,14 +5,14 @@ files_content_assistant_reply: |
   I have received the file contents. I will use them to provide a precise solution.
 
 files_no_full_files: |
-  <context name="file_status">
+  <harness type="file_status">
   I currently lack full file contents. I will use discovery tools to pull necessary context as I progress.
-  </context>
+  </harness>
 
 files_no_full_files_with_repo_map: |
-  <context name="repo_map_status">
+  <harness type="repo_map_status">
   I have a repository map. I will use it to target my navigation and add relevant files to the context.
-  </context>
+  </harness>
 
 repo_content_prefix: |
   Here are summaries of some files present in my git repository.
@@ -66,7 +66,7 @@ main_system: |
   Always reply in {language}.
 
 system_reminder: |
-  <context name="critical_reminders">
+  <harness type="critical_reminders">
   - Prefer the `ReadFile` tool to cli commands for file reading
   - Pay close attention to indentation and styling when editing files
   - Batch tool calls as often as possible
@@ -74,7 +74,7 @@ system_reminder: |
 
   {lazy_prompt}
   {shell_cmd_reminder}
-  </context>
+  </harness>
 
 try_again: |
   My previous exploration was insufficient. I will now adjust my strategy, use more specific search patterns, and manage my context more aggressively to find the correct solution.
