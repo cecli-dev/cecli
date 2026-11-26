@@ -15,7 +15,7 @@ def test_app_automation_context_uses_bash_heredoc_on_posix(monkeypatch):
 
     context = AgentCoder.get_app_automation_context(coder)
 
-    assert context.startswith('<context name="app_automation"')
+    assert context.startswith('<harness type="app_automation"')
     assert "app-harness --window" in context
     assert "<<'PY'" in context
 

@@ -39,7 +39,12 @@ from cecli.commands import Commands, SwitchCoderSignal
 from cecli.decoding import safe_open
 from cecli.exceptions import LiteLLMExceptions
 from cecli.helpers import command_parser, command_queue, coroutines, nested, responses
-from cecli.helpers.conversation import ConversationService, MessageTag
+from cecli.helpers.conversation import (
+    ConversationService,
+    MessageTag,
+    mark_untrusted_harness_tags,
+    wrap_context,
+)
 from cecli.helpers.file_system import FileSystemService
 from cecli.helpers.io_proxy import IOProxy
 from cecli.helpers.loop_detect import (
@@ -1986,6 +1991,8 @@ class Coder(metaclass=UsageMeta):
                     message = None
                 else:
                     message = self.reflected_message
+                    if message and not message.lstrip().startswith("<harness"):
+                        message = wrap_context("reflection", message)
             elif self.stop_on_empty:
                 await self.auto_save_session(force=True)
                 break
@@ -2208,7 +2215,13 @@ class Coder(metaclass=UsageMeta):
                 manager.clear_tag(tag)
 
                 if tag == MessageTag.DONE:
-                    manager.queue_message(message_dict={"role": "user", "content": text}, tag=tag)
+                    manager.queue_message(
+                        message_dict={
+                            "role": "user",
+                            "content": wrap_context("compaction_summary", text),
+                        },
+                        tag=tag,
+                    )
                     manager.queue_message(
                         message_dict={
                             "role": "assistant",
@@ -2238,9 +2251,10 @@ class Coder(metaclass=UsageMeta):
                     manager.queue_message(
                         message_dict={
                             "role": "user",
-                            "content": (
+                            "content": wrap_context(
+                                "compaction_summary",
                                 "Here is a summary of our current goals and historical"
-                                f" context:\n{text}"
+                                f" context:\n{text}",
                             ),
                         },
                         tag=tag,
@@ -2874,7 +2888,10 @@ class Coder(metaclass=UsageMeta):
         if interrupted:
             # Always add to conversation manager
             ConversationService.get_manager(self).add_message(
-                message_dict=dict(role="user", content="^C KeyboardInterrupt"),
+                message_dict=dict(
+                    role="user",
+                    content=wrap_context("keyboard_interrupt", "^C KeyboardInterrupt"),
+                ),
                 tag=MessageTag.CUR,
                 force=True,
                 promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
@@ -2968,7 +2985,10 @@ class Coder(metaclass=UsageMeta):
         shared_output = await self.run_shell_commands()
         if shared_output:
             ConversationService.get_manager(self).add_message(
-                message_dict=dict(role="user", content=shared_output),
+                message_dict=dict(
+                    role="user",
+                    content=wrap_context("shell_output", shared_output),
+                ),
                 tag=MessageTag.CUR,
                 force=True,  # Force update existing message
                 promotion=ConversationService.get_manager(self).DEFAULT_TAG_PROMOTION_VALUE,
@@ -3368,6 +3388,14 @@ class Coder(metaclass=UsageMeta):
         tool_responses = []
         for server, server_responses in tool_responses_by_server.items():
             for tool_response in server_responses:
+                content = tool_response.get("content")
+                if isinstance(content, str):
+                    tool_response["content"] = mark_untrusted_harness_tags(content)
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            part["text"] = mark_untrusted_harness_tags(part["text"])
+
                 tool_responses.append(tool_response)
                 self.io.tool_call_event(
                     tool_response["tool_call_id"],
@@ -4290,7 +4318,7 @@ class Coder(metaclass=UsageMeta):
         if self._output_loop_detected:
             # A repeating output loop was caught while streaming; turn it into an
             # assistant message so the model can adjust and drop any tool calls.
-            marker = f"\n\n{LoopDetector.INTERJECTION}\n"
+            marker = f"\n\n{wrap_context('repetition_detected', LoopDetector.INTERJECTION)}\n"
             self.partial_response_content += marker
             self.partial_response_tool_calls = []
             self.partial_response_function_call = dict()

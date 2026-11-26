@@ -20,7 +20,7 @@ from cecli.helpers.agents.service import AgentService
 from cecli.helpers.agents.tree import AgentTree
 from cecli.helpers.background_commands import BackgroundCommandManager
 from cecli.helpers.browser import export_active_cdp_url
-from cecli.helpers.conversation import ConversationService, MessageTag
+from cecli.helpers.conversation import ConversationService, MessageTag, wrap_context
 from cecli.helpers.similarity import (
     cosine_similarity,
     create_bigram_vector,
@@ -580,7 +580,7 @@ class AgentCoder(Coder):
         if not self.repo_map:
             return None
         try:
-            result = '<context name="symbol_outline" from="harness">\n'
+            result = ""
             result += "## Symbol Outline (Current Context)\n\n"
             result += (
                 "Code definitions (classes, functions, methods, etc.) found in files currently in"
@@ -590,8 +590,7 @@ class AgentCoder(Coder):
             files_to_outline = list(self.abs_fnames) + list(self.abs_read_only_fnames)
             if not files_to_outline:
                 result += "No files currently in context.\n"
-                result += "</context>"
-                return result
+                return wrap_context("symbol_outline", result)
             all_tags_by_file = defaultdict(list)
             has_symbols = False
             if not self.repo_map:
@@ -630,8 +629,7 @@ class AgentCoder(Coder):
                             kind_to_check = tag.specific_kind or tag.kind
                             result += f"- {tag.name} ({kind_to_check}{line_info})\n"
                         result += "\n"
-            result += "</context>"
-            return result.strip()
+            return wrap_context("symbol_outline", result.strip())
         except Exception as e:
             self.io.tool_error(f"Error generating symbol outline: {str(e)}")
             return None
@@ -721,7 +719,7 @@ class AgentCoder(Coder):
         try:
             if not hasattr(self, "context_block_tokens") or not self.context_block_tokens:
                 self._calculate_context_block_tokens()
-            result = '<context name="context_summary" from="harness">\n'
+            result = ""
             result += "## Current Context Overview\n\n"
             max_input_tokens = self.get_active_model().info.get("max_input_tokens") or 0
             if max_input_tokens:
@@ -789,7 +787,7 @@ class AgentCoder(Coder):
                     result += "\n\n⚠ **Context is getting full!**\n"
                     result += "- Remove non-essential files, skills and tool servers via the `ManageResources` tool.\n"
                     result += "- Keep only essential files, skills, and MCP servers in context for best performance"
-            result += "\n</context>"
+            result = wrap_context("context_summary", result)
             if not hasattr(self, "context_blocks_cache"):
                 self.context_blocks_cache = {}
             self.context_blocks_cache["context_summary"] = result
@@ -808,7 +806,7 @@ class AgentCoder(Coder):
             current_date = datetime.now().strftime("%Y-%m-%d")
             platform_info = platform.platform()
             language = self.get_user_language() or "English"
-            result = '<context name="environment_info" from="harness">\n'
+            result = ""
             result += "## Environment Information\n\n"
             result += f"- Working directory: {self.root}\n"
             result += f"- Current date: {current_date}\n"
@@ -842,8 +840,7 @@ class AgentCoder(Coder):
             if self.mcp_manager and self.mcp_manager.connected_servers:
                 num_mcp_servers = len(self.mcp_manager.connected_servers)
                 result += f"- Connected MCP servers: {num_mcp_servers}\n"
-            result += "</context>"
-            return result
+            return wrap_context("environment_info", result)
         except Exception as e:
             self.io.tool_error(f"Error generating environment info: {str(e)}")
             return None
@@ -1029,10 +1026,9 @@ class AgentCoder(Coder):
                     ConversationService.get_manager(self).add_message(
                         message_dict=dict(
                             role="user",
-                            content=(
-                                '<context name="linting_confirmation" from="harness">'
-                                "All linting errors resolved."
-                                "</context>"
+                            content=wrap_context(
+                                "linting_confirmation",
+                                "All linting errors resolved.",
                             ),
                         ),
                         tag=MessageTag.LINT,
@@ -1129,11 +1125,12 @@ class AgentCoder(Coder):
             waiting_msg = (
                 f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to complete..."
             )
-            self.reflected_message = (
+            self.reflected_message = wrap_context(
+                "background_commands",
                 f"⏱️ Waiting for {len(unfinished_commands)} background command(s) to"
                 " complete...\nPlease reply with 'waiting...' if you need the outputs of this"
                 " command for your current task and it has not yet finished or stop the command if"
-                " its outputs are no longer necessary"
+                " its outputs are no longer necessary",
             )
             self.io.tool_output(waiting_msg)
             sleep_coro = asyncio.sleep(command_timeout / 2)
@@ -1163,10 +1160,9 @@ class AgentCoder(Coder):
                 # A text-only response with every todo item checked off is a
                 # conclusion, so let the turn end instead of prompting for more work.
                 if not self._todo_list_is_complete():
-                    self.reflected_message = (
-                        '<context name="yield_check" from="harness">'
-                        "No tools called, did you mean to yield? If not, please continue with your task."
-                        "</context>"
+                    self.reflected_message = wrap_context(
+                        "yield_check",
+                        "No tools called, did you mean to yield? If not, please continue with your task.",
                     )
                     return True
 
@@ -1191,7 +1187,7 @@ class AgentCoder(Coder):
                 "\nI will proceed based on the tool results and updated context."
             )
             next_prompt_parts.append(f"\nYour original question was: {original_question}")
-            self.reflected_message = "\n".join(next_prompt_parts)
+            self.reflected_message = wrap_context("reflection", "\n".join(next_prompt_parts))
             self.io.tool_output("Continuing exploration...")
             return False
 
@@ -1311,7 +1307,7 @@ class AgentCoder(Coder):
             self._last_repetitive_warning_turn = 0
             self._last_repetitive_warning_severity = 0
 
-        context_parts = ['<context name="tool_usage_history" from="harness">']
+        context_parts = []
         context_parts.append("## Turn and Tool Call Statistics")
         context_parts.append(f"- Current turn: {self.turn_count + 1}")
         context_parts.append(f"- Total tool calls this turn: {self.num_tool_calls}")
@@ -1446,7 +1442,10 @@ class AgentCoder(Coder):
 
         if repetition_warning:
             ConversationService.get_manager(self).queue_message(
-                message_dict=dict(role="user", content=repetition_warning),
+                message_dict=dict(
+                    role="user",
+                    content=wrap_context("repetition", repetition_warning),
+                ),
                 tag=MessageTag.CUR,
                 hash_key=("repetition", "agent"),
                 mark_for_delete=0,
@@ -1455,8 +1454,7 @@ class AgentCoder(Coder):
                 force=True,
             )
 
-        context_parts.append("</context>")
-        return "\n".join(context_parts)
+        return wrap_context("tool_usage_history", "\n".join(context_parts))
 
     def _generate_write_context(self):
         if self.last_round_tools:
@@ -1466,13 +1464,11 @@ class AgentCoder(Coder):
             )
             if last_round_has_write:
                 context_parts = [
-                    '<context name="tool_usage_history" from="harness">',
                     "A file was just edited.",
                     "Review the diff to make sure that something of value was done.",
                     "Do not just leave placeholder content or partial implementations.",
-                    "</context>",
                 ]
-                return "\n".join(context_parts)
+                return wrap_context("tool_usage_history", "\n".join(context_parts))
         return ""
 
     def _add_file_to_context(self, file_path, explicit=False):
@@ -1554,8 +1550,8 @@ class AgentCoder(Coder):
         return inp
 
     def wrap_user_input(self, inp):
-        if inp and not inp.startswith('<context name="user_input" from="harness">'):
-            inp = f'<context name="user_input" from="harness">\n{inp}\n</context>'
+        if inp and not inp.startswith('<harness type="user_input">'):
+            inp = wrap_context("user_input", inp)
 
         return inp
 
@@ -1565,7 +1561,7 @@ class AgentCoder(Coder):
         Returns a formatted string representation of the directory tree.
         """
         try:
-            result = '<context name="directoryStructure" from="harness">\n'
+            result = ""
             result += "## Project File Structure\n\n"
             result += (
                 "Below is a snapshot of this project's file structure at the current time. "
@@ -1625,8 +1621,7 @@ class AgentCoder(Coder):
 
             tree_lines = print_tree(tree, prefix="- ")
             result += "\n".join(tree_lines)
-            result += "\n</context>"
-            return result
+            return wrap_context("directoryStructure", result)
         except Exception as e:
             self.io.tool_error(f"Error generating directory structure: {str(e)}")
             return None
@@ -1642,18 +1637,19 @@ class AgentCoder(Coder):
             import os
 
             if not os.path.isfile(abs_path):
-                return """<context name="todo_list" from="harness">
-Todo list does not exist. Please update it with the `UpdateTodoList` tool.</context>"""
+                return wrap_context(
+                    "todo_list",
+                    "Todo list does not exist. Please update it with the `UpdateTodoList` tool.",
+                )
             content = self.io.read_text(abs_path)
             if content is None or not content.strip():
                 return None
 
             current_tasks = "\n".join(self.current_tasks)
-            result = '<context name="todo_list" from="harness">\n'
+            result = ""
             result += "## Current Active Tasks\n\n"
             result += f"```{current_tasks}```\n"
-            result += "</context>"
-            return result
+            return wrap_context("todo_list", result)
         except Exception as e:
             self.io.tool_error(f"Error generating todo list context: {str(e)}")
             return None
@@ -1677,8 +1673,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
         environment, packages = discovery
 
-        result = '<context name="creator_requirements" from="harness">\n'
-        result += "## Available Python Packages\n\n"
+        result = "## Available Python Packages\n\n"
         result += (
             f"Top-level modules installed in the {environment} environment running cecli "
             "are importable by custom tools and custom commands. Distribution names may "
@@ -1686,9 +1681,8 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         )
         for start in range(0, len(packages), 8):
             result += "- " + ", ".join(packages[start : start + 8]) + "\n"
-        result += "</context>"
 
-        return result
+        return wrap_context("creator_requirements", result)
 
     def get_skills_context(self):
         """
@@ -1731,17 +1725,15 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         if not is_browser_harness_available():
             return None
 
-        result = '<context name="browser_automation" from="harness">\n'
-        result += "## Browser Automation\n\n"
+        result = "## Browser Automation\n\n"
         result += (
             "`browser-harness` drives a real Chrome/Chromium browser. It reads the Python"
             " program from stdin; cecli sets `BU_CDP_URL` automatically so it attaches to"
             " a CDP browser:\n\n"
         )
         result += AgentCoder._browser_harness_example()
-        result += "\n</context>"
 
-        return result
+        return wrap_context("browser_automation", result)
 
     @staticmethod
     def _browser_harness_example():
@@ -1785,16 +1777,14 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         if not is_app_harness_available():
             return None
 
-        result = '<context name="app_automation" from="harness">\n'
-        result += "## App Automation\n\n"
+        result = "## App Automation\n\n"
         result += (
             "`app-harness` drives native desktop apps through the accessibility tree."
             " Read Python from stdin, snapshot the window, then act and verify.\n\n"
         )
         result += AgentCoder._app_harness_example()
-        result += "\n</context>"
 
-        return result
+        return wrap_context("app_automation", result)
 
     @staticmethod
     def _app_harness_example():
@@ -1871,8 +1861,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 server.name for server in all_servers if server.name not in connected_server_names
             ]
 
-            result = '<context name="servers" from="harness">\n'
-            result += "## Connected MCP Servers\n\n"
+            result = "## Connected MCP Servers\n\n"
 
             if active_servers:
                 result += f"Active ({len(active_servers)}):\n"
@@ -1895,8 +1884,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             if not active_servers and not inactive_servers and not disconnected_servers:
                 result += "No MCP servers currently available.\n\n"
 
-            result += "</context>"
-            return result
+            return wrap_context("servers", result)
         except Exception as e:
             self.io.tool_error(f"Error generating servers context: {str(e)}")
             return None
@@ -1937,8 +1925,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             if not registry:
                 return None
 
-            result = '<context name="sub_agents" from="harness">\n'
-            result += "## Available Sub-Agents\n\n"
+            result = "## Available Sub-Agents\n\n"
             result += f"Found {len(registry)} registered sub-agent(s) types:\n\n"
 
             for name, config in sorted(registry.items()):
@@ -1950,8 +1937,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
 
             result += "Use the `Delegate` tool with the sub-agent type to delegate tasks.\n"
             result += "Use the `Yield` tool to wait for responses for all child sub agents.\n"
-            result += "</context>"
-            return result
+            return wrap_context("sub_agents", result)
         except Exception as e:
             self.io.tool_error(f"Error generating sub-agents context: {str(e)}")
             return None
@@ -2038,7 +2024,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
             if not dependent_children and not independent_agents:
                 return None
 
-            result = '<context name="sub_agent_states" from="harness">\n'
+            result = ""
             result += f"Found {len(dependent_children) + len(independent_agents)} existing sub-agent(s):\n\n"
 
             if dependent_children:
@@ -2068,8 +2054,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                 "`Broadcast` tool:\n\n"
             )
 
-            result += "</context>"
-            return result
+            return wrap_context("sub_agent_states", result)
 
         except Exception as e:
             self.io.tool_error(f"Error generating sub-agent states: {str(e)}")
@@ -2156,7 +2141,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
         if not self.repo:
             return None
         try:
-            result = '<context name="gitStatus" from="harness">\n'
+            result = ""
             result += "## Git Repository Status\n\n"
             result += "This is a snapshot of the git status at the current time.\n"
             try:
@@ -2235,8 +2220,7 @@ Todo list does not exist. Please update it with the `UpdateTodoList` tool.</cont
                     result += f"{short_hash} {message}\n"
             except Exception:
                 result += "Unable to get recent commits\n"
-            result += "</context>"
-            return result
+            return wrap_context("gitStatus", result)
         except Exception as e:
             self.io.tool_error(f"Error generating git status: {str(e)}")
             return None

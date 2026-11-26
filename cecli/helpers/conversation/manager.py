@@ -672,13 +672,13 @@ class ConversationManager:
         # Find indices for cache control
         system_message_idx = -1
 
-        # First, find the real last and second-to-last messages, skipping any "<context" messages at the end
+        # First, find the real last and second-to-last messages, skipping any "<harness" messages at the end
         # Only consider messages with role "user" or "assistant" (not "tool")
         last_message_idx = -1
         second_last_message_idx = -1
         seen_context = False
 
-        # Find the last non-"<context" message with valid role
+        # Find the last non-"<harness" message with valid role
         for i in range(len(messages_dict) - 1, -1, -1):
             msg = messages_dict[i]
             content = msg.get("content", "")
@@ -688,9 +688,11 @@ class ConversationManager:
             if tool_calls is not None and len(tool_calls) and not seen_context:
                 continue
 
-            if isinstance(content, str) and content.strip().startswith("<context"):
+            if isinstance(content, str) and content.strip().startswith(("<harness", "<context")):
                 seen_context = True
-                if not content.strip().startswith('<context name="user_input" from="harness">'):
+                if not content.strip().startswith(
+                    ('<harness type="user_input">', '<context name="user_input" from="harness">')
+                ):
                     continue
                 else:
                     last_message_idx = i

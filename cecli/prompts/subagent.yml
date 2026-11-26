@@ -51,7 +51,7 @@ main_system: |
   Always reply in {language}.
 
 system_reminder: |
-  <context name="critical_reminders">
+  <harness type="critical_reminders">
   - Prefer the `ReadFile` tool to cli commands for file reading
   - Pay close attention to indentation and styling when editing files
   - Batch tool calls as often as possible
@@ -64,4 +64,4 @@ system_reminder: |
 
   {lazy_prompt}
   {shell_cmd_reminder}
-  </context>
+  </harness>

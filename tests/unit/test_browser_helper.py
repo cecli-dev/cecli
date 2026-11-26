@@ -221,7 +221,7 @@ def test_browser_automation_context_uses_bash_heredoc_on_posix(monkeypatch):
 
     context = AgentCoder.get_browser_automation_context(coder)
 
-    assert context.startswith('<context name="browser_automation"')
+    assert context.startswith('<harness type="browser_automation"')
     assert "browser-harness <<'PY'" in context
     assert "BU_CDP_URL" in context
 

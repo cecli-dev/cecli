@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from cecli.helpers.conversation.wrapper import wrap_context
+
 # Global state store for sticky include/exclude lists, keyed by coder.uuid
 # This ensures skill state survives SkillsManager re-creation within the same coder session
 _skill_state_store: Dict[str, Dict[str, Any]] = {}
@@ -948,7 +950,7 @@ class SkillsManager:
             if not self._loaded_skills:
                 return None
 
-            result = '<context name="loaded_skills" from="harness">\n'
+            result = ""
             result += "## Loaded Skills Content\n\n"
             result += f"Found {len(self._loaded_skills)} skill(s) in configured directories:\n\n"
 
@@ -1007,8 +1009,7 @@ class SkillsManager:
 
                 result += "---\n\n"
 
-            result += "</context>"
-            return result
+            return wrap_context("loaded_skills", result)
         except Exception:
             # We can't use io.tool_error here since we don't have access to io
             # The caller should handle the exception
@@ -1017,7 +1018,7 @@ class SkillsManager:
     def format_active_skill_message(self, skill_content: SkillContent) -> str:
         """Format a single skill's content as a context block message."""
         metadata = skill_content.metadata
-        result = '<context name="active_skill" from="harness">\n'
+        result = ""
         result += f"### Skill: {metadata.name}\n\n"
         result += f"**Description**: {metadata.description}\n\n"
 
@@ -1058,8 +1059,7 @@ class SkillsManager:
                 result += f"- **{eval_name}**: `{eval_path}`\n"
             result += "\n"
 
-        result += "</context>"
-        return result
+        return wrap_context("active_skill", result)
 
     def get_skills_context(self) -> Optional[str]:
         """
@@ -1074,7 +1074,7 @@ class SkillsManager:
             if not summaries:
                 return None
 
-            result = '<context name="skills" from="harness">\n'
+            result = ""
             result += "## Available Skills\n\n"
             result += f"Found {len(summaries)} skill(s) in configured directories:\n\n"
 
@@ -1086,8 +1086,7 @@ class SkillsManager:
                 "Use the `LoadSkill` tool with the skill name if "
                 "the skill is relevant to the current task."
             )
-            result += "</context>"
-            return result
+            return wrap_context("skills", result)
         except Exception:
             # We can't use io.tool_error here since we don't have access to io
             # The caller should handle the exception
