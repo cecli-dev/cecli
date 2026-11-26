@@ -301,6 +301,7 @@ The following context blocks are available and can be customized using `include_
 
 - **`environment_info`**: Working directory, platform, date, language, and repository details
 - **`browser_automation`**: browser-harness usage guidance, included when browser-harness is installed
+- **`app_automation`**: app-harness usage guidance, included when the app-harness bridge is installed or running
 - **`todo_list`**: Current tasks managed through `UpdateTodoList`
 - **`skills`**: Available skills and their configuration
 - **`servers`**: Connected, filtered, and disconnected MCP servers

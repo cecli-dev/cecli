@@ -57,3 +57,33 @@ def test_app_automation_context_requires_bridge(monkeypatch):
     monkeypatch.setattr(app_harness, "is_app_harness_available", lambda: False)
 
     assert AgentCoder.get_app_automation_context(coder) is None
+
+
+def test_static_context_blocks_include_app_automation(monkeypatch):
+    from cecli.helpers.conversation import ConversationService
+    from cecli.helpers.conversation.integration import ConversationChunks
+
+    added = []
+
+    class Manager:
+        def add_message(self, message_dict=None, **kwargs):
+            added.append((message_dict, kwargs))
+
+    class Coder:
+        def __init__(self):
+            self.uuid = "app-automation-test"
+            self.allowed_context_blocks = {"app_automation", "browser_automation"}
+
+        def get_cached_context_block(self, block_name):
+            return f'<harness type="{block_name}"></harness>'
+
+    manager = Manager()
+    monkeypatch.setattr(ConversationService, "get_manager", lambda _coder: manager)
+
+    coder = Coder()
+    chunks = ConversationChunks(coder)
+    chunks.add_static_context_blocks()
+
+    hash_keys = [kwargs["hash_key"] for _, kwargs in added]
+    assert ("static", "app_automation") in hash_keys
+    assert ("static", "browser_automation") in hash_keys
