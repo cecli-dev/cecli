@@ -147,11 +147,10 @@ jobs:
 
       - name: Verify Linux packages expose ce-underscore
         shell: bash
-      - name: Verify Linux packages expose ce-underscore
-        shell: bash
         run: bash desktop/scripts/check_linux_bundle.sh target/release/bundle
 
       - name: Upload AppImage
+        uses: actions/upload-artifact@v4
         with:
           name: ce-underscore-linux-x64-appimage
           if-no-files-found: error
