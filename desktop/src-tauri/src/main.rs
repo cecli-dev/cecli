@@ -396,6 +396,15 @@ fn spawn_bridge_managed(
 ) -> io::Result<Child> {
     let runtime = ensure_runtime(uv)?;
     let mut command = Command::new(&runtime.python);
+
+    if let Some(exe_dir) = current_exe_dir() {
+        prepend_to_path(&mut command, &exe_dir);
+    }
+
+    if let Some(bin_dir) = runtime.python.parent() {
+        prepend_to_path(&mut command, bin_dir);
+    }
+
     command.arg(script);
 
     if let Some(static_root) = bundled_static_root() {
@@ -412,6 +421,14 @@ fn spawn_bridge_script(script: &Path, workspace: &Path, port: u16) -> io::Result
     for python in python_candidates(script) {
         let mut command = Command::new(&python);
         command.arg(script);
+
+        if let Some(exe_dir) = current_exe_dir() {
+            prepend_to_path(&mut command, &exe_dir);
+        }
+
+        if let Some(bin_dir) = Path::new(&python).parent() {
+            prepend_to_path(&mut command, bin_dir);
+        }
 
         configure_bridge(&mut command, workspace, port, None);
 
@@ -638,6 +655,19 @@ fn runtime_spec() -> String {
         .filter(|value| !value.is_empty())
         .or_else(|| option_env!("CECLI_RUNTIME_SPEC").map(str::to_string))
         .unwrap_or_else(|| "cecli-dev".to_string())
+}
+
+/// Expose the runtime's console scripts (`app-harness`, `browser-harness`) to child processes.
+pub(crate) fn prepend_to_path(command: &mut Command, directory: &Path) {
+    let mut entries = vec![directory.to_path_buf()];
+
+    if let Some(existing) = env::var_os("PATH") {
+        entries.extend(env::split_paths(&existing));
+    }
+
+    if let Ok(joined) = env::join_paths(entries) {
+        command.env("PATH", joined);
+    }
 }
 
 fn venv_python(env_dir: &Path) -> PathBuf {
@@ -958,4 +988,25 @@ fn system_prefers_dark() -> bool {
 #[cfg(not(target_os = "linux"))]
 fn system_prefers_dark() -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prepend_to_path_puts_runtime_bin_first() {
+        let mut command = Command::new("python");
+        prepend_to_path(&mut command, Path::new("/runtime/bin"));
+
+        let path = command
+            .get_envs()
+            .find_map(|(key, value)| (key == "PATH").then_some(value))
+            .flatten()
+            .expect("PATH should be set");
+
+        let first = std::env::split_paths(path).next().expect("PATH entry");
+
+        assert_eq!(first, Path::new("/runtime/bin"));
+    }
 }

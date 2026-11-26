@@ -251,7 +251,12 @@ fn harness_command() -> Result<std::process::Command, String> {
         let runtime = crate::ensure_runtime(&uv)
             .map_err(|error| format!("cannot provision the app-harness runtime: {error}"))?;
 
-        return Ok(python_command(runtime.python));
+        let mut command = python_command(runtime.python.clone());
+        if let Some(bin_dir) = runtime.python.parent() {
+            crate::prepend_to_path(&mut command, bin_dir);
+        }
+
+        return Ok(command);
     }
 
     if let Some(python) = std::env::var_os("CECLI_HARNESS_PYTHON").filter(|value| !value.is_empty())

@@ -3,6 +3,8 @@ import json
 import os
 import platform
 import subprocess
+import sys
+import sysconfig
 import types
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -17,7 +19,13 @@ from cecli.commands import SwitchCoderSignal
 from cecli.dump import dump
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.io import InputOutput
-from cecli.main import check_gitignore, load_dotenv_files, main, setup_git
+from cecli.main import (
+    _ensure_scripts_on_path,
+    check_gitignore,
+    load_dotenv_files,
+    main,
+    setup_git,
+)
 from cecli.utils import (
     ChdirTemporaryDirectory,
     GitTemporaryDirectory,
@@ -95,6 +103,41 @@ def git_temp_dir():
     """Provide a temporary git directory."""
     with GitTemporaryDirectory() as temp_dir:
         yield Path(temp_dir)
+
+
+def test_ensure_scripts_on_path_prepends_missing_dirs(monkeypatch, tmp_path):
+    scripts = tmp_path / "venv-bin"
+    scripts.mkdir()
+    exe_dir = tmp_path / "python-dir"
+    exe_dir.mkdir()
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    missing = tmp_path / "missing"
+
+    monkeypatch.setenv("PATH", os.pathsep.join([str(existing), str(missing)]))
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "python"))
+    monkeypatch.setattr(
+        sysconfig, "get_path", lambda name: str(scripts) if name == "scripts" else None
+    )
+
+    _ensure_scripts_on_path()
+
+    entries = os.environ["PATH"].split(os.pathsep)
+    assert entries[:2] == [str(scripts), str(exe_dir)]
+    assert entries[2:] == [str(existing), str(missing)]
+
+
+def test_ensure_scripts_on_path_dedupes_existing_entries(monkeypatch, tmp_path):
+    scripts = tmp_path / "venv-bin"
+    scripts.mkdir()
+
+    monkeypatch.setenv("PATH", str(scripts))
+    monkeypatch.setattr(sys, "executable", str(scripts / "python"))
+    monkeypatch.setattr(sysconfig, "get_path", lambda name: str(scripts))
+
+    _ensure_scripts_on_path()
+
+    assert os.environ["PATH"] == str(scripts)
 
 
 def test_main_with_empty_dir_no_files_on_command(dummy_io):

@@ -578,7 +578,40 @@ def custom_tracer(frame, event, arg):
     return custom_tracer
 
 
+def ensure_scripts_on_path():
+    """Prepend this interpreter's script directory so harness CLIs resolve."""
+
+    import sysconfig
+
+    candidates = []
+    scripts = sysconfig.get_path("scripts")
+    if scripts:
+        candidates.append(Path(scripts))
+
+    if sys.executable:
+        candidates.append(Path(sys.executable).parent)
+
+    entries = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
+    known = {os.path.normcase(os.path.normpath(entry)) for entry in entries}
+
+    additions = []
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+
+        key = os.path.normcase(os.path.normpath(str(candidate)))
+        if key in known:
+            continue
+
+        known.add(key)
+        additions.append(str(candidate))
+
+    if additions:
+        os.environ["PATH"] = os.pathsep.join(additions + entries)
+
+
 def main(argv=None, input=None, output=None, force_git_root=None, return_coder=False):
+    ensure_scripts_on_path()
     # Keep git from launching a pager that waits for input nobody can provide.
     os.environ["GIT_PAGER"] = "cat"
 

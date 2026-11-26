@@ -15,6 +15,11 @@ artifact. The desktop installers and the cargo build ship it:
 A pip-only `cecli` install has the `app-harness` client but no bridge. It reports
 `bridge_unavailable`; install the desktop artifact to get native app control.
 
+Desktop builds prepend the provisioned runtime's scripts directory (`Scripts` on
+Windows, `bin` elsewhere) and the install directory to `PATH` for the bridge
+process. The embedded agent and its shells therefore find `app-harness`,
+`browser-harness`, and `ce-underscore` without activating the runtime.
+
 ## Operator commands
 
 ```bash
