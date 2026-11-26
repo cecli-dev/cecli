@@ -347,7 +347,9 @@ def test_windows_temp_script_writes_to_a_windows_directory(monkeypatch, tmp_path
 
 def test_windows_temp_script_requires_a_windows_path(monkeypatch, tmp_path):
     monkeypatch.setattr(interop, "_windows_temp_dir", lambda: str(tmp_path))
-    monkeypatch.setattr(interop, "_to_windows_path", lambda path: path)
+    # Simulate a temp path that cannot be converted to a Windows path,
+    # regardless of whether the test host is Windows or WSL.
+    monkeypatch.setattr(interop, "_to_windows_path", lambda path: "/tmp/cecli-interop.py")
 
     assert interop._windows_temp_script(b"print(1)") is None
 
