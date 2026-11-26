@@ -223,8 +223,8 @@ impl Backend for AtspiBackend {
         match request.action.as_str() {
             "invoke" | "click" | "focus" | "set_value" | "get_value" | "select"
             | "scroll_into_view" | "scroll_to" => {
-                let connection = self.connection()?;
                 let (record, node) = self.resolve_action_target(request.target.as_ref())?;
+                let connection = self.connection()?;
                 let action = request.action.clone();
                 let args = request.args.clone();
 

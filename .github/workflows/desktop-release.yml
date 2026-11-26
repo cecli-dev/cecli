@@ -199,6 +199,8 @@ jobs:
     needs: create-release
     if: ${{ !cancelled() }}
     runs-on: windows-latest
+    env:
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'test-signing' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -278,7 +280,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release-signing
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           artifact-configuration-slug: windows-app
           github-artifact-id: ${{ steps.upload-unsigned-app.outputs.artifact-id }}
           wait-for-completion: true
@@ -294,8 +296,18 @@ jobs:
         run: |
           $exe = Get-ChildItem signed-app/*.exe | Select-Object -First 1
           if (-not $exe) { throw "SignPath did not return a signed executable" }
+
           $sig = Get-AuthenticodeSignature $exe.FullName
-          if ($sig.Status -ne 'Valid') { throw "Signed app status: $($sig.Status)" }
+          if ($sig.Status -in @('NotSigned', 'HashMismatch')) { throw "Signed app status: $($sig.Status)" }
+
+          if ($env:SIGNPATH_SIGNING_POLICY_SLUG -eq 'release-signing' -and $sig.Status -ne 'Valid') {
+            throw "Signed app status: $($sig.Status)"
+          }
+
+          if ($env:SIGNPATH_SIGNING_POLICY_SLUG -ne 'release-signing') {
+            Write-Output "Policy $($env:SIGNPATH_SIGNING_POLICY_SLUG): signature status $($sig.Status); certificate trust is not enforced"
+          }
+
           Write-Output "Signed app: $($exe.Name) / $($sig.SignerCertificate.Subject)"
 
       - name: Replace app executable with signed build
@@ -342,7 +354,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: release-signing
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
           # Installer configuration is the project default ("Initial version", slug: initial)
           artifact-configuration-slug: initial
           github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
@@ -374,7 +386,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
+
+          echo "Windows signing policy: ${SIGNPATH_SIGNING_POLICY_SLUG}"
           installer=$(ls signed/*.exe | head -1)
+
           name=$(basename "$installer")
           name=${name//cecli_/ce-underscore_}
           cp "$installer" "release-assets/$name"
