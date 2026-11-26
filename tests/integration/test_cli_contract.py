@@ -33,9 +33,10 @@ def test_exit_zero_for_successful_commands(cli: CliRunner, fake_bridge: BridgeHa
 def test_exit_two_when_argument_is_missing(cli: CliRunner, fake_bridge: BridgeHandle) -> None:
     """Missing selectors are refused before any request reaches the bridge."""
 
+    title = first_window_title(cli)
     before = fake_bridge.request_paths()
     snapshot = cli.run("snapshot")
-    invoke = cli.run("invoke", "--window", first_window_title(cli))
+    invoke = cli.run("invoke", "--window", title)
 
     assert snapshot.returncode == EXIT_REFUSED
     assert invoke.returncode == EXIT_REFUSED

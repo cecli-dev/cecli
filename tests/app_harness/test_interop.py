@@ -166,6 +166,7 @@ def test_forwarded_script_reads_from_a_windows_temp_file(monkeypatch):
     monkeypatch.setattr(interop, "is_wsl", lambda: True)
     monkeypatch.setattr(interop, "_discover_with_errors", lambda: ("/mnt/c/python.exe", []))
     monkeypatch.setattr(interop, "_reads_stdin", lambda args: True)
+    monkeypatch.setattr(interop, "_stdin_is_tty", lambda: False)
     monkeypatch.setattr(interop, "_read_stdin_bytes", lambda: b"print('hello')")
     monkeypatch.setattr(
         interop,
@@ -195,6 +196,7 @@ def test_forwarded_script_falls_back_to_piped_stdin(monkeypatch):
     monkeypatch.setattr(interop, "is_wsl", lambda: True)
     monkeypatch.setattr(interop, "_discover_with_errors", lambda: ("/mnt/c/python.exe", []))
     monkeypatch.setattr(interop, "_reads_stdin", lambda args: True)
+    monkeypatch.setattr(interop, "_stdin_is_tty", lambda: False)
     monkeypatch.setattr(interop, "_read_stdin_bytes", lambda: b"print('hello')")
     monkeypatch.setattr(interop, "_windows_temp_script", lambda data: None)
     calls = []
