@@ -22,6 +22,8 @@ from .domains import (
     chat_stream,
     gemini_complete,
     gemini_stream,
+    interactions_complete,
+    interactions_stream,
     responses_complete,
     responses_stream,
 )
@@ -112,6 +114,9 @@ async def _complete_family(
     if family == "messages":
         return await anthropic_complete(resolved, messages, tools, key, headers, kwargs)
 
+    if family == "interactions":
+        return await interactions_complete(resolved, messages, tools, key, headers, kwargs)
+
     if family == "gemini":
         return await gemini_complete(resolved, messages, tools, key, headers, kwargs)
 
@@ -138,6 +143,12 @@ async def _stream_family(
 
     if family == "messages":
         async for chunk in anthropic_stream(resolved, messages, tools, key, headers, kwargs):
+            yield chunk
+
+        return
+
+    if family == "interactions":
+        async for chunk in interactions_stream(resolved, messages, tools, key, headers, kwargs):
             yield chunk
 
         return
