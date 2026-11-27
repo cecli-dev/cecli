@@ -368,7 +368,10 @@ fn scroll_fallback_reason(error: &ErrorInfo) -> String {
     if error.kind == error_kind::UNSUPPORTED {
         "the element has no Scroll pattern".to_string()
     } else {
-        format!("the Scroll pattern could not set the position ({})", error.message)
+        format!(
+            "the Scroll pattern could not set the position ({})",
+            error.message
+        )
     }
 }
 fn scroll_to(
@@ -1598,7 +1601,10 @@ mod tests {
         );
 
         assert!(scroll_falls_back(&error));
-        assert_eq!(scroll_fallback_reason(&error), "the element has no Scroll pattern");
+        assert_eq!(
+            scroll_fallback_reason(&error),
+            "the element has no Scroll pattern"
+        );
     }
 
     #[test]

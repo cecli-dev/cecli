@@ -2424,7 +2424,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn a_timed_out_call_reopens_the_gate_for_later_requests() {
         let _env = BridgeEnv::new("gate-reopen");
         let _timeout = EnvVar::set("CECLI_APP_TIMEOUT_MS", "100");
@@ -2476,6 +2475,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn actions_resolve_targets_against_the_latest_snapshot() {
         let _env = BridgeEnv::new("resolve");
         let server = TestServer::start(Arc::new(RefBackend));

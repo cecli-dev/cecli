@@ -556,8 +556,7 @@ mod platform {
     use super::parse::{self, KeyBase, KeyStep, Modifiers};
     use crate::protocol::{
         error_kind, outcome, ActionArgs, ActionRequest, ActionResult, ErrorInfo, Point,
-        PointerButton,
-        WindowInfo,
+        PointerButton, WindowInfo,
     };
     use crate::windows::{enumerate, uia, WindowsBackend};
 
@@ -1662,7 +1661,11 @@ mod platform {
     mod wheel_direction_tests {
         use super::*;
 
-        fn args(direction: Option<&str>, horizontal: Option<f64>, vertical: Option<f64>) -> ActionArgs {
+        fn args(
+            direction: Option<&str>,
+            horizontal: Option<f64>,
+            vertical: Option<f64>,
+        ) -> ActionArgs {
             ActionArgs {
                 direction: direction.map(str::to_string),
                 horizontal_percent: horizontal,
@@ -1681,10 +1684,22 @@ mod platform {
 
         #[test]
         fn the_requested_axis_is_nudged_away_from_the_middle() {
-            assert_eq!(wheel_direction(&args(None, None, Some(80.0))).unwrap(), "down");
-            assert_eq!(wheel_direction(&args(None, None, Some(10.0))).unwrap(), "up");
-            assert_eq!(wheel_direction(&args(None, Some(90.0), None)).unwrap(), "right");
-            assert_eq!(wheel_direction(&args(None, Some(2.0), None)).unwrap(), "left");
+            assert_eq!(
+                wheel_direction(&args(None, None, Some(80.0))).unwrap(),
+                "down"
+            );
+            assert_eq!(
+                wheel_direction(&args(None, None, Some(10.0))).unwrap(),
+                "up"
+            );
+            assert_eq!(
+                wheel_direction(&args(None, Some(90.0), None)).unwrap(),
+                "right"
+            );
+            assert_eq!(
+                wheel_direction(&args(None, Some(2.0), None)).unwrap(),
+                "left"
+            );
         }
 
         #[test]
@@ -1702,7 +1717,6 @@ mod platform {
             assert_eq!(error.kind, error_kind::INVALID_REQUEST);
         }
     }
-
 }
 
 #[cfg(windows)]
