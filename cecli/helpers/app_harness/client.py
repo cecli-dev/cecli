@@ -1358,13 +1358,20 @@ def _find_binary() -> Path | None:
         local_app_data = os.environ.get("LOCALAPPDATA")
 
         if local_app_data:
-            candidates.append(
-                Path(local_app_data) / "Programs" / "ce-underscore" / "ce-underscore.exe"
-            )
+            base = Path(local_app_data)
+            # Tauri's currentUser installer puts the app in
+            # ``%LOCALAPPDATA%\<productName>``; older per-user layouts used
+            # ``Programs\<productName>``.  The bundle's product name is not
+            # guaranteed to match the binary, which is ``mainBinaryName``.
+            for folder in ("cecli", "ce-underscore"):
+                candidates.append(base / folder / "ce-underscore.exe")
+                candidates.append(base / "Programs" / folder / "ce-underscore.exe")
 
+        candidates.append(Path("C:/Program Files/cecli/ce-underscore.exe"))
         candidates.append(Path("C:/Program Files/ce-underscore/ce-underscore.exe"))
     elif sys.platform == "darwin":
-        candidates.append(Path("/Applications/ce-underscore.app/Contents/MacOS/ce-underscore"))
+        for app in ("cecli", "ce-underscore"):
+            candidates.append(Path(f"/Applications/{app}.app/Contents/MacOS/ce-underscore"))
 
     for candidate in candidates:
         if candidate.exists():

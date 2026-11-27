@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ce-underscore",
+  "productName": "cecli",
   "mainBinaryName": "ce-underscore",
   "version": "0.1.0",
   "identifier": "com.cecli.desktop",

@@ -58,6 +58,10 @@ underscore_binary() {
   local candidates=()
   case "$(uname -s)" in
     Darwin)
+      # The bundle name follows the Tauri product name, which may be either
+      # ``cecli`` or ``ce-underscore``; the executable inside is always
+      # ``ce-underscore`` (mainBinaryName).
+      candidates+=("/Applications/cecli.app/Contents/MacOS/ce-underscore")
       candidates+=("/Applications/ce-underscore.app/Contents/MacOS/ce-underscore")
       ;;
     Linux)
