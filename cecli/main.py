@@ -620,6 +620,9 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     # launches stay reachable by app-harness.
     os.environ["NO_AT_BRIDGE"] = "0"
 
+    # Child Python processes should emit UTF-8 regardless of the host codepage.
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+
     from cecli.signals import ReloadProgramSignal
 
     attach_debug_thread_monitor(argv)

@@ -455,6 +455,7 @@ fn configure_bridge(command: &mut Command, workspace: &Path, port: u16, cecli: O
         // The AppImage AppRun exports PYTHONHOME/PYTHONPATH for its own layout.
         .env_remove("PYTHONHOME")
         .env_remove("PYTHONPATH")
+        .env("PYTHONIOENCODING", "utf-8")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
@@ -1008,5 +1009,19 @@ mod tests {
         let first = std::env::split_paths(path).next().expect("PATH entry");
 
         assert_eq!(first, Path::new("/runtime/bin"));
+    }
+
+    #[test]
+    fn configure_bridge_sets_utf8_stdio_encoding() {
+        let mut command = Command::new("python");
+        configure_bridge(&mut command, Path::new("/workspace"), 8000, None);
+
+        let encoding = command
+            .get_envs()
+            .find_map(|(key, value)| (key == "PYTHONIOENCODING").then_some(value))
+            .flatten()
+            .expect("PYTHONIOENCODING should be set");
+
+        assert_eq!(encoding, "utf-8");
     }
 }

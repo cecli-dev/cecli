@@ -285,7 +285,8 @@ fn python_command(python: PathBuf) -> std::process::Command {
         .arg("-m")
         .arg("cecli.helpers.app_harness.cli")
         .env_remove("PYTHONHOME")
-        .env_remove("PYTHONPATH");
+        .env_remove("PYTHONPATH")
+        .env("PYTHONIOENCODING", "utf-8");
     command
 }
 
@@ -418,6 +419,19 @@ mod tests {
             mode(&["app-harness", "state", "--json"]),
             Mode::HarnessCli(vec!["state".to_string(), "--json".to_string()])
         );
+    }
+
+    #[test]
+    fn python_command_sets_utf8_stdio_encoding() {
+        let command = python_command(PathBuf::from("python"));
+
+        let encoding = command
+            .get_envs()
+            .find_map(|(key, value)| (key == "PYTHONIOENCODING").then_some(value))
+            .flatten()
+            .expect("PYTHONIOENCODING should be set");
+
+        assert_eq!(encoding, "utf-8");
     }
 
     #[test]

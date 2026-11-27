@@ -20,6 +20,9 @@ Windows, `bin` elsewhere) and the install directory to `PATH` for the bridge
 process. The embedded agent and its shells therefore find `app-harness`,
 `browser-harness`, and `ce-underscore` without activating the runtime.
 
+Spawned Python processes also inherit `PYTHONIOENCODING=utf-8` from the bridge
+and the `cecli` CLI, so stdio is UTF-8 on every OS instead of the host codepage.
+
 ## Operator commands
 
 ```bash

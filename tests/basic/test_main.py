@@ -20,8 +20,8 @@ from cecli.dump import dump
 from cecli.helpers.file_searcher import handle_core_files
 from cecli.io import InputOutput
 from cecli.main import (
-    _ensure_scripts_on_path,
     check_gitignore,
+    ensure_scripts_on_path,
     load_dotenv_files,
     main,
     setup_git,
@@ -120,7 +120,7 @@ def test_ensure_scripts_on_path_prepends_missing_dirs(monkeypatch, tmp_path):
         sysconfig, "get_path", lambda name: str(scripts) if name == "scripts" else None
     )
 
-    _ensure_scripts_on_path()
+    ensure_scripts_on_path()
 
     entries = os.environ["PATH"].split(os.pathsep)
     assert entries[:2] == [str(scripts), str(exe_dir)]
@@ -135,9 +135,17 @@ def test_ensure_scripts_on_path_dedupes_existing_entries(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "executable", str(scripts / "python"))
     monkeypatch.setattr(sysconfig, "get_path", lambda name: str(scripts))
 
-    _ensure_scripts_on_path()
+    ensure_scripts_on_path()
 
     assert os.environ["PATH"] == str(scripts)
+
+
+def test_main_forces_utf8_stdio_encoding(dummy_io, monkeypatch):
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+
+    main(["--no-git", "--exit", "--yes-always"], **dummy_io)
+
+    assert os.environ["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_main_with_empty_dir_no_files_on_command(dummy_io):
