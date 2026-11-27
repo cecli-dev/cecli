@@ -298,7 +298,8 @@ class ConfStore:
         real = os.path.realpath(entry["path"])
         existing = next((item for item in entries if os.path.realpath(item["path"]) == real), None)
         if existing is not None:
-            existing["name"] = entry["name"]
+            if name:
+                existing["name"] = entry["name"]
             if enable_on_startup is not None:
                 existing["enable_on_startup"] = bool(enable_on_startup)
             self._write_workspaces(entries)
@@ -344,7 +345,9 @@ class ConfStore:
 
     def _write_workspaces(self, entries: list[dict[str, Any]]) -> None:
         """Persist exactly the given entries to `~/.cecli/desktop.yml`."""
-        data = _read_yaml(self.desktop_path)
+        data = _read_yaml_for_write(self.desktop_path)
+        if data is None:
+            raise ValueError("desktop.yml is not valid YAML; refusing to overwrite it")
         data["folders"] = [
             {
                 "path": item["path"],

@@ -19,6 +19,8 @@ _VALUE_FLAGS = {
     "--desktop-bridge-port": "port",
     "--desktop-bridge-workspace": "workspace",
     "--desktop-bridge-static-root": "static_root",
+    "--desktop-bridge-install-root": "install_root",
+    "--desktop-bridge-cecli": "cecli",
     "--desktop-bridge-token": "token",
     "--desktop-bridge-max-sessions": "max_sessions",
     "--desktop-bridge-terminal-shell": "terminal_shell",
@@ -108,6 +110,8 @@ def parse_desktop_args(argv: list[str]) -> tuple[dict[str, Any] | None, list[str
         "port": int(options.get("port", DEFAULT_PORT)),
         "workspace": os.path.abspath(os.path.expanduser(options.get("workspace") or os.getcwd())),
         "static_root": options.get("static_root"),
+        "install_root": options.get("install_root"),
+        "cecli": options.get("cecli"),
         "token": options.get("token") or os.environ.get("CECLI_DESKTOP_TOKEN") or "",
         "max_sessions": max(1, int(options.get("max_sessions", DEFAULT_MAX_SESSIONS))),
         "open_browser": bool(options.get("open_browser")),
@@ -131,7 +135,7 @@ def start_desktop_bridge(
         options["host"],
         options["port"],
         options["workspace"],
-        _cecli_executable(),
+        options.get("cecli") or _cecli_executable(),
         [],
         options["open_browser"],
         options["token"],
@@ -139,11 +143,12 @@ def start_desktop_bridge(
         options["terminal_enabled"],
         options["terminal_shell"],
         options["static_root"],
+        options["install_root"],
     )
 
     def serve() -> None:
         try:
-            asyncio.run(
+            _run_bridge_loop(
                 run_server(
                     config,
                     connection_factory=lambda: link,
@@ -159,12 +164,53 @@ def start_desktop_bridge(
     return thread
 
 
+def _run_bridge_loop(coroutine: Any) -> None:
+    """Run the bridge on a loop that is allowed to spawn ACP subprocesses.
+
+    ``cecli.main`` installs ``WindowsSelectorEventLoopPolicy`` for the ACP stdio
+    loop, and selector loops on Windows cannot start subprocesses.  Every
+    workspace session beyond the embedded one would then fail to spawn and sit
+    in ``starting`` forever, so the bridge thread gets its own Proactor loop.
+    """
+    loop_type = getattr(asyncio, "ProactorEventLoop", None) if os.name == "nt" else None
+
+    if loop_type is None:
+        asyncio.run(coroutine)
+        return
+
+    loop = loop_type()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(coroutine)
+    finally:
+        try:
+            loop.close()
+        finally:
+            asyncio.set_event_loop(None)
+
+
 def _cecli_executable() -> str:
     argv0 = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
-    if argv0 and os.path.isfile(argv0) and os.access(argv0, os.X_OK):
+    if _is_executable_file(argv0):
         return argv0
 
     from cecli.helpers.desktop.bridge import default_cecli
 
     suffix = ".exe" if os.name == "nt" else ""
     return default_cecli(suffix) or "cecli"
+
+
+def _is_executable_file(path: str) -> bool:
+    """Return True when *path* can be spawned directly as a program.
+
+    ``sys.argv[0]`` is a ``.py`` script when the bridge is hosted inside
+    ``desktop/server.py``; ``os.access(..., os.X_OK)`` still reports that as
+    executable on Windows, but spawning it raises ``WinError 193`` ("%1 is not
+    a valid Win32 application"), which silently killed every extra session.
+    """
+    if not path or not os.path.isfile(path):
+        return False
+    extension = os.path.splitext(path)[1].lower()
+    if os.name == "nt":
+        return extension in {".exe", ".cmd", ".bat", ".com"}
+    return os.access(path, os.X_OK) and extension not in {".py", ".pyw"}

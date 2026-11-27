@@ -93,6 +93,7 @@ export class SessionSidebar extends LitElement {
     const title = item.name || live?.title || item.title || path;
     const status = live?.status || 'stopped';
     const activity = live ? this._activity_for(live, active) : 'stopped';
+    const activity_detail = live?.activity_detail || '';
     const live_subagents = (state.subagents || []).filter((agent) => !agent.removed);
     const subagents = live
       ? active && live_subagents.length
@@ -109,7 +110,9 @@ export class SessionSidebar extends LitElement {
         >
           <span class="status-dot" data-status=${status} aria-hidden="true"></span>
           <span class="session-name" title=${path}>${title}</span>
-          <span class="activity-badge" data-activity=${activity}>${activity}</span>
+          <span class="activity-badge" data-activity=${activity} title=${activity_detail || activity}
+            >${activity}</span
+          >
           ${permission_count
             ? html`<span class="permission-badge" title="Pending permissions">${permission_count}</span>`
             : nothing}

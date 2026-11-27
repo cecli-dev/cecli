@@ -203,7 +203,7 @@ fn write_line(line: &str) {
     }
 }
 
-/// Append a line to `%LOCALAPPDATA%\cecli\bridge-mode.log`.
+/// Append a line to `%LOCALAPPDATA%\ce-underscore\bridge-mode.log`.
 #[cfg(windows)]
 fn fallback_log(line: &str) {
     use std::io::Write;
@@ -212,7 +212,7 @@ fn fallback_log(line: &str) {
         return;
     };
 
-    let dir = std::path::PathBuf::from(base).join("cecli");
+    let dir = std::path::PathBuf::from(base).join("ce-underscore");
     let _ = std::fs::create_dir_all(&dir);
 
     if let Ok(mut file) = std::fs::OpenOptions::new()

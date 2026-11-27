@@ -88,6 +88,8 @@ def bridge_args(argv: list[str]) -> tuple[list[str], str | None]:
         workspace,
         "--desktop-bridge-static-root",
         static_root,
+        "--desktop-bridge-cecli",
+        cecli,
     ]
 
     if values["--token"]:

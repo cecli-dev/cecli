@@ -219,7 +219,8 @@ fn configure_webkit() {
     env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
 }
 
-/// Resolve the workspace from the env override, first non-flag argument, or cwd.
+/// Resolve the workspace from the env override, first non-flag argument, or a
+/// default that is never the install directory.
 fn resolve_workspace() -> PathBuf {
     let candidate = env::var_os("CECLI_DESKTOP_WORKSPACE")
         .filter(|value| !value.is_empty())
@@ -232,11 +233,47 @@ fn resolve_workspace() -> PathBuf {
         })
         .or_else(|| {
             let cwd = env::current_dir().ok()?;
-            Some(dev_workspace_root(&cwd).unwrap_or(cwd))
+            if let Some(root) = dev_workspace_root(&cwd) {
+                return Some(root);
+            }
+            if is_install_dir(&cwd) {
+                return default_workspace_root();
+            }
+            Some(cwd)
         })
         .unwrap_or_else(|| PathBuf::from("."));
 
     std::fs::canonicalize(&candidate).unwrap_or(candidate)
+}
+
+/// True when `path` is the directory holding the desktop executable.
+fn is_install_dir(path: &Path) -> bool {
+    let Ok(exe) = env::current_exe() else {
+        return false;
+    };
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let Some(exe_dir) = exe.parent() else {
+        return false;
+    };
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    target == exe_dir
+}
+
+/// Home directory used when the process starts inside the install folder.
+fn default_workspace_root() -> Option<PathBuf> {
+    for name in ["USERPROFILE", "HOME"] {
+        if let Some(value) = env::var_os(name) {
+            if value.is_empty() {
+                continue;
+            }
+            let path = PathBuf::from(value);
+            if path.is_dir() {
+                return Some(path);
+            }
+        }
+    }
+
+    env::current_dir().ok()
 }
 
 /// In development Tauri runs the binary from `src-tauri`; prefer the repo root.
@@ -479,6 +516,12 @@ fn configure_bridge(command: &mut Command, workspace: &Path, port: u16, cecli: O
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
+
+    // Tell the bridge where the app lives so a shortcut launch that lands in
+    // the install folder never opens it as a workspace.
+    if let Some(exe_dir) = current_exe_dir() {
+        command.arg("--desktop-bridge-install-root").arg(exe_dir);
+    }
 
     let cecli = cecli
         .map(|path| path.display().to_string())

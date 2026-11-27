@@ -64,12 +64,22 @@ class HooksTest(unittest.TestCase):
         )
         (Path(self.temp_dir.name) / "conf.yml").write_text("{}\n", encoding="utf-8")
 
-        wrapper = Path(self.temp_dir.name) / "fake-cecli"
-        wrapper.write_text(
-            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_AGENT))} "$@"\n',
-            encoding="utf-8",
-        )
-        wrapper.chmod(0o755)
+        if os.name == "nt":
+            # Windows cannot execute a shebang script or an extensionless file,
+            # so the fake agent gets a .cmd launcher that forwards to Python.
+            wrapper = Path(self.temp_dir.name) / "fake-cecli.cmd"
+            wrapper.write_text(
+                f'@echo off\r\n"{sys.executable}" "{FAKE_AGENT}" %*\r\n',
+                encoding="utf-8",
+            )
+        else:
+            wrapper = Path(self.temp_dir.name) / "fake-cecli"
+            wrapper.write_text(
+                f'#!/bin/sh\nexec {shlex.quote(sys.executable)} '
+                f'{shlex.quote(str(FAKE_AGENT))} "$@"\n',
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
 
         self.process = subprocess.Popen(
             [
@@ -94,13 +104,30 @@ class HooksTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         if self.process.poll() is None:
-            self.process.terminate()
+            if os.name == "nt":
+                # The .cmd launcher leaves a Python grandchild holding the
+                # inherited pipes and the workspace directory, so end the tree.
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                self.process.terminate()
         try:
             self.process.communicate(timeout=8)
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.communicate(timeout=5)
-        self.temp_dir.cleanup()
+        for attempt in range(5):
+            try:
+                self.temp_dir.cleanup()
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
 
     def request(
         self, method: str, path: str, body: dict[str, Any] | None = None, timeout: float = 5.0

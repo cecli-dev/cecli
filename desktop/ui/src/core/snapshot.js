@@ -55,7 +55,8 @@ export function apply_snapshot(store, snapshot, bridge_id = null, prune_keys = n
   scoped.update((state) => ({
     ...state,
     activity: snapshot.activity || state.activity,
-    activity_detail: snapshot.activityDetail || '',
+    activity_detail:
+      snapshot.activityDetail || (snapshot.status === 'exited' ? snapshot.detail || '' : ''),
     subagents: Array.isArray(snapshot.subagents) ? snapshot.subagents : state.subagents,
     skills: Array.isArray(snapshot.skills) ? snapshot.skills : state.skills,
     mcp_servers: Array.isArray(snapshot.mcpServers) ? snapshot.mcpServers : state.mcp_servers,

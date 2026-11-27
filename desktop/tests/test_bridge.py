@@ -174,12 +174,22 @@ class BridgeTest(unittest.TestCase):
             CECLI_DESKTOP_FOLDERS_FILE=str(desktop_conf),
         )
 
-        wrapper = Path(self.temp_dir.name) / "fake-cecli"
-        wrapper.write_text(
-            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_AGENT))} "$@"\n',
-            encoding="utf-8",
-        )
-        wrapper.chmod(0o755)
+        if os.name == "nt":
+            # Windows cannot execute a shebang script or an extensionless file,
+            # so the fake agent gets a .cmd launcher that forwards to Python.
+            wrapper = Path(self.temp_dir.name) / "fake-cecli.cmd"
+            wrapper.write_text(
+                f'@echo off\r\n"{sys.executable}" "{FAKE_AGENT}" %*\r\n',
+                encoding="utf-8",
+            )
+        else:
+            wrapper = Path(self.temp_dir.name) / "fake-cecli"
+            wrapper.write_text(
+                f'#!/bin/sh\nexec {shlex.quote(sys.executable)} '
+                f'{shlex.quote(str(FAKE_AGENT))} "$@"\n',
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
 
         self.process = subprocess.Popen(
             [
@@ -205,13 +215,31 @@ class BridgeTest(unittest.TestCase):
         for reader in self.events:
             reader.close()
         if self.process.poll() is None:
-            self.process.terminate()
+            if os.name == "nt":
+                # The fake agent runs through a .cmd launcher, so terminating only
+                # the bridge would orphan the Python grandchild and leave the
+                # workspace directory locked for cleanup.
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                self.process.terminate()
         try:
             self.process.communicate(timeout=8)
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.communicate(timeout=5)
-        self.temp_dir.cleanup()
+        for attempt in range(5):
+            try:
+                self.temp_dir.cleanup()
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
 
     def open_events(self) -> EventReader:
         reader = EventReader(self.host, self.port)
@@ -343,9 +371,11 @@ class BridgeTest(unittest.TestCase):
         replacement = Path(body["path"])
         self.addCleanup(shutil.rmtree, replacement.parent, True)
         self.assertNotEqual(replacement, path)
+        # The fake agent returns context files sorted by path, and each paste
+        # lands in its own random temp directory, so compare unordered.
         self.assertEqual(
-            [item["absolutePath"] for item in body["contextFiles"]],
-            [str(path), str(replacement)],
+            sorted(item["absolutePath"] for item in body["contextFiles"]),
+            sorted([str(path), str(replacement)]),
         )
 
     def test_session_panels_route(self) -> None:
@@ -603,6 +633,10 @@ class BridgeTest(unittest.TestCase):
         done = next(event for event in finished if event.get("type") == "prompt_done")
         self.assertEqual(done["stopReason"], "end_turn")
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Windows has no SIGTERM; Popen.terminate() is TerminateProcess and cannot exit with 0",
+    )
     def test_sigterm_exits_with_an_open_event_stream(self) -> None:
         self.wait_ready()
         self.open_events()

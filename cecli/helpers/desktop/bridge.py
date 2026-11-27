@@ -23,6 +23,7 @@ import shutil
 import signal
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -213,6 +214,7 @@ class AcpBridge:
             "title": self.title,
             "primary": self.primary,
             "status": self.status,
+            "detail": self.status_detail,
             "busy": self.busy,
             "workspace": self.workspace,
             "cwd": self.details.get("cwd", ""),
@@ -495,14 +497,46 @@ class AcpBridge:
         self._lifecycle_task = asyncio.create_task(self._restart_worker())
 
     async def _boot(self) -> None:
-        async with self._lifecycle_lock:
-            await self._spawn_child()
+        try:
+            async with self._lifecycle_lock:
+                await self._spawn_child()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            await self._fail_boot(error)
 
     async def _restart_worker(self) -> None:
-        async with self._lifecycle_lock:
-            await self._stop_child()
-            if not self._stopping:
-                await self._spawn_child()
+        try:
+            async with self._lifecycle_lock:
+                await self._stop_child()
+                if not self._stopping:
+                    await self._spawn_child()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            await self._fail_boot(error)
+
+    async def _fail_boot(self, error: Exception) -> None:
+        """Turn an unexpected boot failure into a visible stopped session."""
+        if self._stopping:
+            return
+
+        self.status = "exited"
+        self.status_detail = str(error) or error.__class__.__name__
+        self.activity = "idle"
+        self.activity_detail = ""
+        self.busy = False
+        self.session_id = None
+        print(
+            f"session {self.bridge_id} failed to start: {self.status_detail}",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            await self._broadcast({"type": "error", "message": self.status_detail})
+            await self._broadcast(self._status_event())
+        except Exception:
+            pass
 
     async def _spawn_child(self) -> None:
         self._generation += 1
@@ -545,10 +579,14 @@ class AcpBridge:
                     limit=STREAM_LIMIT,
                     **spawn_kwargs,
                 )
-            except OSError as err:
+            except (OSError, NotImplementedError) as err:
                 self.process = None
                 self.status = "exited"
-                self.status_detail = f"could not start {self.cecli}: {err}"
+                self.activity = "idle"
+                self.activity_detail = ""
+                self.status_detail = (
+                    f"could not start {self.cecli}: {str(err) or err.__class__.__name__}"
+                )
                 await self._broadcast({"type": "error", "message": self.status_detail})
                 await self._broadcast(self._status_event())
                 return
@@ -1410,6 +1448,7 @@ class SessionManager:
             summaries.append(
                 {
                     "bridgeId": bridge.bridge_id,
+                    "detail": bridge.status_detail,
                     "primary": bridge.primary,
                     "title": bridge.title,
                     "workspace": bridge.workspace,
@@ -4156,6 +4195,7 @@ class ServerConfig:
         terminal_enabled: bool = False,
         terminal_shell: str | None = None,
         static_root: str | None = None,
+        install_root: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -4168,6 +4208,7 @@ class ServerConfig:
         self.terminal_enabled = terminal_enabled
         self.terminal_shell = terminal_shell
         self.static_root = static_root
+        self.install_root = install_root
 
 
 def parse_args(argv: list[str]) -> ServerConfig:
@@ -4210,6 +4251,11 @@ def parse_args(argv: list[str]) -> ServerConfig:
         default=os.environ.get("CECLI_DESKTOP_STATIC") or None,
         help="directory holding the built static UI (defaults to this file's directory)",
     )
+    parser.add_argument(
+        "--install-root",
+        default=os.environ.get("CECLI_DESKTOP_INSTALL_ROOT") or None,
+        help="installation directory the launcher runs from (ignored as a workspace)",
+    )
     args = parser.parse_args(argv)
     terminal_disabled = os.environ.get("CECLI_DESKTOP_TERMINAL", "").lower() in (
         "0",
@@ -4235,7 +4281,39 @@ def parse_args(argv: list[str]) -> ServerConfig:
         terminal_enabled,
         args.terminal_shell,
         args.static_root,
+        args.install_root,
     )
+
+
+def _is_install_workspace(workspace: str, config: ServerConfig) -> bool:
+    """True when ``workspace`` is the folder the desktop app was installed into.
+
+    The launcher passes us its own directory so a shortcut launch can never
+    open the install folder as a workspace.  Older launchers do not send it,
+    so fall back to recognising the installed bundle by its contents; that
+    keeps a development checkout from ever matching.
+    """
+    target = _canonical_workspace(workspace)
+
+    if config.install_root:
+        return _canonical_workspace(config.install_root) == target
+
+    markers = ("_up_", "uninstall.exe", "ce-underscore.exe", "cecli-desktop.exe")
+    try:
+        entries = os.listdir(workspace)
+    except OSError:
+        return False
+
+    return any(marker in entries for marker in markers)
+
+
+def _is_default_workspace(workspace: str) -> bool:
+    """True when ``workspace`` is only the launcher's home-directory fallback."""
+    home = os.path.expanduser("~")
+    if not home or home == "~":
+        return False
+
+    return _canonical_workspace(workspace) == _canonical_workspace(home)
 
 
 async def run_server(
@@ -4284,8 +4362,45 @@ async def run_server(
     display_host = config.host
     if ":" in display_host and not display_host.startswith("["):
         display_host = f"[{display_host}]"
-    if connection_factory is not None:
-        manager.create(config.workspace)
+    if connection_factory is not None and not _is_install_workspace(config.workspace, config):
+        entries = conf.workspaces()
+        launch_entry = next(
+            (
+                item
+                for item in entries
+                if _canonical_workspace(item["path"]) == _canonical_workspace(config.workspace)
+            ),
+            None,
+        )
+        if launch_entry is not None:
+            start_launch = bool(launch_entry.get("enable_on_startup", True))
+        elif _is_default_workspace(config.workspace):
+            # The launcher only supplied its fallback directory (the home
+            # folder); leave the workspace list untouched so the app opens
+            # empty instead of inventing a workspace.
+            start_launch = False
+        else:
+            # First run for this folder: remember it so the sidebar and the
+            # sessions list stay in sync.
+            try:
+                launch_entry = conf.add_workspace(config.workspace)
+            except (OSError, ValueError) as err:
+                print(
+                    f"warning: could not remember workspace {config.workspace}: {err}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            start_launch = True
+
+        if start_launch:
+            try:
+                manager.create(config.workspace, launch_entry["name"] if launch_entry else None)
+            except BridgeError as err:
+                print(
+                    f"warning: could not start workspace {config.workspace}: {err}",
+                    file=sys.stderr,
+                    flush=True,
+                )
     url = f"http://{display_host}:{port}/"
     print(f"cecli desktop bridge listening on {url}", flush=True)
 
@@ -4506,25 +4621,26 @@ def _read_prompt_history(workspace: str, limit: int = PROMPT_HISTORY_LIMIT) -> l
 
     try:
         with path.open("rb") as handle:
-            lines = handle.readlines()
+            text = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return []
 
     entries: list[str] = []
     current: list[str] = []
 
-    for raw in lines:
-        line = raw.decode("utf-8", errors="replace")
+    # ``splitlines`` swallows the CRLF endings a Windows text-mode writer
+    # produces; joining with ``\n`` keeps multi-line prompts intact.
+    for line in text.splitlines():
         if line.startswith("+"):
             current.append(line[1:])
             continue
 
         if current:
-            entries.append("".join(current)[:-1])
+            entries.append("\n".join(current))
             current = []
 
     if current:
-        entries.append("".join(current)[:-1])
+        entries.append("\n".join(current))
 
     return entries[-limit:]
 
@@ -4576,6 +4692,24 @@ def _grab_clipboard_paste() -> tuple[Path | None, str]:
     return None, PasteCommand._read_clipboard_text(None)
 
 
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Force-kill a child and every descendant on Windows.
+
+    ``TerminateProcess`` leaves grandchildren (tool subprocesses, or the test
+    harness' ``.cmd`` shim) holding the inherited stdio pipes, and asyncio
+    only resolves ``process.wait()`` once those pipes close, so shutdown would
+    stall until the timeout.  ``taskkill /T`` ends the whole tree, which is the
+    Windows equivalent of the POSIX ``killpg``.
+    """
+    result = subprocess.run(
+        ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        process.terminate()
+
 def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> None:
     """Signal the child's process group on POSIX, or the child elsewhere."""
     if os.name == "posix":
@@ -4585,6 +4719,10 @@ def _signal_process(process: asyncio.subprocess.Process, hard: bool = False) -> 
             return
         except ProcessLookupError:
             raise
+
+    if os.name == "nt":
+        _kill_process_tree(process)
+        return
 
     if hard:
         process.kill()
