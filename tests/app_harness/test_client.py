@@ -20,7 +20,7 @@ from cecli.helpers.app_harness.client import (  # noqa: E402
     discover_bridge_file,
     load_bridge_file,
 )
-from cecli.helpers.app_harness.models import Element  # noqa: E402
+from cecli.helpers.app_harness.models import ActionResult, Element  # noqa: E402
 from tests.app_harness.conftest import DIALOG_WINDOW  # noqa: E402
 
 
@@ -203,6 +203,16 @@ def test_scroll_to_sends_percentages(fake_bridge):
     assert body["action"] == "scroll_to"
     assert body["args"]["vertical_percent"] == 50
     assert body["args"].get("horizontal_percent") is None
+
+
+def test_scroll_to_forwards_an_anchor_point(fake_bridge):
+    AppClient().scroll_to(
+        "Excel", vertical_percent=80, target={"id": 4}, point={"x": 30, "y": 40}
+    )
+
+    body = fake_bridge.action_requests[0]
+    assert body["args"]["point"] == {"x": 30, "y": 40}
+    assert body["target"] == {"id": 4}
 
 
 def test_screenshot_returns_bytes(fake_bridge):
@@ -438,6 +448,44 @@ def test_type_text_uses_the_clipboard_for_unsafe_text(fake_bridge, monkeypatch):
 
     assert copied == ["bad\x07text"]
     assert fake_bridge.action_requests[3]["args"]["keys"] == "^v"
+
+
+def test_type_text_pastes_when_keystrokes_were_dropped(fake_bridge, monkeypatch):
+    """Some toolkits (WinUI/XAML) drop a fast burst; a confirmed mismatch pastes."""
+
+    fake_bridge.set_value_mode = "unsupported"
+    fake_bridge.last_set_value = "h"
+
+    pasted: list[tuple[str, str, dict[str, str], bool, bool]] = []
+
+    def fake_paste(self, window, text, target, *, replace, commit):
+        pasted.append((window, text, dict(target), replace, commit))
+        return ActionResult(action="keys", delivered=True, verified=True, value=text)
+
+    monkeypatch.setattr(AppClient, "_paste_text", fake_paste)
+
+    result = AppClient().type_text("Excel", "hello", {"name": "Address"})
+
+    assert pasted == [("Excel", "hello", {"name": "Address"}, True, False)]
+    assert result.verified is True
+    assert result.value == "hello"
+
+
+def test_type_text_keeps_the_mismatch_when_the_clipboard_is_unavailable(
+    fake_bridge, monkeypatch
+):
+    fake_bridge.set_value_mode = "unsupported"
+    fake_bridge.last_set_value = "h"
+
+    def fail(self, window, text, target, *, replace, commit):
+        raise AppHarnessError("clipboard_unavailable", "no clipboard on this host")
+
+    monkeypatch.setattr(AppClient, "_paste_text", fail)
+
+    result = AppClient().type_text("Excel", "hello", {"name": "Address"})
+
+    assert result.verified is False
+    assert result.value == "h"
 
 
 def test_literal_key_encoder_braces_special_characters():

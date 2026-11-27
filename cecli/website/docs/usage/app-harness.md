@@ -50,6 +50,32 @@ wait_for_value("hello", name="Text editor", timeout_ms=3000)
 emit({"ok": True})
 ```
 
+## Keystrokes
+
+`keys` takes a compact specification:
+
+| Token | Meaning |
+| --- | --- |
+| `^` `!` `+` `~` | Control, Alt, Shift, Meta, bound to the *next* key (`^s`, `^+t`) |
+| `{ENTER}` `{TAB}` `{ESC}` `{F5}` `{PGDN}` `{BACKSPACE}` | Named keys |
+| `{+}` `{!}` `{^}` `{~}` | Those characters literally |
+| anything else | Typed literally, in order |
+
+```python
+keys("^s")                    # save
+keys("L1{ENTER}L2{ENTER}L3")  # typed in order, newline between rows
+```
+
+**Caveat: fast bursts can be dropped by the target.** Windows delivers synthetic input faster than some UI toolkits consume it, so a WinUI 3 / XAML editor (Notepad on Windows 11, Settings) may keep only the first character of a multi-key burst. The bridge sends every event; the target discards them. When you see this, send one step per call:
+
+```python
+for step in ["L", "1", "{ENTER}", "L", "2", "{ENTER}", "L", "3"]:
+    keys(step)
+    time.sleep(0.15)
+```
+
+`type_text` is not affected the same way: it prefers a direct `set_value`, and when it does type, it verifies the control value afterwards and re-sends once through the clipboard if the keystrokes were dropped.
+
 ## Recipes
 
 A **recipe** tells App Harness how to drive one application. It names the controls you need, the key chords that work, and the traps that break a naive sequence. Recipes are data, not code: the bundled defaults and user recipes use the same YAML schema.

@@ -493,6 +493,23 @@ pub mod parse {
         }
 
         #[test]
+        fn literal_text_interleaved_with_named_keys_keeps_order() {
+            assert_eq!(
+                parse_keys("L1{ENTER}L2{ENTER}L3").unwrap(),
+                vec![
+                    character('L'),
+                    character('1'),
+                    key(vk::ENTER, Modifiers::default()),
+                    character('L'),
+                    character('2'),
+                    key(vk::ENTER, Modifiers::default()),
+                    character('L'),
+                    character('3'),
+                ]
+            );
+        }
+
+        #[test]
         fn literal_modifier_characters_need_braces() {
             assert_eq!(parse_keys("{+}").unwrap(), vec![character('+')]);
             assert!(parse_keys("+").is_err());
@@ -538,7 +555,8 @@ mod platform {
 
     use super::parse::{self, KeyBase, KeyStep, Modifiers};
     use crate::protocol::{
-        error_kind, outcome, ActionRequest, ActionResult, ErrorInfo, Point, PointerButton,
+        error_kind, outcome, ActionArgs, ActionRequest, ActionResult, ErrorInfo, Point,
+        PointerButton,
         WindowInfo,
     };
     use crate::windows::{enumerate, uia, WindowsBackend};
@@ -912,6 +930,92 @@ mod platform {
             message: Some("wheel scroll sent; synthetic input is not verifiable".to_string()),
             outcome: Some(outcome::POINTER.to_string()),
         })
+    }
+
+    /// Wheel fallback for `scroll_to` when the Scroll pattern is missing or
+    /// refuses to set the position; `reason` is reported back to the caller.
+    ///
+    /// Only the pattern can reach an absolute percentage, so the fallback sends
+    /// wheel notches anchored on the element centre and reports the result as
+    /// delivered but unverified instead of claiming the position was reached.
+    pub fn scroll_at_element(
+        backend: &WindowsBackend,
+        request: &ActionRequest,
+        handle: &uia::ElementHandle,
+        reason: &str,
+    ) -> Result<ActionResult, ErrorInfo> {
+        let window = enumerate::resolve_window(&request.window)?;
+        let prepared = prepare_window(backend, request, &window, false)?;
+
+        let anchor = element_centre(handle).ok_or_else(|| {
+            ErrorInfo::new(
+                error_kind::INVALID_REQUEST,
+                "the element has no visible bounds, so scroll_to cannot anchor a wheel scroll on it",
+            )
+        })?;
+
+        let direction = wheel_direction(&request.args)?;
+        let amount = request
+            .args
+            .amount
+            .unwrap_or(DEFAULT_SCROLL_AMOUNT)
+            .clamp(1, MAX_SCROLL_AMOUNT);
+        let input = wheel_input(&direction, amount)?;
+
+        focus_window(&window, prepared.hwnd)?;
+
+        let mut pointer = PointerGuard::capture();
+        move_pointer(anchor.x, anchor.y)?;
+        pointer.expect(anchor.x, anchor.y);
+
+        let sent = send(&window, &[input]);
+        let _ = pointer.finish();
+        sent?;
+
+        if !is_foreground(prepared.hwnd) {
+            let mut result = ActionResult::uncertain(
+                "scroll_to",
+                "the target window lost the foreground after the wheel scroll; the events may have gone elsewhere",
+            );
+            result.outcome = Some(outcome::POINTER.to_string());
+
+            return Ok(result);
+        }
+
+        Ok(ActionResult {
+            action: "scroll_to".to_string(),
+            delivered: true,
+            verified: false,
+            uncertain: false,
+            value: None,
+            message: Some(format!(
+                "{reason}; sent one wheel scroll ({direction}) anchored on it, so the requested position is not confirmed"
+            )),
+            outcome: Some(outcome::POINTER.to_string()),
+        })
+    }
+
+    /// Wheel direction for a fallback scroll.
+    ///
+    /// Without the Scroll pattern the bridge cannot read the current position,
+    /// so an explicit `args.direction` wins; otherwise the requested axis is
+    /// nudged away from the middle of its range.
+    fn wheel_direction(args: &ActionArgs) -> Result<String, ErrorInfo> {
+        if let Some(direction) = args.direction.as_deref() {
+            return Ok(direction.to_string());
+        }
+
+        let (horizontal, vertical) = args.scroll_target().map_err(ErrorInfo::invalid)?;
+
+        let direction = match (vertical, horizontal) {
+            (Some(percent), _) if percent >= 50.0 => "down",
+            (Some(_), _) => "up",
+            (None, Some(percent)) if percent >= 50.0 => "right",
+            (None, Some(_)) => "left",
+            (None, None) => "down",
+        };
+
+        Ok(direction.to_string())
     }
 
     fn focus(backend: &WindowsBackend, request: &ActionRequest) -> Result<ActionResult, ErrorInfo> {
@@ -1554,9 +1658,56 @@ mod platform {
             0x21..=0x28 | 0x2D | 0x2E | 0x5B | 0x5C | 0x6F | 0xA3 | 0xA5
         )
     }
+    #[cfg(test)]
+    mod wheel_direction_tests {
+        use super::*;
+
+        fn args(direction: Option<&str>, horizontal: Option<f64>, vertical: Option<f64>) -> ActionArgs {
+            ActionArgs {
+                direction: direction.map(str::to_string),
+                horizontal_percent: horizontal,
+                vertical_percent: vertical,
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn an_explicit_direction_wins() {
+            assert_eq!(
+                wheel_direction(&args(Some("left"), None, Some(80.0))).unwrap(),
+                "left"
+            );
+        }
+
+        #[test]
+        fn the_requested_axis_is_nudged_away_from_the_middle() {
+            assert_eq!(wheel_direction(&args(None, None, Some(80.0))).unwrap(), "down");
+            assert_eq!(wheel_direction(&args(None, None, Some(10.0))).unwrap(), "up");
+            assert_eq!(wheel_direction(&args(None, Some(90.0), None)).unwrap(), "right");
+            assert_eq!(wheel_direction(&args(None, Some(2.0), None)).unwrap(), "left");
+        }
+
+        #[test]
+        fn vertical_is_preferred_when_both_axes_are_given() {
+            assert_eq!(
+                wheel_direction(&args(None, Some(90.0), Some(5.0))).unwrap(),
+                "up"
+            );
+        }
+
+        #[test]
+        fn a_missing_percentage_is_an_invalid_request() {
+            let error = wheel_direction(&args(None, None, None)).unwrap_err();
+
+            assert_eq!(error.kind, error_kind::INVALID_REQUEST);
+        }
+    }
+
 }
 
 #[cfg(windows)]
 pub use platform::perform;
 #[cfg(windows)]
-pub(crate) use platform::{bring_to_front, click_element_fallback, ForegroundGuard};
+pub(crate) use platform::{
+    bring_to_front, click_element_fallback, scroll_at_element, ForegroundGuard,
+};

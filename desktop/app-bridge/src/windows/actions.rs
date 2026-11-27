@@ -117,7 +117,16 @@ pub fn perform(
         ActionVerb::Toggle => toggle(&handle, &request.action),
         ActionVerb::Select => select(&handle, &request.action),
         ActionVerb::ScrollIntoView => scroll_into_view(&handle, &request.action),
-        ActionVerb::ScrollTo => scroll_to(&handle, &request.action, &request.args),
+        ActionVerb::ScrollTo => match scroll_to(&handle, &request.action, &request.args) {
+            // Many grids and panes expose no Scroll pattern at all, and some - such
+            // as Notepad's text editor - expose one whose SetScrollPercent call fails
+            // outright. Rather than failing the verb, anchor a wheel scroll on the
+            // element centre and report the position as unconfirmed.
+            Err(error) if scroll_falls_back(&error) => {
+                input::scroll_at_element(backend, request, &handle, &scroll_fallback_reason(&error))
+            }
+            result => result,
+        },
         ActionVerb::Expand => expand_collapse(&handle, &request.action, true),
         ActionVerb::Collapse => expand_collapse(&handle, &request.action, false),
         ActionVerb::CellAt => cell_at(backend, &window, request.target.as_ref(), &request.args),
@@ -344,6 +353,24 @@ fn scroll_into_view(handle: &ElementHandle, action: &str) -> Result<ActionResult
     Ok(async_result(action, message))
 }
 
+/// Whether a failed `scroll_to` should degrade to a wheel scroll.
+///
+/// `unsupported` means the element exposes no Scroll pattern; `backend_error`
+/// means the pattern exists but the provider refused `SetScrollPercent` (Notepad
+/// answers `E_FAIL`). A disabled or stale element is a real failure and is not
+/// retried as pointer input.
+fn scroll_falls_back(error: &ErrorInfo) -> bool {
+    error.kind == error_kind::UNSUPPORTED || error.kind == error_kind::BACKEND_ERROR
+}
+
+/// Human-readable reason recorded on a wheel-fallback result.
+fn scroll_fallback_reason(error: &ErrorInfo) -> String {
+    if error.kind == error_kind::UNSUPPORTED {
+        "the element has no Scroll pattern".to_string()
+    } else {
+        format!("the Scroll pattern could not set the position ({})", error.message)
+    }
+}
 fn scroll_to(
     handle: &ElementHandle,
     action: &str,
@@ -1561,5 +1588,37 @@ mod tests {
         assert_eq!(error.kind, error_kind::STALE_TARGET);
         assert!(error.message.contains("snapshot"));
         assert!(error.message.contains("retry"));
+    }
+
+    #[test]
+    fn a_missing_scroll_pattern_falls_back_to_the_wheel() {
+        let error = ErrorInfo::new(
+            error_kind::UNSUPPORTED,
+            "element does not support the Scroll pattern",
+        );
+
+        assert!(scroll_falls_back(&error));
+        assert_eq!(scroll_fallback_reason(&error), "the element has no Scroll pattern");
+    }
+
+    #[test]
+    fn a_refused_set_scroll_percent_falls_back_to_the_wheel() {
+        let error = ErrorInfo::backend("ScrollPattern.SetScrollPercent failed: 0x80131509");
+
+        assert!(scroll_falls_back(&error));
+
+        let reason = scroll_fallback_reason(&error);
+
+        assert!(reason.starts_with("the Scroll pattern could not set the position"));
+        assert!(reason.contains("0x80131509"));
+    }
+
+    #[test]
+    fn a_blocked_or_stale_element_is_not_retried_as_a_wheel() {
+        for kind in [error_kind::INPUT_BLOCKED, error_kind::STALE_TARGET] {
+            let error = ErrorInfo::new(kind, "blocked");
+
+            assert!(!scroll_falls_back(&error), "{kind} must not fall back");
+        }
     }
 }

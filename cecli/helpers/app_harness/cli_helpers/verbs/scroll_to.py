@@ -32,6 +32,7 @@ def execute(
         args.vertical_percent,
         target,
         delivery_mode=delivery_mode,
+        point=point,
     )
 
 

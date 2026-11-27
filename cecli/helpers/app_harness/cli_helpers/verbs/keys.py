@@ -43,4 +43,12 @@ def execute_locator(
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     add_target_options(parser)
     add_selector_option(parser)
-    parser.add_argument("--keys", required=True, help="Keystroke specification, e.g. ^s.")
+    parser.add_argument(
+        "--keys",
+        required=True,
+        help=(
+            "Keystroke specification: ^ ctrl, ! alt, + shift, ~ meta (e.g. ^s); "
+            "named keys in braces ({ENTER}, {TAB}, {F5}); {+} {!} {^} {~} type "
+            "those characters literally."
+        ),
+    )

@@ -831,7 +831,15 @@ class AppClient:
 
             return self._paste_text(window, text, resolved, replace=replace, commit=commit)
 
-        return self._verify_text(window, resolved, text, result)
+        return self._verify_text(
+            window,
+            resolved,
+            text,
+            result,
+            retry_with_paste=True,
+            replace=replace,
+            commit=commit,
+        )
 
     def edit_text(
         self, window: str, text: str, target: dict[str, Any] | None = None
@@ -938,6 +946,7 @@ class AppClient:
         vertical_percent: float | None = None,
         target: dict[str, Any] | None = None,
         delivery_mode: str | None = None,
+        point: dict[str, int] | None = None,
     ) -> ActionResult:
         """Scroll a target to an absolute percentage along either axis."""
 
@@ -948,6 +957,7 @@ class AppClient:
             horizontal_percent=horizontal_percent,
             vertical_percent=vertical_percent,
             delivery_mode=delivery_mode,
+            point=point,
         )
 
     def screenshot(self, window: str) -> bytes:
@@ -1199,8 +1209,17 @@ class AppClient:
         target: dict[str, Any] | None,
         text: str,
         result: ActionResult,
+        *,
+        retry_with_paste: bool = False,
+        replace: bool = True,
+        commit: bool = False,
     ) -> ActionResult:
-        """Compare the control value with ``text`` when the bridge exposes it."""
+        """Compare the control value with ``text`` when the bridge exposes it.
+
+        With ``retry_with_paste`` a confirmed mismatch is re-sent through the
+        clipboard: some toolkits (WinUI/XAML) drop a fast burst of synthetic
+        keystrokes while still accepting a single paste.
+        """
 
         if target is None or not result.delivered:
             return result
@@ -1216,6 +1235,17 @@ class AppClient:
         if observed.value is not None:
             result.value = observed.value
             result.verified = observed.value == text
+
+        if not result.verified and retry_with_paste:
+            try:
+                return self._paste_text(
+                    window, text, target, replace=replace, commit=commit
+                )
+            except AppHarnessError as exc:
+                if exc.kind == "clipboard_unavailable":
+                    return result
+
+                raise
 
         return result
 
