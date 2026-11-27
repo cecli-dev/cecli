@@ -120,6 +120,15 @@ def main(argv: list[str] | None = None) -> int:
         return bridge_main(args)
 
     translated, cecli = bridge_args([arg for arg in args if arg != "--desktop-bridge"])
+    if sys.platform.startswith("win"):
+        # Windows has no real exec: os.execv spawns a new process and exits this
+        # one immediately, so the desktop launcher's child handle closes before
+        # the bridge port accepts connections ("bridge exited early").  Run the
+        # same entry point in-process instead, keeping one stable PID.
+        from cecli.main import main as cecli_main
+
+        return cecli_main(translated)
+
     try:
         os.execv(cecli, [cecli, *translated])
     except OSError as error:

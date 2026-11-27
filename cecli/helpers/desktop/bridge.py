@@ -1291,8 +1291,8 @@ class SessionManager:
         self.token = token
         self.connection_factory = connection_factory
         roots = os.environ.get("CECLI_DESKTOP_ALLOWED_ROOTS", "")
-        self.allowed_roots = [os.path.realpath(default_workspace)] + [
-            os.path.realpath(item) for item in roots.split(os.pathsep) if item.strip()
+        self.allowed_roots = [_canonical_workspace(default_workspace)] + [
+            _canonical_workspace(item) for item in roots.split(os.pathsep) if item.strip()
         ]
         self.sessions: dict[str, AcpBridge] = {}
         self.order: list[str] = []
@@ -1310,8 +1310,8 @@ class SessionManager:
 
         self._counter += 1
         bridge_id = f"s{self._counter}-{uuid.uuid4().hex[:8]}"
-        workspace = os.path.abspath(os.path.expanduser(cwd or self.default_workspace))
-        real_workspace = os.path.realpath(workspace)
+        workspace = _workspace_path(cwd or self.default_workspace)
+        real_workspace = _canonical_workspace(workspace)
         if not os.path.isdir(real_workspace):
             raise BridgeError(400, f"Workspace does not exist: {workspace}")
         if not any(
@@ -1364,15 +1364,15 @@ class SessionManager:
 
     def allow_root(self, path: str) -> None:
         """Let an explicitly configured workspace spawn its session."""
-        real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
+        real = _canonical_workspace(path)
         if real not in self.allowed_roots:
             self.allowed_roots.append(real)
 
     def find_by_workspace(self, path: str) -> AcpBridge | None:
         """The live session whose workspace is exactly ``path``, if any."""
-        real = os.path.realpath(os.path.abspath(os.path.expanduser(str(path))))
+        real = _canonical_workspace(path)
         for bridge in self.sessions.values():
-            if os.path.realpath(bridge.workspace) == real:
+            if _canonical_workspace(bridge.workspace) == real:
                 return bridge
         return None
 
@@ -4402,6 +4402,30 @@ def is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(socket.gethostbyname(host)).is_loopback
     except (OSError, ValueError):
         return False
+
+
+def _workspace_path(path: Any) -> str:
+    """Absolute workspace path without the Windows long-path prefix.
+
+    Windows callers (the desktop launcher) hand us ``\\\\?\\C:\\...`` style
+    paths, which name the same directory as the plain form but compare as
+    different strings everywhere the UI also knows the plain form.
+    """
+    absolute = os.path.abspath(os.path.expanduser(str(path)))
+    if os.name == "nt":
+        if absolute.startswith("\\\\?\\UNC\\"):
+            absolute = "\\\\" + absolute[len("\\\\?\\UNC\\") :]
+        elif absolute.startswith(("\\\\?\\", "\\??\\")):
+            absolute = absolute[4:]
+    return absolute
+
+
+def _canonical_workspace(path: Any) -> str:
+    """Comparable key for a workspace path (resolved, de-prefixed, folded)."""
+    real = os.path.realpath(_workspace_path(path))
+    if os.name == "nt":
+        real = os.path.normcase(real)
+    return real
 
 
 def _sanitize_extra_args(args: list[str]) -> list[str]:

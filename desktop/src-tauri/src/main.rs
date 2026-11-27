@@ -39,6 +39,23 @@ static RESOURCE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 static APP_DATA_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
+/// Hide the console window Windows attached to this console-subsystem binary.
+///
+/// The window is only hidden, not detached, so stdout/stderr stay valid for the
+/// Python bridge; users never see a stray terminal behind the app.
+#[cfg(windows)]
+fn hide_console_window() {
+    use windows::Win32::System::Console::GetConsoleWindow;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+    unsafe {
+        let window = GetConsoleWindow();
+        if !window.0.is_null() {
+            let _ = ShowWindow(window, SW_HIDE);
+        }
+    }
+}
+
 /// Process entry point. Mode dispatch happens before Tauri initializes.
 fn main() {
     match bridge_mode::parse_mode(env::args_os().skip(1)) {
@@ -49,6 +66,8 @@ fn main() {
 
 /// Open the desktop window, hosting the Python UI and the app-harness bridge.
 fn run_desktop() {
+    #[cfg(windows)]
+    hide_console_window();
     #[cfg(target_os = "linux")]
     configure_webkit();
 
