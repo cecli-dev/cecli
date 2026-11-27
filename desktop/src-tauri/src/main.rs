@@ -446,6 +446,7 @@ fn spawn_bridge_script(script: &Path, workspace: &Path, port: u16) -> io::Result
 /// Shared bridge arguments, stdio, agent path and process-group handling.
 fn configure_bridge(command: &mut Command, workspace: &Path, port: u16, cecli: Option<&Path>) {
     command
+        .arg("--desktop-bridge")
         .arg("--host")
         .arg("127.0.0.1")
         .arg("--port")

@@ -206,9 +206,7 @@ def test_scroll_to_sends_percentages(fake_bridge):
 
 
 def test_scroll_to_forwards_an_anchor_point(fake_bridge):
-    AppClient().scroll_to(
-        "Excel", vertical_percent=80, target={"id": 4}, point={"x": 30, "y": 40}
-    )
+    AppClient().scroll_to("Excel", vertical_percent=80, target={"id": 4}, point={"x": 30, "y": 40})
 
     body = fake_bridge.action_requests[0]
     assert body["args"]["point"] == {"x": 30, "y": 40}
@@ -471,9 +469,7 @@ def test_type_text_pastes_when_keystrokes_were_dropped(fake_bridge, monkeypatch)
     assert result.value == "hello"
 
 
-def test_type_text_keeps_the_mismatch_when_the_clipboard_is_unavailable(
-    fake_bridge, monkeypatch
-):
+def test_type_text_keeps_the_mismatch_when_the_clipboard_is_unavailable(fake_bridge, monkeypatch):
     fake_bridge.set_value_mode = "unsupported"
     fake_bridge.last_set_value = "h"
 

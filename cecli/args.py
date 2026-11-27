@@ -1342,6 +1342,42 @@ def get_parser(default_config_files, git_root):
     )
 
     ##########
+    group = parser.add_argument_group("Desktop bridge")
+    group.add_argument(
+        "--desktop-bridge",
+        action="store_true",
+        default=False,
+        help=argparse.SUPPRESS,
+    )
+    group.add_argument(
+        "--desktop-bridge-host", default=None, metavar="HOST", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-port", type=int, default=None, metavar="PORT", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-workspace", default=None, metavar="PATH", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-static-root", default=None, metavar="PATH", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-token", default=None, metavar="TOKEN", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-max-sessions", type=int, default=None, metavar="N", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-terminal-shell", default=None, metavar="SHELL", help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-open", action="store_true", default=False, help=argparse.SUPPRESS
+    )
+    group.add_argument(
+        "--desktop-bridge-no-terminal", action="store_true", default=False, help=argparse.SUPPRESS
+    )
+
+    ##########
     group = parser.add_argument_group("Deprecated model settings")
     # Add deprecated model shortcut arguments
     add_deprecated_model_args(parser, group)

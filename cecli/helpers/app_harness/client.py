@@ -1238,9 +1238,7 @@ class AppClient:
 
         if not result.verified and retry_with_paste:
             try:
-                return self._paste_text(
-                    window, text, target, replace=replace, commit=commit
-                )
+                return self._paste_text(window, text, target, replace=replace, commit=commit)
             except AppHarnessError as exc:
                 if exc.kind == "clipboard_unavailable":
                     return result

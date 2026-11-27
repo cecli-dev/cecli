@@ -25,12 +25,9 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.vi_state import InputMode
 from prompt_toolkit.keys import Keys
-from prompt_toolkit.lexers import PygmentsLexer
 from prompt_toolkit.output.vt100 import is_dumb_terminal
 from prompt_toolkit.shortcuts import CompleteStyle, PromptSession
 from prompt_toolkit.styles import Style
-from pygments.lexers import MarkdownLexer, guess_lexer_for_filename
-from pygments.token import Token
 from rich.color import ColorParseError
 from rich.columns import Columns
 from rich.console import Console
@@ -197,6 +194,9 @@ class AutoCompleter(Completer):
         if len(process_fnames) > 50:
             # Only process a subset of files to maintain responsiveness
             process_fnames = process_fnames[:50]
+
+        from pygments.lexers import guess_lexer_for_filename
+        from pygments.token import Token
 
         for fname in process_fnames:
             try:
@@ -534,6 +534,9 @@ class InputOutput:
             else:
                 # A simple ascii spinner
                 self.spinner_frames = SPINNERS["line"]["frames"]
+
+            from prompt_toolkit.lexers import PygmentsLexer
+            from pygments.lexers import MarkdownLexer
 
             # Initialize PromptSession only if we have a capable terminal
             session_kwargs = {

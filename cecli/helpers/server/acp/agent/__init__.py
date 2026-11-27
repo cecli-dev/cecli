@@ -28,3 +28,13 @@ def get_agent() -> AcpAgent:
     if _agent is None:
         _agent = AcpAgent(StdioTransport())
     return _agent
+
+
+def set_agent(agent: AcpAgent | None) -> None:
+    """Install a pre-built agent, or reset the singleton with ``None``.
+
+    The desktop host builds an ``AcpAgent`` around an in-process transport
+    before ``main`` reaches its ``--acp`` bootstrap.
+    """
+    global _agent
+    _agent = agent

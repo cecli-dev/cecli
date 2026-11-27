@@ -30,9 +30,6 @@ from .utils import get_entry_from_raw, top_level_keys
 
 RESOURCE_FILE = "model-metadata.json"
 
-#: Lazily loaded raw text of the bundled metadata file (never json.loads-ed).
-_BUNDLED_RAW_CACHE: Optional[str] = None
-
 #: Parsed bundled metadata dict, cached once so bundled lookups are O(1)
 #: instead of re-scanning the raw JSON text for each candidate key.
 _BUNDLED_JSON_CACHE: Optional[Dict[str, Any]] = None
@@ -158,27 +155,17 @@ def _build_config(context):
 
 
 def _bundled_metadata_raw() -> str:
-    """Return the raw text of the packaged metadata file (cached, not parsed)."""
-    global _BUNDLED_RAW_CACHE
+    """Return the raw text of the packaged metadata file for one parse."""
+    try:
+        resource = importlib_resources.files("cecli.resources").joinpath(RESOURCE_FILE)
+        return resource.read_text()
 
-    if _BUNDLED_RAW_CACHE is None:
-        try:
-            resource = importlib_resources.files("cecli.resources").joinpath(RESOURCE_FILE)
-            _BUNDLED_RAW_CACHE = resource.read_text()
-
-        except Exception:
-            _BUNDLED_RAW_CACHE = ""
-
-    return _BUNDLED_RAW_CACHE
+    except Exception:
+        return ""
 
 
 def _bundled_metadata() -> Dict[str, Any]:
-    """Return the parsed bundled metadata dict, cached after the first load.
-
-    The raw text is kept for callers that only need a single record; the
-    parsed dict makes lookups against the bundled default O(1) instead of
-    re-scanning the raw JSON string once per candidate key.
-    """
+    """Return the parsed bundled metadata dict, cached after the first load."""
     global _BUNDLED_JSON_CACHE
 
     if _BUNDLED_JSON_CACHE is None:

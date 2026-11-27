@@ -628,14 +628,30 @@ def main(argv=None, input=None, output=None, force_git_root=None, return_coder=F
     attach_debug_thread_monitor(argv)
 
     if "--acp" in (sys.argv[1:] if argv is None else argv):
-        # From here on stdout carries the protocol. The client's first
-        # session/new picks the project, so move there before any setup runs.
-        import atexit
+        from cecli.helpers.server.acp.agent import AcpAgent, get_agent, set_agent
 
-        from cecli.helpers.server.acp.agent import get_agent
+        cli_args = sys.argv[1:] if argv is None else argv
+        desktop_options = None
+        if "--desktop-bridge" in cli_args:
+            from cecli.helpers.desktop.host import (
+                DesktopAgentLink,
+                parse_desktop_args,
+                start_desktop_bridge,
+            )
+
+            desktop_options, cli_args = parse_desktop_args(cli_args)
+
+        if desktop_options is not None:
+            desktop_link = DesktopAgentLink()
+            set_agent(AcpAgent(desktop_link.transport))
+            start_desktop_bridge(desktop_link, desktop_options)
+
+        if argv is None:
+            sys.argv = [sys.argv[0], *cli_args]
+        else:
+            argv = cli_args
 
         acp_agent = get_agent()
-        atexit.register(acp_agent.shutdown)
         import signal
 
         def _handle_termination(signum, frame):

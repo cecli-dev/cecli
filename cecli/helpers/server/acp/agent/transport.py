@@ -156,3 +156,67 @@ class StdioTransport:
                 self._out.flush()
             except (OSError, ValueError) as err:
                 log(f"failed to write to client: {err}")
+
+
+class InProcessTransport:
+    """ACP transport for a client hosted in the same process.
+
+    The client may live on another thread and event loop.  ``deliver`` is
+    thread-safe; messages that arrive before ``attach`` wait in a backlog, so
+    the client can start sending ``initialize``/``session/new`` while cecli is
+    still bootstrapping.  ``send`` hands agent messages to the client-provided
+    thread-safe ``outbox`` callable.
+    """
+
+    def __init__(self, outbox):
+        self._outbox = outbox
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._inbox: asyncio.Queue | None = None
+        self._backlog: list[Any] = []
+
+    def open(self) -> None:
+        """Nothing to open: the client already owns this transport."""
+
+    def attach(self, loop: asyncio.AbstractEventLoop) -> None:
+        with self._lock:
+            self._loop = loop
+            self._inbox = asyncio.Queue()
+            for msg in self._backlog:
+                self._inbox.put_nowait(msg)
+            self._backlog.clear()
+
+    def detach(self) -> None:
+        with self._lock:
+            if self._inbox is not None:
+                while not self._inbox.empty():
+                    self._backlog.append(self._inbox.get_nowait())
+            self._loop = None
+            self._inbox = None
+
+    def deliver(self, msg: Any) -> None:
+        """Deliver one client message to whichever loop is attached."""
+        with self._lock:
+            loop = self._loop
+            if loop is None:
+                self._backlog.append(msg)
+                return
+
+        try:
+            loop.call_soon_threadsafe(self._enqueue, msg)
+        except RuntimeError:  # loop closed under us
+            with self._lock:
+                self._backlog.append(msg)
+
+    def _enqueue(self, msg: Any) -> None:
+        with self._lock:
+            if self._inbox is not None:
+                self._inbox.put_nowait(msg)
+            else:
+                self._backlog.append(msg)
+
+    async def receive(self) -> Any:
+        return await self._inbox.get()
+
+    def send(self, msg: dict) -> None:
+        self._outbox(msg)

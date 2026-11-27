@@ -9,22 +9,8 @@ from datetime import timedelta
 from enum import Enum, auto
 from urllib.parse import urlparse
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.auth import OAuthClientProvider
-from mcp.client.sse import sse_client
-from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientMetadata
-
 from cecli.decoding import safe_open
 from cecli.http import httpx
-
-from .oauth import (
-    FileBasedTokenStorage,
-    create_oauth_callback_server,
-    get_mcp_oauth_token,
-    save_mcp_oauth_token,
-)
 
 MIN_KEEPALIVE_INTERVAL = 5
 MAX_KEEPALIVE_INTERVAL = 300
@@ -235,6 +221,9 @@ class McpServer:
         """
         command = self.config["command"]
 
+        from mcp import StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
         env = os.environ.copy()
         if self.config.get("env"):
             env.update(self.config["env"])
@@ -333,6 +322,8 @@ class McpServer:
         timeout so the stdio and HTTP transports share identical timeout
         behavior, then stores the initialized session on ``self.session``.
         """
+        from mcp import ClientSession
+
         session = await self.exit_stack.enter_async_context(
             ClientSession(
                 read,
@@ -377,6 +368,16 @@ class HttpBasedMcpServer(McpServer):
 
     async def _create_oauth_provider(self):
         """Create an OAuthClientProvider using the MCP SDK."""
+
+        from mcp.client.auth import OAuthClientProvider
+        from mcp.shared.auth import OAuthClientMetadata
+
+        from .oauth import (
+            FileBasedTokenStorage,
+            create_oauth_callback_server,
+            get_mcp_oauth_token,
+        )
+
         parsed = urlparse(self.config.get("url"))
         server_url = f"{parsed.scheme}://{parsed.netloc}"
         if self.verbose and self.io:
@@ -488,6 +489,8 @@ class HttpBasedMcpServer(McpServer):
         session = await self._enter_client_session(read, write)
 
         await self.start_keepalive()
+
+        from .oauth import get_mcp_oauth_token, save_mcp_oauth_token
 
         if oauth_provider is not None and oauth_provider.context.oauth_metadata:
             token_endpoint = oauth_provider._get_token_endpoint()
@@ -636,18 +639,16 @@ class HttpStreamingServer(HttpBasedMcpServer):
 
     def _create_transport(self, url, http_client):
         """Create the HTTP streaming transport."""
+        from mcp.client.streamable_http import streamable_http_client
+
         return streamable_http_client(url, http_client=http_client)
 
 
 class SseServer(HttpBasedMcpServer):
-    """SSE (Server-Sent Events) MCP server using mcp.client.sse_client.
-
-    Inherits keepalive pings and exponential-backoff auto-reconnect from
-    HttpBasedMcpServer so dropped SSE connections recover automatically.
-    """
-
     def _create_transport(self, url, http_client):
         """Create the SSE transport. The shared http_client is used for keepalive pings."""
+        from mcp.client.sse import sse_client
+
         return sse_client(url, headers=self.config.get("headers", {}))
 
 
