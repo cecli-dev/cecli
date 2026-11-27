@@ -32,7 +32,12 @@ def execute(
 def execute_locator(
     locator, args: argparse.Namespace, client: AppClient, window: str
 ) -> ActionResult:
-    return client.keys(window, args.keys, _target_for(locator.wait()))
+    return client.keys(
+        window,
+        args.keys,
+        _target_for(locator.wait()),
+        delivery_mode=getattr(args, "delivery_mode", None),
+    )
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

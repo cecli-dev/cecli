@@ -38,6 +38,7 @@ use crate::protocol::{
 
 use super::element;
 use super::enumerate;
+use super::input;
 use super::uia::{ElementHandle, UiaSnapshotCache};
 
 /// Total time a read-back or post-state may take before reporting unverified.
@@ -65,45 +66,51 @@ pub fn perform(
         return cell_at(backend, &window, request.target.as_ref(), &request.args);
     }
 
-    let cache_guard = backend
-        .snapshot_cache
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(cache) = cache_guard.as_ref() else {
-        return Err(ErrorInfo::new(
-            error_kind::TARGET_NOT_FOUND,
-            "no snapshot is cached for this connection; take a snapshot before acting",
-        ));
-    };
-
-    if !same_window(cache.window(), &window) {
-        return Err(ErrorInfo::new(
-            error_kind::STALE_TARGET,
-            "the cached snapshot belongs to a different window; take a snapshot of this window first",
-        ));
-    }
-
-    let target = request
-        .target
-        .as_ref()
-        .filter(|target| !target.is_empty())
-        .ok_or_else(|| {
-            ErrorInfo::new(
+    // Resolve the target while holding the snapshot cache, then release it
+    // before the action runs. Pointer actions re-resolve the element through
+    // `input::element_target`, which takes this same mutex; holding it across
+    // the dispatch would deadlock the backend thread.
+    let handle = {
+        let cache_guard = backend
+            .snapshot_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(cache) = cache_guard.as_ref() else {
+            return Err(ErrorInfo::new(
                 error_kind::TARGET_NOT_FOUND,
-                format!(
-                    "action '{}' requires a target element from the current snapshot",
-                    verb.as_str()
-                ),
-            )
-        })?;
+                "no snapshot is cached for this connection; take a snapshot before acting",
+            ));
+        };
 
-    let handle = cache.resolve_target(target)?;
+        if !same_window(cache.window(), &window) {
+            return Err(ErrorInfo::new(
+                error_kind::STALE_TARGET,
+                "the cached snapshot belongs to a different window; take a snapshot of this window first",
+            ));
+        }
+
+        let target = request
+            .target
+            .as_ref()
+            .filter(|target| !target.is_empty())
+            .ok_or_else(|| {
+                ErrorInfo::new(
+                    error_kind::TARGET_NOT_FOUND,
+                    format!(
+                        "action '{}' requires a target element from the current snapshot",
+                        verb.as_str()
+                    ),
+                )
+            })?;
+
+        cache.resolve_target(target)?
+    };
 
     match verb {
         ActionVerb::GetValue => get_value(&handle, &request.action),
         ActionVerb::SetValue => set_value(&handle, &request.action, request.args.value.as_deref()),
-        ActionVerb::Invoke
-        | ActionVerb::Click
+        ActionVerb::Invoke => invoke_or_click(backend, request, &handle, &request.action),
+        ActionVerb::Click
         | ActionVerb::DoubleClick
         | ActionVerb::RightClick
         | ActionVerb::Hover => invoke(&handle, &request.action),
@@ -182,6 +189,59 @@ fn set_value(
         Some(value.to_string()),
         "the target accepted the write but the read-back did not match within 600 ms",
     ))
+}
+
+/// Invoke an element, falling back to a pointer click when no invoke pattern
+/// works: legacy dialog controls often expose none, and a pattern that exists
+/// can still fail at call time (a broken `LegacyIAccessible`).
+fn invoke_or_click(
+    backend: &super::WindowsBackend,
+    request: &ActionRequest,
+    handle: &ElementHandle,
+    action: &str,
+) -> Result<ActionResult, ErrorInfo> {
+    ensure_enabled(handle)?;
+
+    let mut pattern_error: Option<ErrorInfo> = None;
+
+    if let Ok(pattern) = handle.invoke_pattern() {
+        match send_result(action, "Invoke.Invoke", unsafe { pattern.Invoke() }) {
+            Ok(Some(result)) => return Ok(result),
+            Ok(None) => return Ok(async_result(action, invocation_message(handle))),
+            Err(error) => pattern_error = Some(error),
+        }
+    } else if let Ok(pattern) = handle.select_pattern() {
+        match send_result(action, "LegacyIAccessible.DoDefaultAction", unsafe {
+            pattern.DoDefaultAction()
+        }) {
+            Ok(Some(result)) => return Ok(result),
+            Ok(None) => return Ok(async_result(action, invocation_message(handle))),
+            Err(error) => pattern_error = Some(error),
+        }
+    }
+
+    match input::click_element_fallback(backend, request, handle, action) {
+        Ok(result) => Ok(result),
+        Err(error) => Err(match pattern_error {
+            Some(pattern) => ErrorInfo::new(
+                error.kind.clone(),
+                format!(
+                    "{} (the pointer fallback also failed: {})",
+                    pattern.message, error.message
+                ),
+            ),
+            None => error,
+        }),
+    }
+}
+
+/// Describe a completed pattern call without claiming verification.
+fn invocation_message(handle: &ElementHandle) -> &'static str {
+    if handle.is_enabled_fresh().is_ok() {
+        "the pattern call returned; invocation is asynchronous, so confirm the effect with a fresh snapshot"
+    } else {
+        "the pattern call returned, but the element is no longer readable; confirm the effect with a fresh snapshot"
+    }
 }
 
 fn invoke(handle: &ElementHandle, action: &str) -> Result<ActionResult, ErrorInfo> {

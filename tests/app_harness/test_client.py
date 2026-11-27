@@ -183,6 +183,19 @@ def test_scroll_sends_direction_and_amount(fake_bridge):
     assert body["args"]["amount"] == 3
 
 
+def test_scroll_sends_the_anchor_point(fake_bridge):
+    AppClient().scroll("Excel", "down", 3, point={"x": 10, "y": 20})
+
+    body = fake_bridge.action_requests[0]
+    assert body["args"]["point"] == {"x": 10, "y": 20}
+
+
+def test_invoke_sends_the_fallback_point(fake_bridge):
+    AppClient().invoke("Excel", {"name": "Save"}, point={"x": 10, "y": 20})
+
+    assert fake_bridge.action_requests[0]["args"]["point"] == {"x": 10, "y": 20}
+
+
 def test_scroll_to_sends_percentages(fake_bridge):
     AppClient().scroll_to("Excel", vertical_percent=50)
 

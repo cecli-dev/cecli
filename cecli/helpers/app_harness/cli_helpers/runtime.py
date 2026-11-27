@@ -24,7 +24,7 @@ EXIT_REFUSED = 2
 EXIT_UNVERIFIED = 3
 EXIT_UNAVAILABLE = 4
 
-POINTER_COMMANDS = ("click", "double-click", "right-click", "hover")
+POINTER_COMMANDS = ("click", "double-click", "right-click", "hover", "drag", "scroll")
 
 
 def run_verb(execute: Callable, args: Any, locator_execute: Callable | None = None) -> int:
@@ -549,6 +549,17 @@ def _validate_verb_args(args: Any) -> str | None:
     """Return a refusal message when a verb flag is missing or invalid."""
 
     command = args.command
+
+    x, y = getattr(args, "x", None), getattr(args, "y", None)
+
+    if (x is None) != (y is None):
+        return "--x and --y must be supplied together"
+
+    if command == "drag":
+        to_x, to_y = getattr(args, "to_x", None), getattr(args, "to_y", None)
+
+        if (to_x is None) != (to_y is None):
+            return "--to-x and --to-y must be supplied together"
 
     if command == "set-value" and getattr(args, "value", None) is None:
         return "missing --value"

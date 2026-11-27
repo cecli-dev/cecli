@@ -113,6 +113,95 @@ def test_click_by_point(fake_bridge):
     assert fake_bridge.action_requests[0]["args"]["point"] == {"x": 10, "y": 20}
 
 
+def test_drag_by_coordinates_sends_both_points(fake_bridge):
+    code = cli.main(
+        [
+            "drag",
+            "--window",
+            "Excel",
+            "--x",
+            "10",
+            "--y",
+            "20",
+            "--to-x",
+            "30",
+            "--to-y",
+            "40",
+        ]
+    )
+
+    assert code == 0
+    request = fake_bridge.action_requests[0]
+    assert request["target"] is None
+    assert request["args"]["point"] == {"x": 10, "y": 20}
+    assert request["args"]["to_point"] == {"x": 30, "y": 40}
+
+
+def test_drag_refuses_a_single_start_axis(fake_bridge, capsys):
+    code = cli.main(["drag", "--window", "Excel", "--x", "10", "--to-x", "30", "--to-y", "40"])
+
+    assert code == 2
+    assert "--x and --y" in capsys.readouterr().err
+    assert fake_bridge.requests == []
+
+
+def test_drag_refuses_a_single_destination_axis(fake_bridge, capsys):
+    code = cli.main(["drag", "--window", "Excel", "--x", "10", "--y", "20", "--to-x", "30"])
+
+    assert code == 2
+    assert "--to-x and --to-y" in capsys.readouterr().err
+    assert fake_bridge.requests == []
+
+
+def test_scroll_by_point_sends_the_anchor(fake_bridge):
+    code = cli.main(["scroll", "--window", "Excel", "--x", "10", "--y", "20"])
+
+    assert code == 0
+    request = fake_bridge.action_requests[0]
+    assert request["action"] == "scroll"
+    assert request["args"]["direction"] == "down"
+    assert request["args"]["point"] == {"x": 10, "y": 20}
+
+
+def test_scroll_target_at_center_uses_the_element_bounds(fake_bridge):
+    code = cli.main(["scroll", "--window", "Excel", "--name", "Save", "--at", "center"])
+
+    assert code == 0
+    request = fake_bridge.action_requests[-1]
+    assert request["target"] == {"name": "Save"}
+    assert request["args"]["point"] == {"x": 340, "y": 32}
+
+
+def test_invoke_at_center_passes_the_pointer_fallback(fake_bridge):
+    code = cli.main(["invoke", "--window", "Excel", "--name", "Save", "--at", "center"])
+
+    assert code == 0
+    request = fake_bridge.action_requests[-1]
+    assert request["action"] == "invoke"
+    assert request["args"]["point"] == {"x": 340, "y": 32}
+
+
+def test_keys_with_selector_forwards_delivery_mode(fake_bridge):
+    code = cli.main(
+        [
+            "keys",
+            "--window",
+            "Excel",
+            "--selector",
+            "Button",
+            "--keys",
+            "^s",
+            "--delivery-mode",
+            "foreground",
+        ]
+    )
+
+    assert code == 0
+    request = fake_bridge.action_requests[-1]
+    assert request["action"] == "keys"
+    assert request["args"]["delivery_mode"] == "foreground"
+
+
 def test_scroll_to_sends_percentages(fake_bridge):
     code = cli.main(
         ["scroll-to", "--window", "Excel", "--name", "Editor", "--vertical-percent", "50"]

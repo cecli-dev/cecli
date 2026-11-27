@@ -752,6 +752,50 @@ mod platform {
         Ok(result)
     }
 
+    /// Centre of an element's recorded bounds, when the snapshot captured them.
+    fn element_centre(handle: &uia::ElementHandle) -> Option<Point> {
+        // The snapshot record is the only reliable source: asking the element
+        // for a live rectangle can block inside UIA on some providers.
+        let bounds = handle.record().bounds?;
+
+        (bounds.width > 0 && bounds.height > 0).then(|| Point {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        })
+    }
+
+    /// Invoke fallback for elements that expose no invoke pattern: click the
+    /// element centre, or the explicit point the caller supplied.
+    pub fn click_element_fallback(
+        backend: &WindowsBackend,
+        request: &ActionRequest,
+        handle: &uia::ElementHandle,
+        action: &str,
+    ) -> Result<ActionResult, ErrorInfo> {
+        let point = request
+            .args
+            .point
+            .or_else(|| element_centre(handle))
+            .ok_or_else(|| {
+                ErrorInfo::new(
+                    error_kind::INVALID_REQUEST,
+                    "the element exposes no invoke pattern and has no bounds to click",
+                )
+            })?;
+
+        let mut fallback = request.clone();
+        fallback.action = action.to_string();
+        fallback.args.point = Some(point);
+
+        let mut result = pointer_click(backend, &fallback, PointerButton::Left, 1)?;
+        append_note(
+            &mut result,
+            "the element exposes no invoke pattern; the fallback clicked it instead",
+        );
+
+        Ok(result)
+    }
+
     fn pointer_click(
         backend: &WindowsBackend,
         request: &ActionRequest,
@@ -830,7 +874,24 @@ mod platform {
         let input = wheel_input(direction, amount)?;
 
         focus_window(&window, prepared.hwnd)?;
-        send(&window, &[input])?;
+        // The wheel goes to whatever window sits under the physical pointer,
+        // so anchor it on the requested point or the target element.
+        let anchor = request
+            .args
+            .point
+            .or_else(|| prepared.target.as_ref().and_then(element_centre));
+
+        if let Some(anchor) = anchor {
+            let mut pointer = PointerGuard::capture();
+            move_pointer(anchor.x, anchor.y)?;
+            pointer.expect(anchor.x, anchor.y);
+
+            let sent = send(&window, &[input]);
+            let _ = pointer.finish();
+            sent?;
+        } else {
+            send(&window, &[input])?;
+        }
 
         if !is_foreground(prepared.hwnd) {
             let mut result = ActionResult::uncertain(
@@ -1498,4 +1559,4 @@ mod platform {
 #[cfg(windows)]
 pub use platform::perform;
 #[cfg(windows)]
-pub(crate) use platform::{bring_to_front, ForegroundGuard};
+pub(crate) use platform::{bring_to_front, click_element_fallback, ForegroundGuard};

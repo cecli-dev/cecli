@@ -49,6 +49,10 @@ const MAX_BATCH_OPS: usize = 512;
 const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Default per-call backend timeout.
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
+/// Budget for the health probe that tags every response.
+const HEALTH_TIMEOUT: Duration = Duration::from_millis(500);
+/// How long a sampled health value is reused instead of re-probing.
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(1);
 /// Timeout used when probing an existing bridge.
 const PING_TIMEOUT: Duration = Duration::from_millis(500);
 /// How long `ensure_bridge` waits for a freshly spawned bridge.
@@ -102,9 +106,10 @@ pub fn serve(backend: Arc<dyn Backend>, shutdown: Arc<AtomicBool>) -> io::Result
     let state = Arc::new(ServerState {
         backend,
         token,
-        queue: Arc::new(Mutex::new(())),
+        queue: Arc::new(CallGate::new()),
         observation: Mutex::new(Observation::default()),
         screenshot_cache: Mutex::new(ScreenshotCache::default()),
+        health_cache: Mutex::new(None),
         timeout: backend_timeout(),
         shutdown: Arc::clone(&shutdown),
     });
@@ -302,9 +307,10 @@ pub fn ping(file: &BridgeFile, timeout: Duration) -> bool {
 struct ServerState {
     backend: Arc<dyn Backend>,
     token: String,
-    queue: Arc<Mutex<()>>,
+    queue: Arc<CallGate>,
     observation: Mutex<Observation>,
     screenshot_cache: Mutex<ScreenshotCache>,
+    health_cache: Mutex<Option<(Instant, Health)>>,
     timeout: Duration,
     shutdown: Arc<AtomicBool>,
 }
@@ -315,6 +321,38 @@ enum CallResult<T> {
     Failed(ErrorInfo),
 }
 
+/// Serializes backend calls and can be reopened when one wedges.
+///
+/// A call blocked inside a system API cannot be cancelled, and its thread keeps
+/// whatever lock it took for the life of the process. The gate owns the lock
+/// behind another `Arc`, so a timed-out call can install a fresh lock while the
+/// wedged thread keeps its own. `generation` lets waiters notice the swap.
+#[derive(Debug, Default)]
+struct CallGate {
+    lock: Mutex<Arc<Mutex<()>>>,
+    generation: AtomicU64,
+}
+
+impl CallGate {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// The lock one call must hold, with the generation it belongs to.
+    fn handle(&self) -> (Arc<Mutex<()>>, u64) {
+        (lock_unpoisoned(&self.lock).clone(), self.generation())
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// Install a fresh lock; the wedged holder keeps its old `Arc` alive.
+    fn reopen(&self) -> u64 {
+        *lock_unpoisoned(&self.lock) = Arc::new(Mutex::new(()));
+        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+}
 impl ServerState {
     /// Run several requests in order against one connection.
     ///
@@ -738,13 +776,67 @@ impl ServerState {
         T: Send + 'static,
         F: FnOnce() -> Result<T, ErrorInfo> + Send + 'static,
     {
-        let queue = Arc::clone(&self.queue);
+        self.call_serialized_with(self.timeout, true, work)
+    }
+
+    /// Run one backend call behind the serialized gate.
+    ///
+    /// `reset_on_timeout` reopens the gate when the call outlives `timeout`. A
+    /// worker wedged inside a system API cannot be cancelled, and its lock would
+    /// otherwise block every later request for the life of the process. Short
+    /// probes pass `false` so a busy backend is not mistaken for a wedged one.
+    fn call_serialized_with<T, F>(
+        &self,
+        timeout: Duration,
+        reset_on_timeout: bool,
+        work: F,
+    ) -> CallResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Result<T, ErrorInfo> + Send + 'static,
+    {
+        let gate = Arc::clone(&self.queue);
+        let (lock, generation) = gate.handle();
+        let worker_lock = Arc::clone(&lock);
+        let worker_gate = Arc::clone(&gate);
         let (sender, receiver) = mpsc::channel();
 
         let spawned = thread::Builder::new()
             .name("ce-app-bridge-call".to_string())
             .spawn(move || {
-                let _guard = lock_unpoisoned(&queue);
+                let deadline = Instant::now() + timeout;
+
+                // Poll the gate instead of blocking on it: when a wedged call is
+                // timed out the gate is reopened, and pollers see the new
+                // generation and retry on the fresh lock.
+                let _guard = loop {
+                    if worker_gate.generation() != generation {
+                        let _ = sender.send(Err(ErrorInfo::new(
+                            error_kind::TIMEOUT,
+                            "a previous call wedged the backend, so this request was dropped",
+                        )));
+                        return;
+                    }
+
+                    match worker_lock.try_lock() {
+                        Ok(guard) => break guard,
+                        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                            break poisoned.into_inner()
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {}
+                    }
+
+                    if Instant::now() >= deadline {
+                        let _ = sender.send(Err(ErrorInfo::new(
+                            error_kind::TIMEOUT,
+                            "the backend stayed busy for the whole request budget",
+                        )));
+                        return;
+                    }
+
+                    thread::sleep(Duration::from_millis(5));
+                };
+
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
                 let result = match outcome {
                     Ok(result) => result,
@@ -760,22 +852,49 @@ impl ServerState {
             return CallResult::Failed(ErrorInfo::backend("failed to spawn backend worker"));
         }
 
-        match receiver.recv_timeout(self.timeout) {
+        match receiver.recv_timeout(timeout) {
             Ok(Ok(value)) => CallResult::Done(value),
             Ok(Err(error)) => CallResult::Failed(error),
-            Err(RecvTimeoutError::Timeout) => CallResult::TimedOut,
+            Err(RecvTimeoutError::Timeout) => {
+                // A worker still holding its clone of the gate lock is stuck.
+                if reset_on_timeout && Arc::strong_count(&lock) > 1 {
+                    let generation = gate.reopen();
+                    eprintln!(
+                        "ce-app-bridge: a backend call timed out after {timeout:?}; reopened the call gate (generation {generation})"
+                    );
+                }
+
+                CallResult::TimedOut
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 CallResult::Failed(ErrorInfo::backend("backend worker vanished"))
             }
         }
     }
 
+    /// Health for the response envelope, sampled at most once a second.
+    ///
+    /// Sampling goes through the gate so it stays consistent with the backend,
+    /// and the cache keeps a response from paying a second queued call. A short
+    /// budget with `reset_on_timeout = false` means a busy backend reports its
+    /// last known state instead of reopening the gate.
     fn live_health(&self) -> Health {
-        let backend = Arc::clone(&self.backend);
-        match self.call_serialized(move || Ok(backend.health())) {
-            CallResult::Done(health) => health,
-            _ => Health::Unavailable,
+        let cached = *lock_unpoisoned(&self.health_cache);
+
+        if let Some((sampled, health)) = cached {
+            if sampled.elapsed() < HEALTH_CACHE_TTL {
+                return health;
+            }
         }
+
+        let backend = Arc::clone(&self.backend);
+        let call = self.call_serialized_with(HEALTH_TIMEOUT, false, move || Ok(backend.health()));
+        let health = match call {
+            CallResult::Done(health) => health,
+            _ => return cached.map_or(Health::Unavailable, |(_, health)| health),
+        };
+        *lock_unpoisoned(&self.health_cache) = Some((Instant::now(), health));
+        health
     }
 
     /// Re-snapshot the window and resolve the target again.
@@ -1872,6 +1991,7 @@ mod tests {
     use super::*;
     use crate::protocol::ElementRecord;
     use std::ffi::OsString;
+    use std::sync::atomic::AtomicU32;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -2304,6 +2424,58 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn a_timed_out_call_reopens_the_gate_for_later_requests() {
+        let _env = BridgeEnv::new("gate-reopen");
+        let _timeout = EnvVar::set("CECLI_APP_TIMEOUT_MS", "100");
+        let server = TestServer::start(Arc::new(SlowBackend::new(Duration::from_millis(400))));
+        let token = server.token().to_string();
+
+        // The first snapshot holds the gate for longer than the budget.
+        let (status, _, body) = server.send(
+            "POST",
+            SNAPSHOT_PATH,
+            Some(&token),
+            Some("{\"window\":\"Slow\"}"),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(
+            decode(&body).error.expect("error").kind,
+            error_kind::TIMEOUT
+        );
+
+        // A later request must not inherit the wedge: it runs on the fresh gate.
+        let started = Instant::now();
+        let (status, _, body) = server.send("GET", WINDOWS_PATH, Some(&token), None);
+        assert_eq!(status, 200);
+        assert!(decode(&body).ok);
+        assert!(
+            started.elapsed() < Duration::from_millis(400),
+            "the later request waited on the wedged call"
+        );
+    }
+
+    #[test]
+    fn responses_reuse_one_health_sample_per_second() {
+        let _env = BridgeEnv::new("health-cache");
+        let backend = Arc::new(SlowBackend::new(Duration::ZERO));
+        let counter = backend.health_counter();
+        let server = TestServer::start(backend.clone());
+        let token = server.token().to_string();
+
+        for _ in 0..3 {
+            let (status, _, body) = server.send("GET", WINDOWS_PATH, Some(&token), None);
+            assert_eq!(status, 200);
+            assert!(decode(&body).ok);
+        }
+
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "the sample should be reused inside the cache window"
+        );
+    }
+
     fn actions_resolve_targets_against_the_latest_snapshot() {
         let _env = BridgeEnv::new("resolve");
         let server = TestServer::start(Arc::new(RefBackend));
@@ -2695,11 +2867,19 @@ mod tests {
 
     struct SlowBackend {
         delay: Duration,
+        health_calls: Arc<AtomicU32>,
     }
 
     impl SlowBackend {
         fn new(delay: Duration) -> Self {
-            Self { delay }
+            Self {
+                delay,
+                health_calls: Arc::new(AtomicU32::new(0)),
+            }
+        }
+
+        fn health_counter(&self) -> Arc<AtomicU32> {
+            Arc::clone(&self.health_calls)
         }
     }
 
@@ -2717,6 +2897,7 @@ mod tests {
         }
 
         fn health(&self) -> Health {
+            self.health_calls.fetch_add(1, Ordering::SeqCst);
             Health::Ready
         }
 

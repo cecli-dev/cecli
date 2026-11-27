@@ -584,11 +584,22 @@ class AppClient:
         self,
         window: str,
         target: dict[str, Any] | None = None,
+        point: dict[str, int] | None = None,
         delivery_mode: str | None = None,
     ) -> ActionResult:
-        """Invoke the default action of a control."""
+        """Invoke the default action of a control.
 
-        return self.action(window, "invoke", target=target, delivery_mode=delivery_mode)
+        ``point`` is only used as a pointer fallback when the element exposes no
+        invoke pattern.
+        """
+
+        return self.action(
+            window,
+            "invoke",
+            target=target,
+            point=point,
+            delivery_mode=delivery_mode,
+        )
 
     def set_value(
         self,
@@ -905,14 +916,16 @@ class AppClient:
         direction: str = "down",
         amount: int | None = None,
         target: dict[str, Any] | None = None,
+        point: dict[str, int] | None = None,
         delivery_mode: str | None = None,
     ) -> ActionResult:
-        """Scroll a target or the window in ``direction``."""
+        """Scroll a target, an explicit point, or the window in ``direction``."""
 
         return self.action(
             window,
             "scroll",
             target=target,
+            point=point,
             direction=direction,
             amount=amount,
             delivery_mode=delivery_mode,

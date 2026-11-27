@@ -39,17 +39,18 @@ use windows::Win32::System::Ole::{
     SafeArrayUnaccessData,
 };
 use windows::Win32::UI::Accessibility::{
-    AutomationElementMode_Full, CUIAutomation, IUIAutomation, IUIAutomationCacheRequest,
-    IUIAutomationCondition, IUIAutomationElement, IUIAutomationExpandCollapsePattern,
-    IUIAutomationGridPattern, IUIAutomationInvokePattern, IUIAutomationLegacyIAccessiblePattern,
-    IUIAutomationRangeValuePattern, IUIAutomationScrollItemPattern, IUIAutomationScrollPattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationSelectionPattern, IUIAutomationTextPattern,
-    IUIAutomationTogglePattern, IUIAutomationTreeWalker, IUIAutomationValuePattern,
-    TreeScope_Descendants, TreeScope_Element, UIA_AutomationIdPropertyId,
-    UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId, UIA_ControlTypePropertyId,
-    UIA_GridPatternId, UIA_IsEnabledPropertyId, UIA_IsOffscreenPropertyId,
-    UIA_IsPasswordPropertyId, UIA_NamePropertyId, UIA_RuntimeIdPropertyId, UIA_ScrollPatternId,
-    UIA_TextPatternId, UIA_ValuePatternId, UIA_PATTERN_ID,
+    AutomationElementMode_Full, CUIAutomation8, IUIAutomation, IUIAutomation2,
+    IUIAutomationCacheRequest, IUIAutomationCondition, IUIAutomationElement,
+    IUIAutomationExpandCollapsePattern, IUIAutomationGridPattern, IUIAutomationInvokePattern,
+    IUIAutomationLegacyIAccessiblePattern, IUIAutomationRangeValuePattern,
+    IUIAutomationScrollItemPattern, IUIAutomationScrollPattern, IUIAutomationSelectionItemPattern,
+    IUIAutomationSelectionPattern, IUIAutomationTextPattern, IUIAutomationTogglePattern,
+    IUIAutomationTreeWalker, IUIAutomationValuePattern, TreeScope_Descendants, TreeScope_Element,
+    UIA_AutomationIdPropertyId, UIA_BoundingRectanglePropertyId, UIA_ClassNamePropertyId,
+    UIA_ControlTypePropertyId, UIA_GridPatternId, UIA_IsEnabledPropertyId,
+    UIA_IsOffscreenPropertyId, UIA_IsPasswordPropertyId, UIA_NamePropertyId,
+    UIA_RuntimeIdPropertyId, UIA_ScrollPatternId, UIA_TextPatternId, UIA_ValuePatternId,
+    UIA_PATTERN_ID,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
@@ -67,6 +68,11 @@ pub const DEFAULT_MAX_ELEMENTS: u32 = 1000;
 
 const SESSION_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const UIA_CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Cap on one cross-process provider call, below `UIA_CALL_TIMEOUT` so UIA
+/// abandons a wedged call before the session budget runs out.
+/// `CECLI_UIA_TRANSACTION_TIMEOUT_MS` overrides it; Windows rejects values
+/// below a small minimum (1 ms fails with `E_INVALIDARG`).
+const DEFAULT_TRANSACTION_TIMEOUT_MS: u32 = 4_000;
 const MAX_WALK_DEPTH: u32 = 256;
 const TEXT_VALUE_LIMIT: i32 = 4096;
 
@@ -612,14 +618,15 @@ impl UiaWorker {
 
 fn create_automation() -> Result<IUIAutomation, ErrorInfo> {
     let automation: IUIAutomation =
-        unsafe { CoCreateInstance(&CUIAutomation, None::<&IUnknown>, CLSCTX_INPROC_SERVER) }
+        unsafe { CoCreateInstance(&CUIAutomation8, None::<&IUnknown>, CLSCTX_INPROC_SERVER) }
             .map_err(|error| {
                 ErrorInfo::new(
                     error_kind::UNSUPPORTED,
-                    format!("CoCreateInstance(CUIAutomation) failed: {error}"),
+                    format!("CoCreateInstance(CUIAutomation8) failed: {error}"),
                 )
             })?;
 
+    apply_transaction_timeout(&automation);
     let condition = unsafe { automation.CreateTrueCondition() }.map_err(|error| {
         ErrorInfo::new(
             error_kind::UNSUPPORTED,
@@ -631,6 +638,58 @@ fn create_automation() -> Result<IUIAutomation, ErrorInfo> {
     Ok(automation)
 }
 
+/// Cap how long one provider call may block before UI Automation abandons it.
+///
+/// Without a cap the client waits indefinitely on a wedged provider. The value
+/// is advisory, but it turns the common case into a prompt `UIA_E_TIMEOUT`
+/// instead of a call that never returns. `CECLI_UIA_TRANSACTION_TIMEOUT_MS`
+/// overrides the default.
+fn apply_transaction_timeout(automation: &IUIAutomation) {
+    let timeout = std::env::var("CECLI_UIA_TRANSACTION_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_TRANSACTION_TIMEOUT_MS);
+
+    let automation = match automation.cast::<IUIAutomation2>() {
+        Ok(automation) => automation,
+        Err(error) => {
+            log_once(|| {
+                eprintln!(
+                    "ce-app-bridge: IUIAutomation2 unavailable ({error}); provider timeouts stay at the default"
+                )
+            });
+            return;
+        }
+    };
+
+    let connection = unsafe { automation.SetConnectionTimeout(timeout) };
+    let transaction = unsafe { automation.SetTransactionTimeout(timeout) };
+
+    log_once(|| {
+        let read_back = (
+            unsafe { automation.ConnectionTimeout() }.unwrap_or(0),
+            unsafe { automation.TransactionTimeout() }.unwrap_or(0),
+        );
+
+        if let Err(error) = connection.as_ref().and(transaction.as_ref()) {
+            eprintln!(
+                "ce-app-bridge: setting UIA provider timeouts to {timeout} ms failed: {error}"
+            );
+        } else {
+            eprintln!(
+                "ce-app-bridge: UIA provider timeouts set to {timeout} ms (connection={}, transaction={})",
+                read_back.0, read_back.1
+            );
+        }
+    });
+}
+
+/// Report a one-off condition once per process.
+fn log_once(message: impl FnOnce()) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(message);
+}
 fn create_cache_request(
     automation: &IUIAutomation,
     condition: &IUIAutomationCondition,
