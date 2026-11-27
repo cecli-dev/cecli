@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import sys
+import tempfile
 import traceback
 import warnings
 from dataclasses import dataclass
@@ -78,6 +79,9 @@ class Linter:
         return LintResult(text=errors, lines=linenums)
 
     async def lint(self, fname, cmd=None):
+        if self._is_temp_path(fname):
+            return
+
         from cecli.helpers.grep_ast import filename_to_lang
 
         rel_fname = self.get_rel_fname(fname)
@@ -168,6 +172,40 @@ class Linter:
 
         text += errors
         return self.errors_to_lint_result(rel_fname, text)
+
+    def _is_temp_path(self, fname):
+        """Scratch files under .cecli/temp or the OS temp dirs are never linted."""
+
+        parts = Path(fname).parts
+        if any(
+            parts[index].casefold() == ".cecli" and parts[index + 1].casefold() == "temp"
+            for index in range(len(parts) - 1)
+        ):
+            return True
+
+        absolute = Path(os.path.abspath(fname))
+        if self.root and self._is_within(absolute, self.root):
+            return False
+
+        return any(self._is_within(absolute, root) for root in self._os_temp_roots())
+
+    def _is_within(self, path, root):
+        norm_path = os.path.normcase(os.path.realpath(path))
+        norm_root = os.path.normcase(os.path.realpath(root))
+        return norm_path == norm_root or norm_path.startswith(norm_root + os.sep)
+
+    def _os_temp_roots(self):
+        roots = [tempfile.gettempdir()]
+
+        for name in ("TMPDIR", "TEMP", "TMP"):
+            value = os.environ.get(name)
+            if value:
+                roots.append(value)
+
+        if os.name != "nt":
+            roots.extend(["/tmp", "/var/tmp"])
+
+        return roots
 
 
 @dataclass

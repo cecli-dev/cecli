@@ -72,3 +72,42 @@ class TestLinter:
             # The result should contain the error message
             assert result is not None
             assert "Error message" in result.text
+
+    async def test_lint_skips_cecli_temp_files(self, tmp_path):
+        temp_file = tmp_path / ".cecli" / "temp" / "scratch.py"
+        temp_file.parent.mkdir(parents=True)
+        temp_file.write_text("print(undefined_name)\n", encoding="utf-8")
+
+        linter = Linter(encoding="utf-8", root=str(tmp_path))
+
+        assert await linter.lint(str(temp_file)) is None
+
+    async def test_lint_skips_os_temp_files_outside_root(self, tmp_path, tmp_path_factory):
+        project = tmp_path / "project"
+        project.mkdir()
+        scratch = tmp_path_factory.mktemp("os-temp") / "scratch.py"
+        scratch.write_text("print(undefined_name)\n", encoding="utf-8")
+
+        linter = Linter(encoding="utf-8", root=str(project))
+
+        assert await linter.lint(str(scratch)) is None
+
+    async def test_lint_still_lints_project_files_under_os_temp(self, tmp_path):
+        source = tmp_path / "app.py"
+        source.write_text("print(undefined_name)\n", encoding="utf-8")
+
+        linter = Linter(encoding="utf-8", root=str(tmp_path))
+
+        assert await linter.lint(str(source)) is not None
+
+    @patch("cecli.linter.run_cmd_async")
+    async def test_lint_skips_commands_for_temp_files(self, mock_run_cmd_async, tmp_path):
+        temp_file = tmp_path / "nested" / ".cecli" / "temp" / "scratch.ts"
+        temp_file.parent.mkdir(parents=True)
+        temp_file.write_text("broken(\n", encoding="utf-8")
+
+        linter = Linter(encoding="utf-8", root=str(tmp_path))
+
+        assert await linter.lint(str(temp_file), cmd="eslint") is None
+
+        mock_run_cmd_async.assert_not_called()
