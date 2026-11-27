@@ -263,6 +263,10 @@
           "path": "/usage/copypaste/"
         },
         {
+          "title": "App Harness",
+          "path": "/usage/app-harness/"
+        },
+        {
           "title": "Voice Mode",
           "path": "/usage/voice/"
         },
